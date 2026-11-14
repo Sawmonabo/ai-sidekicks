@@ -4,8 +4,8 @@
 // timezone-less time in the host's zone and normalizes a day that does not exist (`2026-02-30`).
 //
 // No library: `Temporal` is absent on this repo's Node 24 floor and the `renderer` tier runs
-// under Node; the polyfill's weight is a bundle-budget cost; `date-fns` `parseISO` accepts
-// date-only and timezone-less values; `zod` is admitted only in `services/` and narrows the
+// under Node; the polyfill's weight would load at every start; `date-fns` `parseISO` accepts
+// date-only and timezone-less values; `zod`, which the renderer does not take, narrows the
 // lowercase `t` and `z` that RFC 3339 section 5.6 permits.
 //
 // A leap second (`23:59:60Z`) reads as malformed because the platform's epoch cannot represent it;

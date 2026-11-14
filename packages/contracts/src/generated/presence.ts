@@ -3,13 +3,6 @@
 
 // Presence: which of the person's devices are connected to this machine, and whether an app window is in front on each.
 
-import type { SchemaCheck } from "../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "./checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "./checks/method-descriptor.js";
-import {
-  validateMachinePresence,
-  validatePresenceHeartbeatSendRequest,
-} from "./checks/presence.js";
 import type { SubscribeAcknowledgmentResponse } from "./jsonrpc/streaming.js";
 import type { EmptyPayload } from "./method-descriptor.js";
 import type { DeviceId } from "./trust-statement.js";
@@ -62,35 +55,37 @@ export interface MachinePresence {
   devices: ConnectedDevice[];
 }
 
-export {
-  validateConnectedDevice,
-  validateMachinePresence,
-  validatePresenceHeartbeatSendRequest,
-} from "./checks/presence.js";
+export { validatePresenceHeartbeatSendRequest } from "./checks/presence.js";
 
-/** The methods of {@link PRESENCE_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link PRESENCE_METHOD_DESCRIPTORS}, each with its kind. */
 export interface PresenceMethodDescriptors {
   readonly "presence.read": {
     readonly method: "presence.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<MachinePresence>;
   };
   readonly "presence.heartbeat.send": {
     readonly method: "presence.heartbeat.send";
     readonly procedureType: "mutation";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<PresenceHeartbeatSendRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "presence.subscribe": {
     readonly method: "presence.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<MachinePresence>;
+  };
+}
+/** The params, result and emission types of each method of {@link PRESENCE_METHOD_DESCRIPTORS}. */
+export interface PresenceMethodTypes {
+  readonly "presence.read": { readonly params: EmptyPayload; readonly result: MachinePresence };
+  readonly "presence.heartbeat.send": {
+    readonly params: PresenceHeartbeatSendRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "presence.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: MachinePresence;
   };
 }
 /** The `presence.*` methods the daemon answers. */
@@ -100,23 +95,16 @@ export const PRESENCE_METHOD_DESCRIPTORS: PresenceMethodDescriptors = /* @__PURE
       method: "presence.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateMachinePresence,
     }),
     "presence.heartbeat.send": /* @__PURE__ */ Object.freeze({
       method: "presence.heartbeat.send",
       procedureType: "mutation",
       mutating: false,
-      requestCheck: validatePresenceHeartbeatSendRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "presence.subscribe": /* @__PURE__ */ Object.freeze({
       method: "presence.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateMachinePresence,
     }),
   },
 );

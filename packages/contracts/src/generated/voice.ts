@@ -3,20 +3,6 @@
 
 // Voice, as a window drives it through the daemon: which session voice is on in, and its two mechanisms, dictation into the composer and a spoken call with the provider.
 
-import type { SchemaCheck } from "../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "./checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "./checks/method-descriptor.js";
-import {
-  validateVoiceCallFrame,
-  validateVoiceCallStartRequest,
-  validateVoiceCallStartResponse,
-  validateVoiceDictationFrame,
-  validateVoiceDictationStartRequest,
-  validateVoiceDictationStopRequest,
-  validateVoiceDictationWriteRequest,
-  validateVoiceListResponse,
-  validateVoiceState,
-} from "./checks/voice.js";
 import type { SubscribeAcknowledgmentResponse } from "./jsonrpc/streaming.js";
 import type { EmptyPayload } from "./method-descriptor.js";
 import type { ProviderId } from "./provider/id.js";
@@ -307,99 +293,95 @@ export interface VoiceListResponse {
   defaultVoice: string;
 }
 
-export {
-  validateMessageOrigin,
-  validateVoiceAccountNotEntitledDetails,
-  validateVoiceAccountNotEntitledReason,
-  validateVoiceCallFrame,
-  validateVoiceCallStartRequest,
-  validateVoiceCallStartResponse,
-  validateVoiceDictationFailure,
-  validateVoiceDictationFailureReason,
-  validateVoiceDictationFrame,
-  validateVoiceDictationStartRequest,
-  validateVoiceDictationStopRequest,
-  validateVoiceDictationWriteRequest,
-  validateVoiceKind,
-  validateVoiceListResponse,
-  validateVoiceState,
-} from "./checks/voice.js";
-
-/** The methods of {@link VOICE_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link VOICE_METHOD_DESCRIPTORS}, each with its kind. */
 export interface VoiceMethodDescriptors {
   readonly "voice.state.update": {
     readonly method: "voice.state.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<VoiceState>;
-    readonly responseCheck: SchemaCheck<VoiceState>;
   };
   readonly "voice.state.subscribe": {
     readonly method: "voice.state.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<VoiceState>;
   };
   readonly "voice.dictation.start": {
     readonly method: "voice.dictation.start";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<VoiceDictationStartRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "voice.dictation.write": {
     readonly method: "voice.dictation.write";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<VoiceDictationWriteRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "voice.dictation.stop": {
     readonly method: "voice.dictation.stop";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<VoiceDictationStopRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "voice.dictation.subscribe": {
     readonly method: "voice.dictation.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<VoiceDictationFrame>;
   };
   readonly "voice.call.start": {
     readonly method: "voice.call.start";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<VoiceCallStartRequest>;
-    readonly responseCheck: SchemaCheck<VoiceCallStartResponse>;
   };
   readonly "voice.call.stop": {
     readonly method: "voice.call.stop";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "voice.call.subscribe": {
     readonly method: "voice.call.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<VoiceCallFrame>;
   };
   readonly "voice.list": {
     readonly method: "voice.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<VoiceListResponse>;
   };
+}
+/** The params, result and emission types of each method of {@link VOICE_METHOD_DESCRIPTORS}. */
+export interface VoiceMethodTypes {
+  readonly "voice.state.update": { readonly params: VoiceState; readonly result: VoiceState };
+  readonly "voice.state.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: VoiceState;
+  };
+  readonly "voice.dictation.start": {
+    readonly params: VoiceDictationStartRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "voice.dictation.write": {
+    readonly params: VoiceDictationWriteRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "voice.dictation.stop": {
+    readonly params: VoiceDictationStopRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "voice.dictation.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: VoiceDictationFrame;
+  };
+  readonly "voice.call.start": {
+    readonly params: VoiceCallStartRequest;
+    readonly result: VoiceCallStartResponse;
+  };
+  readonly "voice.call.stop": { readonly params: EmptyPayload; readonly result: EmptyPayload };
+  readonly "voice.call.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: VoiceCallFrame;
+  };
+  readonly "voice.list": { readonly params: EmptyPayload; readonly result: VoiceListResponse };
 }
 /** The `voice.*` methods. */
 export const VOICE_METHOD_DESCRIPTORS: VoiceMethodDescriptors = /* @__PURE__ */ Object.freeze({
@@ -407,73 +389,50 @@ export const VOICE_METHOD_DESCRIPTORS: VoiceMethodDescriptors = /* @__PURE__ */ 
     method: "voice.state.update",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateVoiceState,
-    responseCheck: validateVoiceState,
   }),
   "voice.state.subscribe": /* @__PURE__ */ Object.freeze({
     method: "voice.state.subscribe",
     procedureType: "subscription",
     mutating: false,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateSubscribeAcknowledgmentResponse,
-    emissionCheck: validateVoiceState,
   }),
   "voice.dictation.start": /* @__PURE__ */ Object.freeze({
     method: "voice.dictation.start",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateVoiceDictationStartRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "voice.dictation.write": /* @__PURE__ */ Object.freeze({
     method: "voice.dictation.write",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateVoiceDictationWriteRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "voice.dictation.stop": /* @__PURE__ */ Object.freeze({
     method: "voice.dictation.stop",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateVoiceDictationStopRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "voice.dictation.subscribe": /* @__PURE__ */ Object.freeze({
     method: "voice.dictation.subscribe",
     procedureType: "subscription",
     mutating: false,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateSubscribeAcknowledgmentResponse,
-    emissionCheck: validateVoiceDictationFrame,
   }),
   "voice.call.start": /* @__PURE__ */ Object.freeze({
     method: "voice.call.start",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateVoiceCallStartRequest,
-    responseCheck: validateVoiceCallStartResponse,
   }),
   "voice.call.stop": /* @__PURE__ */ Object.freeze({
     method: "voice.call.stop",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateEmptyPayload,
   }),
   "voice.call.subscribe": /* @__PURE__ */ Object.freeze({
     method: "voice.call.subscribe",
     procedureType: "subscription",
     mutating: false,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateSubscribeAcknowledgmentResponse,
-    emissionCheck: validateVoiceCallFrame,
   }),
   "voice.list": /* @__PURE__ */ Object.freeze({
     method: "voice.list",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateVoiceListResponse,
   }),
 });

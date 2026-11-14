@@ -86,8 +86,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           `transcript.childRun.expand` expands.",
     definitions: &[
         Definition::read::<ChildRunIncompleteCause>(),
-        Definition::read::<ChildRunCompleteness>().checked(),
-        Definition::read::<ChildRunSummary>().checked(),
+        Definition::read::<ChildRunCompleteness>(),
+        Definition::read::<ChildRunSummary>(),
     ],
     constants: &[],
     method_tables: &[],

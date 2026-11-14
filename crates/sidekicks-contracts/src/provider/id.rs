@@ -57,7 +57,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/id",
     doc: "The open id a provider's driver answers to, checked against the registered drivers \
           wherever a request or a provider message brings one in.",
-    definitions: &[Definition::read::<ProviderId>().checked()],
+    definitions: &[Definition::read::<ProviderId>()],
     constants: &[],
     method_tables: &[],
 };

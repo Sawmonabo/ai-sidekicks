@@ -40,10 +40,4 @@ export interface NewSessionControlProps {
    * when it settles.
    */
   readonly onSessionCreated: (sessionId: string) => void;
-  /**
-   * Ask the destination to re-read the session directory. It is the one act left
-   * after a create whose reply this build could not read, and the destination's because the
-   * directory is not held by the draft. Needs no stable identity, since a press reads it.
-   */
-  readonly onSessionDirectoryRecheck: () => void;
 }

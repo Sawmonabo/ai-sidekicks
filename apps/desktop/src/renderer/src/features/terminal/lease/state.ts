@@ -21,20 +21,18 @@ import {
 } from "@ai-sidekicks/contracts/terminal";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import {
-  readTerminalLeaseShell,
-  readTerminalLeaseTransition,
-  type TerminalLeaseTransition,
-} from "./transition.js";
+  payloadOf,
+  type ProjectedSessionEvent,
+} from "#renderer/store/session/entities/vocabulary.js";
 
 /**
  * Who holds the shell, from this device's point of view.
  *
- * `not-checked` means the holder has not been read: nothing has said who holds it yet, the newest
- * transition for it is one this build cannot read, or a device holds it before this device's own
- * id is known, so whose hold it is cannot be told. It is not the free lease (`unheld`): a free
- * shell is live here, since the first device to write takes it, and an unread one is read-only.
+ * `not-checked` means the holder has not been read: nothing has said who holds it yet, or a device
+ * holds it before this device's own id is known, so whose hold it is cannot be told. It is not the
+ * free lease (`unheld`): a free shell is live here, since the first device to write takes it, and
+ * an unread one is read-only.
  * `held-by-run` means an agent's run holds the shell and only the run writes, even when the run's
  * machine is this device.
  */
@@ -112,12 +110,7 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
  * Fold a session's events into one shell's lease state. Total and pure.
  *
  * Other event kinds and transitions naming another shell are skipped, and of the listed holder and
- * the readable transitions the one at the newest lease version holds. A `terminal.control.changed`
- * the reader cannot read (an unknown reason, no payload, or a holder shape that contradicts its
- * reason) is not skipped unless it plainly names another shell: until a readable transition
- * follows it, the holder is `not-checked`, which shows no holder and writes nothing. Skipping it
- * would leave the previous holder standing, and stdin open for someone who no longer holds the
- * shell.
+ * the transitions the one at the newest lease version holds.
  */
 export function projectTerminalLease(
   events: readonly ProjectedSessionEvent[],
@@ -125,43 +118,29 @@ export function projectTerminalLease(
 ): TerminalLeaseState {
   let newest: LeaseReading | undefined =
     input.listedLease === undefined ? undefined : readListedLease(input.listedLease);
-  // Whether the last transition for this shell is one the fold could not read, so it may be the
-  // newest change.
-  let isNewestUnread = false;
 
   for (const event of events) {
-    if (event.kind !== TERMINAL_CONTROL_CHANGED_EVENT) {
+    const transition = payloadOf(event, TERMINAL_CONTROL_CHANGED_EVENT);
+    if (transition === undefined || transition.terminalId !== input.terminalId) {
       continue;
     }
-    const transition = readTerminalLeaseTransition(event);
-    if (transition === undefined) {
-      const namedShell = readTerminalLeaseShell(event);
-      if (namedShell === undefined || namedShell === input.terminalId) {
-        isNewestUnread = true;
-      }
-      continue;
-    }
-    if (transition.terminalId !== input.terminalId) {
-      continue;
-    }
-    // The log carries each shell's changes in version order, so a readable one after an unread one
-    // is the newer of the two.
-    isNewestUnread = false;
     if (newest === undefined || transition.leaseVersion > newest.leaseVersion) {
-      newest = transition;
+      newest = {
+        holderDeviceId: transition.holderDeviceId,
+        holderRunId: transition.holderRunId,
+        holderCommandId: transition.holderCommandId,
+        leaseVersion: transition.leaseVersion,
+      };
     }
   }
 
-  // Fail-closed: an unread transition names no holder, so neither "you hold it" nor the writable
-  // free shell is ever shown on the strength of a transition the fold could not read.
-  const readable = isNewestUnread ? undefined : newest;
-  const holderDeviceId = readable?.holderDeviceId ?? null;
-  const holderRunId = readable?.holderRunId;
-  const holderCommandId = readable?.holderCommandId;
+  const holderDeviceId = newest?.holderDeviceId ?? null;
+  const holderRunId = newest?.holderRunId;
+  const holderCommandId = newest?.holderCommandId;
 
   return {
     holder: readHolder({
-      hasReadHolder: readable !== undefined,
+      hasReadHolder: newest !== undefined,
       holderDeviceId,
       holderRunId,
       thisDeviceId: input.thisDeviceId,
@@ -173,10 +152,12 @@ export function projectTerminalLease(
 }
 
 // One reading of who holds the shell, from a transition or the shell list.
-type LeaseReading = Pick<
-  TerminalLeaseTransition,
-  "holderDeviceId" | "holderRunId" | "holderCommandId" | "leaseVersion"
->;
+interface LeaseReading {
+  readonly holderDeviceId: DeviceId | null;
+  readonly holderRunId: RunId | undefined;
+  readonly holderCommandId: CommandId | undefined;
+  readonly leaseVersion: number;
+}
 
 function readListedLease(listed: ListedTerminalLease): LeaseReading {
   return {

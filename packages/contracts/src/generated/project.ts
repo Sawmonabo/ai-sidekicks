@@ -210,18 +210,3 @@ export interface ProjectBranchPatternUpdateRequest {
    */
   pattern: string | null;
 }
-
-export {
-  validateProjectBranchPatternUpdateRequest,
-  validateProjectEditResponse,
-  validateProjectEnvironmentUpdateRequest,
-  validateProjectId,
-  validateProjectList,
-  validateProjectListEntry,
-  validateProjectRenameRequest,
-  validateProjectSessionTally,
-  validateProjectSetup,
-  validateProjectSetupUpdateRequest,
-  validateProjectState,
-  validateProjectStateChangeRequest,
-} from "./checks/project.js";

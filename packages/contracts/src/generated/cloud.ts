@@ -3,19 +3,6 @@
 
 // A session's work in its provider's own cloud: a task with attempts, or a cloud session.
 
-import type { SchemaCheck } from "../schema-check.js";
-import {
-  validateCloudTaskApplyResponse,
-  validateCloudTaskAttemptRequest,
-  validateCloudTaskDiffReadResponse,
-  validateCloudTaskReadRequest,
-  validateCloudTaskStartRequest,
-  validateCloudTaskStartResponse,
-  validateCloudTaskSubscribeFrame,
-  validateCloudTaskSubscribeRequest,
-  validateCloudWork,
-} from "./checks/cloud.js";
-import { validateSubscribeAcknowledgmentResponse } from "./checks/jsonrpc/streaming.js";
 import type { NonBlankText } from "./internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse } from "./jsonrpc/streaming.js";
 import type { ProviderId } from "./provider/id.js";
@@ -320,60 +307,60 @@ export interface CloudTaskUpdatedPayload {
 }
 
 export {
-  validateCloudAccountNotEntitledDetails,
-  validateCloudAccountNotEntitledReason,
   validateCloudBringBack,
-  validateCloudTaskApplyResponse,
-  validateCloudTaskAttemptRequest,
-  validateCloudTaskDiffReadResponse,
   validateCloudTaskId,
-  validateCloudTaskReadRequest,
-  validateCloudTaskStartRequest,
-  validateCloudTaskStartResponse,
   validateCloudTaskState,
-  validateCloudTaskSubscribeFrame,
-  validateCloudTaskSubscribeRequest,
   validateCloudTaskUpdatedPayload,
   validateCloudWork,
 } from "./checks/cloud.js";
 
-/** The methods of {@link CLOUD_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link CLOUD_METHOD_DESCRIPTORS}, each with its kind. */
 export interface CloudMethodDescriptors {
   readonly "cloud.task.start": {
     readonly method: "cloud.task.start";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<CloudTaskStartRequest>;
-    readonly responseCheck: SchemaCheck<CloudTaskStartResponse>;
   };
   readonly "cloud.task.subscribe": {
     readonly method: "cloud.task.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<CloudTaskSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<CloudTaskSubscribeFrame>;
   };
   readonly "cloud.task.read": {
     readonly method: "cloud.task.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<CloudTaskReadRequest>;
-    readonly responseCheck: SchemaCheck<CloudWork>;
   };
   readonly "cloud.task.diff.read": {
     readonly method: "cloud.task.diff.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<CloudTaskAttemptRequest>;
-    readonly responseCheck: SchemaCheck<CloudTaskDiffReadResponse>;
   };
   readonly "cloud.task.apply": {
     readonly method: "cloud.task.apply";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<CloudTaskAttemptRequest>;
-    readonly responseCheck: SchemaCheck<CloudTaskApplyResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link CLOUD_METHOD_DESCRIPTORS}. */
+export interface CloudMethodTypes {
+  readonly "cloud.task.start": {
+    readonly params: CloudTaskStartRequest;
+    readonly result: CloudTaskStartResponse;
+  };
+  readonly "cloud.task.subscribe": {
+    readonly params: CloudTaskSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: CloudTaskSubscribeFrame;
+  };
+  readonly "cloud.task.read": { readonly params: CloudTaskReadRequest; readonly result: CloudWork };
+  readonly "cloud.task.diff.read": {
+    readonly params: CloudTaskAttemptRequest;
+    readonly result: CloudTaskDiffReadResponse;
+  };
+  readonly "cloud.task.apply": {
+    readonly params: CloudTaskAttemptRequest;
+    readonly result: CloudTaskApplyResponse;
   };
 }
 /** The `cloud.*` methods. */
@@ -382,36 +369,25 @@ export const CLOUD_METHOD_DESCRIPTORS: CloudMethodDescriptors = /* @__PURE__ */ 
     method: "cloud.task.start",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateCloudTaskStartRequest,
-    responseCheck: validateCloudTaskStartResponse,
   }),
   "cloud.task.subscribe": /* @__PURE__ */ Object.freeze({
     method: "cloud.task.subscribe",
     procedureType: "subscription",
     mutating: false,
-    requestCheck: validateCloudTaskSubscribeRequest,
-    responseCheck: validateSubscribeAcknowledgmentResponse,
-    emissionCheck: validateCloudTaskSubscribeFrame,
   }),
   "cloud.task.read": /* @__PURE__ */ Object.freeze({
     method: "cloud.task.read",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateCloudTaskReadRequest,
-    responseCheck: validateCloudWork,
   }),
   "cloud.task.diff.read": /* @__PURE__ */ Object.freeze({
     method: "cloud.task.diff.read",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateCloudTaskAttemptRequest,
-    responseCheck: validateCloudTaskDiffReadResponse,
   }),
   "cloud.task.apply": /* @__PURE__ */ Object.freeze({
     method: "cloud.task.apply",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateCloudTaskAttemptRequest,
-    responseCheck: validateCloudTaskApplyResponse,
   }),
 });

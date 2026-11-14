@@ -124,8 +124,6 @@ export {
   validateRepoMountHealth,
   validateRepoMountHealthChangedPayload,
   validateRepoMountId,
-  validateRepoMountState,
-  validateVcsType,
   validateWorkspaceId,
   validateWorkspaceLifecyclePayload,
   validateWorkspaceState,

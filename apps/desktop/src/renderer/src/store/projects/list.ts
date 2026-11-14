@@ -11,24 +11,12 @@ import { SharedFeeds, type Feed, type FeedFold } from "../shared-feed.js";
  */
 export type ProjectListState =
   | { readonly status: "reading" }
-  | {
-      readonly status: "served";
-      readonly projects: readonly ProjectListEntry[];
-      /** Projects the newest list held that could not be read, so it shows without them. */
-      readonly droppedCount: number;
-    }
+  | { readonly status: "served"; readonly projects: readonly ProjectListEntry[] }
   | { readonly status: "failed" };
 
-/**
- * One delivery on the project feed: the whole list as it now stands, less the projects it held
- * that could not be read, or word it was lost.
- */
+/** One delivery on the project feed: the whole list as it now stands, or word it was lost. */
 export type ProjectListFrame =
-  | {
-      readonly kind: "list";
-      readonly projects: readonly ProjectListEntry[];
-      readonly droppedCount: number;
-    }
+  | { readonly kind: "list"; readonly projects: readonly ProjectListEntry[] }
   | { readonly kind: "lost" };
 
 /**
@@ -41,9 +29,7 @@ export type ProjectListFeed = Feed<ProjectListFrame>;
 const PROJECT_LIST_FOLD: FeedFold<ProjectListFrame, ProjectListState> = {
   initial: { status: "reading" },
   open: () => (_state, frame) =>
-    frame.kind === "list"
-      ? { status: "served", projects: frame.projects, droppedCount: frame.droppedCount }
-      : { status: "failed" },
+    frame.kind === "list" ? { status: "served", projects: frame.projects } : { status: "failed" },
 };
 
 /** The app's project lists, one per window's feed, each shared by the views reading it. */

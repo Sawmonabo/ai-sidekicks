@@ -3,17 +3,6 @@
 
 // A held review note: a note the person leaves on a line of Review's diff, held by the daemon and scoped to the session.
 
-import type { SchemaCheck } from "../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "./checks/jsonrpc/streaming.js";
-import {
-  validateReviewNoteSet,
-  validateSessionReviewNoteAddRequest,
-  validateSessionReviewNoteDeleteRequest,
-  validateSessionReviewNoteDeleteResponse,
-  validateSessionReviewNoteResponse,
-  validateSessionReviewNoteSubscribeRequest,
-  validateSessionReviewNoteUpdateRequest,
-} from "./checks/review-note.js";
 import type { WireInstant } from "./internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse } from "./jsonrpc/streaming.js";
 import type { GitObjectId } from "./repo/git-reads.js";
@@ -239,51 +228,47 @@ export interface SessionReviewNoteSubscribeRequest {
   sessionId: SessionId;
 }
 
-export {
-  validateReviewNote,
-  validateReviewNoteComparison,
-  validateReviewNoteId,
-  validateReviewNoteScope,
-  validateReviewNoteSet,
-  validateReviewNoteSide,
-  validateSessionReviewNoteAddRequest,
-  validateSessionReviewNoteDeleteRequest,
-  validateSessionReviewNoteDeleteResponse,
-  validateSessionReviewNoteResponse,
-  validateSessionReviewNoteSubscribeRequest,
-  validateSessionReviewNoteUpdateRequest,
-} from "./checks/review-note.js";
-
-/** The methods of {@link REVIEW_NOTE_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link REVIEW_NOTE_METHOD_DESCRIPTORS}, each with its kind. */
 export interface ReviewNoteMethodDescriptors {
   readonly "session.reviewNote.add": {
     readonly method: "session.reviewNote.add";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionReviewNoteAddRequest>;
-    readonly responseCheck: SchemaCheck<SessionReviewNoteResponse>;
   };
   readonly "session.reviewNote.update": {
     readonly method: "session.reviewNote.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionReviewNoteUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SessionReviewNoteResponse>;
   };
   readonly "session.reviewNote.delete": {
     readonly method: "session.reviewNote.delete";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionReviewNoteDeleteRequest>;
-    readonly responseCheck: SchemaCheck<SessionReviewNoteDeleteResponse>;
   };
   readonly "session.reviewNote.subscribe": {
     readonly method: "session.reviewNote.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionReviewNoteSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<ReviewNoteSet>;
+  };
+}
+/** The params, result and emission types of each method of {@link REVIEW_NOTE_METHOD_DESCRIPTORS}. */
+export interface ReviewNoteMethodTypes {
+  readonly "session.reviewNote.add": {
+    readonly params: SessionReviewNoteAddRequest;
+    readonly result: SessionReviewNoteResponse;
+  };
+  readonly "session.reviewNote.update": {
+    readonly params: SessionReviewNoteUpdateRequest;
+    readonly result: SessionReviewNoteResponse;
+  };
+  readonly "session.reviewNote.delete": {
+    readonly params: SessionReviewNoteDeleteRequest;
+    readonly result: SessionReviewNoteDeleteResponse;
+  };
+  readonly "session.reviewNote.subscribe": {
+    readonly params: SessionReviewNoteSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: ReviewNoteSet;
   };
 }
 /** The held-note methods. */
@@ -293,29 +278,20 @@ export const REVIEW_NOTE_METHOD_DESCRIPTORS: ReviewNoteMethodDescriptors =
       method: "session.reviewNote.add",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionReviewNoteAddRequest,
-      responseCheck: validateSessionReviewNoteResponse,
     }),
     "session.reviewNote.update": /* @__PURE__ */ Object.freeze({
       method: "session.reviewNote.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionReviewNoteUpdateRequest,
-      responseCheck: validateSessionReviewNoteResponse,
     }),
     "session.reviewNote.delete": /* @__PURE__ */ Object.freeze({
       method: "session.reviewNote.delete",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionReviewNoteDeleteRequest,
-      responseCheck: validateSessionReviewNoteDeleteResponse,
     }),
     "session.reviewNote.subscribe": /* @__PURE__ */ Object.freeze({
       method: "session.reviewNote.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateSessionReviewNoteSubscribeRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateReviewNoteSet,
     }),
   });

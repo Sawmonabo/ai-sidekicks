@@ -60,7 +60,4 @@ export interface ProviderSpentRetriesSignal {
   cause: "retriesExhausted";
 }
 
-export {
-  validateProviderUsageLimitCause,
-  validateProviderUsageLimitResetBoundary,
-} from "../../checks/provider/driver/usage-limit.js";
+export { validateProviderUsageLimitResetBoundary } from "../../checks/provider/driver/usage-limit.js";

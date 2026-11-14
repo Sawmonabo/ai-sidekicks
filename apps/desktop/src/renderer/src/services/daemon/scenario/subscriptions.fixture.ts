@@ -23,7 +23,7 @@ import {
   type ScenarioRunStreamChange,
 } from "../../run-streams/projection.fixture.js";
 import { ScenarioEngine } from "../engine.fixture.js";
-import { assertOpeningOnContract, requestStampReaderFor } from "../scripted/reply.fixture.js";
+import { requestStampReaderFor } from "../scripted/reply.fixture.js";
 import {
   composeScenarioEventEnvelope,
   composeScenarioSessionFrames,
@@ -89,7 +89,7 @@ export function subscribeToScenario(
           (...calls) => engine.answeredRequests(...calls),
           requestStampReaderFor(opening.stream),
         );
-        deliver(assertOpeningOnContract(opening.stream, payload));
+        deliver(payload);
       }
     }
     return unsubscribe;

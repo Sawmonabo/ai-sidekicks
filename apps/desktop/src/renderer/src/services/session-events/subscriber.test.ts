@@ -16,7 +16,6 @@ import {
 } from "#test/helpers/fixture/bridge.js";
 import { sessionReadThroughDaemon } from "../daemon/session/read/base-state.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
 import {
   OPENING_PAGE_LIMIT,
@@ -165,26 +164,6 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
       TRANSCRIPT_STATES_SCENARIO.beats.map((beat) => beat.event.sequence),
     );
     expect(store?.gaps).toEqual([]);
-
-    subscriber.dispose();
-  });
-
-  it("refuses a delivered payload that is not a session event, and counts it", async () => {
-    const { registry, subscriber, engine } = createHarness({
-      ...CONCURRENT_STREAMING_SCENARIO,
-      id: "concurrent-streaming-malformed-payload-probe",
-      beats: [{ atMs: 0, event: { sequence: 1 } as unknown as ProjectedSessionEvent }],
-    });
-    subscriber.attach();
-    registry.open(SESSION_ID);
-    await landReads(engine);
-
-    engine.advance(1);
-
-    expect(subscriber.unreadableDeliveryCount).toBe(1);
-    expect(subscriber.appliedEventCountFor(SESSION_ID)).toBe(0);
-    // Counted, not reported: an unfamiliar payload is a wire fact, not a console defect.
-    expect(windowTripwires.totalFiringCount).toBe(0);
 
     subscriber.dispose();
   });

@@ -1,15 +1,13 @@
-// The one place a daemon reply enters the app. Every call goes through `callDaemon`, so a
-// reply is checked with its method's generated check before a view can act on it, and a caller
-// cannot hold an unchecked value. The request is checked too, before it is sent. A method's checks
-// load on its first call; a call whose checks do not load sends nothing.
+// The one place a daemon reply enters the app. Every call goes through `callDaemon`, which reads
+// the reply as its method's generated result type: the window's types and the service's are
+// generated from one contract, and the client helper's addon checks each request's params against
+// that contract before it leaves.
 //
 // A caller gets a `DaemonReply`, `served` or `refused`, and nothing is thrown on an ordinary path:
-// a rejected call, an unsendable request and an unreadable reply are all a refusal that carries the
-// code verbatim.
+// a rejected call and an unsendable request are a refusal that carries the code verbatim.
 //
-// No refused value reaches a refusal's detail, because a rejected value can be a user's message, a
-// path or a credential. The detail is a plain sentence; the method and the failing member paths go
-// to the window's diagnostic capture.
+// No request value reaches a refusal's detail, because it can be a user's message, a path or a
+// credential. The detail is a plain sentence; the method goes to the window's diagnostic capture.
 //
 // A rejection goes to `normalizeWireRejection` (`lib/wire/rejection.ts`), the app's only
 // reading of a rejected promise. This module supplies the origin and the fallback sentence for a
@@ -17,16 +15,16 @@
 // (whose numeric `code` hides the dotted code at `data.type`) and turn `session.notFound` into
 // `call-rejected`.
 
+import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
+
 import type {
   DaemonParams,
   DaemonResult,
   RegisteredDaemonMethod,
 } from "#shared/daemon/method-bindings.js";
-import { checkFaultPaths } from "#shared/daemon/fault-path.js";
 import { REQUEST_UNSENDABLE_CODE, REQUEST_UNSENDABLE_MESSAGE } from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
-import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { normalizeWireRejection, type RejectionFallback } from "#renderer/lib/wire/rejection.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
@@ -34,8 +32,7 @@ import { isReadAbandoned, settleUnlessAbandoned } from "#renderer/lib/reads/scop
 import type { FilePathRef, ServedDaemonCall } from "#shared/preload-api.js";
 import type { PlatformBridge } from "../platform/bridge.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
-import { daemonMethodChecks, type MethodChecks } from "./method-checks.js";
-import { withBytesPlaced, withBytesTaken } from "./wire/attachments.js";
+import { withBytesPlaced } from "./wire/attachments.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const DAEMON_REPLY_REFUSAL_ORIGIN = "daemon-call";
@@ -47,9 +44,10 @@ const DAEMON_REPLY_DIAGNOSTIC_SOURCE = "services/daemon";
  * Why the app refused a call on its own side of the wire. None overlaps a daemon code: a
  * typed wire refusal keeps its own code verbatim.
  *
- *   • `request-unsendable`: the request fails its method's generated check, here or in the client
- *     helper, or the check did not load; nothing was sent.
- *   • `reply-unreadable`: the call fulfilled with a value its method's generated check refuses.
+ *   • `request-unsendable`: the request breaks its method's contract, which the client helper's
+ *     addon checks before it is sent; nothing was sent.
+ *   • `reply-unreadable`: a served reply cannot be read as what it answers, such as a long body's
+ *     parts that do not follow one another.
  *   • `call-rejected`: the call rejected with nothing carrying a machine-readable code.
  *   • `read-abandoned`: the view that asked for this read is gone or a newer read replaced it;
  *     nothing is read from the reply. It is a refusal, not a silent resolution, so the call's
@@ -75,7 +73,7 @@ export const CALL_REJECTED_FALLBACK: RejectionFallback = {
 };
 
 /**
- * A checked reply, or the refusal standing in its place. Never both, never neither. A served reply
+ * A served reply, or the refusal standing in its place. Never both, never neither. A served reply
  * that offers paths to open carries main's token for each, keyed by the path, so `Open` hands
  * `native.openInEditor` the token and never the path.
  *
@@ -118,16 +116,14 @@ export function abandonedReadRefusal(): Refusal {
 }
 
 /**
- * Call one daemon method and answer with a checked reply or a refusal; never throws. `method`
- * is a member of the closed call set, and `request` and the served value take their types from
- * the method map. `async` so a synchronous bridge throw becomes a rejection.
+ * Call one daemon method and answer with its reply or a refusal; never throws. `method` is a
+ * member of the closed call set, and `request` and the served value take their types from the
+ * method map. `async` so a synchronous bridge throw becomes a rejection.
  *
- * Whether the read was abandoned is asked at five points: before the send, after a first load of
- * the method's checks, racing the call, after the race and before the reply's check, and on the
- * rejection arm. That saves the reply's check
- * and the caller's projection, the most expensive main-thread work for a large diff.
- * Abandonment cancels the app's interest and not the daemon's work: the wire has no
- * per-request cancellation, so the pending promise is dropped.
+ * Whether the read was abandoned is asked at four points: before the send, racing the call, after
+ * the race, and on the rejection arm. That saves the caller's projection, the most expensive
+ * main-thread work for a large diff. Abandonment cancels the app's interest and not the daemon's
+ * work: the wire has no per-request cancellation, so the pending promise is dropped.
  */
 export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
   bridge: PlatformBridge,
@@ -139,36 +135,6 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
 
   if (isReadAbandoned(signal)) {
     return abandonedRead();
-  }
-
-  const checksOrLoad = daemonMethodChecks.checksOf(method);
-  let checks: MethodChecks<MethodName>;
-  if (checksOrLoad instanceof Promise) {
-    try {
-      checks = await checksOrLoad;
-    } catch (failure: unknown) {
-      recordRejectedRequest(DAEMON_REPLY_DIAGNOSTIC_SOURCE, "method-checks-unloaded", failure);
-      return unsendableRequest();
-    }
-    if (isReadAbandoned(signal)) {
-      return abandonedRead();
-    }
-  } else {
-    checks = checksOrLoad;
-  }
-  const { requestCheck, responseCheck } = checks;
-
-  // Checked as it is sent: each byte member a placeholder for an attachment beside it.
-  const sentAttachments: Uint8Array[] = [];
-  const sent = withBytesTaken(request, sentAttachments);
-  if (!requestCheck.call({ attachments: sentAttachments }, sent)) {
-    recordRefusedMemberPaths({
-      source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
-      kind: "request-unsendable",
-      subject: method,
-      issues: checkFaultPaths(requestCheck, sent),
-    });
-    return unsendableRequest();
   }
 
   let reply: ServedDaemonCall<unknown>;
@@ -190,44 +156,28 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       rejection,
       CALL_REJECTED_FALLBACK,
     );
+    // The addon's params check, which refuses a request before it leaves, answers in the wire's
+    // own shape; the page reads it as its own code, since nothing reached the daemon.
+    const isUnsendable = refusal.code === ("request.paramsInvalid" satisfies RefusalCode);
     recordRefusedMemberPaths({
       source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
-      kind: refusal.code,
+      kind: isUnsendable ? REQUEST_UNSENDABLE_CODE : refusal.code,
       subject: method,
       issues: [],
     });
-    return { status: "refused", refusal };
+    return isUnsendable ? unsendableRequest() : { status: "refused", refusal };
   }
 
   if (isReadAbandoned(signal)) {
     // `settleUnlessAbandoned` resolves the instant the reply does and retires its abort
     // listener, so an abort landing before this frame resumes says `settled` while nobody is
-    // waiting. Reading the signal again, next to the check, makes "an abandoned reply is never
-    // checked" independent of microtask order.
+    // waiting. Reading the signal again makes "an abandoned reply is never read" independent of
+    // microtask order.
     return abandonedRead();
   }
 
-  const served = reply.value;
-  const attachments = reply.attachments ?? [];
-  if (!responseCheck.call({ attachments }, served)) {
-    recordRefusedMemberPaths({
-      source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
-      kind: "reply-unreadable",
-      subject: method,
-      issues: checkFaultPaths(responseCheck, served),
-    });
-    return {
-      status: "refused",
-      refusal: refuse(
-        DAEMON_REPLY_REFUSAL_ORIGIN,
-        "reply-unreadable" satisfies DaemonReplyRefusalCode,
-        "The background service's reply could not be read.",
-      ),
-    };
-  }
-  // A generated check refuses a member its contract does not carry, so the checked value is the
-  // reply whole, its bytes put where their placeholders stood.
-  const value = withBytesPlaced(served, attachments) as DaemonResult<MethodName>;
+  // The reply's bytes go where their placeholders stood.
+  const value = withBytesPlaced(reply.value, reply.attachments ?? []) as DaemonResult<MethodName>;
   return reply.fileRefs === undefined
     ? { status: "served", value }
     : { status: "served", value, fileRefs: reply.fileRefs };
@@ -258,7 +208,7 @@ function unsendableRequest(): DaemonReply<never> {
     status: "refused",
     refusal: refuse(
       DAEMON_REPLY_REFUSAL_ORIGIN,
-      "request-unsendable" satisfies DaemonReplyRefusalCode,
+      REQUEST_UNSENDABLE_CODE satisfies DaemonReplyRefusalCode,
       REQUEST_UNSENDABLE_MESSAGE,
     ),
   };

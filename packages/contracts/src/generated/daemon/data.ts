@@ -3,17 +3,6 @@
 
 // Everything the service keeps for the person: the data folder, and the two acts on it, export and erase.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import {
-  validateDaemonDataEraseResponse,
-  validateDaemonDataExportCancelRequest,
-  validateDaemonDataExportStartRequest,
-  validateDaemonDataExportStartResponse,
-  validateDaemonDataExportSubscribeRequest,
-  validateDataExportProgress,
-} from "../checks/daemon/data.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
 import type { KeychainRefusalCause } from "../keychain.js";
 import type { EmptyPayload } from "../method-descriptor.js";
@@ -202,52 +191,47 @@ export interface DaemonDataEraseResponse {
   isVolumeFolderListUnread: boolean;
 }
 
-export {
-  validateDaemonDataEraseResponse,
-  validateDaemonDataExportAlreadyRunningDetails,
-  validateDaemonDataExportCancelRequest,
-  validateDaemonDataExportDestinationNotWritableDetails,
-  validateDaemonDataExportStartRequest,
-  validateDaemonDataExportStartResponse,
-  validateDaemonDataExportSubscribeRequest,
-  validateDaemonDataStoreUnavailableDetails,
-  validateDataEraseAccountListing,
-  validateDataEraseSignOutFailure,
-  validateDataEraseSignedInAccount,
-  validateDataExportJobId,
-  validateDataExportProgress,
-} from "../checks/daemon/data.js";
-
-/** The methods of {@link DAEMON_DATA_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link DAEMON_DATA_METHOD_DESCRIPTORS}, each with its kind. */
 export interface DaemonDataMethodDescriptors {
   readonly "daemon.dataExport.start": {
     readonly method: "daemon.dataExport.start";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DaemonDataExportStartRequest>;
-    readonly responseCheck: SchemaCheck<DaemonDataExportStartResponse>;
   };
   readonly "daemon.dataExport.subscribe": {
     readonly method: "daemon.dataExport.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<DaemonDataExportSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<DataExportProgress>;
   };
   readonly "daemon.dataExport.cancel": {
     readonly method: "daemon.dataExport.cancel";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DaemonDataExportCancelRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "daemon.data.erase": {
     readonly method: "daemon.data.erase";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<DaemonDataEraseResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link DAEMON_DATA_METHOD_DESCRIPTORS}. */
+export interface DaemonDataMethodTypes {
+  readonly "daemon.dataExport.start": {
+    readonly params: DaemonDataExportStartRequest;
+    readonly result: DaemonDataExportStartResponse;
+  };
+  readonly "daemon.dataExport.subscribe": {
+    readonly params: DaemonDataExportSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: DataExportProgress;
+  };
+  readonly "daemon.dataExport.cancel": {
+    readonly params: DaemonDataExportCancelRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "daemon.data.erase": {
+    readonly params: EmptyPayload;
+    readonly result: DaemonDataEraseResponse;
   };
 }
 /**
@@ -260,29 +244,20 @@ export const DAEMON_DATA_METHOD_DESCRIPTORS: DaemonDataMethodDescriptors =
       method: "daemon.dataExport.start",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateDaemonDataExportStartRequest,
-      responseCheck: validateDaemonDataExportStartResponse,
     }),
     "daemon.dataExport.subscribe": /* @__PURE__ */ Object.freeze({
       method: "daemon.dataExport.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateDaemonDataExportSubscribeRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateDataExportProgress,
     }),
     "daemon.dataExport.cancel": /* @__PURE__ */ Object.freeze({
       method: "daemon.dataExport.cancel",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateDaemonDataExportCancelRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "daemon.data.erase": /* @__PURE__ */ Object.freeze({
       method: "daemon.data.erase",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateDaemonDataEraseResponse,
     }),
   });

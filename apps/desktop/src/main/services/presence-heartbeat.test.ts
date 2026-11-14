@@ -20,8 +20,8 @@ function createClient(): {
 } {
   const heartbeats: PresenceHeartbeatSendRequest[] = [];
   const client = {
-    call: (method: { readonly method: string }, params: unknown) => {
-      expect(method.method).toBe("presence.heartbeat.send");
+    call: (method: string, params: unknown) => {
+      expect(method).toBe("presence.heartbeat.send");
       if (!validatePresenceHeartbeatSendRequest(params)) {
         throw new Error("the heartbeat breaks its contract");
       }

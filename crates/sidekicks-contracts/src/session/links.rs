@@ -158,10 +158,10 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The links between sessions as the person reads and changes them.",
     definitions: &[
         Definition::read::<SessionLinkKind>(),
-        Definition::read::<SessionRelatedSessionSubscribeRequest>().checked(),
+        Definition::read::<SessionRelatedSessionSubscribeRequest>(),
         Definition::read::<SessionRelatedListEntry>(),
-        Definition::read::<SessionRelatedListUpdate>().checked(),
-        Definition::read::<SessionLinkRequest>().checked(),
+        Definition::read::<SessionRelatedListUpdate>(),
+        Definition::read::<SessionLinkRequest>(),
     ],
     constants: &[],
     method_tables: &[&SESSION_LINK_METHOD_DESCRIPTORS],

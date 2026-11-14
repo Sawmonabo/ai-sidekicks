@@ -457,8 +457,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           through `agent.run.intervene`, the daemon's answer, the states an intervention passes \
           through, and an interrupt's stored record.",
     definitions: &[
-        Definition::read::<InterventionId>().checked(),
-        Definition::read::<InterventionType>().checked(),
+        Definition::read::<InterventionId>(),
+        Definition::read::<InterventionType>(),
         Definition::read::<InterventionState>(),
         Definition::read::<RunLimit>(),
         Definition::read::<PersonInterruptRecord>(),
@@ -466,7 +466,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<UndoInterruptRecord>(),
         Definition::read::<InterruptInterventionRecord>(),
         Definition::read::<AgentRunInterveneRequest>().checked(),
-        Definition::read::<AgentRunInterveneResponse>().checked(),
+        Definition::read::<AgentRunInterveneResponse>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

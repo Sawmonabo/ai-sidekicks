@@ -61,9 +61,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The events a workflow appends before any run exists: a version written, and a trigger \
           or schedule armed or fired, each naming the workflow rather than a run.",
     definitions: &[
-        Definition::read::<WorkflowVersionCreatedPayload>().checked(),
-        Definition::read::<WorkflowTriggerArmedPayload>().checked(),
-        Definition::read::<WorkflowTriggerFiredPayload>().checked(),
+        Definition::read::<WorkflowVersionCreatedPayload>(),
+        Definition::read::<WorkflowTriggerArmedPayload>(),
+        Definition::read::<WorkflowTriggerFiredPayload>(),
     ],
     constants: &[],
     method_tables: &[],

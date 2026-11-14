@@ -12,7 +12,7 @@
 import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionCreateRequest, SessionLead } from "@ai-sidekicks/contracts/session/directory";
-import { callDaemon, type DaemonReplyRefusalCode } from "#renderer/services/daemon/reply.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { type FirstTurnQueueCall } from "./control-contract.js";
@@ -20,7 +20,6 @@ import {
   NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
   RUN_QUEUE_CREATE_METHOD,
   SESSION_CREATE_METHOD,
-  refuseAmbiguousCreate,
   refuseNewSessionDraft,
   type NewSessionDraftRefusal,
   type NewSessionSendResult,
@@ -60,14 +59,8 @@ export interface NewSessionSendRequest {
 /** What the send landed, so the draft can remember it and resume from it. */
 export interface NewSessionSendProgress {
   readonly result: NewSessionSendResult;
-  /** Present once the create answered readably — the id every later leg is addressed by. */
+  /** Present once the create answered — the id every later leg is addressed by. */
   readonly sessionId: string | undefined;
-  /**
-   * Whether `session.create` answered with a reply this build could not read. Separate from
-   * `sessionId`, since an absent id also describes a create that plainly refused and the two
-   * take opposite next acts.
-   */
-  readonly createAnsweredUnreadably: boolean;
   readonly firstTurnQueued: boolean;
 }
 
@@ -80,15 +73,6 @@ export async function sendNewSessionDraft(
 ): Promise<NewSessionSendProgress> {
   const completedCalls: string[] = [];
   const created = await resolveSession(request, completedCalls);
-  if (created.settlement === "unreadable") {
-    // Reported through the progress so the draft remembers it and never issues another create.
-    return {
-      result: refuseAmbiguousCreate(request.draftRevision),
-      sessionId: undefined,
-      createAnsweredUnreadably: true,
-      firstTurnQueued: false,
-    };
-  }
   if (created.settlement === "refused") {
     return {
       result: {
@@ -99,7 +83,6 @@ export async function sendNewSessionDraft(
         sentRevision: request.draftRevision,
       },
       sessionId: undefined,
-      createAnsweredUnreadably: false,
       firstTurnQueued: false,
     };
   }
@@ -115,19 +98,14 @@ export async function sendNewSessionDraft(
       sentRevision: request.draftRevision,
     },
     sessionId,
-    createAnsweredUnreadably: false,
     firstTurnQueued: turn.queued,
   };
 }
 
-/**
- * How the create leg ended. Three arms, because "nothing was created" and "we cannot say"
- * are different facts with opposite next acts.
- */
+/** How the create leg ended. */
 type CreateSettlement =
   | { readonly settlement: "resolved"; readonly sessionId: string }
-  | { readonly settlement: "refused"; readonly refusal: NewSessionDraftRefusal }
-  | { readonly settlement: "unreadable" };
+  | { readonly settlement: "refused"; readonly refusal: NewSessionDraftRefusal };
 
 /** The create leg, skipped for a draft whose session already exists. */
 async function resolveSession(
@@ -139,22 +117,13 @@ async function resolveSession(
     completedCalls.push(SESSION_CREATE_METHOD);
     return { settlement: "resolved", sessionId: request.sessionId };
   }
-  // Through `callDaemon`, which parses the request and the reply and never throws.
+  // Through `callDaemon`, which never throws.
   const reply = await callDaemon(
     request.bridge,
     SESSION_CREATE_METHOD,
     sessionCreateRequest(request),
   );
   if (reply.status === "refused") {
-    if (reply.refusal.code === ("reply-unreadable" satisfies DaemonReplyRefusalCode)) {
-      // The only refusal that is not evidence nothing happened: the call fulfilled and the
-      // reply failed the response schema, so a session was very possibly created. Narrow on
-      // purpose, by `callDaemon`'s own codes: `request-unsendable` left nothing this process,
-      // `read-abandoned` is unreachable on a mutation, and `call-rejected` is a plain refusal,
-      // since widening this arm would make a draft permanently unsendable after a fault that
-      // reached no daemon.
-      return { settlement: "unreadable" };
-    }
     // The daemon's message crosses an IPC boundary and may be a stack. The code names which
     // call failed, which is what a person pastes into an issue.
     return {

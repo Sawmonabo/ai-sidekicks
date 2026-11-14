@@ -3,29 +3,6 @@
 
 // The `mcp.*` method table, the sign-in event payload, the status notice, the refusal codes, a write conflict's reason, the binding store's cause and a config file refusal's details.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import {
-  validateMcpRegistrySearchRequest,
-  validateMcpRegistrySearchResponse,
-  validateMcpServerBindingRef,
-  validateMcpServerDeleteRequest,
-  validateMcpServerDeleteResponse,
-  validateMcpServerEnabledUpdateRequest,
-  validateMcpServerListRequest,
-  validateMcpServerListResponse,
-  validateMcpServerMutationResponse,
-  validateMcpServerReadResponse,
-  validateMcpServerReconnectRequest,
-  validateMcpServerReconnectResponse,
-  validateMcpServerSignInRequest,
-  validateMcpServerSignInResponse,
-  validateMcpServerSignOutRequest,
-  validateMcpServerUpsertRequest,
-  validateMcpToolOverrideClearRequest,
-  validateMcpToolOverrideMutationResponse,
-  validateMcpToolOverrideUpdateRequest,
-} from "../checks/mcp/server.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
 import type { WireInstant } from "../internal/wire-scalars.js";
 import type { KeychainRefusalCause } from "../keychain.js";
 import type { EmptyPayload } from "../method-descriptor.js";
@@ -319,87 +296,111 @@ export interface McpServerConfigFileInvalidDetails {
 export {
   validateMcpServerSignInCompletedPayload,
   validateMcpServerSignInOutcome,
-  validateMcpServerStatusChangedNotice,
 } from "../checks/mcp/governance.js";
 
-/** The methods of {@link MCP_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link MCP_METHOD_DESCRIPTORS}, each with its kind. */
 export interface McpMethodDescriptors {
   readonly "mcp.server.list": {
     readonly method: "mcp.server.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<McpServerListRequest>;
-    readonly responseCheck: SchemaCheck<McpServerListResponse>;
   };
   readonly "mcp.server.read": {
     readonly method: "mcp.server.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<McpServerBindingRef>;
-    readonly responseCheck: SchemaCheck<McpServerReadResponse>;
   };
   readonly "mcp.registry.search": {
     readonly method: "mcp.registry.search";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<McpRegistrySearchRequest>;
-    readonly responseCheck: SchemaCheck<McpRegistrySearchResponse>;
   };
   readonly "mcp.server.upsert": {
     readonly method: "mcp.server.upsert";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<McpServerUpsertRequest>;
-    readonly responseCheck: SchemaCheck<McpServerMutationResponse>;
   };
   readonly "mcp.server.delete": {
     readonly method: "mcp.server.delete";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<McpServerDeleteRequest>;
-    readonly responseCheck: SchemaCheck<McpServerDeleteResponse>;
   };
   readonly "mcp.server.enabled.update": {
     readonly method: "mcp.server.enabled.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<McpServerEnabledUpdateRequest>;
-    readonly responseCheck: SchemaCheck<McpServerMutationResponse>;
   };
   readonly "mcp.toolOverride.update": {
     readonly method: "mcp.toolOverride.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<McpToolOverrideUpdateRequest>;
-    readonly responseCheck: SchemaCheck<McpToolOverrideMutationResponse>;
   };
   readonly "mcp.toolOverride.clear": {
     readonly method: "mcp.toolOverride.clear";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<McpToolOverrideClearRequest>;
-    readonly responseCheck: SchemaCheck<McpToolOverrideMutationResponse>;
   };
   readonly "mcp.server.signIn": {
     readonly method: "mcp.server.signIn";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<McpServerSignInRequest>;
-    readonly responseCheck: SchemaCheck<McpServerSignInResponse>;
   };
   readonly "mcp.server.signOut": {
     readonly method: "mcp.server.signOut";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<McpServerSignOutRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "mcp.server.reconnect": {
     readonly method: "mcp.server.reconnect";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<McpServerReconnectRequest>;
-    readonly responseCheck: SchemaCheck<McpServerReconnectResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link MCP_METHOD_DESCRIPTORS}. */
+export interface McpMethodTypes {
+  readonly "mcp.server.list": {
+    readonly params: McpServerListRequest;
+    readonly result: McpServerListResponse;
+  };
+  readonly "mcp.server.read": {
+    readonly params: McpServerBindingRef;
+    readonly result: McpServerReadResponse;
+  };
+  readonly "mcp.registry.search": {
+    readonly params: McpRegistrySearchRequest;
+    readonly result: McpRegistrySearchResponse;
+  };
+  readonly "mcp.server.upsert": {
+    readonly params: McpServerUpsertRequest;
+    readonly result: McpServerMutationResponse;
+  };
+  readonly "mcp.server.delete": {
+    readonly params: McpServerDeleteRequest;
+    readonly result: McpServerDeleteResponse;
+  };
+  readonly "mcp.server.enabled.update": {
+    readonly params: McpServerEnabledUpdateRequest;
+    readonly result: McpServerMutationResponse;
+  };
+  readonly "mcp.toolOverride.update": {
+    readonly params: McpToolOverrideUpdateRequest;
+    readonly result: McpToolOverrideMutationResponse;
+  };
+  readonly "mcp.toolOverride.clear": {
+    readonly params: McpToolOverrideClearRequest;
+    readonly result: McpToolOverrideMutationResponse;
+  };
+  readonly "mcp.server.signIn": {
+    readonly params: McpServerSignInRequest;
+    readonly result: McpServerSignInResponse;
+  };
+  readonly "mcp.server.signOut": {
+    readonly params: McpServerSignOutRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "mcp.server.reconnect": {
+    readonly params: McpServerReconnectRequest;
+    readonly result: McpServerReconnectResponse;
   };
 }
 /**
@@ -411,77 +412,55 @@ export const MCP_METHOD_DESCRIPTORS: McpMethodDescriptors = /* @__PURE__ */ Obje
     method: "mcp.server.list",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateMcpServerListRequest,
-    responseCheck: validateMcpServerListResponse,
   }),
   "mcp.server.read": /* @__PURE__ */ Object.freeze({
     method: "mcp.server.read",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateMcpServerBindingRef,
-    responseCheck: validateMcpServerReadResponse,
   }),
   "mcp.registry.search": /* @__PURE__ */ Object.freeze({
     method: "mcp.registry.search",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateMcpRegistrySearchRequest,
-    responseCheck: validateMcpRegistrySearchResponse,
   }),
   "mcp.server.upsert": /* @__PURE__ */ Object.freeze({
     method: "mcp.server.upsert",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateMcpServerUpsertRequest,
-    responseCheck: validateMcpServerMutationResponse,
   }),
   "mcp.server.delete": /* @__PURE__ */ Object.freeze({
     method: "mcp.server.delete",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateMcpServerDeleteRequest,
-    responseCheck: validateMcpServerDeleteResponse,
   }),
   "mcp.server.enabled.update": /* @__PURE__ */ Object.freeze({
     method: "mcp.server.enabled.update",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateMcpServerEnabledUpdateRequest,
-    responseCheck: validateMcpServerMutationResponse,
   }),
   "mcp.toolOverride.update": /* @__PURE__ */ Object.freeze({
     method: "mcp.toolOverride.update",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateMcpToolOverrideUpdateRequest,
-    responseCheck: validateMcpToolOverrideMutationResponse,
   }),
   "mcp.toolOverride.clear": /* @__PURE__ */ Object.freeze({
     method: "mcp.toolOverride.clear",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateMcpToolOverrideClearRequest,
-    responseCheck: validateMcpToolOverrideMutationResponse,
   }),
   "mcp.server.signIn": /* @__PURE__ */ Object.freeze({
     method: "mcp.server.signIn",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateMcpServerSignInRequest,
-    responseCheck: validateMcpServerSignInResponse,
   }),
   "mcp.server.signOut": /* @__PURE__ */ Object.freeze({
     method: "mcp.server.signOut",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateMcpServerSignOutRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "mcp.server.reconnect": /* @__PURE__ */ Object.freeze({
     method: "mcp.server.reconnect",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateMcpServerReconnectRequest,
-    responseCheck: validateMcpServerReconnectResponse,
   }),
 });

@@ -27,8 +27,3 @@ export interface WorkflowNewRunHoldState {
    */
   waitingStartCount: number;
 }
-
-export {
-  validateWorkflowNewRunHoldState,
-  validateWorkflowNewRunHoldUpdateRequest,
-} from "../../checks/workflow/run/new-run-hold.js";

@@ -28,7 +28,7 @@ ts_constants! {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/driver/recovery",
     doc: "Why a run needs recovery: the axis a resume failure and a run's state change carry.",
-    definitions: &[Definition::read::<RecoveryCondition>().checked()],
+    definitions: &[Definition::read::<RecoveryCondition>()],
     constants: TS_CONSTANTS,
     method_tables: &[],
 };

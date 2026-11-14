@@ -9,7 +9,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   countedDraftFor,
-  countedDraftOverUnreadableCreate,
   draftFor,
   CREATED_SESSION_ID,
   DRAFT_PROJECT,
@@ -115,57 +114,5 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
       (call) => (call.params as { clientIdempotencyKey: string }).clientIdempotencyKey,
     );
     expect(retriedKey).toBe(firstKey);
-  });
-});
-
-describe("NewSessionDraft — the create it cannot answer for", () => {
-  it("settles a create whose reply cannot be read on its own arm, not as a refusal", async () => {
-    // An unreadable reply shown as `session-create-failed` would invite a press that makes a
-    // second session.
-    const { draft } = countedDraftOverUnreadableCreate();
-    draft.setFirstTurn("Start on the parser.");
-
-    const result = await draft.send();
-
-    expect(result.outcome).toBe("created-unreadable");
-    expect(result.refusal?.code).toBe("session-create-unreadable");
-    expect(result.sessionId).toBeUndefined();
-    // Nothing is claimed as landed, and the sentence says what to do instead of pressing again.
-    expect(result.completedCalls).toStrictEqual([]);
-    expect(result.refusal?.detail).toContain("Check the sessions list");
-  });
-
-  it("negative control: no second `session.create` on any later press", async () => {
-    // The fixture answers every create alike, so only the count of calls on the wire can show
-    // a second session.
-    const { draft, calls } = countedDraftOverUnreadableCreate();
-    draft.setFirstTurn("Start on the parser.");
-
-    const first = await draft.send();
-    const second = await draft.send();
-    const third = await draft.send();
-
-    expect(calls.map((call) => call.method)).toStrictEqual([SESSION_CREATE_METHOD]);
-    // Every later press answers the same settlement, so the sentence does not change under
-    // the person reading it.
-    expect(first.outcome).toBe("created-unreadable");
-    expect(second.outcome).toBe("created-unreadable");
-    expect(third.outcome).toBe("created-unreadable");
-    expect(third.refusal?.code).toBe("session-create-unreadable");
-  });
-
-  it("refuses a later press even after the draft is emptied and re-composed", async () => {
-    // The invariant is scoped to the object: an emptied and re-composed draft must not create
-    // again.
-    const { draft, calls } = countedDraftOverUnreadableCreate();
-    draft.setFirstTurn("Start on the parser.");
-    await draft.send();
-
-    draft.discard();
-    draft.setFirstTurn("Start again.");
-    const afterDiscard = await draft.send();
-
-    expect(calls.map((call) => call.method)).toStrictEqual([SESSION_CREATE_METHOD]);
-    expect(afterDiscard.outcome).toBe("created-unreadable");
   });
 });

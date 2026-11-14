@@ -16,7 +16,7 @@ pub struct AttachmentReferenceList(pub Vec<ArtifactId>);
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "artifacts/attachment-reference",
     doc: "The attachments a message carries: artifact ids in the order they were staged.",
-    definitions: &[Definition::read::<AttachmentReferenceList>().checked()],
+    definitions: &[Definition::read::<AttachmentReferenceList>()],
     constants: &[],
     method_tables: &[],
 };

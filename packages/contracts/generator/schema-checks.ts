@@ -11,7 +11,7 @@ import { MODULE_ID_SCHEME, type ContractModule } from "./emit-folder.ts";
 import type { ModuleImports } from "./module-imports.ts";
 
 /** The hand-written module the generated checks import their type, formats and helpers from. */
-export const SCHEMA_CHECK_MODULE = "schema-check";
+const SCHEMA_CHECK_MODULE = "schema-check";
 
 /** The `schema-check` export a `maxJsonBytes` check calls to measure its value. */
 const WIRE_BYTE_LENGTH = "wireByteLength";

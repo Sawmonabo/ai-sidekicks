@@ -485,24 +485,9 @@ export interface WorkflowToolBinding {
 }
 
 export {
-  validateWorkflowCanvasPoint,
   validateWorkflowContentHash,
   validateWorkflowDefinitionId,
-  validateWorkflowDocument,
-  validateWorkflowDraftDocument,
-  validateWorkflowEdge,
   validateWorkflowEdgeId,
-  validateWorkflowLayout,
-  validateWorkflowNode,
   validateWorkflowNodeId,
-  validateWorkflowNodeKindId,
-  validateWorkflowNodeOnError,
-  validateWorkflowNodeRetry,
-  validateWorkflowStickyNote,
-  validateWorkflowStickyNoteId,
-  validateWorkflowToolBinding,
-  validateWorkflowTriggerInput,
-  validateWorkflowTriggerNode,
   validateWorkflowVersionId,
-  validateWorkflowViewport,
 } from "../../checks/workflow/definition/document.js";

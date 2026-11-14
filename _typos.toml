@@ -30,6 +30,8 @@ ond = "ond"
 axe = "axe"
 # `anser`, the ANSI escape parser the transcript's shell output rows use.
 anser = "anser"
+# OpenType's width axis tag, which a variable font file names its width range by.
+wdth = "wdth"
 
 [files]
 extend-exclude = [

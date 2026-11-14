@@ -16,7 +16,7 @@ branded_text! {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "machine/id",
     doc: "The daemon-assigned id of the one machine a daemon runs on.",
-    definitions: &[Definition::read::<MachineId>().checked()],
+    definitions: &[Definition::read::<MachineId>()],
     constants: &[],
     method_tables: &[],
 };

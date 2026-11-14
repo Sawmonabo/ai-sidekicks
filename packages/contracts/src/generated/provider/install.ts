@@ -3,14 +3,6 @@
 
 // The `provider.install.*` and `provider.installUpdate.*` methods: installing and updating a provider's command in one place.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import {
-  validateProviderInstallProgress,
-  validateProviderInstallUpdateProgress,
-} from "../checks/provider/install.js";
-import { validateProviderPlaceRequest } from "../checks/provider/settings.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 import type { ProviderId } from "./id.js";
@@ -128,49 +120,57 @@ export type ProviderInstallUpdateProgress =
       command: string;
     };
 
-export {
-  validateProviderInstallProgress,
-  validateProviderInstallUpdateProgress,
-} from "../checks/provider/install.js";
-
-/** The methods of {@link PROVIDER_INSTALL_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link PROVIDER_INSTALL_METHOD_DESCRIPTORS}, each with its kind. */
 export interface ProviderInstallMethodDescriptors {
   readonly "provider.install.start": {
     readonly method: "provider.install.start";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderPlaceRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "provider.install.subscribe": {
     readonly method: "provider.install.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<ProviderPlaceRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<ProviderInstallProgress>;
   };
   readonly "provider.install.stop": {
     readonly method: "provider.install.stop";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderPlaceRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "provider.installUpdate.start": {
     readonly method: "provider.installUpdate.start";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderPlaceRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "provider.installUpdate.subscribe": {
     readonly method: "provider.installUpdate.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<ProviderPlaceRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<ProviderInstallUpdateProgress>;
+  };
+}
+/** The params, result and emission types of each method of {@link PROVIDER_INSTALL_METHOD_DESCRIPTORS}. */
+export interface ProviderInstallMethodTypes {
+  readonly "provider.install.start": {
+    readonly params: ProviderPlaceRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "provider.install.subscribe": {
+    readonly params: ProviderPlaceRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: ProviderInstallProgress;
+  };
+  readonly "provider.install.stop": {
+    readonly params: ProviderPlaceRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "provider.installUpdate.start": {
+    readonly params: ProviderPlaceRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "provider.installUpdate.subscribe": {
+    readonly params: ProviderPlaceRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: ProviderInstallUpdateProgress;
   };
 }
 /**
@@ -183,37 +183,25 @@ export const PROVIDER_INSTALL_METHOD_DESCRIPTORS: ProviderInstallMethodDescripto
       method: "provider.install.start",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderPlaceRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "provider.install.subscribe": /* @__PURE__ */ Object.freeze({
       method: "provider.install.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateProviderPlaceRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateProviderInstallProgress,
     }),
     "provider.install.stop": /* @__PURE__ */ Object.freeze({
       method: "provider.install.stop",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderPlaceRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "provider.installUpdate.start": /* @__PURE__ */ Object.freeze({
       method: "provider.installUpdate.start",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderPlaceRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "provider.installUpdate.subscribe": /* @__PURE__ */ Object.freeze({
       method: "provider.installUpdate.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateProviderPlaceRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateProviderInstallUpdateProgress,
     }),
   });

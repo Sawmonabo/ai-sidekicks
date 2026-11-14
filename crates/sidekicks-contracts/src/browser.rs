@@ -303,7 +303,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "browser",
     doc: "The machine-wide browser methods behind Settings › Browser.",
     definitions: &[
-        Definition::read::<SiteOrigin>().checked(),
+        Definition::read::<SiteOrigin>(),
         Definition::read::<BrowserSiteData>(),
         Definition::read::<BrowserSiteDataListResponse>(),
         Definition::read::<BrowserSiteRequest>(),
@@ -314,7 +314,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<BrowserInstalledChromiumSource>(),
         Definition::read::<BrowserChromiumCannotStartReason>(),
         Definition::read::<BrowserChromiumCannotStart>(),
-        Definition::read::<BrowserChromiumReadResponse>().checked(),
+        Definition::read::<BrowserChromiumReadResponse>(),
         Definition::read::<BrowserChromiumFetchResponse>(),
     ],
     constants: &[],

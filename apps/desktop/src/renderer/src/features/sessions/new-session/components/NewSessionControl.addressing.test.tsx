@@ -21,7 +21,7 @@ import { SESSION_CREATE_METHOD } from "../settlement.js";
 import {
   REJECTING_FIRST_TURN,
   bridgeHoldingCreate,
-  bridgeQueueingCreates,
+  bridgeQueuingCreates,
   completingFirstTurn,
   openDraftWithFirstTurn,
   politeText,
@@ -35,7 +35,7 @@ describe("the composed new-session draft — which composition a settlement land
   it("drops a discarded draft's settlement rather than show it under its replacement", async () => {
     // A settlement lands only in the composition it was sent for, so a person who discarded and
     // started again never sees a refusal for a session this draft never sent.
-    const queued = bridgeQueueingCreates();
+    const queued = bridgeQueuingCreates();
     const container = renderControlOn(queued.bridge);
     await openDraftWithFirstTurn();
     await press("Send");
@@ -60,7 +60,7 @@ describe("the composed new-session draft — which composition a settlement land
   it("keeps Send disabled when an older draft's send settles under a newer one", async () => {
     // One boolean over two drafts was cleared by whichever send settled first, re-enabling
     // Send under a composition whose own create was still in flight.
-    const queued = bridgeQueueingCreates();
+    const queued = bridgeQueuingCreates();
     const container = renderControlOn(queued.bridge);
     await openDraftWithFirstTurn();
     await press("Send");
@@ -95,7 +95,7 @@ describe("the composed new-session draft — which composition a settlement land
 
   it("negative control: a settlement for the draft still on screen is rendered", async () => {
     // Without this, a control that dropped every settlement would pass both cases above.
-    const queued = bridgeQueueingCreates();
+    const queued = bridgeQueuingCreates();
     const container = renderControlOn(queued.bridge);
     await openDraftWithFirstTurn();
     await press("Send");
@@ -224,7 +224,6 @@ describe("the composed new-session draft — the transport it would send through
           queueFirstTurn={REJECTING_FIRST_TURN}
           lead={NEW_SESSION_LEAD}
           onSessionCreated={recordNothing}
-          onSessionDirectoryRecheck={recordNothing}
         />
       </LiveAnnouncerProvider>,
     );
@@ -237,7 +236,6 @@ describe("the composed new-session draft — the transport it would send through
           queueFirstTurn={REJECTING_FIRST_TURN}
           lead={NEW_SESSION_LEAD}
           onSessionCreated={recordNothing}
-          onSessionDirectoryRecheck={recordNothing}
         />
       </LiveAnnouncerProvider>,
     );
@@ -262,7 +260,6 @@ describe("the composed new-session draft — the transport it would send through
           queueFirstTurn={REJECTING_FIRST_TURN}
           lead={NEW_SESSION_LEAD}
           onSessionCreated={recordNothing}
-          onSessionDirectoryRecheck={recordNothing}
         />
       </LiveAnnouncerProvider>,
     );

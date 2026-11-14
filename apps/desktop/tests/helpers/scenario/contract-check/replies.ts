@@ -1,29 +1,22 @@
-// One scripted answer per call, one call the app registers, one spendable latency, and a scripted
-// value of the registered shape.
+// One scripted answer per call, one call the app registers, and one spendable latency.
 //
-// All four claims are about a `ScenarioReply`: the entry can be reached, the call it answers
-// exists, the delay it scripts can be spent, and a value it scripts outright passes the method's
-// generated response check. A scenario failing any of them has a reply no transport would give,
-// and it shows up only as a view that never leaves its loading state or one trained on a frame
-// the daemon cannot send. A computed answer exists only once a request is in hand, so the fixture
-// daemon holds it to the same check when it settles.
+// All three claims are about a `ScenarioReply`: the entry can be reached, the call it answers
+// exists, and the delay it scripts can be spent. A scenario failing any of them has a reply no
+// transport would give, and it shows up only as a view that never leaves its loading state or one
+// rendering a call the daemon does not have.
 //
 // The call claim catches an invented wire. A reply is keyed on a method string, which is as easy
 // to make up as to transcribe: a scenario answering `workflow.runsList` renders a view that looks
 // served, and every tier that mounts it passes against a call the daemon does not have. The
 // registry is the daemon call set the app binds, so nothing here is a second list.
 
-import {
-  daemonMethodBindingFor,
-  REGISTERED_DAEMON_METHODS,
-} from "#shared/daemon/method-bindings.js";
-import type { ScenarioReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
-import { describeCheckFaults, type ScenarioContractDefect } from "./defect.js";
+import { REGISTERED_DAEMON_METHODS } from "#shared/daemon/method-bindings.js";
+import type { ScenarioContractDefect } from "./defect.js";
 import type { Scenario } from "#fixtures/scenario.js";
 
 /**
- * Every reply defect in one scenario: unreachable entries, unregistered calls, unspendable
- * latencies, scripted values off their method's contract.
+ * Every reply defect in one scenario: unreachable entries, unregistered calls and unspendable
+ * latencies.
  *
  * A duplicate entry is reported and skipped rather than also measured, since `replyFor` answers
  * with the first match and a second entry's `afterMs` belongs to a reply that cannot be served.
@@ -52,34 +45,8 @@ export function findReplyDefects(scenario: Scenario): readonly ScenarioContractD
     if (latencyReason !== undefined) {
       defects.push({ scenarioId: scenario.id, subject, reason: latencyReason });
     }
-    const resultReason = describeResultDefect(reply);
-    if (resultReason !== undefined) {
-      defects.push({ scenarioId: scenario.id, subject, reason: resultReason });
-    }
   }
   return defects;
-}
-
-/**
- * A scripted value its method's response check refuses, or `undefined` when it passes, the reply
- * computes or refuses instead, or the call is unregistered (reported by its own check).
- */
-function describeResultDefect(reply: ScenarioReply): string | undefined {
-  const binding = daemonMethodBindingFor(reply.call);
-  if (binding === undefined || reply.refusal !== undefined || reply.resultFor !== undefined) {
-    return undefined;
-  }
-  // A scripted value carries no byte attachments.
-  const check = binding.responseCheck;
-  if (check.call({ attachments: [] }, reply.result)) {
-    return undefined;
-  }
-  return (
-    `it scripts a value the registered response for "${reply.call}" refuses ` +
-    `(${describeCheckFaults(check)}). ` +
-    "Served, it would fail the call at runtime or teach a view a frame the daemon cannot " +
-    "send. Script the registered shape."
-  );
 }
 
 /**

@@ -209,17 +209,4 @@ export interface WorkingTreeChange {
   mode: WorkingTreeChangeMode;
 }
 
-export {
-  validateBranchHolder,
-  validateGitObjectId,
-  validateProjectBranchListEntry,
-  validateProjectBranchListRequest,
-  validateProjectBranchListResponse,
-  validateProjectFileLineRange,
-  validateProjectFileReadRequest,
-  validateProjectFileReadResponse,
-  validateProjectFileSide,
-  validateSessionWorkingFolderSubscribeRequest,
-  validateWorkingTreeChange,
-  validateWorkingTreeChangeMode,
-} from "../checks/repo/git-reads.js";
+export { validateGitObjectId } from "../checks/repo/git-reads.js";

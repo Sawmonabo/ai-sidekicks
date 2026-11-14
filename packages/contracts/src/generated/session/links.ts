@@ -3,14 +3,6 @@
 
 // The links between sessions as the person reads and changes them.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import {
-  validateSessionLinkRequest,
-  validateSessionRelatedListUpdate,
-  validateSessionRelatedSessionSubscribeRequest,
-} from "../checks/session/links.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 import type { SessionId } from "./id.js";
@@ -97,37 +89,38 @@ export interface SessionLinkRequest {
   targetSessionId: SessionId;
 }
 
-export {
-  validateSessionLinkKind,
-  validateSessionLinkRequest,
-  validateSessionRelatedListEntry,
-  validateSessionRelatedListUpdate,
-  validateSessionRelatedSessionSubscribeRequest,
-} from "../checks/session/links.js";
-
-/** The methods of {@link SESSION_LINK_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link SESSION_LINK_METHOD_DESCRIPTORS}, each with its kind. */
 export interface SessionLinkMethodDescriptors {
   readonly "session.relatedSession.subscribe": {
     readonly method: "session.relatedSession.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionRelatedSessionSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<SessionRelatedListUpdate>;
   };
   readonly "session.link.add": {
     readonly method: "session.link.add";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionLinkRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "session.link.remove": {
     readonly method: "session.link.remove";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionLinkRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
+  };
+}
+/** The params, result and emission types of each method of {@link SESSION_LINK_METHOD_DESCRIPTORS}. */
+export interface SessionLinkMethodTypes {
+  readonly "session.relatedSession.subscribe": {
+    readonly params: SessionRelatedSessionSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: SessionRelatedListUpdate;
+  };
+  readonly "session.link.add": {
+    readonly params: SessionLinkRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "session.link.remove": {
+    readonly params: SessionLinkRequest;
+    readonly result: EmptyPayload;
   };
 }
 /** The session link methods' wire contract: name, procedure type and types. */
@@ -137,22 +130,15 @@ export const SESSION_LINK_METHOD_DESCRIPTORS: SessionLinkMethodDescriptors =
       method: "session.relatedSession.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateSessionRelatedSessionSubscribeRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateSessionRelatedListUpdate,
     }),
     "session.link.add": /* @__PURE__ */ Object.freeze({
       method: "session.link.add",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionLinkRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "session.link.remove": /* @__PURE__ */ Object.freeze({
       method: "session.link.remove",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionLinkRequest,
-      responseCheck: validateEmptyPayload,
     }),
   });

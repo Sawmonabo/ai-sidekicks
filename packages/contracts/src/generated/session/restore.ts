@@ -3,16 +3,7 @@
 
 // Undo: the dry run, the undo itself with edit and resend, the event every undo settles with, and the list of a session's snapshots.
 
-import type { SchemaCheck } from "../../schema-check.js";
 import type { AttachmentReferenceList } from "../artifacts/attachment-reference.js";
-import {
-  validateSessionRestoreOutcome,
-  validateSessionRestorePreviewRequest,
-  validateSessionRestorePreviewResponse,
-  validateSessionRestoreRequest,
-  validateSessionSnapshotListRequest,
-  validateSessionSnapshotListResponse,
-} from "../checks/session/restore.js";
 import type { WireInstant } from "../internal/wire-scalars.js";
 import type { QueuedSkillPick } from "../run/queue.js";
 import type { EventCursor, SessionId } from "./id.js";
@@ -329,49 +320,50 @@ export interface SessionRestoreCompletedPayload {
 }
 
 export {
-  validateSessionRestoreAlsoChanged,
   validateSessionRestoreCompletedPayload,
   validateSessionRestoreFailure,
   validateSessionRestoreFailures,
   validateSessionRestoreFileOutcome,
   validateSessionRestoreOutcome,
-  validateSessionRestorePreviewRequest,
-  validateSessionRestorePreviewResponse,
-  validateSessionRestoreRequest,
-  validateSessionRestoreResend,
   validateSessionRestoreScope,
   validateSessionRestoreSkipReason,
   validateSessionRestoreSkippedFile,
   validateSessionRestoreTarget,
   validateSessionRestoredScope,
-  validateSessionSnapshotListRequest,
-  validateSessionSnapshotListResponse,
-  validateSessionSnapshotSummary,
   validateSnapshotId,
 } from "../checks/session/restore.js";
 
-/** The methods of {@link SESSION_RESTORE_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link SESSION_RESTORE_METHOD_DESCRIPTORS}, each with its kind. */
 export interface SessionRestoreMethodDescriptors {
   readonly "session.restore.preview": {
     readonly method: "session.restore.preview";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionRestorePreviewRequest>;
-    readonly responseCheck: SchemaCheck<SessionRestorePreviewResponse>;
   };
   readonly "session.restore": {
     readonly method: "session.restore";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionRestoreRequest>;
-    readonly responseCheck: SchemaCheck<SessionRestoreOutcome>;
   };
   readonly "session.snapshot.list": {
     readonly method: "session.snapshot.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionSnapshotListRequest>;
-    readonly responseCheck: SchemaCheck<SessionSnapshotListResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link SESSION_RESTORE_METHOD_DESCRIPTORS}. */
+export interface SessionRestoreMethodTypes {
+  readonly "session.restore.preview": {
+    readonly params: SessionRestorePreviewRequest;
+    readonly result: SessionRestorePreviewResponse;
+  };
+  readonly "session.restore": {
+    readonly params: SessionRestoreRequest;
+    readonly result: SessionRestoreOutcome;
+  };
+  readonly "session.snapshot.list": {
+    readonly params: SessionSnapshotListRequest;
+    readonly result: SessionSnapshotListResponse;
   };
 }
 /** The undo methods, each with its types. */
@@ -381,21 +373,15 @@ export const SESSION_RESTORE_METHOD_DESCRIPTORS: SessionRestoreMethodDescriptors
       method: "session.restore.preview",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateSessionRestorePreviewRequest,
-      responseCheck: validateSessionRestorePreviewResponse,
     }),
     "session.restore": /* @__PURE__ */ Object.freeze({
       method: "session.restore",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionRestoreRequest,
-      responseCheck: validateSessionRestoreOutcome,
     }),
     "session.snapshot.list": /* @__PURE__ */ Object.freeze({
       method: "session.snapshot.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateSessionSnapshotListRequest,
-      responseCheck: validateSessionSnapshotListResponse,
     }),
   });

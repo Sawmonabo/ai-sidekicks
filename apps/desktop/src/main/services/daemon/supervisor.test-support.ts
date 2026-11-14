@@ -28,7 +28,6 @@ import {
   DaemonRefusal,
   type ClientHelperConnectOutcome,
   type ClientHelperListener,
-  type MainCallMethod,
 } from "./client/process.js";
 import { DaemonLink } from "./link/status.js";
 import type { ServiceExit, StartedService } from "./service/start.js";
@@ -93,8 +92,6 @@ export class ScriptedService {
   public readonly endings: { readonly at: number; readonly ending: string }[] = [];
   /** The process id the status read reports: the found service's until a start replaces it. */
   public runningProcessId: number = FOUND_SERVICE_PROCESS_ID;
-  /** Whether the status read names the service's process. */
-  public isIdentityReported = true;
   /** What the client's ending answers. */
   public endingOutcome: DaemonEndingOutcome = { end: "exited" };
   /** What the status file holds. */
@@ -128,7 +125,7 @@ export class ScriptedService {
       this.isHelperDisposed = true;
       this.#closeCurrent();
     },
-    call: <Response>(method: MainCallMethod<Response>) => this.#call(method.method),
+    call: (method) => this.#call(method),
     subscribe: () => () => undefined,
     facts: () =>
       Promise.resolve({
@@ -275,9 +272,9 @@ export class ScriptedService {
       case "daemon.flush":
         return scripted(this.flushAnswer, { flushed: true });
       case "daemon.status.read":
-        return this.isIdentityReported
-          ? scripted(this.statusReadAnswer, { processIdentity: identityOf(this.runningProcessId) })
-          : Promise.reject(new Error("The daemon.status.read reply does not match its contract."));
+        return scripted(this.statusReadAnswer, {
+          processIdentity: identityOf(this.runningProcessId),
+        });
       default:
         return new Promise(() => undefined);
     }

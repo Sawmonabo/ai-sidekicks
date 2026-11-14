@@ -13,7 +13,6 @@ import type { DaemonCannotStart } from "@ai-sidekicks/contracts/daemon/service-s
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { ConnectionInitializeResponse } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
-import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
 
 import type { FilePathRefOwner } from "#main/bridge/file-path/refs.js";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
@@ -28,33 +27,38 @@ import type {
   ClientHelperToMainMessage,
   MainToClientHelperMessage,
 } from "./messages.js";
+import type { MainMethodTypes } from "./method-allowlist.js";
 
 /** Why a connect or an ask made after the quit let the helper go is refused. */
 const HELPER_ENDED_MESSAGE = "The client helper has ended for the quit.";
 
-/** A daemon method main calls: its name and the check its reply must pass. */
-export interface MainCallMethod<Response> {
-  readonly method: string;
-  readonly responseCheck: SchemaCheck<Response>;
-}
+/** A daemon stream main opens, by its wire name. */
+export type MainStreamMethod = {
+  [Method in keyof MainMethodTypes]: MainMethodTypes[Method] extends { readonly emission: unknown }
+    ? Method
+    : never;
+}[keyof MainMethodTypes];
 
-/** A daemon stream main opens: its name and the check each value must pass. */
-export interface MainStreamMethod<Value> {
-  readonly method: string;
-  readonly emissionCheck: SchemaCheck<Value>;
-}
+/** One value the stream `Method` delivers, as its generated table states it. */
+export type MainStreamValue<Method extends MainStreamMethod> = (MainMethodTypes[Method] & {
+  readonly emission: unknown;
+})["emission"];
 
 /**
- * What main's own code reaches the daemon through. A call rejects with a {@link DaemonRefusal} for
- * the daemon's or the helper's refusal, and with an `Error` for any other failure, a reply that
- * fails its check among them. A stream's end is told once, unless main closed it first.
+ * What main's own code reaches the daemon through, each reply and value read as its method's
+ * generated type. A call rejects with a {@link DaemonRefusal} for the daemon's or the helper's
+ * refusal, and with an `Error` for any other failure. A stream's end is told once, unless main
+ * closed it first.
  */
 export interface MainDaemonClient {
-  call<Response>(method: MainCallMethod<Response>, params: unknown): Promise<Response>;
-  subscribe<Value>(
-    method: MainStreamMethod<Value>,
+  call<Method extends keyof MainMethodTypes>(
+    method: Method,
     params: unknown,
-    onValue: (value: Value) => void,
+  ): Promise<MainMethodTypes[Method]["result"]>;
+  subscribe<Method extends MainStreamMethod>(
+    method: Method,
+    params: unknown,
+    onValue: (value: MainStreamValue<Method>) => void,
     onEnded: (end: DaemonSubscriptionEnd) => void,
   ): () => void;
 }
@@ -143,7 +147,7 @@ interface PendingCall {
 
 /** One stream main holds open. */
 interface OpenStream {
-  readonly deliver: (json: string, attachments: readonly Uint8Array[]) => void;
+  readonly deliver: (json: string) => void;
   readonly end: (end: DaemonSubscriptionEnd) => void;
 }
 
@@ -303,7 +307,10 @@ export class ClientHelperProcess implements MainDaemonClient {
     this.#helper.postMessage({ kind: "window.port", windowId: window.id }, [port]);
   }
 
-  public call<Response>(method: MainCallMethod<Response>, params: unknown): Promise<Response> {
+  public call<Method extends keyof MainMethodTypes>(
+    method: Method,
+    params: unknown,
+  ): Promise<MainMethodTypes[Method]["result"]> {
     const helper = this.#helper;
     if (helper === undefined) {
       return Promise.reject(new Error(NOT_ANSWERING_MESSAGE));
@@ -311,14 +318,14 @@ export class ClientHelperProcess implements MainDaemonClient {
     const callId = this.#nextRequestId++;
     const answered = Promise.withResolvers<ClientHelperAnswer | undefined>();
     this.#calls.set(callId, { settle: answered.resolve });
-    helper.postMessage({ kind: "call", callId, method: method.method, params, attachments: [] });
-    return answered.promise.then((answer) => valueOf(method, answer));
+    helper.postMessage({ kind: "call", callId, method, params, attachments: [] });
+    return answered.promise.then((answer) => valueOf(answer) as MainMethodTypes[Method]["result"]);
   }
 
-  public subscribe<Value>(
-    method: MainStreamMethod<Value>,
+  public subscribe<Method extends MainStreamMethod>(
+    method: Method,
     params: unknown,
-    onValue: (value: Value) => void,
+    onValue: (value: MainStreamValue<Method>) => void,
     onEnded: (end: DaemonSubscriptionEnd) => void,
   ): () => void {
     const helper = this.#helper;
@@ -328,26 +335,15 @@ export class ClientHelperProcess implements MainDaemonClient {
     }
     const streamId = this.#nextRequestId++;
     this.#streams.set(streamId, {
-      deliver: (json, attachments) => {
-        const value: unknown = JSON.parse(json);
-        if (method.emissionCheck.call({ attachments }, value)) {
-          // The check passed, but a call through `.call` keeps no type guard.
-          onValue(value as Value);
-          return;
-        }
-        this.#streams.delete(streamId);
-        helper.postMessage({ kind: "stream.close", streamId });
-        onEnded({
-          reason: "failed",
-          message: `A ${method.method} value does not match its contract.`,
-        });
+      deliver: (json) => {
+        onValue(JSON.parse(json) as MainStreamValue<Method>);
       },
       end: onEnded,
     });
     helper.postMessage({
       kind: "stream.open",
       streamId,
-      method: method.method,
+      method,
       params,
       attachments: [],
     });
@@ -410,7 +406,7 @@ export class ClientHelperProcess implements MainDaemonClient {
       case "stream.opened":
         return;
       case "stream.value":
-        this.#streams.get(message.streamId)?.deliver(message.json, message.attachments);
+        this.#streams.get(message.streamId)?.deliver(message.json);
         return;
       case "stream.ended": {
         const stream = this.#streams.get(message.streamId);
@@ -542,28 +538,16 @@ function takeAsk<Answer>(
   return ask;
 }
 
-/**
- * A call's value from its answer, checked against the method's reply contract. `undefined` is a
- * helper that exited before it answered.
- */
-function valueOf<Response>(
-  method: MainCallMethod<Response>,
-  answer: ClientHelperAnswer | undefined,
-): Response {
+/** A call's value from its answer; `undefined` is a helper that exited before it answered. */
+function valueOf(answer: ClientHelperAnswer | undefined): unknown {
   if (answer === undefined) {
     throw new Error(NOT_ANSWERING_MESSAGE);
   }
   switch (answer.kind) {
     case "call.refused":
       throw new DaemonRefusal(answer.refusal);
-    case "call.served": {
-      const value: unknown = JSON.parse(answer.json);
-      if (!method.responseCheck.call({ attachments: answer.attachments }, value)) {
-        throw new Error(`The ${method.method} reply does not match its contract.`);
-      }
-      // The check passed, but a call through `.call` keeps no type guard.
-      return value as Response;
-    }
+    case "call.served":
+      return JSON.parse(answer.json) as unknown;
     default:
       throw new Error(answer.kind === "call.failed" ? answer.message : NOT_ANSWERING_MESSAGE);
   }

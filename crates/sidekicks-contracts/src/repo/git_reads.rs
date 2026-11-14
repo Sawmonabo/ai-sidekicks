@@ -264,14 +264,14 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The git reads the panes make: the branch list, reading a file's lines by path or by \
           blob, and the signal that a session's working folder changed.",
     definitions: &[
-        Definition::read::<GitObjectId>().checked(),
+        Definition::read::<GitObjectId>(),
         Definition::read::<ProjectBranchListRequest>(),
         Definition::read::<BranchHolder>(),
         Definition::read::<ProjectBranchListEntry>(),
         Definition::read::<ProjectBranchListResponse>(),
         Definition::read::<ProjectFileSide>(),
         Definition::read::<ProjectFileLineRange>(),
-        Definition::read::<ProjectFileReadRequest>().checked(),
+        Definition::read::<ProjectFileReadRequest>(),
         Definition::read::<ProjectFileReadResponse>(),
         Definition::read::<SessionWorkingFolderSubscribeRequest>(),
         Definition::read::<WorkingTreeChangeMode>(),

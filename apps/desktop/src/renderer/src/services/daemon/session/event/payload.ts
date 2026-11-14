@@ -1,29 +1,24 @@
 // Decodes one `session.event.subscribe` frame into app events, each with the run stamp the daemon
 // gave it, whether the daemon marked the stream far behind, and the cursor a re-opened stream
-// resumes after, or refuses it. This is the only place that reads fields off the `unknown` the
-// bridge delivers. The session read's standing events are narrowed into app events by the same
-// projection.
+// resumes after. This is the only place that reads fields off the value the bridge delivers. The
+// session read's standing events are narrowed into app events by the same projection.
 //
-// The frame is checked once here with the contract's generated frame check, whose envelope keeps
-// an event type as written, so a type newer than this build still reaches the app. The envelope
-// does not tie an event's category to its type, and every projector routes on `kind` alone, so
-// `projectSessionEvent` checks the pairing against the contracts census.
+// The envelope keeps an event type as written, so a type newer than this build still reaches the
+// app. The envelope does not tie an event's category to its type, and every projector routes on
+// `kind` alone, so `projectSessionEvent` checks the pairing against the contracts census.
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/category-by-type";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
-import {
-  validateSessionStreamFrame,
-  type SessionStreamFrame,
-} from "@ai-sidekicks/contracts/session/methods";
+import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
 import type { TranscriptRunStamp } from "@ai-sidekicks/contracts/transcript/row";
 
 import type { FilePathRef } from "#shared/preload-api.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { withBytesPlaced } from "../../wire/attachments.js";
 
-/** What one readable frame tells the app. */
+/** What one frame tells the app. */
 export interface SessionStreamFrameReading {
   /** The frame's events the app can hold, in stream order. */
   readonly events: readonly ProjectedSessionEvent[];
@@ -42,22 +37,16 @@ export interface SessionStreamFrameReading {
 }
 
 /**
- * Reads one delivered frame, or returns `undefined` when its generated check refuses it.
- *
- * A frame is refused whole for a forbidden member, an event the envelope check refuses, too many
- * changes, or no changes without being the far-behind frame. The check reads each `{"$bytes": n}`
- * member from the delivery's `attachments`, which then take their placeholders' places. Each
- * change's cursor rides on its event, where a link to a message finds it, and the store orders
- * events by `sequence`. Each event keeps the tokens main minted for the paths its payload names.
+ * Reads one delivered frame. The delivery's `attachments` take the places of their
+ * `{"$bytes": n}` placeholders. Each change's cursor rides on its event, where a link to a message
+ * finds it, and the store orders events by `sequence`. Each event keeps the tokens main minted for
+ * the paths its payload names.
  */
 export function readSessionStreamFrame(
   frame: unknown,
   attachments: readonly Uint8Array[],
   fileRefs: Readonly<Record<string, FilePathRef>> | undefined,
-): SessionStreamFrameReading | undefined {
-  if (!validateSessionStreamFrame.call({ attachments }, frame)) {
-    return undefined;
-  }
+): SessionStreamFrameReading {
   const delivered = withBytesPlaced(frame, attachments) as SessionStreamFrame;
   if (delivered.kind === "behind") {
     return {
@@ -69,7 +58,7 @@ export function readSessionStreamFrame(
   }
   const events: ProjectedSessionEvent[] = [];
   let unreadableEventCount = 0;
-  // The check admits a changes frame only with at least one change.
+  // The service sends a changes frame only with at least one change.
   let resumeCursor = delivered.changes[0].cursor;
   for (const change of delivered.changes) {
     resumeCursor = change.cursor;
@@ -85,7 +74,7 @@ export function readSessionStreamFrame(
 }
 
 /**
- * Narrows one checked envelope, the cursor it was delivered at and the run stamp it came with into
+ * Narrows one envelope, the cursor it was delivered at and the run stamp it came with into
  * the app's event shape, or `undefined` when its category disagrees with the census for its type.
  *
  * `type` becomes `kind` and `actor` becomes `actorId`; a `null` or absent actor is left unset

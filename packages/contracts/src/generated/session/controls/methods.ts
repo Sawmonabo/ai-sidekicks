@@ -3,35 +3,6 @@
 
 // A session's own controls and the reads behind its composer chips. Every method names the session it acts on, and every setting it changes belongs to that session alone.
 
-import type { SchemaCheck } from "../../../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "../../checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "../../checks/method-descriptor.js";
-import { validateAgentQueueItemCreateResponse } from "../../checks/run/queue.js";
-import {
-  validateMcpResourceListRequest,
-  validateMcpResourceListResponse,
-  validateProviderTerminalSessionListResponse,
-  validateSessionAcknowledgment,
-  validateSessionAddressedRequest,
-  validateSessionAutoCompactUpdateRequest,
-  validateSessionAutoCompactUpdateResponse,
-  validateSessionCodeReviewStartRequest,
-  validateSessionMaxStepsUpdateRequest,
-  validateSessionMaxStepsUpdateResponse,
-  validateSessionMcpServerEnabledUpdateRequest,
-  validateSessionMcpServerEnabledUpdateResponse,
-  validateSessionMcpServerList,
-  validateSessionModeUpdateRequest,
-  validateSessionModeUpdateResponse,
-  validateSessionPermissionLevelUpdateRequest,
-  validateSessionPermissionLevelUpdateResponse,
-  validateSessionProviderCommandList,
-  validateSessionSideQuestionAskRequest,
-  validateSessionSideQuestionAskResponse,
-  validateSessionSpendLimitUpdateRequest,
-  validateSessionTokensPerRunUpdateRequest,
-} from "../../checks/session/controls/methods.js";
-import { validateSessionBudgetState } from "../../checks/session/cost.js";
 import type { SubscribeAcknowledgmentResponse } from "../../jsonrpc/streaming.js";
 import type { McpServerStatus } from "../../mcp/server.js";
 import type { EmptyPayload } from "../../method-descriptor.js";
@@ -506,142 +477,145 @@ export interface ProviderTerminalSessionListResponse {
 }
 
 export {
-  validateMcpResourceListRequest,
-  validateMcpResourceListResponse,
   validatePermissionLevel,
-  validateProviderTerminalSessionListResponse,
-  validateSessionAcknowledgment,
-  validateSessionAddressedRequest,
-  validateSessionAutoCompactUpdateRequest,
-  validateSessionAutoCompactUpdateResponse,
-  validateSessionCodeReviewStartRequest,
-  validateSessionMaxStepsUpdateRequest,
-  validateSessionMaxStepsUpdateResponse,
-  validateSessionMcpResource,
-  validateSessionMcpServer,
-  validateSessionMcpServerEnabledUpdateRequest,
-  validateSessionMcpServerEnabledUpdateResponse,
-  validateSessionMcpServerList,
   validateSessionMode,
-  validateSessionModeUpdateRequest,
-  validateSessionModeUpdateResponse,
-  validateSessionPermissionLevelUpdateRequest,
-  validateSessionPermissionLevelUpdateResponse,
-  validateSessionProviderCommandList,
   validateSessionReviewTarget,
-  validateSessionServerPrompt,
-  validateSessionSideQuestionAskRequest,
-  validateSessionSideQuestionAskResponse,
-  validateSessionSpendLimitUpdateRequest,
-  validateSessionTokensPerRunUpdateRequest,
   validateSideQuestionId,
   validateSideQuestionText,
-  validateTerminalProviderSession,
-  validateTerminalProviderSessionState,
-  validateTerminalSessionProvider,
 } from "../../checks/session/controls/methods.js";
 
-/** The methods of {@link SESSION_CONTROL_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link SESSION_CONTROL_METHOD_DESCRIPTORS}, each with its kind. */
 export interface SessionControlMethodDescriptors {
   readonly "session.permissionLevel.update": {
     readonly method: "session.permissionLevel.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionPermissionLevelUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SessionPermissionLevelUpdateResponse>;
   };
   readonly "session.mode.update": {
     readonly method: "session.mode.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionModeUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SessionModeUpdateResponse>;
   };
   readonly "session.autoCompact.update": {
     readonly method: "session.autoCompact.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionAutoCompactUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SessionAutoCompactUpdateResponse>;
   };
   readonly "session.mcpServer.subscribe": {
     readonly method: "session.mcpServer.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionAddressedRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<SessionMcpServerList>;
   };
   readonly "session.mcpServer.enabled.update": {
     readonly method: "session.mcpServer.enabled.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionMcpServerEnabledUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SessionMcpServerEnabledUpdateResponse>;
   };
   readonly "mcp.resource.list": {
     readonly method: "mcp.resource.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<McpResourceListRequest>;
-    readonly responseCheck: SchemaCheck<McpResourceListResponse>;
   };
   readonly "session.providerCommand.subscribe": {
     readonly method: "session.providerCommand.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionAddressedRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<SessionProviderCommandList>;
   };
   readonly "session.sideQuestion.ask": {
     readonly method: "session.sideQuestion.ask";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionSideQuestionAskRequest>;
-    readonly responseCheck: SchemaCheck<SessionSideQuestionAskResponse>;
   };
   readonly "session.codeReview.start": {
     readonly method: "session.codeReview.start";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionCodeReviewStartRequest>;
-    readonly responseCheck: SchemaCheck<AgentQueueItemCreateResponse>;
   };
   readonly "session.definition.reload": {
     readonly method: "session.definition.reload";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionAddressedRequest>;
-    readonly responseCheck: SchemaCheck<SessionAcknowledgment>;
   };
   readonly "session.maxSteps.update": {
     readonly method: "session.maxSteps.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionMaxStepsUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SessionMaxStepsUpdateResponse>;
   };
   readonly "session.spendLimit.update": {
     readonly method: "session.spendLimit.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionSpendLimitUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SessionBudgetState>;
   };
   readonly "session.tokensPerRun.update": {
     readonly method: "session.tokensPerRun.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionTokensPerRunUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SessionBudgetState>;
   };
   readonly "provider.terminalSession.list": {
     readonly method: "provider.terminalSession.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<ProviderTerminalSessionListResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link SESSION_CONTROL_METHOD_DESCRIPTORS}. */
+export interface SessionControlMethodTypes {
+  readonly "session.permissionLevel.update": {
+    readonly params: SessionPermissionLevelUpdateRequest;
+    readonly result: SessionPermissionLevelUpdateResponse;
+  };
+  readonly "session.mode.update": {
+    readonly params: SessionModeUpdateRequest;
+    readonly result: SessionModeUpdateResponse;
+  };
+  readonly "session.autoCompact.update": {
+    readonly params: SessionAutoCompactUpdateRequest;
+    readonly result: SessionAutoCompactUpdateResponse;
+  };
+  readonly "session.mcpServer.subscribe": {
+    readonly params: SessionAddressedRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: SessionMcpServerList;
+  };
+  readonly "session.mcpServer.enabled.update": {
+    readonly params: SessionMcpServerEnabledUpdateRequest;
+    readonly result: SessionMcpServerEnabledUpdateResponse;
+  };
+  readonly "mcp.resource.list": {
+    readonly params: McpResourceListRequest;
+    readonly result: McpResourceListResponse;
+  };
+  readonly "session.providerCommand.subscribe": {
+    readonly params: SessionAddressedRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: SessionProviderCommandList;
+  };
+  readonly "session.sideQuestion.ask": {
+    readonly params: SessionSideQuestionAskRequest;
+    readonly result: SessionSideQuestionAskResponse;
+  };
+  readonly "session.codeReview.start": {
+    readonly params: SessionCodeReviewStartRequest;
+    readonly result: AgentQueueItemCreateResponse;
+  };
+  readonly "session.definition.reload": {
+    readonly params: SessionAddressedRequest;
+    readonly result: SessionAcknowledgment;
+  };
+  readonly "session.maxSteps.update": {
+    readonly params: SessionMaxStepsUpdateRequest;
+    readonly result: SessionMaxStepsUpdateResponse;
+  };
+  readonly "session.spendLimit.update": {
+    readonly params: SessionSpendLimitUpdateRequest;
+    readonly result: SessionBudgetState;
+  };
+  readonly "session.tokensPerRun.update": {
+    readonly params: SessionTokensPerRunUpdateRequest;
+    readonly result: SessionBudgetState;
+  };
+  readonly "provider.terminalSession.list": {
+    readonly params: EmptyPayload;
+    readonly result: ProviderTerminalSessionListResponse;
   };
 }
 /** The session-control methods' wire contract: name, procedure type and types. */
@@ -651,100 +625,70 @@ export const SESSION_CONTROL_METHOD_DESCRIPTORS: SessionControlMethodDescriptors
       method: "session.permissionLevel.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionPermissionLevelUpdateRequest,
-      responseCheck: validateSessionPermissionLevelUpdateResponse,
     }),
     "session.mode.update": /* @__PURE__ */ Object.freeze({
       method: "session.mode.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionModeUpdateRequest,
-      responseCheck: validateSessionModeUpdateResponse,
     }),
     "session.autoCompact.update": /* @__PURE__ */ Object.freeze({
       method: "session.autoCompact.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionAutoCompactUpdateRequest,
-      responseCheck: validateSessionAutoCompactUpdateResponse,
     }),
     "session.mcpServer.subscribe": /* @__PURE__ */ Object.freeze({
       method: "session.mcpServer.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateSessionAddressedRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateSessionMcpServerList,
     }),
     "session.mcpServer.enabled.update": /* @__PURE__ */ Object.freeze({
       method: "session.mcpServer.enabled.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionMcpServerEnabledUpdateRequest,
-      responseCheck: validateSessionMcpServerEnabledUpdateResponse,
     }),
     "mcp.resource.list": /* @__PURE__ */ Object.freeze({
       method: "mcp.resource.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateMcpResourceListRequest,
-      responseCheck: validateMcpResourceListResponse,
     }),
     "session.providerCommand.subscribe": /* @__PURE__ */ Object.freeze({
       method: "session.providerCommand.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateSessionAddressedRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateSessionProviderCommandList,
     }),
     "session.sideQuestion.ask": /* @__PURE__ */ Object.freeze({
       method: "session.sideQuestion.ask",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionSideQuestionAskRequest,
-      responseCheck: validateSessionSideQuestionAskResponse,
     }),
     "session.codeReview.start": /* @__PURE__ */ Object.freeze({
       method: "session.codeReview.start",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionCodeReviewStartRequest,
-      responseCheck: validateAgentQueueItemCreateResponse,
     }),
     "session.definition.reload": /* @__PURE__ */ Object.freeze({
       method: "session.definition.reload",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionAddressedRequest,
-      responseCheck: validateSessionAcknowledgment,
     }),
     "session.maxSteps.update": /* @__PURE__ */ Object.freeze({
       method: "session.maxSteps.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionMaxStepsUpdateRequest,
-      responseCheck: validateSessionMaxStepsUpdateResponse,
     }),
     "session.spendLimit.update": /* @__PURE__ */ Object.freeze({
       method: "session.spendLimit.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionSpendLimitUpdateRequest,
-      responseCheck: validateSessionBudgetState,
     }),
     "session.tokensPerRun.update": /* @__PURE__ */ Object.freeze({
       method: "session.tokensPerRun.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionTokensPerRunUpdateRequest,
-      responseCheck: validateSessionBudgetState,
     }),
     "provider.terminalSession.list": /* @__PURE__ */ Object.freeze({
       method: "provider.terminalSession.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateProviderTerminalSessionListResponse,
     }),
   });

@@ -317,17 +317,8 @@ export interface ObservedProviderOption {
 
 export {
   validateObservedProviderOption,
-  validateProviderActionPlace,
-  validateProviderActionProgress,
-  validateProviderActionWords,
-  validateProviderChoiceOption,
   validateProviderDeclarationId,
   validateProviderOptionSetting,
   validateProviderPlaceSwitch,
-  validateProviderRow,
-  validateProviderSessionOption,
-  validateProviderSessionOptionControl,
-  validateProviderSessionOptionPlacement,
-  validateProviderSettingControl,
   validateProviderValue,
 } from "../checks/provider/declaration.js";

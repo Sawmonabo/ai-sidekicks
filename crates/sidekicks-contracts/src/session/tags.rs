@@ -67,8 +67,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "A session's tags as the person adds and removes them, and the tags in use that `Add \
           tag` suggests.",
     definitions: &[
-        Definition::read::<SessionTagRequest>().checked(),
-        Definition::read::<SessionTagListResponse>().checked(),
+        Definition::read::<SessionTagRequest>(),
+        Definition::read::<SessionTagListResponse>(),
     ],
     constants: &[],
     method_tables: &[&SESSION_TAG_METHOD_DESCRIPTORS],

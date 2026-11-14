@@ -244,18 +244,3 @@ export interface ProjectCloneFolderReadResponse {
    */
   source: ProjectCloneFolderSource;
 }
-
-export {
-  validateAskpassAnswer,
-  validateCloneQuestionId,
-  validateProjectCloneAnswerRequest,
-  validateProjectCloneFailedStep,
-  validateProjectCloneFolderReadResponse,
-  validateProjectCloneFolderSource,
-  validateProjectCloneProgress,
-  validateProjectCloneQuestion,
-  validateProjectCloneRequest,
-  validateProjectCloneStartRequest,
-  validateProjectCloneStartResponse,
-  validateProjectCloneStatus,
-} from "../checks/repo/clone.js";

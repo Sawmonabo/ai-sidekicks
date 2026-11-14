@@ -685,19 +685,4 @@ export interface MachineRemovedStatement {
   machineId: MachineId;
 }
 
-export {
-  validateChannelPublicKey,
-  validateCoseAlgorithm,
-  validateDeviceId,
-  validateDeviceLinkedStatement,
-  validateDeviceRenamedStatement,
-  validateDeviceRevokedStatement,
-  validateIdentityPublicKey,
-  validateMachineIdentityKey,
-  validatePasskeyPublicKey,
-  validateTrustSigner,
-  validateTrustStatement,
-  validateTrustStatementHash,
-  validateTrustStatementKind,
-  validateTrustStatementSignature,
-} from "./checks/trust-statement.js";
+export { validateDeviceId } from "./checks/trust-statement.js";

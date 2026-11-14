@@ -3,18 +3,6 @@
 
 // The machine-wide browser methods behind Settings › Browser.
 
-import type { SchemaCheck } from "../schema-check.js";
-import {
-  validateBrowserChromiumFetchResponse,
-  validateBrowserChromiumReadResponse,
-  validateBrowserCookieClearResponse,
-  validateBrowserSiteDataClearResponse,
-  validateBrowserSiteDataForgetResponse,
-  validateBrowserSiteDataListResponse,
-  validateBrowserSiteRequest,
-  validateBrowserSiteSignInResponse,
-} from "./checks/browser.js";
-import { validateEmptyPayload } from "./checks/method-descriptor.js";
 import type { WireInstant } from "./internal/wire-scalars.js";
 import type { EmptyPayload } from "./method-descriptor.js";
 
@@ -185,72 +173,73 @@ export interface BrowserChromiumFetchResponse {
   started: true;
 }
 
-export {
-  validateBrowserChromiumCannotStart,
-  validateBrowserChromiumCannotStartReason,
-  validateBrowserChromiumFetchResponse,
-  validateBrowserChromiumReadResponse,
-  validateBrowserCookieClearResponse,
-  validateBrowserInstalledChromiumSource,
-  validateBrowserSiteData,
-  validateBrowserSiteDataClearResponse,
-  validateBrowserSiteDataForgetResponse,
-  validateBrowserSiteDataListResponse,
-  validateBrowserSiteRequest,
-  validateBrowserSiteSignInResponse,
-  validateSiteOrigin,
-} from "./checks/browser.js";
-
-/** The methods of {@link BROWSER_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link BROWSER_METHOD_DESCRIPTORS}, each with its kind. */
 export interface BrowserMethodDescriptors {
   readonly "browser.siteData.list": {
     readonly method: "browser.siteData.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<BrowserSiteDataListResponse>;
   };
   readonly "browser.site.signIn": {
     readonly method: "browser.site.signIn";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<BrowserSiteRequest>;
-    readonly responseCheck: SchemaCheck<BrowserSiteSignInResponse>;
   };
   readonly "browser.cookie.clear": {
     readonly method: "browser.cookie.clear";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<BrowserSiteRequest>;
-    readonly responseCheck: SchemaCheck<BrowserCookieClearResponse>;
   };
   readonly "browser.siteData.forget": {
     readonly method: "browser.siteData.forget";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<BrowserSiteRequest>;
-    readonly responseCheck: SchemaCheck<BrowserSiteDataForgetResponse>;
   };
   readonly "browser.siteData.clear": {
     readonly method: "browser.siteData.clear";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<BrowserSiteDataClearResponse>;
   };
   readonly "browser.chromium.read": {
     readonly method: "browser.chromium.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<BrowserChromiumReadResponse>;
   };
   readonly "browser.chromium.fetch": {
     readonly method: "browser.chromium.fetch";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<BrowserChromiumFetchResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link BROWSER_METHOD_DESCRIPTORS}. */
+export interface BrowserMethodTypes {
+  readonly "browser.siteData.list": {
+    readonly params: EmptyPayload;
+    readonly result: BrowserSiteDataListResponse;
+  };
+  readonly "browser.site.signIn": {
+    readonly params: BrowserSiteRequest;
+    readonly result: BrowserSiteSignInResponse;
+  };
+  readonly "browser.cookie.clear": {
+    readonly params: BrowserSiteRequest;
+    readonly result: BrowserCookieClearResponse;
+  };
+  readonly "browser.siteData.forget": {
+    readonly params: BrowserSiteRequest;
+    readonly result: BrowserSiteDataForgetResponse;
+  };
+  readonly "browser.siteData.clear": {
+    readonly params: EmptyPayload;
+    readonly result: BrowserSiteDataClearResponse;
+  };
+  readonly "browser.chromium.read": {
+    readonly params: EmptyPayload;
+    readonly result: BrowserChromiumReadResponse;
+  };
+  readonly "browser.chromium.fetch": {
+    readonly params: EmptyPayload;
+    readonly result: BrowserChromiumFetchResponse;
   };
 }
 /** The `browser.*` methods the daemon answers. */
@@ -259,49 +248,35 @@ export const BROWSER_METHOD_DESCRIPTORS: BrowserMethodDescriptors = /* @__PURE__
     method: "browser.siteData.list",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateBrowserSiteDataListResponse,
   }),
   "browser.site.signIn": /* @__PURE__ */ Object.freeze({
     method: "browser.site.signIn",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateBrowserSiteRequest,
-    responseCheck: validateBrowserSiteSignInResponse,
   }),
   "browser.cookie.clear": /* @__PURE__ */ Object.freeze({
     method: "browser.cookie.clear",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateBrowserSiteRequest,
-    responseCheck: validateBrowserCookieClearResponse,
   }),
   "browser.siteData.forget": /* @__PURE__ */ Object.freeze({
     method: "browser.siteData.forget",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateBrowserSiteRequest,
-    responseCheck: validateBrowserSiteDataForgetResponse,
   }),
   "browser.siteData.clear": /* @__PURE__ */ Object.freeze({
     method: "browser.siteData.clear",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateBrowserSiteDataClearResponse,
   }),
   "browser.chromium.read": /* @__PURE__ */ Object.freeze({
     method: "browser.chromium.read",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateBrowserChromiumReadResponse,
   }),
   "browser.chromium.fetch": /* @__PURE__ */ Object.freeze({
     method: "browser.chromium.fetch",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateBrowserChromiumFetchResponse,
   }),
 });

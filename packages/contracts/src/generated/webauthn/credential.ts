@@ -3,9 +3,6 @@
 
 // A passkey's removal: the signed-in account revokes one of its own passkeys, so it can no longer sign in. A passkey of another account, or one already gone, is answered as removed.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import { validateWebAuthnCredentialRevokeRequest } from "../checks/webauthn/credential.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 
 /**
@@ -18,16 +15,19 @@ export interface WebAuthnCredentialRevokeRequest {
   passkeyId: string;
 }
 
-export { validateWebAuthnCredentialRevokeRequest } from "../checks/webauthn/credential.js";
-
-/** The methods of {@link WEBAUTHN_CREDENTIAL_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link WEBAUTHN_CREDENTIAL_METHOD_DESCRIPTORS}, each with its kind. */
 export interface WebauthnCredentialMethodDescriptors {
   readonly "webauthn.credential.revoke": {
     readonly method: "webauthn.credential.revoke";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WebAuthnCredentialRevokeRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
+  };
+}
+/** The params, result and emission types of each method of {@link WEBAUTHN_CREDENTIAL_METHOD_DESCRIPTORS}. */
+export interface WebauthnCredentialMethodTypes {
+  readonly "webauthn.credential.revoke": {
+    readonly params: WebAuthnCredentialRevokeRequest;
+    readonly result: EmptyPayload;
   };
 }
 /** The passkey removal the control plane serves, one POST at `/<method>`. */
@@ -37,7 +37,5 @@ export const WEBAUTHN_CREDENTIAL_METHOD_DESCRIPTORS: WebauthnCredentialMethodDes
       method: "webauthn.credential.revoke",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWebAuthnCredentialRevokeRequest,
-      responseCheck: validateEmptyPayload,
     }),
   });

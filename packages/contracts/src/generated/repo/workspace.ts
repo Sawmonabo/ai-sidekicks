@@ -104,11 +104,3 @@ export interface WorkspaceListResponse {
    */
   workspaces: WorkspaceListEntry[];
 }
-
-export {
-  validateWorkspaceBindRequest,
-  validateWorkspaceBindResponse,
-  validateWorkspaceListEntry,
-  validateWorkspaceListRequest,
-  validateWorkspaceListResponse,
-} from "../checks/repo/workspace.js";

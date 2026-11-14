@@ -11,5 +11,3 @@ export type Tag = string;
  * Tags, each nested with / and held once ignoring case; no whitespace or empty level.
  */
 export type TagList = Tag[];
-
-export { validateTag, validateTagList } from "./checks/tag.js";

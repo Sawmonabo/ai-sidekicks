@@ -3,16 +3,6 @@
 
 // The two retention bounds on Settings › Runtime, and `Delete old data`.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import {
-  validateDaemonRetentionBounds,
-  validateDaemonRetentionPurgeRequest,
-  validateDaemonRetentionPurgeResponse,
-  validateDaemonRetentionReadResponse,
-  validateDaemonRetentionUpdateRequest,
-} from "../checks/daemon/retention.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
 import type { WireInstant } from "../internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
 import type { EmptyPayload } from "../method-descriptor.js";
@@ -97,45 +87,47 @@ export interface DaemonRetentionPurgeResponse {
   deletedSessionCount: number;
 }
 
-export {
-  validateDaemonRetentionBounds,
-  validateDaemonRetentionPurgePreview,
-  validateDaemonRetentionPurgeRequest,
-  validateDaemonRetentionPurgeResponse,
-  validateDaemonRetentionReadResponse,
-  validateDaemonRetentionUpdateRequest,
-} from "../checks/daemon/retention.js";
-
-/** The methods of {@link DAEMON_RETENTION_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link DAEMON_RETENTION_METHOD_DESCRIPTORS}, each with its kind. */
 export interface DaemonRetentionMethodDescriptors {
   readonly "daemon.retention.read": {
     readonly method: "daemon.retention.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<DaemonRetentionReadResponse>;
   };
   readonly "daemon.retention.update": {
     readonly method: "daemon.retention.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DaemonRetentionUpdateRequest>;
-    readonly responseCheck: SchemaCheck<DaemonRetentionBounds>;
   };
   readonly "daemon.retention.purge": {
     readonly method: "daemon.retention.purge";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DaemonRetentionPurgeRequest>;
-    readonly responseCheck: SchemaCheck<DaemonRetentionPurgeResponse>;
   };
   readonly "daemon.retention.subscribe": {
     readonly method: "daemon.retention.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<DaemonRetentionBounds>;
+  };
+}
+/** The params, result and emission types of each method of {@link DAEMON_RETENTION_METHOD_DESCRIPTORS}. */
+export interface DaemonRetentionMethodTypes {
+  readonly "daemon.retention.read": {
+    readonly params: EmptyPayload;
+    readonly result: DaemonRetentionReadResponse;
+  };
+  readonly "daemon.retention.update": {
+    readonly params: DaemonRetentionUpdateRequest;
+    readonly result: DaemonRetentionBounds;
+  };
+  readonly "daemon.retention.purge": {
+    readonly params: DaemonRetentionPurgeRequest;
+    readonly result: DaemonRetentionPurgeResponse;
+  };
+  readonly "daemon.retention.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: DaemonRetentionBounds;
   };
 }
 /** The retention methods. */
@@ -145,29 +137,20 @@ export const DAEMON_RETENTION_METHOD_DESCRIPTORS: DaemonRetentionMethodDescripto
       method: "daemon.retention.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateDaemonRetentionReadResponse,
     }),
     "daemon.retention.update": /* @__PURE__ */ Object.freeze({
       method: "daemon.retention.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateDaemonRetentionUpdateRequest,
-      responseCheck: validateDaemonRetentionBounds,
     }),
     "daemon.retention.purge": /* @__PURE__ */ Object.freeze({
       method: "daemon.retention.purge",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateDaemonRetentionPurgeRequest,
-      responseCheck: validateDaemonRetentionPurgeResponse,
     }),
     "daemon.retention.subscribe": /* @__PURE__ */ Object.freeze({
       method: "daemon.retention.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateDaemonRetentionBounds,
     }),
   });

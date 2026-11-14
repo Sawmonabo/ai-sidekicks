@@ -3,9 +3,6 @@
 
 // The node catalog: every node kind the daemon runs, as `workflow.kind.list` serializes it.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import { validateWorkflowKindListResponse } from "../checks/workflow/kind.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 import type { WorkflowNodeKindId } from "./definition/document.js";
 
@@ -373,30 +370,19 @@ export interface WorkflowKindListResponse {
   kinds: WorkflowNodeKindSpec[];
 }
 
-export {
-  validateWorkflowCollectionParamSpec,
-  validateWorkflowInputHandleSpec,
-  validateWorkflowKindListResponse,
-  validateWorkflowLeafParamSpec,
-  validateWorkflowNodeCapabilities,
-  validateWorkflowNodeKindCategory,
-  validateWorkflowNodeKindSpec,
-  validateWorkflowNodeSideEffects,
-  validateWorkflowOutputHandleSpec,
-  validateWorkflowParamId,
-  validateWorkflowParamOption,
-  validateWorkflowParamSpec,
-  validateWorkflowParamType,
-} from "../checks/workflow/kind.js";
-
-/** The methods of {@link WORKFLOW_KIND_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link WORKFLOW_KIND_METHOD_DESCRIPTORS}, each with its kind. */
 export interface WorkflowKindMethodDescriptors {
   readonly "workflow.kind.list": {
     readonly method: "workflow.kind.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<WorkflowKindListResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link WORKFLOW_KIND_METHOD_DESCRIPTORS}. */
+export interface WorkflowKindMethodTypes {
+  readonly "workflow.kind.list": {
+    readonly params: EmptyPayload;
+    readonly result: WorkflowKindListResponse;
   };
 }
 /** The node catalog's method table. */
@@ -406,7 +392,5 @@ export const WORKFLOW_KIND_METHOD_DESCRIPTORS: WorkflowKindMethodDescriptors =
       method: "workflow.kind.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateWorkflowKindListResponse,
     }),
   });

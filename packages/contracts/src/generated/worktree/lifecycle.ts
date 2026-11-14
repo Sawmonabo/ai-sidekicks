@@ -446,20 +446,8 @@ export interface WorktreeStatusReadResponse {
 }
 
 export {
-  validateBranchContextId,
-  validateKeptWorktree,
-  validateListedWorktreeState,
-  validateNewWorktreeSuggestion,
   validateRemovedWorktreeId,
-  validateRepoRootStatus,
-  validateWorkspaceExecutionRootPrepareRequest,
-  validateWorkspaceExecutionRootPrepareResponse,
   validateWorktreeId,
   validateWorktreeLifecyclePayload,
-  validateWorktreeRetireRequest,
-  validateWorktreeRetireResponse,
   validateWorktreeState,
-  validateWorktreeStatusReadRequest,
-  validateWorktreeStatusReadResponse,
-  validateWorktreeStatusRecord,
 } from "../checks/worktree/lifecycle.js";

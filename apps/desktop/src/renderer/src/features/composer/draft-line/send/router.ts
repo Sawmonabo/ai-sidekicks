@@ -13,7 +13,6 @@
 import type { AgentQueueItemCreateRequest } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionDraftExtras } from "@ai-sidekicks/contracts/session/draft";
 
-import { readQueueItemCreateRequest } from "#renderer/services/daemon/wire/requests.js";
 import { readSessionId } from "#renderer/services/daemon/wire/identifiers.js";
 import type { ComposerTarget } from "../../target.js";
 import { readSlashCommandName } from "../../slash-command-syntax.js";
@@ -126,15 +125,12 @@ export class ComposerSendRouter {
     if (sessionId === undefined) {
       return { outcome: "refused", refusal: unparsableIdentifier() };
     }
-    const request = readQueueItemCreateRequest({
+    const request: AgentQueueItemCreateRequest = {
       sessionId,
       clientIdempotencyKey: this.#mintIdempotencyKey(),
       content: body,
       ...extras,
-    } satisfies AgentQueueItemCreateRequest);
-    if (request === undefined) {
-      return { outcome: "refused", refusal: unparsableIdentifier() };
-    }
+    };
     return { outcome: "queue", request };
   }
 

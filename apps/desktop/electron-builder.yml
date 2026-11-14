@@ -9,8 +9,6 @@ files:
   - "!out/tsc-renderer/**"
   # The hidden source maps, read only to symbolicate a crash report off the machine.
   - "!out/**/*.map"
-  # The renderer build's chunk manifest, which only the bundle budget reads.
-  - "!out/renderer/.vite/**"
   # The third-party notices, which ship beside the archive (`extraResources` below).
   - "!out/third-party-notices/**"
   # The service programs, which ship beside the archive (`mac.extraResources` below).

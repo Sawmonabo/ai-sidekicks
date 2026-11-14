@@ -9,7 +9,10 @@
 
 import { useCallback, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 
-import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/record";
+import type {
+  ProviderAccountListResponse,
+  ProviderAccountNotification,
+} from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
@@ -164,7 +167,7 @@ function createAccountRegistry(
         open: (deliver, onEnded) =>
           bridge.daemon.subscribe(PROVIDER_ACCOUNT_NOTICE_STREAM, {}, deliver, onEnded),
         onFrame: (frame) => {
-          deliveries.deliver(frame);
+          deliveries.deliver(frame as ProviderAccountNotification);
         },
         onReopened: onChange,
       }),

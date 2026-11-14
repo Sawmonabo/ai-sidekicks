@@ -202,7 +202,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<ProviderModel>(),
         Definition::read::<ProviderMode>(),
-        Definition::read::<ExecutionPosture>().checked(),
+        Definition::read::<ExecutionPosture>(),
     ],
     constants: &[],
     method_tables: &[],

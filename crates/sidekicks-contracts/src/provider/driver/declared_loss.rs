@@ -48,7 +48,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/driver/declared-loss",
     doc: "What a transcript operation could not carry, named so a client shows the loss rather \
           than a silent gap.",
-    definitions: &[Definition::read::<DeclaredLossKind>().checked()],
+    definitions: &[Definition::read::<DeclaredLossKind>()],
     constants: TS_CONSTANTS,
     method_tables: &[],
 };

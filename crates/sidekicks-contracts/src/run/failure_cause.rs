@@ -141,7 +141,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           provider's own normalized into it by its driver.",
     definitions: &[
         Definition::read::<RunRefusedOrigin>(),
-        Definition::read::<RunFailureCause>().checked(),
+        Definition::read::<RunFailureCause>(),
     ],
     constants: &[],
     method_tables: &[],

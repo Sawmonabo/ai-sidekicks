@@ -233,16 +233,4 @@ export interface AgentChildRunControlRefusedDetails {
   reason: AgentChildRunControlRefusedReason;
 }
 
-export {
-  validateAgentChildRunControlRefusedDetails,
-  validateAgentChildRunControlRefusedReason,
-  validateAgentChildRunInterruptRequest,
-  validateAgentChildRunInterruptResponse,
-  validateAgentChildRunPausedUpdateRequest,
-  validateAgentChildRunPausedUpdateResponse,
-  validateAgentChildRunSteerRequest,
-  validateAgentChildRunStopAllRequest,
-  validateAgentChildRunStopAllResponse,
-  validateChildStopOutcome,
-  validateChildStoppedState,
-} from "../checks/run/children.js";
+export { validateChildStoppedState } from "../checks/run/children.js";

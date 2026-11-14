@@ -795,8 +795,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           graph and connection checks.",
     definitions: &[
         Definition::read::<WorkflowDefinitionRule>(),
-        Definition::read::<WorkflowDefinitionFinding>().checked(),
-        Definition::read::<WorkflowDefinitionRefusedDetails>().checked(),
+        Definition::read::<WorkflowDefinitionFinding>(),
+        Definition::read::<WorkflowDefinitionRefusedDetails>(),
         Definition::read::<WorkflowNodeHandles>(),
         Definition::read::<WorkflowGraphCheckInput>(),
         Definition::read::<WorkflowConnectionCheckInput>(),

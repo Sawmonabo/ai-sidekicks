@@ -92,10 +92,10 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "Worktree event payloads beyond the shared lifecycle payload: a worktree created and \
           retired, a session swept back to the repository root, and a session's branch changed.",
     definitions: &[
-        Definition::read::<WorktreeCreatedPayload>().checked(),
-        Definition::read::<WorktreeRetiredPayload>().checked(),
-        Definition::read::<SessionSweptToCheckoutPayload>().checked(),
-        Definition::read::<SessionBranchChangedPayload>().checked(),
+        Definition::read::<WorktreeCreatedPayload>(),
+        Definition::read::<WorktreeRetiredPayload>(),
+        Definition::read::<SessionSweptToCheckoutPayload>(),
+        Definition::read::<SessionBranchChangedPayload>(),
     ],
     constants: &[],
     method_tables: &[],

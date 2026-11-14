@@ -4,7 +4,7 @@
 
 import { act, render } from "@testing-library/react";
 import { useMemo } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { ParkedDaemonCalls } from "../../hooks/parked-daemon-calls.test-support.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -122,14 +122,19 @@ describe("useSendController — a settlement is keyed to the address it was sent
     // the second press would do nothing at all.
     const driven = driveAddressableComposer();
     const firstSend = driven.beginSend("ship it");
-    expect(driven.calls.parkedCount).toBe(1);
+    // The send waits for a dropped file's copy before it calls, so the call parks a few ticks on.
+    await vi.waitFor(() => {
+      expect(driven.calls.parkedCount).toBe(1);
+    });
 
     driven.reAddressTo(SESSION_B);
     driven.reAddressTo(SESSION_A);
     expect(driven.latest().status).toBe("idle");
 
     const secondSend = driven.beginSend("actually, hold on");
-    expect(driven.calls.parkedCount).toBe(2);
+    await vi.waitFor(() => {
+      expect(driven.calls.parkedCount).toBe(2);
+    });
 
     // The first visit's settlement must not reach into the second's line: the draft store is
     // keyed by address, so an unconditional clear would erase the newly typed words.

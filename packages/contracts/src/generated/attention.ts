@@ -3,22 +3,6 @@
 
 // The attention projection (machine-wide, whole on every emission) and the `attention.*` methods: banner settling, seen marking, and delivery beyond this machine.
 
-import type { SchemaCheck } from "../schema-check.js";
-import {
-  validateAttentionBannerSettleRequest,
-  validateAttentionDeliveryListResponse,
-  validateAttentionDeliveryTestRequest,
-  validateAttentionDeliveryTestResponse,
-  validateAttentionMailPasswordUpdateRequest,
-  validateAttentionProjection,
-  validateAttentionSeenUpdateRequest,
-  validateAttentionSubscribeRequest,
-  validateAttentionWebAddressSecretRotateResponse,
-  validateAttentionWebAddressUpdateRequest,
-  validateAttentionWebAddressUpdateResponse,
-} from "./checks/attention.js";
-import { validateSubscribeAcknowledgmentResponse } from "./checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "./checks/method-descriptor.js";
 import type { WireInstant } from "./internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse } from "./jsonrpc/streaming.js";
 import type { KeychainRefusalCause } from "./keychain.js";
@@ -567,110 +551,101 @@ export interface AttentionDeliveryNotConfiguredDetails {
   missing: AttentionDeliveryMissing;
 }
 
-export {
-  validateAttentionBannerSettleRequest,
-  validateAttentionBannerSettledState,
-  validateAttentionBannerState,
-  validateAttentionDeliveryChannel,
-  validateAttentionDeliveryListResponse,
-  validateAttentionDeliveryMissing,
-  validateAttentionDeliveryNotConfiguredDetails,
-  validateAttentionDeliveryOutcome,
-  validateAttentionDeliveryResult,
-  validateAttentionDeliveryStoreUnavailableCause,
-  validateAttentionDeliveryStoreUnavailableDetails,
-  validateAttentionDeliveryTestRequest,
-  validateAttentionDeliveryTestResponse,
-  validateAttentionEmailDigestDelivery,
-  validateAttentionItem,
-  validateAttentionMailPasswordUpdateRequest,
-  validateAttentionMomentTrigger,
-  validateAttentionProjection,
-  validateAttentionProviderBuild,
-  validateAttentionSeenSubject,
-  validateAttentionSeenUpdateRequest,
-  validateAttentionSeverity,
-  validateAttentionSubscribeRequest,
-  validateAttentionSubscribeScope,
-  validateAttentionWebAddressDelivery,
-  validateAttentionWebAddressSecretRotateResponse,
-  validateAttentionWebAddressState,
-  validateAttentionWebAddressUpdateRequest,
-  validateAttentionWebAddressUpdateResponse,
-} from "./checks/attention.js";
-
-/** The methods of {@link ATTENTION_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link ATTENTION_METHOD_DESCRIPTORS}, each with its kind. */
 export interface AttentionMethodDescriptors {
   readonly "attention.subscribe": {
     readonly method: "attention.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<AttentionSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<AttentionProjection>;
   };
   readonly "attention.banner.settle": {
     readonly method: "attention.banner.settle";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AttentionBannerSettleRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "attention.seen.update": {
     readonly method: "attention.seen.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AttentionSeenUpdateRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "attention.delivery.list": {
     readonly method: "attention.delivery.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<AttentionDeliveryListResponse>;
   };
   readonly "attention.delivery.test": {
     readonly method: "attention.delivery.test";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AttentionDeliveryTestRequest>;
-    readonly responseCheck: SchemaCheck<AttentionDeliveryTestResponse>;
   };
   readonly "attention.mailPassword.update": {
     readonly method: "attention.mailPassword.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AttentionMailPasswordUpdateRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "attention.mailPassword.delete": {
     readonly method: "attention.mailPassword.delete";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "attention.webAddress.update": {
     readonly method: "attention.webAddress.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AttentionWebAddressUpdateRequest>;
-    readonly responseCheck: SchemaCheck<AttentionWebAddressUpdateResponse>;
   };
   readonly "attention.webAddress.secret.rotate": {
     readonly method: "attention.webAddress.secret.rotate";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<AttentionWebAddressSecretRotateResponse>;
   };
   readonly "attention.webAddress.delete": {
     readonly method: "attention.webAddress.delete";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
+  };
+}
+/** The params, result and emission types of each method of {@link ATTENTION_METHOD_DESCRIPTORS}. */
+export interface AttentionMethodTypes {
+  readonly "attention.subscribe": {
+    readonly params: AttentionSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: AttentionProjection;
+  };
+  readonly "attention.banner.settle": {
+    readonly params: AttentionBannerSettleRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "attention.seen.update": {
+    readonly params: AttentionSeenUpdateRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "attention.delivery.list": {
+    readonly params: EmptyPayload;
+    readonly result: AttentionDeliveryListResponse;
+  };
+  readonly "attention.delivery.test": {
+    readonly params: AttentionDeliveryTestRequest;
+    readonly result: AttentionDeliveryTestResponse;
+  };
+  readonly "attention.mailPassword.update": {
+    readonly params: AttentionMailPasswordUpdateRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "attention.mailPassword.delete": {
+    readonly params: EmptyPayload;
+    readonly result: EmptyPayload;
+  };
+  readonly "attention.webAddress.update": {
+    readonly params: AttentionWebAddressUpdateRequest;
+    readonly result: AttentionWebAddressUpdateResponse;
+  };
+  readonly "attention.webAddress.secret.rotate": {
+    readonly params: EmptyPayload;
+    readonly result: AttentionWebAddressSecretRotateResponse;
+  };
+  readonly "attention.webAddress.delete": {
+    readonly params: EmptyPayload;
+    readonly result: EmptyPayload;
   };
 }
 /** The `attention.*` methods. */
@@ -680,71 +655,50 @@ export const ATTENTION_METHOD_DESCRIPTORS: AttentionMethodDescriptors =
       method: "attention.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateAttentionSubscribeRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateAttentionProjection,
     }),
     "attention.banner.settle": /* @__PURE__ */ Object.freeze({
       method: "attention.banner.settle",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAttentionBannerSettleRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "attention.seen.update": /* @__PURE__ */ Object.freeze({
       method: "attention.seen.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAttentionSeenUpdateRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "attention.delivery.list": /* @__PURE__ */ Object.freeze({
       method: "attention.delivery.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateAttentionDeliveryListResponse,
     }),
     "attention.delivery.test": /* @__PURE__ */ Object.freeze({
       method: "attention.delivery.test",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAttentionDeliveryTestRequest,
-      responseCheck: validateAttentionDeliveryTestResponse,
     }),
     "attention.mailPassword.update": /* @__PURE__ */ Object.freeze({
       method: "attention.mailPassword.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAttentionMailPasswordUpdateRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "attention.mailPassword.delete": /* @__PURE__ */ Object.freeze({
       method: "attention.mailPassword.delete",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateEmptyPayload,
     }),
     "attention.webAddress.update": /* @__PURE__ */ Object.freeze({
       method: "attention.webAddress.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAttentionWebAddressUpdateRequest,
-      responseCheck: validateAttentionWebAddressUpdateResponse,
     }),
     "attention.webAddress.secret.rotate": /* @__PURE__ */ Object.freeze({
       method: "attention.webAddress.secret.rotate",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateAttentionWebAddressSecretRotateResponse,
     }),
     "attention.webAddress.delete": /* @__PURE__ */ Object.freeze({
       method: "attention.webAddress.delete",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateEmptyPayload,
     }),
   });

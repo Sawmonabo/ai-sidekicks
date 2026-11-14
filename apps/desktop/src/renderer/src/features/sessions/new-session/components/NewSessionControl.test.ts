@@ -15,7 +15,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { CREATED_SESSION_ID, bridgeFor } from "../draft.test-support.js";
 import {
-  bridgeAnsweringCreateUnreadably,
   bridgeHoldingCreate,
   completingFirstTurn,
   composeAndCompleteASend,
@@ -123,51 +122,5 @@ describe("the composed new-session draft — what a completed send hands out", (
       "The session was created, but the first turn was not queued.",
     );
     expect(container.querySelector(".meridian-new-session")).not.toBeNull();
-  });
-});
-
-describe("the composed new-session draft — the create it cannot answer for", () => {
-  afterEach(cleanup);
-
-  it("names the ambiguity, closes Send, and offers the sessions list instead", async () => {
-    // An unreadable reply read as `session-create-failed` beside a live Send would invite the
-    // press that makes a second orphan session.
-    const rechecks: number[] = [];
-    const container = renderControlOn(bridgeAnsweringCreateUnreadably(), {
-      onSessionDirectoryRecheck: () => rechecks.push(1),
-    });
-
-    await openDraftWithFirstTurn();
-    await press("Send");
-
-    expect(container.textContent).toContain(
-      "A session may have been created, and this window could not read the reply.",
-    );
-    expect(container.textContent).toContain("Check the sessions list");
-    // Closed, and stays closed: this draft can put nothing else on the wire.
-    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
-    // The act that is available is drawn rather than left to be guessed at.
-    await press("Check the sessions list");
-    expect(rechecks).toStrictEqual([1]);
-    // The draft stays: a person can still read what they typed and copy it out.
-    expect(container.querySelector(".meridian-new-session")).not.toBeNull();
-    expect(politeText(container)).toBe(
-      "A session may have been created, and this window could not read " +
-        "the reply. Check the sessions list.",
-    );
-  });
-
-  it("negative control: no session is handed to the destination on that arm", async () => {
-    // Without this, the case above would pass over a build that settled the ambiguous arm as a
-    // start, for a session that may not exist and is not named.
-    const settledSessionIds: string[] = [];
-    renderControlOn(bridgeAnsweringCreateUnreadably(), {
-      onSessionCreated: (sessionId) => settledSessionIds.push(sessionId),
-    });
-
-    await openDraftWithFirstTurn();
-    await press("Send");
-
-    expect(settledSessionIds).toStrictEqual([]);
   });
 });

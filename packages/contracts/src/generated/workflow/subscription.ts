@@ -3,12 +3,6 @@
 
 // The one live stream the workflows screens read, `workflow.subscribe`: the hold on starting new runs, run, step and schedule changes, and a definition changed or removed, with its method table.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import {
-  validateWorkflowSubscribeNotification,
-  validateWorkflowSubscribeRequest,
-} from "../checks/workflow/subscription.js";
 import type { WireInstant } from "../internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
 import type { SessionId } from "../session/id.js";
@@ -121,21 +115,20 @@ export interface WorkflowSubscribeRequest {
   definitionId?: WorkflowDefinitionId;
 }
 
-export {
-  validateWorkflowScheduleChange,
-  validateWorkflowSubscribeNotification,
-  validateWorkflowSubscribeRequest,
-} from "../checks/workflow/subscription.js";
-
-/** The methods of {@link WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS}, each with its kind. */
 export interface WorkflowSubscriptionMethodDescriptors {
   readonly "workflow.subscribe": {
     readonly method: "workflow.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<WorkflowSubscribeNotification>;
+  };
+}
+/** The params, result and emission types of each method of {@link WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS}. */
+export interface WorkflowSubscriptionMethodTypes {
+  readonly "workflow.subscribe": {
+    readonly params: WorkflowSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: WorkflowSubscribeNotification;
   };
 }
 /** The `workflow.subscribe` method's table. */
@@ -145,8 +138,5 @@ export const WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS: WorkflowSubscriptionMetho
       method: "workflow.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateWorkflowSubscribeRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateWorkflowSubscribeNotification,
     }),
   });

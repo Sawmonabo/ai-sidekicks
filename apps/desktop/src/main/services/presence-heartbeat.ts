@@ -5,10 +5,7 @@
 // at once whenever that fact changes, and otherwise every 15 seconds, so the service never holds a
 // stale answer for long; nothing is sent while no link is up.
 
-import {
-  PRESENCE_METHOD_DESCRIPTORS,
-  type PresenceHeartbeatSendRequest,
-} from "@ai-sidekicks/contracts/presence";
+import type { PresenceHeartbeatSendRequest } from "@ai-sidekicks/contracts/presence";
 import type { App, PowerMonitor } from "electron";
 
 import { describeFailure } from "#shared/failure-message.js";
@@ -108,13 +105,11 @@ export class PresenceHeartbeat {
       appVisible: this.#isAppVisible(),
     };
     this.#lastSentAppVisible = request.appVisible;
-    client
-      .call(PRESENCE_METHOD_DESCRIPTORS["presence.heartbeat.send"], request)
-      .catch((error: unknown) => {
-        this.#dependencies.logWarning(
-          `The background service did not take this device's presence: ${describeFailure(error)}`,
-        );
-      });
+    client.call("presence.heartbeat.send", request).catch((error: unknown) => {
+      this.#dependencies.logWarning(
+        `The background service did not take this device's presence: ${describeFailure(error)}`,
+      );
+    });
   }
 
   #isAppVisible(): boolean {

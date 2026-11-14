@@ -179,15 +179,14 @@ const RENDERER_RESTRICTED_PATTERNS = [
   },
 ];
 
-/** The `zod` library, which the renderer never needs: every wire value has a generated check. */
+/** The `zod` library, which the renderer never needs: every wire value has a generated type. */
 const ZOD_IMPORT = {
   // Bare specifier and every subpath (`zod/v4`, `zod/mini`) in one group, since the rule treats
   // them as distinct.
   group: ["zod", "zod/**"],
   message:
-    "The renderer checks a wire value only with its generated contracts check, in " +
-    "`services/`. Reach the daemon through `callDaemon` from `services/daemon/reply.ts`, " +
-    "which checks the reply with the method's generated check and answers `served` or " +
+    "The renderer reads a wire value as its generated contracts type. Reach the daemon " +
+    "through `callDaemon` from `services/daemon/reply.ts`, which answers `served` or " +
     "`refused`; a value that needs a shape needs a contract, not a local validator.",
 };
 
@@ -200,20 +199,9 @@ const CONTRACTS_CHECK_IMPORT = {
   // The generator names every check it writes this way.
   importNamePattern: "^validate[A-Z]",
   message:
-    "A surface never checks a wire value itself. Reach the daemon through `callDaemon` from " +
-    "`services/daemon/reply.ts`, which checks the reply with the method's generated check " +
-    "and answers `served` or `refused`; a value that needs a shape needs a `services/` " +
-    "reader, not a second reading of one. Types and other values from this package are " +
-    "untouched.",
-};
-
-/** The daemon method table, which hands out each method's checks: the same claim again. */
-const DAEMON_METHOD_BINDINGS_IMPORT = {
-  // A regex, because `group` takes gitignore syntax, where a leading `#` starts a comment.
-  regex: "^#shared/daemon/method-bindings\\.js$",
-  message:
-    "The daemon method table binds each method to its generated checks. " +
-    "Reach the daemon through `callDaemon` from `services/daemon/reply.ts`.",
+    "A surface never checks a value itself. The service's own messages are read as their " +
+    "generated types; a value that crosses in from elsewhere is checked by a `services/` " +
+    "reader. Types and other values from this package are untouched.",
 };
 
 /** The groups every renderer module may not import: the renderer's, plus `zod`. */
@@ -221,13 +209,12 @@ const RENDERER_CODE_RESTRICTED_PATTERNS = [...RENDERER_RESTRICTED_PATTERNS, ZOD_
 
 /**
  * The groups a renderer module outside `services/` may not import: every renderer module's, plus
- * the two that keep wire checks out of a surface. Flat config replaces a rule's options at the last
- * matching block, so each narrower block below spreads these instead of copying them.
+ * the one that keeps contracts checks out of a surface. Flat config replaces a rule's options at
+ * the last matching block, so each narrower block below spreads these instead of copying them.
  */
 const RENDERER_WIRE_RESTRICTED_PATTERNS = [
   ...RENDERER_CODE_RESTRICTED_PATTERNS,
   CONTRACTS_CHECK_IMPORT,
-  DAEMON_METHOD_BINDINGS_IMPORT,
 ];
 
 /**
@@ -450,7 +437,7 @@ const desktopConfig = defineConfig(
     },
   },
   // Every renderer module: the renderer ban plus `zod`, since every wire value the renderer reads
-  // has its generated check and the renderer owns no other data that crosses in.
+  // is a generated contract type and the renderer owns no other data that crosses in.
   {
     files: ["src/renderer/src/**/*.{ts,tsx}"],
     rules: {
@@ -462,10 +449,10 @@ const desktopConfig = defineConfig(
   },
   // The renderer outside `services/`: also the generated checks `@ai-sidekicks/contracts` ships.
   //
-  // Every daemon reply the renderer reads is checked in one module, `services/daemon/reply.ts`,
-  // with the checks `src/shared/daemon/method-bindings.ts` binds to each method. A surface that
-  // could reach a check directly could check a second time, differently, or skip the check and keep
-  // the fulfilled `unknown`. A surface needing a shape asks for the method, not for a check.
+  // The window reads its own service's messages as the generated types and checks none of them;
+  // the values that cross in from elsewhere, a stored workflow artifact's items and the ids an
+  // address names, are checked in `services/`. A surface needing a shape asks a service reader,
+  // never a check.
   //
   // The ban is on the name as well as the package: a renderer module outside `services/**` may
   // import types and other values from contracts (`SESSION_EVENT_CATEGORY_BY_TYPE`,
@@ -473,10 +460,9 @@ const desktopConfig = defineConfig(
   // not the call, because a check can only arrive by importing this package or through a renderer
   // module that re-exported one, and both spellings refuse here.
   //
-  // `services/**` is exempt as a layer, not the chokepoint file alone: `callDaemon` reads the
-  // daemon method table, the stream readers check each delivery, and the scenario contract checks
-  // assert against the wire's own shapes, all in one layer below every surface. The table itself
-  // sits in `src/shared/`, because main reads it too, so it is banned here by its module name.
+  // `services/**` is exempt as a layer: the readers of what crosses in from outside the service's
+  // connection, and the scenario fixtures that hold scripted data to the wire's own shapes, sit in
+  // one layer below every surface.
   //
   // It restates the renderer ban because flat config replaces a rule's options at the last matching
   // object, and spreads the hoisted arrays so the two cannot drift.
@@ -498,19 +484,6 @@ const desktopConfig = defineConfig(
   {
     files: rendererFiles("**", RENDERER_TEST_FILES),
     ignores: ["src/renderer/src/services/**"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        { paths: RENDERER_RESTRICTED_PATHS, patterns: RENDERER_CODE_RESTRICTED_PATTERNS },
-      ],
-    },
-  },
-  // Generated contracts checks and no `zod`: the approval fold checks each approval event's
-  // payload with that event's generated check, because the stream decoder checks only the
-  // envelope and a half-read ask would draw a card for an action nobody can see. The store may
-  // not import `services/`, so the check sits here.
-  {
-    files: ["src/renderer/src/store/session/events/approval-flow-projection.ts"],
     rules: {
       "no-restricted-imports": [
         "error",

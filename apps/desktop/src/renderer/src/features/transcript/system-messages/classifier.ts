@@ -37,9 +37,9 @@ export class SystemMessageClassifier {
   }
 
   /**
-   * One row's system message, or `undefined` when the row is not one or its payload is off
-   * contract, in which case the row is drawn as any other event row. `providerNameOf` names the
-   * provider a failed switch was moving to.
+   * One row's system message, or `undefined` when the row is not one, in which case the row is
+   * drawn as any other event row. `providerNameOf` names the provider a failed switch was moving
+   * to.
    */
   public classify(
     row: ProjectedTranscriptRow,
@@ -50,8 +50,6 @@ export class SystemMessageClassifier {
       return undefined;
     }
     const label = SYSTEM_MESSAGE_BINDINGS[kind].labelOf(row, providerNameOf);
-    return label === undefined
-      ? undefined
-      : { kind, label, rowId: row.id, timestamp: row.timestamp };
+    return { kind, label, rowId: row.id, timestamp: row.timestamp };
   }
 }

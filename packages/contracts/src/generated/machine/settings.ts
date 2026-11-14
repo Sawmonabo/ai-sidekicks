@@ -3,14 +3,6 @@
 
 // The machine's settings file and the three service methods that read, write and stream it, with the environment-name rule the service checks a row's name against.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import {
-  validateMachineSettingsReading,
-  validateMachineSettingsUpdateRequest,
-  validateMachineSettingsUpdateResponse,
-} from "../checks/machine/settings.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
 import type { Port, WireInstant } from "../internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
 import type { EmptyPayload } from "../method-descriptor.js";
@@ -674,44 +666,48 @@ export {
   validateLastLeadModel,
   validateMachineSettings,
   validateMachineSettingsChange,
-  validateMachineSettingsReading,
-  validateMachineSettingsUpdateRequest,
-  validateMachineSettingsUpdateResponse,
   validateNotificationKindSwitches,
   validateNotificationSettings,
   validateProviderCommandPath,
   validateProviderKnobs,
   validateProviderRowValue,
-  validateSettingsFileRepair,
-  validateSettingsFileRepairCause,
   validateVoiceMode,
   validateVoiceSettings,
   validateWebAddressSettings,
 } from "../checks/machine/settings.js";
 
-/** The methods of {@link MACHINE_SETTINGS_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link MACHINE_SETTINGS_METHOD_DESCRIPTORS}, each with its kind. */
 export interface MachineSettingsMethodDescriptors {
   readonly "machine.settings.read": {
     readonly method: "machine.settings.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<MachineSettingsReading>;
   };
   readonly "machine.settings.update": {
     readonly method: "machine.settings.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<MachineSettingsUpdateRequest>;
-    readonly responseCheck: SchemaCheck<MachineSettingsUpdateResponse>;
   };
   readonly "machine.settings.subscribe": {
     readonly method: "machine.settings.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<MachineSettingsReading>;
+  };
+}
+/** The params, result and emission types of each method of {@link MACHINE_SETTINGS_METHOD_DESCRIPTORS}. */
+export interface MachineSettingsMethodTypes {
+  readonly "machine.settings.read": {
+    readonly params: EmptyPayload;
+    readonly result: MachineSettingsReading;
+  };
+  readonly "machine.settings.update": {
+    readonly params: MachineSettingsUpdateRequest;
+    readonly result: MachineSettingsUpdateResponse;
+  };
+  readonly "machine.settings.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: MachineSettingsReading;
   };
 }
 /** The descriptor table of the three machine-settings methods. */
@@ -721,22 +717,15 @@ export const MACHINE_SETTINGS_METHOD_DESCRIPTORS: MachineSettingsMethodDescripto
       method: "machine.settings.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateMachineSettingsReading,
     }),
     "machine.settings.update": /* @__PURE__ */ Object.freeze({
       method: "machine.settings.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateMachineSettingsUpdateRequest,
-      responseCheck: validateMachineSettingsUpdateResponse,
     }),
     "machine.settings.subscribe": /* @__PURE__ */ Object.freeze({
       method: "machine.settings.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateMachineSettingsReading,
     }),
   });

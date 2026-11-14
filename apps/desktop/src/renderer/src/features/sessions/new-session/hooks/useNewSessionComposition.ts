@@ -21,14 +21,11 @@ const SEND_ANNOUNCEMENTS: Readonly<Record<NewSessionSendResult["outcome"], strin
   sent: "The session was created.",
   partial: "The session was created, but not everything the draft asked for could be sent.",
   refused: "Nothing was sent, and the draft is still here.",
-  "created-unreadable":
-    "A session may have been created, and this window could not read " +
-    "the reply. Check the sessions list.",
 };
 
 /**
  * What a completed send says when the composition it closed is not the one on screen. Not a
- * fifth outcome: every call landed, and only this window's timing differs. One string, both
+ * fourth outcome: every call landed, and only this window's timing differs. One string, both
  * announced and drawn, so hearing it and reading it say the same thing.
  */
 const SESSION_CREATED_WITH_UNSENT_EDITS =
@@ -36,10 +33,6 @@ const SESSION_CREATED_WITH_UNSENT_EDITS =
 
 /** Why Send is held while this draft is being sent. */
 const SENDING_REASON = "This draft is being sent.";
-
-/** Why Send is held once the create's reply could not be read: a second send could make another. */
-const AMBIGUOUS_CREATE_REASON =
-  "The session may already have been created. Check the sessions list before sending again.";
 
 /** Why Send is held while the first message is empty. */
 const EMPTY_DRAFT_REASON = "Write its first message to send it.";
@@ -61,13 +54,6 @@ export interface NewSessionComposition {
   readonly close: () => void;
   readonly setFirstTurn: (firstTurn: string) => void;
   readonly send: () => void;
-  /** The destination's directory re-read, offered where a send cannot be repeated. */
-  readonly recheckDirectory: () => void;
-  /**
-   * True once a create answered with a reply this build could not read. Derived here because
-   * Send's disabled state and the act offered in its place both read it.
-   */
-  readonly isAmbiguousCreate: boolean;
   /**
    * Present once a completed send settled over a composition that had moved on. A sentence,
    * so the announcer and the line under the field share one wording. Send is closed while it
@@ -223,17 +209,14 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     // a moved-on draft, so a further edit re-renders without re-running this.
   }, [announce, hasUnsentLaterEdits, publishDraft, result, settleCreatedSession]);
 
-  const isAmbiguousCreate = result?.outcome === "created-unreadable";
   const unsentEditsSentence = hasUnsentLaterEdits ? SESSION_CREATED_WITH_UNSENT_EDITS : undefined;
   const sendHeldReason = isSending
     ? SENDING_REASON
-    : isAmbiguousCreate
-      ? AMBIGUOUS_CREATE_REASON
-      : hasUnsentLaterEdits
-        ? ALREADY_CREATED_REASON
-        : draftState?.isEmpty === true
-          ? EMPTY_DRAFT_REASON
-          : undefined;
+    : hasUnsentLaterEdits
+      ? ALREADY_CREATED_REASON
+      : draftState?.isEmpty === true
+        ? EMPTY_DRAFT_REASON
+        : undefined;
 
   return {
     draftState,
@@ -243,8 +226,6 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     close,
     setFirstTurn,
     send,
-    recheckDirectory: props.onSessionDirectoryRecheck,
-    isAmbiguousCreate,
     unsentEditsSentence,
     sendHeldReason,
   };

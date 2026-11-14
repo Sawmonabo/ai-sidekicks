@@ -561,7 +561,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<JsonRpcErrorResponseSchema>(),
         Definition::read::<JsonRpcResponseEnvelopeSchema>(),
         Definition::read::<JsonRpcMessage>(),
-        Definition::read::<JsonRpcServerMessageSchema>().checked(),
+        Definition::read::<JsonRpcServerMessageSchema>(),
         Definition::read::<ConnectionUnavailableReason>(),
         Definition::read::<ProtocolVersionInvalidReason>(),
         Definition::read::<ObservedType>(),

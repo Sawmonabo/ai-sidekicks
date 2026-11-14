@@ -49,5 +49,3 @@ export interface RateLimitResponse {
    */
   resetAt: WireInstant;
 }
-
-export { validateRateLimitResponse } from "./checks/rate-limiter.js";

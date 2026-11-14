@@ -383,7 +383,6 @@ export interface UndoInterruptRecord {
 
 export {
   validateAgentRunInterveneRequest,
-  validateAgentRunInterveneResponse,
   validateInterventionId,
   validateInterventionType,
 } from "../checks/run/intervention.js";

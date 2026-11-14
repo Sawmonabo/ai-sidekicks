@@ -107,7 +107,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionRebuildingDetails>(),
         Definition::read::<SessionRecoveryRefusedReason>(),
         Definition::read::<SessionRecoveryRefusedDetails>(),
-        Definition::read::<SessionDamagedEventsSkippedPayload>().checked(),
+        Definition::read::<SessionDamagedEventsSkippedPayload>(),
     ],
     constants: &[],
     method_tables: &[],

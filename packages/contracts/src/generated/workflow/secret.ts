@@ -3,16 +3,6 @@
 
 // Workflow secrets: the records a step's Credential chooser lists and manages, the `secret://<scope>/<name>` reference a node's sensitive parameter stores, the `workflow.secret.*` methods and the refusals a secret answers with.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import {
-  validateWorkflowSecretActResponse,
-  validateWorkflowSecretCreateRequest,
-  validateWorkflowSecretDeleteRequest,
-  validateWorkflowSecretListResponse,
-  validateWorkflowSecretSummary,
-  validateWorkflowSecretUpdateRequest,
-} from "../checks/workflow/secret.js";
 import type { KeychainRefusalCause } from "../keychain.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 import type { ProjectId } from "../project.js";
@@ -218,53 +208,46 @@ export interface WorkflowSecretStoreUnavailableDetails {
   cause: KeychainRefusalCause;
 }
 
-export {
-  validateWorkflowSecretActResponse,
-  validateWorkflowSecretCreateRequest,
-  validateWorkflowSecretDeleteRequest,
-  validateWorkflowSecretId,
-  validateWorkflowSecretListResponse,
-  validateWorkflowSecretName,
-  validateWorkflowSecretNameInvalidDetails,
-  validateWorkflowSecretNameInvalidReason,
-  validateWorkflowSecretNotFoundDetails,
-  validateWorkflowSecretRecordNotFound,
-  validateWorkflowSecretReference,
-  validateWorkflowSecretReferenceNotFound,
-  validateWorkflowSecretStoreUnavailableDetails,
-  validateWorkflowSecretSummary,
-  validateWorkflowSecretUpdateRequest,
-} from "../checks/workflow/secret.js";
-
-/** The methods of {@link WORKFLOW_SECRET_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link WORKFLOW_SECRET_METHOD_DESCRIPTORS}, each with its kind. */
 export interface WorkflowSecretMethodDescriptors {
   readonly "workflow.secret.create": {
     readonly method: "workflow.secret.create";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowSecretCreateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowSecretSummary>;
   };
   readonly "workflow.secret.update": {
     readonly method: "workflow.secret.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowSecretUpdateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowSecretActResponse>;
   };
   readonly "workflow.secret.delete": {
     readonly method: "workflow.secret.delete";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowSecretDeleteRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowSecretActResponse>;
   };
   readonly "workflow.secret.list": {
     readonly method: "workflow.secret.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<WorkflowSecretListResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link WORKFLOW_SECRET_METHOD_DESCRIPTORS}. */
+export interface WorkflowSecretMethodTypes {
+  readonly "workflow.secret.create": {
+    readonly params: WorkflowSecretCreateRequest;
+    readonly result: WorkflowSecretSummary;
+  };
+  readonly "workflow.secret.update": {
+    readonly params: WorkflowSecretUpdateRequest;
+    readonly result: WorkflowSecretActResponse;
+  };
+  readonly "workflow.secret.delete": {
+    readonly params: WorkflowSecretDeleteRequest;
+    readonly result: WorkflowSecretActResponse;
+  };
+  readonly "workflow.secret.list": {
+    readonly params: EmptyPayload;
+    readonly result: WorkflowSecretListResponse;
   };
 }
 /** The workflow secrets' method table. */
@@ -274,28 +257,20 @@ export const WORKFLOW_SECRET_METHOD_DESCRIPTORS: WorkflowSecretMethodDescriptors
       method: "workflow.secret.create",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowSecretCreateRequest,
-      responseCheck: validateWorkflowSecretSummary,
     }),
     "workflow.secret.update": /* @__PURE__ */ Object.freeze({
       method: "workflow.secret.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowSecretUpdateRequest,
-      responseCheck: validateWorkflowSecretActResponse,
     }),
     "workflow.secret.delete": /* @__PURE__ */ Object.freeze({
       method: "workflow.secret.delete",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowSecretDeleteRequest,
-      responseCheck: validateWorkflowSecretActResponse,
     }),
     "workflow.secret.list": /* @__PURE__ */ Object.freeze({
       method: "workflow.secret.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateWorkflowSecretListResponse,
     }),
   });

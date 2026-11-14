@@ -82,12 +82,3 @@ export interface WorkflowRunKeepSet {
    */
   keep: boolean;
 }
-
-export {
-  validateWorkflowRunDeleteRequest,
-  validateWorkflowRunDeleteResponse,
-  validateWorkflowRunKeepSet,
-  validateWorkflowRunPurgePreviewResponse,
-  validateWorkflowRunPurgeRequest,
-  validateWorkflowRunPurgeResponse,
-} from "../../checks/workflow/run/retention.js";

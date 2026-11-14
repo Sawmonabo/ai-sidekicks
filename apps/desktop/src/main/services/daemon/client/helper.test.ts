@@ -144,34 +144,6 @@ describe("the client helper", () => {
     expect(helper.toMain.filter((message) => message.kind === "filePaths.swap")).toHaveLength(0);
   });
 
-  it("refuses params that fail the method's check the same way, before the addon", async () => {
-    const helper = servedHelper();
-    helper.sendFromWindow({
-      kind: "call",
-      callId: 2,
-      method: "presence.read",
-      params: [],
-      attachments: [],
-    });
-    await vi.waitFor(() => {
-      expect(helper.toWindow).toHaveLength(1);
-    });
-    expect(helper.toWindow[0]).toStrictEqual({
-      kind: "call.refused",
-      callId: 2,
-      refusal: {
-        code: -32602,
-        message: "The params of presence.read break its contract",
-        data: {
-          type: "request.paramsInvalid",
-          category: "invalidArgument",
-          fields: { issues: [{ path: [], message: 'breaks the schema\'s "type" rule' }] },
-        },
-      },
-    });
-    expect(helper.daemon.client.call).not.toHaveBeenCalled();
-  });
-
   it("swaps a window's file tokens through main, so the path reaches the addon", async () => {
     const helper = servedHelper();
     const params = {

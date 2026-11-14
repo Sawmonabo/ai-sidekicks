@@ -37,7 +37,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "process-identity",
     doc: "A running process as the system knows it: its id, the boot it runs in, and the system's \
           own record of when it started.",
-    definitions: &[Definition::read::<ProcessIdentity>().checked()],
+    definitions: &[Definition::read::<ProcessIdentity>()],
     constants: &[],
     method_tables: &[],
 };

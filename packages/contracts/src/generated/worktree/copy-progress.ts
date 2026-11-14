@@ -77,9 +77,3 @@ export interface WorktreeCopyProgress {
    */
   copies: WorktreeCopy[];
 }
-
-export {
-  validateWorktreeCopy,
-  validateWorktreeCopyProgress,
-  validateWorktreeCopySubscribeRequest,
-} from "../checks/worktree/copy-progress.js";

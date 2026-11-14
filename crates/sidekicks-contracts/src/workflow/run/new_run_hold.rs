@@ -35,8 +35,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The hold on starting new runs: one per daemon over its whole scheduler, and how many \
           starts wait behind it.",
     definitions: &[
-        Definition::read::<WorkflowNewRunHoldUpdateRequest>().checked(),
-        Definition::read::<WorkflowNewRunHoldState>().checked(),
+        Definition::read::<WorkflowNewRunHoldUpdateRequest>(),
+        Definition::read::<WorkflowNewRunHoldState>(),
     ],
     constants: &[],
     method_tables: &[],

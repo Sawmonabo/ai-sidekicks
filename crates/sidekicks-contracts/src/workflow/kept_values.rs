@@ -49,8 +49,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "A workflow's kept values: what `Keep for later runs` holds for the workflow's later \
           runs, and clearing them, with its method table.",
     definitions: &[
-        Definition::read::<WorkflowKeptValueClearRequest>().checked(),
-        Definition::read::<WorkflowKeptValueClearResponse>().checked(),
+        Definition::read::<WorkflowKeptValueClearRequest>(),
+        Definition::read::<WorkflowKeptValueClearResponse>(),
     ],
     constants: &[],
     method_tables: &[&WORKFLOW_KEPT_VALUE_METHOD_DESCRIPTORS],

@@ -468,21 +468,3 @@ export interface RepoMountReattachConflictDetails {
    */
   runningHolder: RunningHolder;
 }
-
-export {
-  validateMachineFolderListEntry,
-  validateMachineFolderListRequest,
-  validateMachineFolderListResponse,
-  validateMachineFolderPathSegment,
-  validateMachineFolderTopEntry,
-  validateRepoMountAttachRequest,
-  validateRepoMountAttachResponse,
-  validateRepoMountDetachResponse,
-  validateRepoMountListEntry,
-  validateRepoMountListResponse,
-  validateRepoMountOrigin,
-  validateRepoMountReadResponse,
-  validateRepoMountReattachResponse,
-  validateRepoMountRequest,
-  validateRepoMountUser,
-} from "../checks/repo/folders.js";

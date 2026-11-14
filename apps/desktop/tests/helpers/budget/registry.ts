@@ -1,6 +1,5 @@
 // Query layer over `tests/budget/document.json`, where every numeric budget the app is gated on is
-// written down except the bundle sizes, which `.size-limit.ts` holds. Validation is
-// `document.ts`, and comparing a measurement is `evaluation.ts`.
+// written down. Validation is `document.ts`, and comparing a measurement is `evaluation.ts`.
 
 import path from "node:path";
 

@@ -1,7 +1,6 @@
 // Every provider's section as the background service lists it, one store per app. Its list
 // replaces what is held, and each section it delivers after that replaces the one provider it
-// names. A section that arrives before the list moves nothing, since the list restates it, and a
-// section that could not be read is counted until the next list restates every section. A lost
+// names. A section that arrives before the list moves nothing, since the list restates it. A lost
 // feed is the store's failed state, never an empty list, which would read as no providers.
 
 import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
@@ -16,23 +15,16 @@ import { SharedFeed, type Feed, type FeedFold } from "../shared-feed.js";
  */
 export type ProviderSectionsState =
   | { readonly status: "reading" }
-  | {
-      readonly status: "served";
-      readonly sections: readonly ProviderSection[];
-      /** Sections delivered since the list that could not be read, each one's old state kept. */
-      readonly droppedCount: number;
-    }
+  | { readonly status: "served"; readonly sections: readonly ProviderSection[] }
   | { readonly status: "failed" };
 
 /**
  * One delivery on the provider feed: the whole list, one provider's whole section as it now
- * stands, a section that could not be read, or word that the feed could not be read and nothing
- * it holds is to be trusted.
+ * stands, or word that the feed could not be read and nothing it holds is to be trusted.
  */
 export type ProviderSectionsFrame =
   | { readonly kind: "list"; readonly sections: readonly ProviderSection[] }
   | { readonly kind: "section"; readonly section: ProviderSection }
-  | { readonly kind: "unreadableSection" }
   | { readonly kind: "lost" };
 
 /** Open the service's provider feed, handing each frame on, until the handle releases it. */
@@ -68,15 +60,13 @@ function stateAfter(
 ): ProviderSectionsState {
   switch (frame.kind) {
     case "list":
-      return { status: "served", sections: frame.sections, droppedCount: 0 };
+      return { status: "served", sections: frame.sections };
     case "lost":
       return { status: "failed" };
     case "section":
       return state.status === "served"
         ? { ...state, sections: withSection(state.sections, frame.section) }
         : state;
-    case "unreadableSection":
-      return state.status === "served" ? { ...state, droppedCount: state.droppedCount + 1 } : state;
   }
 }
 

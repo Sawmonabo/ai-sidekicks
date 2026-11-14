@@ -3,26 +3,8 @@
 
 // The `workflow.*` methods on one step: reading its input, output or log, storing what one of its panel's tabs holds as an artifact, the agent and human steps' saved outputs, answering an approval step or a chain's question, loading, saving and submitting a waiting form, and opening a fix session on a failed step, with their refusals and their method table.
 
-import type { SchemaCheck } from "../../../../schema-check.js";
 import type { ApprovalDecision } from "../../../approval.js";
 import type { ArtifactId } from "../../../artifacts/id.js";
-import {
-  validateWorkflowFixSessionCreateResponse,
-  validateWorkflowGateResolveRequest,
-  validateWorkflowGateResolveResponse,
-  validateWorkflowHumanFormDraftUpdateRequest,
-  validateWorkflowHumanFormDraftUpdateResponse,
-  validateWorkflowHumanFormReadResponse,
-  validateWorkflowHumanFormSubmitRequest,
-  validateWorkflowHumanFormSubmitResponse,
-  validateWorkflowStepOutputListRequest,
-  validateWorkflowStepOutputListResponse,
-  validateWorkflowStepReadRequest,
-  validateWorkflowStepReadResponse,
-  validateWorkflowStepTabArtifactCreateRequest,
-  validateWorkflowStepTabArtifactCreateResponse,
-} from "../../../checks/workflow/run/step/methods.js";
-import { validateWorkflowStepKey } from "../../../checks/workflow/run/step/record.js";
 import type { WireInstant } from "../../../internal/wire-scalars.js";
 import type { SessionId } from "../../../session/id.js";
 import type { WorkflowNodeId } from "../../definition/document.js";
@@ -432,88 +414,82 @@ export interface WorkflowFixSessionCreateResponse {
   sessionId: SessionId;
 }
 
-export {
-  validateWorkflowFixSessionCreateResponse,
-  validateWorkflowGateResolveRequest,
-  validateWorkflowGateResolveResponse,
-  validateWorkflowHumanFormDraft,
-  validateWorkflowHumanFormDraftUpdateRequest,
-  validateWorkflowHumanFormDraftUpdateResponse,
-  validateWorkflowHumanFormPathAnswer,
-  validateWorkflowHumanFormReadResponse,
-  validateWorkflowHumanFormSubmitRequest,
-  validateWorkflowHumanFormSubmitResponse,
-  validateWorkflowStepOutput,
-  validateWorkflowStepOutputListRequest,
-  validateWorkflowStepOutputListResponse,
-  validateWorkflowStepOutputStatus,
-  validateWorkflowStepOutputs,
-  validateWorkflowStepPayloadKind,
-  validateWorkflowStepReadCursor,
-  validateWorkflowStepReadRequest,
-  validateWorkflowStepReadResponse,
-  validateWorkflowStepTab,
-  validateWorkflowStepTabArtifactCreateRequest,
-  validateWorkflowStepTabArtifactCreateResponse,
-} from "../../../checks/workflow/run/step/methods.js";
-
-/** The methods of {@link WORKFLOW_STEP_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link WORKFLOW_STEP_METHOD_DESCRIPTORS}, each with its kind. */
 export interface WorkflowStepMethodDescriptors {
   readonly "workflow.step.read": {
     readonly method: "workflow.step.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowStepReadRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowStepReadResponse>;
   };
   readonly "workflow.step.tabArtifact.create": {
     readonly method: "workflow.step.tabArtifact.create";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowStepTabArtifactCreateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowStepTabArtifactCreateResponse>;
   };
   readonly "workflow.step.output.list": {
     readonly method: "workflow.step.output.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowStepOutputListRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowStepOutputListResponse>;
   };
   readonly "workflow.gate.resolve": {
     readonly method: "workflow.gate.resolve";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowGateResolveRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowGateResolveResponse>;
   };
   readonly "workflow.humanForm.read": {
     readonly method: "workflow.humanForm.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowStepKey>;
-    readonly responseCheck: SchemaCheck<WorkflowHumanFormReadResponse>;
   };
   readonly "workflow.humanForm.draft.update": {
     readonly method: "workflow.humanForm.draft.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowHumanFormDraftUpdateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowHumanFormDraftUpdateResponse>;
   };
   readonly "workflow.humanForm.submit": {
     readonly method: "workflow.humanForm.submit";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowHumanFormSubmitRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowHumanFormSubmitResponse>;
   };
   readonly "workflow.fixSession.create": {
     readonly method: "workflow.fixSession.create";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowStepKey>;
-    readonly responseCheck: SchemaCheck<WorkflowFixSessionCreateResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link WORKFLOW_STEP_METHOD_DESCRIPTORS}. */
+export interface WorkflowStepMethodTypes {
+  readonly "workflow.step.read": {
+    readonly params: WorkflowStepReadRequest;
+    readonly result: WorkflowStepReadResponse;
+  };
+  readonly "workflow.step.tabArtifact.create": {
+    readonly params: WorkflowStepTabArtifactCreateRequest;
+    readonly result: WorkflowStepTabArtifactCreateResponse;
+  };
+  readonly "workflow.step.output.list": {
+    readonly params: WorkflowStepOutputListRequest;
+    readonly result: WorkflowStepOutputListResponse;
+  };
+  readonly "workflow.gate.resolve": {
+    readonly params: WorkflowGateResolveRequest;
+    readonly result: WorkflowGateResolveResponse;
+  };
+  readonly "workflow.humanForm.read": {
+    readonly params: WorkflowStepKey;
+    readonly result: WorkflowHumanFormReadResponse;
+  };
+  readonly "workflow.humanForm.draft.update": {
+    readonly params: WorkflowHumanFormDraftUpdateRequest;
+    readonly result: WorkflowHumanFormDraftUpdateResponse;
+  };
+  readonly "workflow.humanForm.submit": {
+    readonly params: WorkflowHumanFormSubmitRequest;
+    readonly result: WorkflowHumanFormSubmitResponse;
+  };
+  readonly "workflow.fixSession.create": {
+    readonly params: WorkflowStepKey;
+    readonly result: WorkflowFixSessionCreateResponse;
   };
 }
 /** The `workflow.*` methods on one step. */
@@ -523,56 +499,40 @@ export const WORKFLOW_STEP_METHOD_DESCRIPTORS: WorkflowStepMethodDescriptors =
       method: "workflow.step.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateWorkflowStepReadRequest,
-      responseCheck: validateWorkflowStepReadResponse,
     }),
     "workflow.step.tabArtifact.create": /* @__PURE__ */ Object.freeze({
       method: "workflow.step.tabArtifact.create",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowStepTabArtifactCreateRequest,
-      responseCheck: validateWorkflowStepTabArtifactCreateResponse,
     }),
     "workflow.step.output.list": /* @__PURE__ */ Object.freeze({
       method: "workflow.step.output.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateWorkflowStepOutputListRequest,
-      responseCheck: validateWorkflowStepOutputListResponse,
     }),
     "workflow.gate.resolve": /* @__PURE__ */ Object.freeze({
       method: "workflow.gate.resolve",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowGateResolveRequest,
-      responseCheck: validateWorkflowGateResolveResponse,
     }),
     "workflow.humanForm.read": /* @__PURE__ */ Object.freeze({
       method: "workflow.humanForm.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateWorkflowStepKey,
-      responseCheck: validateWorkflowHumanFormReadResponse,
     }),
     "workflow.humanForm.draft.update": /* @__PURE__ */ Object.freeze({
       method: "workflow.humanForm.draft.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowHumanFormDraftUpdateRequest,
-      responseCheck: validateWorkflowHumanFormDraftUpdateResponse,
     }),
     "workflow.humanForm.submit": /* @__PURE__ */ Object.freeze({
       method: "workflow.humanForm.submit",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowHumanFormSubmitRequest,
-      responseCheck: validateWorkflowHumanFormSubmitResponse,
     }),
     "workflow.fixSession.create": /* @__PURE__ */ Object.freeze({
       method: "workflow.fixSession.create",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowStepKey,
-      responseCheck: validateWorkflowFixSessionCreateResponse,
     }),
   });

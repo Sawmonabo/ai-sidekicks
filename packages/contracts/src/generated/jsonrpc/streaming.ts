@@ -113,11 +113,3 @@ export interface SubscriptionCancelResponse {
    */
   canceled: boolean;
 }
-
-export {
-  validateSubscribeAcknowledgmentResponse,
-  validateSubscriptionCancelResponse,
-  validateSubscriptionEndParams,
-  validateSubscriptionId,
-  validateSubscriptionNotifyParams,
-} from "../checks/jsonrpc/streaming.js";

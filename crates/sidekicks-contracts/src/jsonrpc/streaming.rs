@@ -229,12 +229,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           `*.subscribe` method answers with. A subscription holds only its place, never a queue, \
           so its frames drop nothing a consumer cannot read back.",
     definitions: &[
-        Definition::read::<SubscriptionId>().checked(),
-        Definition::read::<SubscriptionEndParams>().checked(),
-        Definition::read::<SubscribeAcknowledgmentResponse>().checked(),
-        Definition::read::<SubscriptionNotifyParams<AnyValue>>().checked(),
+        Definition::read::<SubscriptionId>(),
+        Definition::read::<SubscriptionEndParams>(),
+        Definition::read::<SubscribeAcknowledgmentResponse>(),
+        Definition::read::<SubscriptionNotifyParams<AnyValue>>(),
         Definition::read::<SubscriptionCancelRequest>(),
-        Definition::read::<SubscriptionCancelResponse>().checked(),
+        Definition::read::<SubscriptionCancelResponse>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

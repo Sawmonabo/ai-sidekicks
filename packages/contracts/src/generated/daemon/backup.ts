@@ -3,9 +3,6 @@
 
 // Backups of what the person would lose with the disk: where they stand, starting one now, the events a run records, and each backup's manifest.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateDaemonBackupReadResponse } from "../checks/daemon/backup.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
 import type { WireInstant } from "../internal/wire-scalars.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 import type { DistroName } from "../place.js";
@@ -187,31 +184,31 @@ export interface DaemonBackupRestoredPayload {
 export {
   validateBackupId,
   validateBackupKeptDistributionPart,
-  validateBackupLastRun,
-  validateBackupListEntry,
-  validateBackupManifest,
   validateDaemonBackupCompletedPayload,
   validateDaemonBackupFailedPayload,
-  validateDaemonBackupReadResponse,
   validateDaemonBackupRestoredPayload,
 } from "../checks/daemon/backup.js";
 
-/** The methods of {@link DAEMON_BACKUP_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link DAEMON_BACKUP_METHOD_DESCRIPTORS}, each with its kind. */
 export interface DaemonBackupMethodDescriptors {
   readonly "daemon.backup.read": {
     readonly method: "daemon.backup.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<DaemonBackupReadResponse>;
   };
   readonly "daemon.backup.start": {
     readonly method: "daemon.backup.start";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
+}
+/** The params, result and emission types of each method of {@link DAEMON_BACKUP_METHOD_DESCRIPTORS}. */
+export interface DaemonBackupMethodTypes {
+  readonly "daemon.backup.read": {
+    readonly params: EmptyPayload;
+    readonly result: DaemonBackupReadResponse;
+  };
+  readonly "daemon.backup.start": { readonly params: EmptyPayload; readonly result: EmptyPayload };
 }
 /** The backup methods. A run started now reports its end through the `daemon.backup.*` events. */
 export const DAEMON_BACKUP_METHOD_DESCRIPTORS: DaemonBackupMethodDescriptors =
@@ -220,14 +217,10 @@ export const DAEMON_BACKUP_METHOD_DESCRIPTORS: DaemonBackupMethodDescriptors =
       method: "daemon.backup.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateDaemonBackupReadResponse,
     }),
     "daemon.backup.start": /* @__PURE__ */ Object.freeze({
       method: "daemon.backup.start",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateEmptyPayload,
     }),
   });

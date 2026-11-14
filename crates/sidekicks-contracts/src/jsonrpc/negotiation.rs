@@ -196,9 +196,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date, so lexical order is chronological.",
     definitions: &[
         Definition::read::<ProtocolVersion>(),
-        Definition::read::<ConnectionInitializeRequest>().checked(),
+        Definition::read::<ConnectionInitializeRequest>(),
         Definition::read::<NegotiationIncompatibleReason>(),
-        Definition::read::<ConnectionInitializeResponse>().checked(),
+        Definition::read::<ConnectionInitializeResponse>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

@@ -3,9 +3,6 @@
 
 // The daemon's callback tools as the allowlist picker reads them.
 
-import type { SchemaCheck } from "../schema-check.js";
-import { validateAgentCallbackToolListResponse } from "./checks/callback-tool.js";
-import { validateEmptyPayload } from "./checks/method-descriptor.js";
 import type { EmptyPayload } from "./method-descriptor.js";
 
 /**
@@ -37,19 +34,19 @@ export interface AgentCallbackToolListResponse {
   tools: CallbackToolEntry[];
 }
 
-export {
-  validateAgentCallbackToolListResponse,
-  validateCallbackToolEntry,
-} from "./checks/callback-tool.js";
-
-/** The methods of {@link CALLBACK_TOOL_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link CALLBACK_TOOL_METHOD_DESCRIPTORS}, each with its kind. */
 export interface CallbackToolMethodDescriptors {
   readonly "agent.callbackTool.list": {
     readonly method: "agent.callbackTool.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<AgentCallbackToolListResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link CALLBACK_TOOL_METHOD_DESCRIPTORS}. */
+export interface CallbackToolMethodTypes {
+  readonly "agent.callbackTool.list": {
+    readonly params: EmptyPayload;
+    readonly result: AgentCallbackToolListResponse;
   };
 }
 /** The `agent.callbackTool.*` methods. */
@@ -59,7 +56,5 @@ export const CALLBACK_TOOL_METHOD_DESCRIPTORS: CallbackToolMethodDescriptors =
       method: "agent.callbackTool.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateAgentCallbackToolListResponse,
     }),
   });

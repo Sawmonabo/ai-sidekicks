@@ -3,9 +3,6 @@
 
 // The relay pin: what the service records when a pinned relay presents a different key, and the request that accepts the relay's new key.
 
-import type { SchemaCheck } from "../schema-check.js";
-import { validateEmptyPayload } from "./checks/method-descriptor.js";
-import { validateRelayRepinRequest } from "./checks/relay.js";
 import type { EmptyPayload } from "./method-descriptor.js";
 import type { Sha256Hex } from "./release-manifest.js";
 
@@ -49,19 +46,20 @@ export interface RelayRepinRequest {
 export {
   validateHostname,
   validateRelayPinRefusedPayload,
-  validateRelayRepinRequest,
   validateSpkiPrefix,
 } from "./checks/relay.js";
 
-/** The methods of {@link RELAY_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link RELAY_METHOD_DESCRIPTORS}, each with its kind. */
 export interface RelayMethodDescriptors {
   readonly "relay.repin": {
     readonly method: "relay.repin";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<RelayRepinRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
+}
+/** The params, result and emission types of each method of {@link RELAY_METHOD_DESCRIPTORS}. */
+export interface RelayMethodTypes {
+  readonly "relay.repin": { readonly params: RelayRepinRequest; readonly result: EmptyPayload };
 }
 /** The relay method the service answers. */
 export const RELAY_METHOD_DESCRIPTORS: RelayMethodDescriptors = /* @__PURE__ */ Object.freeze({
@@ -69,7 +67,5 @@ export const RELAY_METHOD_DESCRIPTORS: RelayMethodDescriptors = /* @__PURE__ */ 
     method: "relay.repin",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateRelayRepinRequest,
-    responseCheck: validateEmptyPayload,
   }),
 });

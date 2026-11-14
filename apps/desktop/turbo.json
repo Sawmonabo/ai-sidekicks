@@ -52,8 +52,7 @@
     "typecheck": {
       // `scripts/**` is an input because the scripts there are TypeScript that
       // `tsconfig.scripts.json` typechecks, so a change to one must invalidate this task.
-      // The Vitest config, the root module it imports and the size-limit config are typechecked
-      // by `tsconfig.test.json`.
+      // The Vitest config and the root module it imports are typechecked by `tsconfig.test.json`.
       "inputs": [
         "src/**",
         "fixtures/**",
@@ -63,7 +62,6 @@
         "tsconfig*.json",
         "package.json",
         "vitest.config.ts",
-        ".size-limit.ts",
         "vitest/**",
         "$TURBO_ROOT$/vitest.shared.ts"
       ],
@@ -106,7 +104,6 @@
         "scripts/**",
         "$TURBO_ROOT$/knip.json",
         "vitest.config.ts",
-        ".size-limit.ts",
         "vitest/**",
         "electron.vite.config.ts",
         "tsconfig*.json",
@@ -340,28 +337,6 @@
       "outputs": [],
       "cache": false
     },
-    // --- The bundle budgets -------------------------------------------------
-    //
-    // size-limit holding the renderer build to the budgets in `.size-limit.ts`, a task with
-    // `inputs` like every tier above, so a run by name from a terminal, CI or `turbo run` has one
-    // declared input set. It is `cache: false`: it reports on a build present now, and a cached
-    // pass would report on one that is not.
-
-    "budget:bundle": {
-      // Measures a build, so it carries the same load-bearing edge the bundle tier does: reading
-      // the chunk manifest fails loudly when `out/renderer` is absent rather than skipping, and the
-      // edge makes the output present by construction.
-      "dependsOn": ["build"],
-      "inputs": [
-        ".size-limit.ts",
-        "tests/budget/built-renderer-tree.ts",
-        "tests/helpers/fixture/bundle.ts",
-        "out/renderer/**",
-        "package.json"
-      ],
-      "outputs": [],
-      "cache": false
-    },
     "test": {
       // Every tier `.github/workflows/ci.yml` runs for the desktop, in the order the three build
       // flavors allow, so a developer's `pnpm test` and CI answer the same question. Its `desktop`
@@ -372,9 +347,8 @@
       // The order is load-bearing and is why the script is a chain of `turbo run` invocations
       // rather than one. `build`, `build:smoke` and `build:fixtures` all write `out/**` and differ
       // in the `define` that decides what the renderer talks to, so one invocation would schedule
-      // them concurrently and hand a tier the wrong bundle: the bundle budgets would measure a
-      // fixture build against a release budget, and the bundle tier's release-absence assertions
-      // would read a tree that legitimately contains what they refuse. The chain runs the
+      // them concurrently and hand a tier the wrong bundle: the bundle tier's release-absence
+      // assertions would read a fixture tree that legitimately contains what they refuse. The chain runs the
       // source-only tiers first, then the browser tier (which builds nothing), then release, smoke
       // and fixtures, each with its own consumers.
       //

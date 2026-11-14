@@ -150,12 +150,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The ports a machine shares with the person's other devices, and the `preview.port*` \
           methods.",
     definitions: &[
-        Definition::read::<PreviewPortRefusalDetails>().checked(),
+        Definition::read::<PreviewPortRefusalDetails>(),
         Definition::read::<PreviewSharedPort>(),
-        Definition::read::<PreviewPortShareListFrame>().checked(),
-        Definition::read::<PreviewPortRequest>().checked(),
-        Definition::read::<PreviewPortShareAddResponse>().checked(),
-        Definition::read::<PreviewPortShareRemoveResponse>().checked(),
+        Definition::read::<PreviewPortShareListFrame>(),
+        Definition::read::<PreviewPortRequest>(),
+        Definition::read::<PreviewPortShareAddResponse>(),
+        Definition::read::<PreviewPortShareRemoveResponse>(),
         Definition::read::<PreviewPortTicketIssueResponse>().checked(),
     ],
     constants: TS_CONSTANTS,

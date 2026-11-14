@@ -1,20 +1,17 @@
 // A session's tool servers as the daemon reports them, followed through
 // `session.mcpServer.subscribe`, which delivers the whole list now and again after each change,
-// and the session-level switch sent through `session.mcpServer.enabled.update`. Every delivery is
-// checked with the contract's generated check; an unreadable delivery or a refused stream is
-// handed on as the list being lost.
+// and the session-level switch sent through `session.mcpServer.enabled.update`. A refused stream
+// is handed on as the list being lost.
 
-import {
-  type SessionMcpServer,
-  type SessionMcpServerEnabledUpdateResponse,
-  validateSessionMcpServerList,
+import type {
+  SessionMcpServer,
+  SessionMcpServerEnabledUpdateResponse,
+  SessionMcpServerList,
 } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import { checkFaultPaths } from "#shared/daemon/fault-path.js";
 import { SESSION_MCP_SERVER_STREAM } from "#shared/daemon/streams.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
 import { callDaemon, type DaemonReply } from "./reply.js";
 import type { PlatformBridge } from "../platform/bridge.js";
 import { openReopeningSubscription } from "../transport/reopening-subscription.js";
@@ -37,17 +34,7 @@ export function followSessionMcpServers(
     open: (deliver, onEnded) =>
       bridge.daemon.subscribe(SESSION_MCP_SERVER_STREAM, { sessionId }, deliver, onEnded),
     onFrame: (payload: unknown) => {
-      if (!validateSessionMcpServerList(payload)) {
-        recordRefusedMemberPaths({
-          source: "services/daemon",
-          kind: "notice-unreadable",
-          subject: SESSION_MCP_SERVER_STREAM,
-          issues: checkFaultPaths(validateSessionMcpServerList, payload),
-        });
-        onFrame({ kind: "lost" });
-        return;
-      }
-      onFrame({ kind: "listed", servers: payload.servers });
+      onFrame({ kind: "listed", servers: (payload as SessionMcpServerList).servers });
     },
     onReopenRefusal: (refusal) => {
       if (refusal !== undefined) {

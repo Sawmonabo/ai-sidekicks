@@ -83,12 +83,3 @@ export interface WorktreeSetupRequest {
    */
   worktreeId: WorktreeId;
 }
-
-export {
-  validateWorktreeSetupRequest,
-  validateWorktreeSetupStage,
-  validateWorktreeSetupState,
-  validateWorktreeSetupStatus,
-  validateWorktreeSetupStep,
-  validateWorktreeSetupStepState,
-} from "../checks/worktree/setup.js";

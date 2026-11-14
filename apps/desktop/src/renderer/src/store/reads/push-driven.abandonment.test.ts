@@ -12,10 +12,8 @@
 // `ManualClock`, whose read body calls the real `callDaemon` against the fixture bridge with the
 // round's own signal. The tallies observe it; they do not stand in for it.
 //
-// The evidence that no parse ran is the reply itself. Each held call is released with a body the
-// presence schema refuses, so a call that read it would answer `reply-unreadable`; every answer
-// being `read-abandoned` shows the parse never ran, which a "did the value arrive" assertion
-// cannot.
+// The evidence that nothing was read is the answer itself. Each held call is released with a body
+// `callDaemon` would serve, so every answer being `read-abandoned` shows the reply was never read.
 //
 // Three claims, the third making the first two non-vacuous:
 //   1. No projection after abandonment: over hundreds of close-mid-read cycles no model reaches
@@ -45,11 +43,8 @@ import { PushDrivenRead } from "#renderer/store/reads/push-driven.js";
  */
 const CHURN_CYCLES = 400;
 
-/** A reply body the presence schema refuses. Released after every abandonment. */
-const UNREADABLE_REPLY = { devices: "not a list" };
-
-/** A reply body the presence schema admits, for the control run. */
-const READABLE_REPLY = { devices: [] };
+/** The presence reply every held call is released with. */
+const PRESENCE_REPLY = { devices: [] };
 
 /** What one churn run observed, counted rather than inferred. */
 interface ChurnTally {
@@ -145,10 +140,10 @@ async function runOneCycle(
   if (closeBeforeTheReply) {
     // The person left while the daemon was still composing its answer.
     subject.model.dispose();
-    call.release(UNREADABLE_REPLY);
+    call.release(PRESENCE_REPLY);
     await crossMacrotaskBoundary();
   } else {
-    call.release(READABLE_REPLY);
+    call.release(PRESENCE_REPLY);
     await crossMacrotaskBoundary();
     subject.model.dispose();
   }
@@ -172,8 +167,8 @@ describe("read abandonment under churn — a closed pane pays for nothing", () =
     }
 
     expect(tally.projections).toBe(0);
-    // Every read reached `callDaemon` and was answered by the departure, not a parse. A single
-    // `reply-unreadable` would mean a reply was read after its owner had gone.
+    // Every read reached `callDaemon` and was answered by the departure. A single `served` would
+    // mean a reply was read after its owner had gone.
     expect(tally.callAnswers).toHaveLength(CHURN_CYCLES);
     expect(new Set(tally.callAnswers)).toStrictEqual(new Set(["read-abandoned"]));
     // No model reached a rendering state, `failed` included: an abandoned read has no failure

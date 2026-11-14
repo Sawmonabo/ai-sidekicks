@@ -3,18 +3,6 @@
 
 // The shell commands an agent started: one live list, and the acts stop, background, write and end input.
 
-import type { SchemaCheck } from "../schema-check.js";
-import {
-  validateAgentCommandBackgroundRequest,
-  validateAgentCommandBackgroundResponse,
-  validateAgentCommandStopRequest,
-  validateAgentCommandStopResponse,
-  validateAgentCommandSubscribeFrame,
-  validateAgentCommandSubscribeRequest,
-  validateAgentCommandWriteRequest,
-} from "./checks/command.js";
-import { validateSubscribeAcknowledgmentResponse } from "./checks/jsonrpc/streaming.js";
-import { validateNullPayload } from "./checks/method-descriptor.js";
 import type { ContentEncoding } from "./event/declared-variants.js";
 import type { SourceEpoch, SourcePosition } from "./event/envelope.js";
 import type { WireInstant } from "./internal/wire-scalars.js";
@@ -267,50 +255,52 @@ export interface AgentCommandEndedPayload {
 }
 
 export {
-  validateAgentCommandBackgroundRequest,
-  validateAgentCommandBackgroundResponse,
   validateAgentCommandEndedPayload,
-  validateAgentCommandStopRequest,
-  validateAgentCommandStopResponse,
-  validateAgentCommandSubscribeFrame,
-  validateAgentCommandSubscribeRequest,
-  validateAgentCommandWriteRequest,
   validateCommandEnding,
   validateCommandId,
-  validateCommandPrompt,
-  validateRunningCommand,
 } from "./checks/command.js";
 
-/** The methods of {@link COMMAND_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link COMMAND_METHOD_DESCRIPTORS}, each with its kind. */
 export interface CommandMethodDescriptors {
   readonly "agent.command.subscribe": {
     readonly method: "agent.command.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<AgentCommandSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<AgentCommandSubscribeFrame>;
   };
   readonly "agent.command.stop": {
     readonly method: "agent.command.stop";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentCommandStopRequest>;
-    readonly responseCheck: SchemaCheck<AgentCommandStopResponse>;
   };
   readonly "agent.command.background": {
     readonly method: "agent.command.background";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentCommandBackgroundRequest>;
-    readonly responseCheck: SchemaCheck<AgentCommandBackgroundResponse>;
   };
   readonly "agent.command.write": {
     readonly method: "agent.command.write";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentCommandWriteRequest>;
-    readonly responseCheck: SchemaCheck<NullPayload>;
+  };
+}
+/** The params, result and emission types of each method of {@link COMMAND_METHOD_DESCRIPTORS}. */
+export interface CommandMethodTypes {
+  readonly "agent.command.subscribe": {
+    readonly params: AgentCommandSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: AgentCommandSubscribeFrame;
+  };
+  readonly "agent.command.stop": {
+    readonly params: AgentCommandStopRequest;
+    readonly result: AgentCommandStopResponse;
+  };
+  readonly "agent.command.background": {
+    readonly params: AgentCommandBackgroundRequest;
+    readonly result: AgentCommandBackgroundResponse;
+  };
+  readonly "agent.command.write": {
+    readonly params: AgentCommandWriteRequest;
+    readonly result: NullPayload;
   };
 }
 /** The `agent.command.*` methods. */
@@ -319,29 +309,20 @@ export const COMMAND_METHOD_DESCRIPTORS: CommandMethodDescriptors = /* @__PURE__
     method: "agent.command.subscribe",
     procedureType: "subscription",
     mutating: false,
-    requestCheck: validateAgentCommandSubscribeRequest,
-    responseCheck: validateSubscribeAcknowledgmentResponse,
-    emissionCheck: validateAgentCommandSubscribeFrame,
   }),
   "agent.command.stop": /* @__PURE__ */ Object.freeze({
     method: "agent.command.stop",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateAgentCommandStopRequest,
-    responseCheck: validateAgentCommandStopResponse,
   }),
   "agent.command.background": /* @__PURE__ */ Object.freeze({
     method: "agent.command.background",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateAgentCommandBackgroundRequest,
-    responseCheck: validateAgentCommandBackgroundResponse,
   }),
   "agent.command.write": /* @__PURE__ */ Object.freeze({
     method: "agent.command.write",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateAgentCommandWriteRequest,
-    responseCheck: validateNullPayload,
   }),
 });

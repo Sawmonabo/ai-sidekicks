@@ -1,9 +1,8 @@
 // The new-session draft: a session that does not exist yet, held in memory only (a draft has no
 // durable home in the renderer). One draft object mints at most one session and makes each call
 // at most once: a send while one runs joins it, a later send resumes at the first call not yet
-// made, and every create carries the draft's one idempotency key. A create whose reply could not
-// be read may have made a session it cannot name, so every later send answers from memory with
-// nothing on the wire. `send.ts` owns what the choices become on the wire.
+// made, and every create carries the draft's one idempotency key. `send.ts` owns what the choices
+// become on the wire.
 
 import type { SessionLead } from "@ai-sidekicks/contracts/session/directory";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -11,11 +10,7 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import type { FirstTurnQueueCall } from "./control-contract.js";
 import { sendNewSessionDraft, type DraftProject } from "./send.js";
-import {
-  refuseAmbiguousCreate,
-  refuseNewSessionDraft,
-  type NewSessionSendResult,
-} from "./settlement.js";
+import { refuseNewSessionDraft, type NewSessionSendResult } from "./settlement.js";
 
 /** What the draft control renders. A fresh object per mutation, so `Object.is` decides. */
 export interface NewSessionDraftState {
@@ -49,7 +44,6 @@ export class NewSessionDraft {
   readonly #landed: LandedCalls = {
     hasCreatedSession: false,
     sessionId: undefined,
-    hasUnreadableCreate: false,
     hasQueuedFirstTurn: false,
   };
   #state: NewSessionDraftState = {
@@ -114,13 +108,6 @@ export class NewSessionDraft {
   }
 
   async #performSend(): Promise<NewSessionSendResult> {
-    if (this.#landed.hasUnreadableCreate) {
-      // The structural half of the ambiguous arm: a create this build could not read may have
-      // made a session, and a second dispatch would return the same unreadable reply. A press
-      // that bypasses the disabled control puts nothing on the wire and gets the same
-      // settlement. It read no composition, so it names no revision.
-      return refuseAmbiguousCreate(undefined);
-    }
     if (this.#state.isEmpty) {
       return {
         outcome: "refused",
@@ -148,10 +135,7 @@ export class NewSessionDraft {
       draftRevision: this.#state.revision,
     });
 
-    // Recorded whatever the outcome: legs that landed are landed. The unreadable arm is
-    // recorded first and separately, since `hasCreatedSession` with no `sessionId` would look
-    // like a skipped create, and the resume path reads exactly that pair.
-    this.#landed.hasUnreadableCreate ||= progress.createAnsweredUnreadably;
+    // Recorded whatever the outcome: legs that landed are landed.
     if (progress.result.outcome === "sent" || progress.result.outcome === "partial") {
       this.#landed.hasCreatedSession = true;
       this.#landed.sessionId = progress.sessionId;
@@ -173,18 +157,8 @@ export class NewSessionDraft {
 
 /** What one draft has already put on the wire, so a repeat press resumes rather than repeats. */
 interface LandedCalls {
-  /**
-   * The session this draft created, once it has. Set only where the reply was read, so this
-   * member and `sessionId` move together. An unreadable create is recorded beside it in
-   * {@link hasUnreadableCreate}, since it cannot be resumed from but must stop a second create.
-   */
+  /** The session this draft created, once it has; this member and `sessionId` move together. */
   hasCreatedSession: boolean;
   sessionId: string | undefined;
-  /**
-   * Whether the create answered with a reply this build could not read. A session may exist
-   * with no id to address it, so the draft can neither resume nor safely mint another; every
-   * later press answers from memory.
-   */
-  hasUnreadableCreate: boolean;
   hasQueuedFirstTurn: boolean;
 }

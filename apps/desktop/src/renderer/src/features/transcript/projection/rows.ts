@@ -14,12 +14,13 @@ import {
   type TranscriptRunStamp,
 } from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
+import type { AgentRunRolledBackEvent } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import { transcriptRunIdOf } from "@ai-sidekicks/contracts/transcript/run-attribution";
 
-import { readRollbackBoundaryPayload } from "#renderer/services/daemon/payload/rollback-boundary.js";
 import {
+  payloadOf,
   type ProjectedRowContent,
   type ProjectedSessionEvent,
   type ProjectedTranscriptRow,
@@ -154,8 +155,9 @@ export class TranscriptRowProjector {
       };
     }
 
-    if (event.kind === TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE) {
-      return projectRollbackBoundary(event, runStamp);
+    const boundary = payloadOf(event, TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE);
+    if (boundary !== undefined) {
+      return projectRollbackBoundary(event, boundary, runStamp);
     }
 
     const childRunSummary = this.#childRunSummaries.summaryOf(event.id);
@@ -223,21 +225,12 @@ function commonRowFields(
   };
 }
 
-/**
- * Projects one rollback into the typed boundary arm, or `undefined` if it cannot be.
- *
- * The payload is read at the bridge, not cast, because the arm's schema refines `position`
- * against `payload.targetPosition`. A payload that does not satisfy the contract is dropped,
- * since superseded turns drawn from a bad cutoff hide real rows.
- */
+/** Projects one rollback into the typed boundary arm. */
 function projectRollbackBoundary(
   event: ProjectedSessionEvent,
+  boundary: AgentRunRolledBackEvent,
   runStamp: TranscriptRunStamp,
-): RollbackBoundaryRow | undefined {
-  const boundary = readRollbackBoundaryPayload(event.payload);
-  if (boundary === undefined) {
-    return undefined;
-  }
+): RollbackBoundaryRow {
   return {
     ...commonRowFields(event, TRANSCRIPT_RUN_LIFECYCLE_CATEGORY),
     kind: "rollbackBoundary",

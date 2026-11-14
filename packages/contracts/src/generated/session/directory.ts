@@ -3,30 +3,7 @@
 
 // The session directory as a client reads and moves it: the live sessions list, creating, converting and forking a session, moving its working folder, and the terminal pane's overview.
 
-import type { SchemaCheck } from "../../schema-check.js";
 import type { AgentProviderBinding } from "../agent/definition.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import {
-  validateSessionConvertRequest,
-  validateSessionConvertResponse,
-} from "../checks/session/convert.js";
-import {
-  validateSessionCreateRequest,
-  validateSessionCreateResponse,
-  validateSessionForkRequest,
-  validateSessionForkResponse,
-  validateSessionListChange,
-  validateSessionOverviewReadRequest,
-  validateSessionOverviewReadResponse,
-  validateSessionSubscribeResponse,
-  validateSessionWorkingFolderUpdateRequest,
-  validateSessionWorkingFolderUpdateResponse,
-} from "../checks/session/directory.js";
-import {
-  validateSessionEventSubscribeRequest,
-  validateSessionStreamFrame,
-} from "../checks/session/methods.js";
 import type { WireInstant } from "../internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse, SubscriptionId } from "../jsonrpc/streaming.js";
 import type { EmptyPayload } from "../method-descriptor.js";
@@ -561,83 +538,75 @@ export interface SessionOverviewReadResponse {
   };
 }
 
-export {
-  validateRemoteControlState,
-  validateSessionActivity,
-  validateSessionBinding,
-  validateSessionChatBinding,
-  validateSessionCreateRequest,
-  validateSessionCreateResponse,
-  validateSessionExchange,
-  validateSessionForkRequest,
-  validateSessionForkResponse,
-  validateSessionLead,
-  validateSessionListChange,
-  validateSessionListEntry,
-  validateSessionListGroup,
-  validateSessionOverviewAgent,
-  validateSessionOverviewReadRequest,
-  validateSessionOverviewReadResponse,
-  validateSessionOverviewSession,
-  validateSessionProjectBinding,
-  validateSessionSubscribeResponse,
-  validateSessionWorkingFolderDisposition,
-  validateSessionWorkingFolderUpdateRequest,
-  validateSessionWorkingFolderUpdateResponse,
-} from "../checks/session/directory.js";
-
-/** The methods of {@link SESSION_DIRECTORY_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link SESSION_DIRECTORY_METHOD_DESCRIPTORS}, each with its kind. */
 export interface SessionDirectoryMethodDescriptors {
   readonly "session.create": {
     readonly method: "session.create";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionCreateRequest>;
-    readonly responseCheck: SchemaCheck<SessionCreateResponse>;
   };
   readonly "session.subscribe": {
     readonly method: "session.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SessionSubscribeResponse>;
-    readonly emissionCheck: SchemaCheck<SessionListChange>;
   };
   readonly "session.event.subscribe": {
     readonly method: "session.event.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionEventSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<SessionStreamFrame>;
   };
   readonly "session.convert": {
     readonly method: "session.convert";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionConvertRequest>;
-    readonly responseCheck: SchemaCheck<SessionConvertResponse>;
   };
   readonly "session.fork": {
     readonly method: "session.fork";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionForkRequest>;
-    readonly responseCheck: SchemaCheck<SessionForkResponse>;
   };
   readonly "session.workingFolder.update": {
     readonly method: "session.workingFolder.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionWorkingFolderUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SessionWorkingFolderUpdateResponse>;
   };
   readonly "session.overview.read": {
     readonly method: "session.overview.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionOverviewReadRequest>;
-    readonly responseCheck: SchemaCheck<SessionOverviewReadResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link SESSION_DIRECTORY_METHOD_DESCRIPTORS}. */
+export interface SessionDirectoryMethodTypes {
+  readonly "session.create": {
+    readonly params: SessionCreateRequest;
+    readonly result: SessionCreateResponse;
+  };
+  readonly "session.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: SessionSubscribeResponse;
+    readonly emission: SessionListChange;
+  };
+  readonly "session.event.subscribe": {
+    readonly params: SessionEventSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: SessionStreamFrame;
+  };
+  readonly "session.convert": {
+    readonly params: SessionConvertRequest;
+    readonly result: SessionConvertResponse;
+  };
+  readonly "session.fork": {
+    readonly params: SessionForkRequest;
+    readonly result: SessionForkResponse;
+  };
+  readonly "session.workingFolder.update": {
+    readonly params: SessionWorkingFolderUpdateRequest;
+    readonly result: SessionWorkingFolderUpdateResponse;
+  };
+  readonly "session.overview.read": {
+    readonly params: SessionOverviewReadRequest;
+    readonly result: SessionOverviewReadResponse;
   };
 }
 /** The session directory methods' wire contract: name, procedure type and types. */
@@ -647,51 +616,35 @@ export const SESSION_DIRECTORY_METHOD_DESCRIPTORS: SessionDirectoryMethodDescrip
       method: "session.create",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionCreateRequest,
-      responseCheck: validateSessionCreateResponse,
     }),
     "session.subscribe": /* @__PURE__ */ Object.freeze({
       method: "session.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateSessionSubscribeResponse,
-      emissionCheck: validateSessionListChange,
     }),
     "session.event.subscribe": /* @__PURE__ */ Object.freeze({
       method: "session.event.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateSessionEventSubscribeRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateSessionStreamFrame,
     }),
     "session.convert": /* @__PURE__ */ Object.freeze({
       method: "session.convert",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionConvertRequest,
-      responseCheck: validateSessionConvertResponse,
     }),
     "session.fork": /* @__PURE__ */ Object.freeze({
       method: "session.fork",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionForkRequest,
-      responseCheck: validateSessionForkResponse,
     }),
     "session.workingFolder.update": /* @__PURE__ */ Object.freeze({
       method: "session.workingFolder.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionWorkingFolderUpdateRequest,
-      responseCheck: validateSessionWorkingFolderUpdateResponse,
     }),
     "session.overview.read": /* @__PURE__ */ Object.freeze({
       method: "session.overview.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateSessionOverviewReadRequest,
-      responseCheck: validateSessionOverviewReadResponse,
     }),
   });

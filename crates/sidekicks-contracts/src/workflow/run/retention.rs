@@ -85,12 +85,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "Run retention: deleting one run, deleting the runs older than an instant and its \
           preview, and marking a run Keep, which such a delete leaves.",
     definitions: &[
-        Definition::read::<WorkflowRunDeleteRequest>().checked(),
-        Definition::read::<WorkflowRunDeleteResponse>().checked(),
-        Definition::read::<WorkflowRunPurgeRequest>().checked(),
-        Definition::read::<WorkflowRunPurgePreviewResponse>().checked(),
-        Definition::read::<WorkflowRunPurgeResponse>().checked(),
-        Definition::read::<WorkflowRunKeepSet>().checked(),
+        Definition::read::<WorkflowRunDeleteRequest>(),
+        Definition::read::<WorkflowRunDeleteResponse>(),
+        Definition::read::<WorkflowRunPurgeRequest>(),
+        Definition::read::<WorkflowRunPurgePreviewResponse>(),
+        Definition::read::<WorkflowRunPurgeResponse>(),
+        Definition::read::<WorkflowRunKeepSet>(),
     ],
     constants: &[],
     method_tables: &[],

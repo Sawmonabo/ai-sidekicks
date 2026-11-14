@@ -9,30 +9,22 @@
 // is over, which the view that started it cannot learn otherwise (a refused cancellation
 // establishes nothing), and the daemon publishes `accountChanged` next for the account itself.
 // The newest one is held, correlated by the caller on `attemptId`, never taken as an account
-// verdict. Unreadable deliveries are counted in `unreadable-deliveries.ts`; this stream never
-// clears the count, because the registry read answers for an instant the tail has moved past and
-// an unreadable payload is a build-level fact, not a transient one.
+// verdict.
 
-import {
-  validateProviderAccountNotification,
-  type ProviderAccountNotification,
-  type ProviderAccountUsageWindow,
+import type {
+  ProviderAccountNotification,
+  ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 
-import { checkFaultPaths } from "#shared/daemon/fault-path.js";
 import { RealClock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
 } from "#renderer/lib/diagnostic-capture/capture.js";
-import { PROVIDER_QUOTA_DELIVERY_STREAM, PROVIDER_QUOTA_REFUSAL_ORIGIN } from "./refusals.js";
+import { PROVIDER_QUOTA_REFUSAL_ORIGIN } from "./refusals.js";
 import { ProviderAccountNotificationHold } from "#renderer/store/provider-accounts/notification-hold.js";
-import {
-  UnreadableDeliveryCounter,
-  type UnreadableDeliveryReading,
-} from "#renderer/lib/reads/unreadable-deliveries.js";
 import type { ProviderAccountFold } from "#renderer/store/provider-accounts/fold.js";
 
 /**
@@ -46,7 +38,7 @@ export type ProviderSignInCompletion = Extract<
 
 /** What the reading hands over so a frame can reach a view without this module publishing. */
 export interface ProviderAccountDeliverySink {
-  /** Something moved, or a delivery was recorded unreadably. Publish. */
+  /** Something moved. Publish. */
   readonly onChanged: () => void;
   /**
    * The hold overflowed and what it held has been applied live. The reply in flight describes an
@@ -57,8 +49,8 @@ export interface ProviderAccountDeliverySink {
 }
 
 /**
- * One provider-account tail: the frames it carries and the order they reach the fold in. The hold,
- * the unreadable count and the once-only high-water diagnostic move only on a delivery, so a
+ * One provider-account tail: the frames it carries and the order they reach the fold in. The hold
+ * and the once-only high-water diagnostic move only on a delivery, so a
  * reading cannot apply a held frame twice. The fold is a constructor parameter because the reading
  * also loads the registry snapshot into it and draws its accounts and readings from it;
  * `sectionOf` answers an account's provider section, whose name and plan words its label takes.
@@ -68,7 +60,6 @@ export class ProviderAccountDeliveries {
   readonly #sectionOf: (provider: ProviderId) => ProviderSection;
   readonly #sink: ProviderAccountDeliverySink;
   readonly #hold = new ProviderAccountNotificationHold();
-  readonly #unreadable = new UnreadableDeliveryCounter(PROVIDER_QUOTA_DELIVERY_STREAM);
   #hasReportedHighWaterDrop = false;
   #newestSignInCompletion: ProviderSignInCompletion | undefined = undefined;
 
@@ -80,11 +71,6 @@ export class ProviderAccountDeliveries {
     this.#fold = fold;
     this.#sectionOf = sectionOf;
     this.#sink = sink;
-  }
-
-  /** What the readout carries about the frames this build could not read. */
-  public get unreadable(): UnreadableDeliveryReading {
-    return this.#unreadable.reading;
   }
 
   /**
@@ -112,23 +98,15 @@ export class ProviderAccountDeliveries {
   }
 
   /**
-   * Delivers one notification off the tail. A payload the registered union does not admit moves
-   * no account or window but is counted, so the reading does not present a stale snapshot as
-   * current. A readable one either moves the fold now or is held until the opening read lands.
+   * Delivers one notification off the tail: it moves the fold now, or is held until the opening
+   * read lands.
    */
-  public deliver(payload: unknown): void {
-    if (!validateProviderAccountNotification(payload)) {
-      // Every delivery publishes: an unreadable one moves nothing but changes what the chips
-      // mean, and a count that never reached a render could not say so.
-      this.#unreadable.record(checkFaultPaths(validateProviderAccountNotification, payload));
-      this.#sink.onChanged();
-      return;
-    }
+  public deliver(notification: ProviderAccountNotification): void {
     if (this.#hold.isHolding) {
-      this.#holdAcrossSeedRead(payload);
+      this.#holdAcrossSeedRead(notification);
       return;
     }
-    if (this.#applyNotification(payload)) {
+    if (this.#applyNotification(notification)) {
       this.#sink.onChanged();
     }
   }

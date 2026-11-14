@@ -3,16 +3,6 @@
 
 // The ports a machine shares with the person's other devices, and the `preview.port*` methods.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import {
-  validatePreviewPortRequest,
-  validatePreviewPortShareAddResponse,
-  validatePreviewPortShareListFrame,
-  validatePreviewPortShareRemoveResponse,
-  validatePreviewPortTicketIssueResponse,
-} from "../checks/preview/port.js";
 import type { Port, WireInstant } from "../internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
 import type { EmptyPayload } from "../method-descriptor.js";
@@ -112,46 +102,49 @@ export interface PreviewPortTicketIssueResponse {
   address: string;
 }
 
-export {
-  validatePreviewPortRefusalDetails,
-  validatePreviewPortRequest,
-  validatePreviewPortShareAddResponse,
-  validatePreviewPortShareListFrame,
-  validatePreviewPortShareRemoveResponse,
-  validatePreviewPortTicketIssueResponse,
-  validatePreviewSharedPort,
-} from "../checks/preview/port.js";
+export { validatePreviewPortTicketIssueResponse } from "../checks/preview/port.js";
 
-/** The methods of {@link PREVIEW_PORT_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link PREVIEW_PORT_METHOD_DESCRIPTORS}, each with its kind. */
 export interface PreviewPortMethodDescriptors {
   readonly "preview.portShare.subscribe": {
     readonly method: "preview.portShare.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<PreviewPortShareListFrame>;
   };
   readonly "preview.portShare.add": {
     readonly method: "preview.portShare.add";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPortRequest>;
-    readonly responseCheck: SchemaCheck<PreviewPortShareAddResponse>;
   };
   readonly "preview.portShare.remove": {
     readonly method: "preview.portShare.remove";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPortRequest>;
-    readonly responseCheck: SchemaCheck<PreviewPortShareRemoveResponse>;
   };
   readonly "preview.portTicket.issue": {
     readonly method: "preview.portTicket.issue";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPortRequest>;
-    readonly responseCheck: SchemaCheck<PreviewPortTicketIssueResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link PREVIEW_PORT_METHOD_DESCRIPTORS}. */
+export interface PreviewPortMethodTypes {
+  readonly "preview.portShare.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: PreviewPortShareListFrame;
+  };
+  readonly "preview.portShare.add": {
+    readonly params: PreviewPortRequest;
+    readonly result: PreviewPortShareAddResponse;
+  };
+  readonly "preview.portShare.remove": {
+    readonly params: PreviewPortRequest;
+    readonly result: PreviewPortShareRemoveResponse;
+  };
+  readonly "preview.portTicket.issue": {
+    readonly params: PreviewPortRequest;
+    readonly result: PreviewPortTicketIssueResponse;
   };
 }
 /** The `preview.port*` methods the daemon answers. */
@@ -161,29 +154,20 @@ export const PREVIEW_PORT_METHOD_DESCRIPTORS: PreviewPortMethodDescriptors =
       method: "preview.portShare.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validatePreviewPortShareListFrame,
     }),
     "preview.portShare.add": /* @__PURE__ */ Object.freeze({
       method: "preview.portShare.add",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validatePreviewPortRequest,
-      responseCheck: validatePreviewPortShareAddResponse,
     }),
     "preview.portShare.remove": /* @__PURE__ */ Object.freeze({
       method: "preview.portShare.remove",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validatePreviewPortRequest,
-      responseCheck: validatePreviewPortShareRemoveResponse,
     }),
     "preview.portTicket.issue": /* @__PURE__ */ Object.freeze({
       method: "preview.portTicket.issue",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validatePreviewPortRequest,
-      responseCheck: validatePreviewPortTicketIssueResponse,
     }),
   });

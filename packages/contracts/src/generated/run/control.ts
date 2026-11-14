@@ -3,44 +3,6 @@
 
 // Run control: pause and resume, the recovery question after a restart, the run state stream and the run-control method table, which also serves the queue, interventions, a child's own controls and the provider's choices a run waits on.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import {
-  validateAgentChildRunInterruptRequest,
-  validateAgentChildRunInterruptResponse,
-  validateAgentChildRunPausedUpdateRequest,
-  validateAgentChildRunPausedUpdateResponse,
-  validateAgentChildRunSteerRequest,
-  validateAgentChildRunStopAllRequest,
-  validateAgentChildRunStopAllResponse,
-} from "../checks/run/children.js";
-import {
-  validateAgentRunControlResponse,
-  validateAgentRunPauseRequest,
-  validateAgentRunRecoveryResolveRequest,
-  validateAgentRunResumeRequest,
-  validateAgentRunSubscribeRequest,
-  validateRunStateStreamFrame,
-} from "../checks/run/control.js";
-import {
-  validateAgentRunInterveneRequest,
-  validateAgentRunInterveneResponse,
-} from "../checks/run/intervention.js";
-import {
-  validateAgentRunRefusalChoiceResolveRequest,
-  validateAgentRunUsageCreditsChoiceResolveRequest,
-} from "../checks/run/provider-choice.js";
-import {
-  validateAgentQueueItemCancelRequest,
-  validateAgentQueueItemCancelResponse,
-  validateAgentQueueItemCreateRequest,
-  validateAgentQueueItemCreateResponse,
-  validateAgentQueueItemListRequest,
-  validateAgentQueueItemListResponse,
-  validateAgentQueueItemReorderRequest,
-  validateAgentQueueItemSubscribeRequest,
-  validateRunQueueStreamFrame,
-} from "../checks/run/queue.js";
 import type { SourcePosition } from "../event/envelope.js";
 import type { WireInstant } from "../internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
@@ -898,139 +860,166 @@ export interface AgentRunSubscribeRequest {
 }
 
 export {
-  validateAgentRunControlResponse,
-  validateAgentRunPauseRequest,
-  validateAgentRunRecoveryResolveRequest,
   validateAgentRunRecoveryResolvedPayload,
   validateAgentRunRecoveryStepsAddedPayload,
-  validateAgentRunResumeRequest,
   validateAgentRunRolledBackEvent,
-  validateAgentRunSubscribeRequest,
   validateProcessExit,
   validateRunFailureCategory,
   validateRunRecoveryChoice,
   validateRunStateChangeEvent,
-  validateRunStateStreamChange,
-  validateRunStateStreamEvent,
-  validateRunStateStreamFrame,
   validateStopTrigger,
 } from "../checks/run/control.js";
 
-/** The methods of {@link RUN_CONTROL_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link RUN_CONTROL_METHOD_DESCRIPTORS}, each with its kind. */
 export interface RunControlMethodDescriptors {
   readonly "agent.queueItem.create": {
     readonly method: "agent.queueItem.create";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentQueueItemCreateRequest>;
-    readonly responseCheck: SchemaCheck<AgentQueueItemCreateResponse>;
   };
   readonly "agent.queueItem.list": {
     readonly method: "agent.queueItem.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<AgentQueueItemListRequest>;
-    readonly responseCheck: SchemaCheck<AgentQueueItemListResponse>;
   };
   readonly "agent.queueItem.cancel": {
     readonly method: "agent.queueItem.cancel";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentQueueItemCancelRequest>;
-    readonly responseCheck: SchemaCheck<AgentQueueItemCancelResponse>;
   };
   readonly "agent.queueItem.reorder": {
     readonly method: "agent.queueItem.reorder";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentQueueItemReorderRequest>;
-    readonly responseCheck: SchemaCheck<AgentQueueItemListResponse>;
   };
   readonly "agent.queueItem.subscribe": {
     readonly method: "agent.queueItem.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<AgentQueueItemSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<RunQueueStreamFrame>;
   };
   readonly "agent.run.intervene": {
     readonly method: "agent.run.intervene";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentRunInterveneRequest>;
-    readonly responseCheck: SchemaCheck<AgentRunInterveneResponse>;
   };
   readonly "agent.run.pause": {
     readonly method: "agent.run.pause";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentRunPauseRequest>;
-    readonly responseCheck: SchemaCheck<AgentRunControlResponse>;
   };
   readonly "agent.run.resume": {
     readonly method: "agent.run.resume";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentRunResumeRequest>;
-    readonly responseCheck: SchemaCheck<AgentRunControlResponse>;
   };
   readonly "agent.run.subscribe": {
     readonly method: "agent.run.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<AgentRunSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<RunStateStreamFrame>;
   };
   readonly "agent.childRun.steer": {
     readonly method: "agent.childRun.steer";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentChildRunSteerRequest>;
-    readonly responseCheck: SchemaCheck<AgentQueueItemCreateResponse>;
   };
   readonly "agent.childRun.interrupt": {
     readonly method: "agent.childRun.interrupt";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentChildRunInterruptRequest>;
-    readonly responseCheck: SchemaCheck<AgentChildRunInterruptResponse>;
   };
   readonly "agent.childRun.paused.update": {
     readonly method: "agent.childRun.paused.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentChildRunPausedUpdateRequest>;
-    readonly responseCheck: SchemaCheck<AgentChildRunPausedUpdateResponse>;
   };
   readonly "agent.childRun.stopAll": {
     readonly method: "agent.childRun.stopAll";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentChildRunStopAllRequest>;
-    readonly responseCheck: SchemaCheck<AgentChildRunStopAllResponse>;
   };
   readonly "agent.run.recovery.resolve": {
     readonly method: "agent.run.recovery.resolve";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentRunRecoveryResolveRequest>;
-    readonly responseCheck: SchemaCheck<AgentRunControlResponse>;
   };
   readonly "agent.run.refusalChoice.resolve": {
     readonly method: "agent.run.refusalChoice.resolve";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentRunRefusalChoiceResolveRequest>;
-    readonly responseCheck: SchemaCheck<AgentRunControlResponse>;
   };
   readonly "agent.run.usageCreditsChoice.resolve": {
     readonly method: "agent.run.usageCreditsChoice.resolve";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentRunUsageCreditsChoiceResolveRequest>;
-    readonly responseCheck: SchemaCheck<AgentRunControlResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link RUN_CONTROL_METHOD_DESCRIPTORS}. */
+export interface RunControlMethodTypes {
+  readonly "agent.queueItem.create": {
+    readonly params: AgentQueueItemCreateRequest;
+    readonly result: AgentQueueItemCreateResponse;
+  };
+  readonly "agent.queueItem.list": {
+    readonly params: AgentQueueItemListRequest;
+    readonly result: AgentQueueItemListResponse;
+  };
+  readonly "agent.queueItem.cancel": {
+    readonly params: AgentQueueItemCancelRequest;
+    readonly result: AgentQueueItemCancelResponse;
+  };
+  readonly "agent.queueItem.reorder": {
+    readonly params: AgentQueueItemReorderRequest;
+    readonly result: AgentQueueItemListResponse;
+  };
+  readonly "agent.queueItem.subscribe": {
+    readonly params: AgentQueueItemSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: RunQueueStreamFrame;
+  };
+  readonly "agent.run.intervene": {
+    readonly params: AgentRunInterveneRequest;
+    readonly result: AgentRunInterveneResponse;
+  };
+  readonly "agent.run.pause": {
+    readonly params: AgentRunPauseRequest;
+    readonly result: AgentRunControlResponse;
+  };
+  readonly "agent.run.resume": {
+    readonly params: AgentRunResumeRequest;
+    readonly result: AgentRunControlResponse;
+  };
+  readonly "agent.run.subscribe": {
+    readonly params: AgentRunSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: RunStateStreamFrame;
+  };
+  readonly "agent.childRun.steer": {
+    readonly params: AgentChildRunSteerRequest;
+    readonly result: AgentQueueItemCreateResponse;
+  };
+  readonly "agent.childRun.interrupt": {
+    readonly params: AgentChildRunInterruptRequest;
+    readonly result: AgentChildRunInterruptResponse;
+  };
+  readonly "agent.childRun.paused.update": {
+    readonly params: AgentChildRunPausedUpdateRequest;
+    readonly result: AgentChildRunPausedUpdateResponse;
+  };
+  readonly "agent.childRun.stopAll": {
+    readonly params: AgentChildRunStopAllRequest;
+    readonly result: AgentChildRunStopAllResponse;
+  };
+  readonly "agent.run.recovery.resolve": {
+    readonly params: AgentRunRecoveryResolveRequest;
+    readonly result: AgentRunControlResponse;
+  };
+  readonly "agent.run.refusalChoice.resolve": {
+    readonly params: AgentRunRefusalChoiceResolveRequest;
+    readonly result: AgentRunControlResponse;
+  };
+  readonly "agent.run.usageCreditsChoice.resolve": {
+    readonly params: AgentRunUsageCreditsChoiceResolveRequest;
+    readonly result: AgentRunControlResponse;
   };
 }
 /**
@@ -1043,114 +1032,80 @@ export const RUN_CONTROL_METHOD_DESCRIPTORS: RunControlMethodDescriptors =
       method: "agent.queueItem.create",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentQueueItemCreateRequest,
-      responseCheck: validateAgentQueueItemCreateResponse,
     }),
     "agent.queueItem.list": /* @__PURE__ */ Object.freeze({
       method: "agent.queueItem.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateAgentQueueItemListRequest,
-      responseCheck: validateAgentQueueItemListResponse,
     }),
     "agent.queueItem.cancel": /* @__PURE__ */ Object.freeze({
       method: "agent.queueItem.cancel",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentQueueItemCancelRequest,
-      responseCheck: validateAgentQueueItemCancelResponse,
     }),
     "agent.queueItem.reorder": /* @__PURE__ */ Object.freeze({
       method: "agent.queueItem.reorder",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentQueueItemReorderRequest,
-      responseCheck: validateAgentQueueItemListResponse,
     }),
     "agent.queueItem.subscribe": /* @__PURE__ */ Object.freeze({
       method: "agent.queueItem.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateAgentQueueItemSubscribeRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateRunQueueStreamFrame,
     }),
     "agent.run.intervene": /* @__PURE__ */ Object.freeze({
       method: "agent.run.intervene",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentRunInterveneRequest,
-      responseCheck: validateAgentRunInterveneResponse,
     }),
     "agent.run.pause": /* @__PURE__ */ Object.freeze({
       method: "agent.run.pause",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentRunPauseRequest,
-      responseCheck: validateAgentRunControlResponse,
     }),
     "agent.run.resume": /* @__PURE__ */ Object.freeze({
       method: "agent.run.resume",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentRunResumeRequest,
-      responseCheck: validateAgentRunControlResponse,
     }),
     "agent.run.subscribe": /* @__PURE__ */ Object.freeze({
       method: "agent.run.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateAgentRunSubscribeRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateRunStateStreamFrame,
     }),
     "agent.childRun.steer": /* @__PURE__ */ Object.freeze({
       method: "agent.childRun.steer",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentChildRunSteerRequest,
-      responseCheck: validateAgentQueueItemCreateResponse,
     }),
     "agent.childRun.interrupt": /* @__PURE__ */ Object.freeze({
       method: "agent.childRun.interrupt",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentChildRunInterruptRequest,
-      responseCheck: validateAgentChildRunInterruptResponse,
     }),
     "agent.childRun.paused.update": /* @__PURE__ */ Object.freeze({
       method: "agent.childRun.paused.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentChildRunPausedUpdateRequest,
-      responseCheck: validateAgentChildRunPausedUpdateResponse,
     }),
     "agent.childRun.stopAll": /* @__PURE__ */ Object.freeze({
       method: "agent.childRun.stopAll",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentChildRunStopAllRequest,
-      responseCheck: validateAgentChildRunStopAllResponse,
     }),
     "agent.run.recovery.resolve": /* @__PURE__ */ Object.freeze({
       method: "agent.run.recovery.resolve",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentRunRecoveryResolveRequest,
-      responseCheck: validateAgentRunControlResponse,
     }),
     "agent.run.refusalChoice.resolve": /* @__PURE__ */ Object.freeze({
       method: "agent.run.refusalChoice.resolve",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentRunRefusalChoiceResolveRequest,
-      responseCheck: validateAgentRunControlResponse,
     }),
     "agent.run.usageCreditsChoice.resolve": /* @__PURE__ */ Object.freeze({
       method: "agent.run.usageCreditsChoice.resolve",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentRunUsageCreditsChoiceResolveRequest,
-      responseCheck: validateAgentRunControlResponse,
     }),
   });

@@ -3,10 +3,6 @@
 
 // The MCP governance stream: the stored events of the `mcpGovernance` category, the live notices of an edit to a binding and of a status change, and the `mcp.subscribe` method that carries them.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import { validateMcpSubscribeEmission } from "../checks/mcp/event.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
 import type { EventEnvelope } from "../event/envelope.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
 import type { EmptyPayload } from "../method-descriptor.js";
@@ -30,17 +26,20 @@ export type McpSubscribeEmission =
   | McpServerStatusChangedNotice
   | McpGovernanceEvent;
 
-export { validateMcpGovernanceEvent, validateMcpSubscribeEmission } from "../checks/mcp/event.js";
-
-/** The methods of {@link MCP_EVENT_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link MCP_EVENT_METHOD_DESCRIPTORS}, each with its kind. */
 export interface McpEventMethodDescriptors {
   readonly "mcp.subscribe": {
     readonly method: "mcp.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<McpSubscribeEmission>;
+  };
+}
+/** The params, result and emission types of each method of {@link MCP_EVENT_METHOD_DESCRIPTORS}. */
+export interface McpEventMethodTypes {
+  readonly "mcp.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: McpSubscribeEmission;
   };
 }
 /**
@@ -55,8 +54,5 @@ export const MCP_EVENT_METHOD_DESCRIPTORS: McpEventMethodDescriptors =
       method: "mcp.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateMcpSubscribeEmission,
     }),
   });

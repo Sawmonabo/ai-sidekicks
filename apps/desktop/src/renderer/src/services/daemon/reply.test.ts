@@ -1,13 +1,10 @@
-// The reply chokepoint: a reply off the contract never reaches a caller, a request off the contract
-// never reaches the wire, a rejection becomes a refusal and never an exception, and a read whose
-// owner has gone reads nothing from its reply. Every case drives the real `callDaemon` over the
-// real method table's generated checks and the shipped fixture bridge, so a hand-rolled check
-// cannot pass with the shipped one deleted. The helpers are `reply.test-support.ts` beside this
-// file and the shared `tests/helpers/fixture/bridge.ts`.
+// The reply chokepoint: a request the addon refused reads as unsendable, a rejection becomes a
+// refusal and never an exception, and a read whose owner has gone reads nothing from its reply.
+// Every case drives the real `callDaemon` over the shipped fixture bridge. The helpers are
+// `reply.test-support.ts` beside this file and the shared `tests/helpers/fixture/bridge.ts`.
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { RefusalCategory, RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { isRefusal } from "#renderer/lib/refusal/contract.js";
@@ -16,17 +13,14 @@ import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN } from "./reply.js";
 import { refusalOf } from "./reply.test-support.js";
 import { bridgeAnswering, createFixture } from "#test/helpers/fixture/bridge.js";
 
-/** A device id the response check accepts. */
+/** The device a served presence reply names. */
 const DEVICE_ID = "device-workstation";
 
-/** An `appVisible` the response check accepts. */
+/** The `appVisible` a served presence reply carries. */
 const IN_FRONT = true;
 
-/** A value the response check refuses, shaped like content a refusal detail must never carry. */
-const OFF_CONTRACT = "the person said something private";
-
-/** One served presence reply, in the shape the generated check admits. */
-function servedPresenceReply(appVisible: unknown): unknown {
+/** One served presence reply. */
+function servedPresenceReply(appVisible: boolean): unknown {
   return {
     devices: [
       {
@@ -49,7 +43,7 @@ async function diagnosticsDuring(act: () => Promise<unknown>): Promise<string> {
   }
 }
 
-describe("callDaemon — a served reply is a checked reply", () => {
+describe("callDaemon — a served reply", () => {
   it("serves the registered shape the daemon answered with", async () => {
     const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(IN_FRONT));
 
@@ -58,68 +52,36 @@ describe("callDaemon — a served reply is a checked reply", () => {
     expect(calls).toStrictEqual([{ method: "presence.read", params: {} }]);
     expect(reply.status).toBe("served");
     if (reply.status === "served") {
-      // Read through the bound response type, so a row pointing at the wrong check also
-      // fails at compile time.
+      // Read through the bound response type, so a row pointing at the wrong type also fails at
+      // compile time.
       expect(reply.value.devices[0]?.deviceId).toBe(DEVICE_ID);
     }
   });
 });
 
-describe("callDaemon — a reply the contract does not admit is a refusal", () => {
-  it("refuses an entirely wrong reply under the app's own code and origin", async () => {
-    const { bridge } = bridgeAnswering(async () => ({ rows: [] }));
-
-    let reply: Awaited<ReturnType<typeof callDaemon>> | undefined;
-    const diagnostics = await diagnosticsDuring(async () => {
-      reply = await callDaemon(bridge, "presence.read", {});
-    });
-    const refusal = refusalOf(reply ?? { status: "served", value: undefined });
-
-    expect(refusal.code).toBe("reply-unreadable");
-    expect(refusal.origin).toBe(DAEMON_REPLY_REFUSAL_ORIGIN);
-    // The method is wire spelling: diagnostics carry it and the screen does not.
-    expect(refusal.detail).not.toContain("presence.read");
-    expect(diagnostics).toContain("presence.read");
-    expect(isRefusal(refusal)).toBe(true);
-  });
-
-  it("records the failing member path and never the refused value", async () => {
-    // A refused member can be a person's words, a path or a credential, so only its path is
-    // kept, and only for diagnostics.
-    const { bridge } = bridgeAnswering(async () => servedPresenceReply(OFF_CONTRACT));
-
-    let reply: Awaited<ReturnType<typeof callDaemon>> | undefined;
-    const diagnostics = await diagnosticsDuring(async () => {
-      reply = await callDaemon(bridge, "presence.read", {});
-    });
-    const refusal = refusalOf(reply ?? { status: "served", value: undefined });
-
-    expect(diagnostics).toContain("devices.0.appVisible");
-    expect(refusal.detail).not.toContain("devices.0.appVisible");
-    expect(diagnostics).not.toContain(OFF_CONTRACT);
-    expect(refusal.detail).not.toContain(OFF_CONTRACT);
-  });
-});
-
-describe("callDaemon — a request the contract does not admit is never sent", () => {
-  it("refuses before the call, and the daemon sees nothing", async () => {
-    const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(IN_FRONT));
-
-    // The branded id is a compile-time marker over a string, so a caller can hand this seam a
-    // value the wire would refuse; the check stops it becoming a failing round trip.
-    let reply: Awaited<ReturnType<typeof callDaemon>> | undefined;
-    const diagnostics = await diagnosticsDuring(async () => {
-      reply = await callDaemon(bridge, "session.read", {
-        sessionId: "not-a-session-id" as SessionId,
+describe("callDaemon — a request the addon refused before it left", () => {
+  it("reads as the app's own unsendable code, naming the method only to diagnostics", async () => {
+    const { bridge } = bridgeAnswering(async () => {
+      throw Object.assign(new Error("The params of presence.read break its contract"), {
+        code: JsonRpcErrorCode.InvalidParams,
+        data: {
+          type: "request.paramsInvalid" satisfies RefusalCode,
+          category: "invalidArgument" satisfies RefusalCategory,
+        },
       });
+    });
+
+    let reply: Awaited<ReturnType<typeof callDaemon>> | undefined;
+    const diagnostics = await diagnosticsDuring(async () => {
+      reply = await callDaemon(bridge, "presence.read", {});
     });
     const refusal = refusalOf(reply ?? { status: "served", value: undefined });
 
     expect(refusal.code).toBe("request-unsendable");
     expect(refusal.origin).toBe(DAEMON_REPLY_REFUSAL_ORIGIN);
-    expect(refusal.detail).not.toContain("session.read");
-    expect(diagnostics).toContain("session.read");
-    expect(calls).toStrictEqual([]);
+    expect(refusal.detail).not.toContain("presence.read");
+    expect(diagnostics).toContain("presence.read");
+    expect(isRefusal(refusal)).toBe(true);
   });
 });
 
@@ -187,16 +149,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
 /** The code `callDaemon` raises for a read whose owner has gone. */
 const READ_ABANDONED = "read-abandoned";
 
-/** A reply the presence check refuses, so a check that ran shows as `reply-unreadable`. */
-function refusedPresenceReply(): unknown {
-  return { devices: "not a list" };
-}
-
-/**
- * A promise that never settles, and the release that answers it with `reply`. The body is a
- * parameter: a case whose claim is that nothing was checked needs a body the check would refuse,
- * or a `callDaemon` that checked and agreed would pass.
- */
+/** A promise that never settles, and the release that answers it with `reply`. */
 function heldReply(reply: unknown): {
   readonly promise: Promise<unknown>;
   readonly release: () => void;
@@ -236,9 +189,7 @@ function replyFulfillingAheadOfTheAbandonment(
 describe("callDaemon — a read whose owner has gone", () => {
   it("reads nothing from a reply that arrives after the abandonment", async () => {
     const line = new AbortController();
-    // A refusable reply: a `callDaemon` that checked it would answer `reply-unreadable`, so the
-    // code below shows the check never ran, which a valid body could not.
-    const held = heldReply(refusedPresenceReply());
+    const held = heldReply(servedPresenceReply(IN_FRONT));
     const underTest = bridgeAnswering(async () => await held.promise);
 
     const calling = callDaemon(underTest.bridge, "presence.read", {}, { signal: line.signal });
@@ -248,11 +199,10 @@ describe("callDaemon — a read whose owner has gone", () => {
     expect(refusalOf(await calling).code).toBe(READ_ABANDONED);
   });
 
-  it("checks nothing when abandonment lands between the settlement and the resume", async () => {
+  it("reads nothing when abandonment lands between the settlement and the resume", async () => {
     const line = new AbortController();
-    // A refusable reply, as above: a check that ran would answer `reply-unreadable`.
     const underTest = bridgeAnswering(() =>
-      replyFulfillingAheadOfTheAbandonment(refusedPresenceReply(), line),
+      replyFulfillingAheadOfTheAbandonment(servedPresenceReply(IN_FRONT), line),
     );
 
     const reply = await callDaemon(underTest.bridge, "presence.read", {}, { signal: line.signal });

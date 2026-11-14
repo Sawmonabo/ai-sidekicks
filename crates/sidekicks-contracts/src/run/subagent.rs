@@ -82,7 +82,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The payload of a provider's own subagent starting and finishing under a run.",
     definitions: &[
         Definition::read::<SubagentId>(),
-        Definition::read::<SubagentLifecyclePayload>().checked(),
+        Definition::read::<SubagentLifecyclePayload>(),
     ],
     constants: &[],
     method_tables: &[],

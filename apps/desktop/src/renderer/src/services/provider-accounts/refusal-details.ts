@@ -1,18 +1,11 @@
-// The named members two account-plane refusals carry, checked at the wire boundary with each
-// method's generated details check: the remedy a refused default move names, and why the keychain
-// would not seal a pasted token. A refusal whose members fail the check carries neither, and still
-// renders its code and sentence.
+// The named members two account-plane refusals carry, read as the refusing method's own types: the
+// remedy a refused default move names, and why the keychain would not seal a pasted token. A
+// refusal of another code carries neither, and still renders its code and sentence.
 
 import type { ProviderSignInExpiredRemedy } from "@ai-sidekicks/contracts/provider/account/record";
-import {
-  PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
-  validateProviderAccountNotAuthenticatedDetails,
-} from "@ai-sidekicks/contracts/provider/account/methods";
+import { PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE } from "@ai-sidekicks/contracts/provider/account/methods";
 import type { KeychainRefusalCause } from "@ai-sidekicks/contracts/keychain";
-import {
-  PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE,
-  validateProviderAccountCredentialSealRefusedDetails,
-} from "@ai-sidekicks/contracts/provider/account/sign-in";
+import { PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 
@@ -23,20 +16,16 @@ import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 export function readCarriedLoginRemedy(
   refusal: ExtendedRefusal,
 ): ProviderSignInExpiredRemedy | undefined {
-  if (refusal.code !== PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE) {
-    return undefined;
-  }
-  const details = { remedy: refusal.remedy };
-  return validateProviderAccountNotAuthenticatedDetails(details) ? details.remedy : undefined;
+  return refusal.code === PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE
+    ? (refusal.remedy as ProviderSignInExpiredRemedy | undefined)
+    : undefined;
 }
 
 /** Why the keychain refused to seal a pasted token, where the refusal says so. */
 export function readKeychainRefusalCause(
   refusal: ExtendedRefusal,
 ): KeychainRefusalCause | undefined {
-  if (refusal.code !== PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE) {
-    return undefined;
-  }
-  const details = { cause: refusal.cause };
-  return validateProviderAccountCredentialSealRefusedDetails(details) ? details.cause : undefined;
+  return refusal.code === PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE
+    ? (refusal.cause as KeychainRefusalCause | undefined)
+    : undefined;
 }

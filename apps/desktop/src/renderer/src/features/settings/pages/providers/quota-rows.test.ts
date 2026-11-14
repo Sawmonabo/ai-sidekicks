@@ -78,8 +78,6 @@ function registryHolding(
     newestSignInCompletion: undefined,
     phase: "read",
     readRefusal: undefined,
-    unreadableDeliveryCount: 0,
-    unreadableRefusal: undefined,
   };
 }
 

@@ -3,29 +3,6 @@
 
 // The Preview page host's link between the daemon and the desktop's main process: debug targets, debugger traffic, menus, input at the machine, downloads, staged files, menu acts, cookies and site data.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import { validatePreviewMenuEditResponse } from "../checks/preview/methods.js";
-import {
-  validatePreviewClearedResponse,
-  validatePreviewPageCookieClearRequest,
-  validatePreviewPageCookieListRequest,
-  validatePreviewPageCookieListResponse,
-  validatePreviewPageCookieUpdateRequest,
-  validatePreviewPageCookieUpdateResponse,
-  validatePreviewPageDebuggerMessageRequest,
-  validatePreviewPageDownloadReportRequest,
-  validatePreviewPageDownloadReportResponse,
-  validatePreviewPageEditRequest,
-  validatePreviewPageLocalInputReportRequest,
-  validatePreviewPageMenuReportRequest,
-  validatePreviewPageSiteDataClearRequest,
-  validatePreviewPageStagingFolderReadResponse,
-  validatePreviewPageTargetReportRequest,
-  validatePreviewReceivedResponse,
-  validatePreviewSaveReadRequest,
-  validatePreviewSaveReadResponse,
-} from "../checks/preview/page-host.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 import type {
   PreviewInputMessageId,
@@ -453,87 +430,73 @@ export interface PreviewClearedResponse {
   cleared: true;
 }
 
-export {
-  validatePreviewClearedResponse,
-  validatePreviewCookie,
-  validatePreviewCookieSameSite,
-  validatePreviewDebuggerError,
-  validatePreviewDebuggerMessage,
-  validatePreviewDebuggerSessionId,
-  validatePreviewDebuggerTargetId,
-  validatePreviewDownloadState,
-  validatePreviewDownloadVerdict,
-  validatePreviewPageCookieClearRequest,
-  validatePreviewPageCookieListRequest,
-  validatePreviewPageCookieListResponse,
-  validatePreviewPageCookieUpdateRequest,
-  validatePreviewPageCookieUpdateResponse,
-  validatePreviewPageDebuggerMessageRequest,
-  validatePreviewPageDownloadReportRequest,
-  validatePreviewPageDownloadReportResponse,
-  validatePreviewPageEditRequest,
-  validatePreviewPageLocalInputReportRequest,
-  validatePreviewPageMenu,
-  validatePreviewPageMenuReportRequest,
-  validatePreviewPageSiteDataClearRequest,
-  validatePreviewPageStagingFolderReadResponse,
-  validatePreviewPageTargetReportRequest,
-  validatePreviewReceivedResponse,
-  validatePreviewSaveReadRequest,
-  validatePreviewSaveReadResponse,
-  validatePreviewStagedFileId,
-} from "../checks/preview/page-host.js";
-
-/** The methods of {@link PREVIEW_PAGE_LINK_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link PREVIEW_PAGE_LINK_METHOD_DESCRIPTORS}, each with its kind. */
 export interface PreviewPageLinkMethodDescriptors {
   readonly "preview.page.target.report": {
     readonly method: "preview.page.target.report";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageTargetReportRequest>;
-    readonly responseCheck: SchemaCheck<PreviewReceivedResponse>;
   };
   readonly "preview.page.debugger.report": {
     readonly method: "preview.page.debugger.report";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageDebuggerMessageRequest>;
-    readonly responseCheck: SchemaCheck<PreviewReceivedResponse>;
   };
   readonly "preview.page.menu.report": {
     readonly method: "preview.page.menu.report";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageMenuReportRequest>;
-    readonly responseCheck: SchemaCheck<PreviewReceivedResponse>;
   };
   readonly "preview.page.stagingFolder.read": {
     readonly method: "preview.page.stagingFolder.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<PreviewPageStagingFolderReadResponse>;
   };
   readonly "preview.page.localInput.report": {
     readonly method: "preview.page.localInput.report";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageLocalInputReportRequest>;
-    readonly responseCheck: SchemaCheck<PreviewReceivedResponse>;
   };
   readonly "preview.page.download.report": {
     readonly method: "preview.page.download.report";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageDownloadReportRequest>;
-    readonly responseCheck: SchemaCheck<PreviewPageDownloadReportResponse>;
   };
   readonly "preview.save.read": {
     readonly method: "preview.save.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<PreviewSaveReadRequest>;
-    readonly responseCheck: SchemaCheck<PreviewSaveReadResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link PREVIEW_PAGE_LINK_METHOD_DESCRIPTORS}. */
+export interface PreviewPageLinkMethodTypes {
+  readonly "preview.page.target.report": {
+    readonly params: PreviewPageTargetReportRequest;
+    readonly result: PreviewReceivedResponse;
+  };
+  readonly "preview.page.debugger.report": {
+    readonly params: PreviewPageDebuggerMessageRequest;
+    readonly result: PreviewReceivedResponse;
+  };
+  readonly "preview.page.menu.report": {
+    readonly params: PreviewPageMenuReportRequest;
+    readonly result: PreviewReceivedResponse;
+  };
+  readonly "preview.page.stagingFolder.read": {
+    readonly params: EmptyPayload;
+    readonly result: PreviewPageStagingFolderReadResponse;
+  };
+  readonly "preview.page.localInput.report": {
+    readonly params: PreviewPageLocalInputReportRequest;
+    readonly result: PreviewReceivedResponse;
+  };
+  readonly "preview.page.download.report": {
+    readonly params: PreviewPageDownloadReportRequest;
+    readonly result: PreviewPageDownloadReportResponse;
+  };
+  readonly "preview.save.read": {
+    readonly params: PreviewSaveReadRequest;
+    readonly result: PreviewSaveReadResponse;
   };
 }
 /** The `preview.*` link methods the daemon answers; main is their only caller. */
@@ -543,96 +506,97 @@ export const PREVIEW_PAGE_LINK_METHOD_DESCRIPTORS: PreviewPageLinkMethodDescript
       method: "preview.page.target.report",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validatePreviewPageTargetReportRequest,
-      responseCheck: validatePreviewReceivedResponse,
     }),
     "preview.page.debugger.report": /* @__PURE__ */ Object.freeze({
       method: "preview.page.debugger.report",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validatePreviewPageDebuggerMessageRequest,
-      responseCheck: validatePreviewReceivedResponse,
     }),
     "preview.page.menu.report": /* @__PURE__ */ Object.freeze({
       method: "preview.page.menu.report",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validatePreviewPageMenuReportRequest,
-      responseCheck: validatePreviewReceivedResponse,
     }),
     "preview.page.stagingFolder.read": /* @__PURE__ */ Object.freeze({
       method: "preview.page.stagingFolder.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validatePreviewPageStagingFolderReadResponse,
     }),
     "preview.page.localInput.report": /* @__PURE__ */ Object.freeze({
       method: "preview.page.localInput.report",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validatePreviewPageLocalInputReportRequest,
-      responseCheck: validatePreviewReceivedResponse,
     }),
     "preview.page.download.report": /* @__PURE__ */ Object.freeze({
       method: "preview.page.download.report",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validatePreviewPageDownloadReportRequest,
-      responseCheck: validatePreviewPageDownloadReportResponse,
     }),
     "preview.save.read": /* @__PURE__ */ Object.freeze({
       method: "preview.save.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validatePreviewSaveReadRequest,
-      responseCheck: validatePreviewSaveReadResponse,
     }),
   });
 
-/** The methods of {@link PREVIEW_PAGE_HOST_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link PREVIEW_PAGE_HOST_METHOD_DESCRIPTORS}, each with its kind. */
 export interface PreviewPageHostMethodDescriptors {
   readonly "preview.page.debugger.send": {
     readonly method: "preview.page.debugger.send";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageDebuggerMessageRequest>;
-    readonly responseCheck: SchemaCheck<PreviewReceivedResponse>;
   };
   readonly "preview.page.edit": {
     readonly method: "preview.page.edit";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageEditRequest>;
-    readonly responseCheck: SchemaCheck<PreviewMenuEditResponse>;
   };
   readonly "preview.page.cookie.list": {
     readonly method: "preview.page.cookie.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<PreviewPageCookieListRequest>;
-    readonly responseCheck: SchemaCheck<PreviewPageCookieListResponse>;
   };
   readonly "preview.page.cookie.update": {
     readonly method: "preview.page.cookie.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageCookieUpdateRequest>;
-    readonly responseCheck: SchemaCheck<PreviewPageCookieUpdateResponse>;
   };
   readonly "preview.page.cookie.clear": {
     readonly method: "preview.page.cookie.clear";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageCookieClearRequest>;
-    readonly responseCheck: SchemaCheck<PreviewClearedResponse>;
   };
   readonly "preview.page.siteData.clear": {
     readonly method: "preview.page.siteData.clear";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageSiteDataClearRequest>;
-    readonly responseCheck: SchemaCheck<PreviewClearedResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link PREVIEW_PAGE_HOST_METHOD_DESCRIPTORS}. */
+export interface PreviewPageHostMethodTypes {
+  readonly "preview.page.debugger.send": {
+    readonly params: PreviewPageDebuggerMessageRequest;
+    readonly result: PreviewReceivedResponse;
+  };
+  readonly "preview.page.edit": {
+    readonly params: PreviewPageEditRequest;
+    readonly result: PreviewMenuEditResponse;
+  };
+  readonly "preview.page.cookie.list": {
+    readonly params: PreviewPageCookieListRequest;
+    readonly result: PreviewPageCookieListResponse;
+  };
+  readonly "preview.page.cookie.update": {
+    readonly params: PreviewPageCookieUpdateRequest;
+    readonly result: PreviewPageCookieUpdateResponse;
+  };
+  readonly "preview.page.cookie.clear": {
+    readonly params: PreviewPageCookieClearRequest;
+    readonly result: PreviewClearedResponse;
+  };
+  readonly "preview.page.siteData.clear": {
+    readonly params: PreviewPageSiteDataClearRequest;
+    readonly result: PreviewClearedResponse;
   };
 }
 /**
@@ -645,42 +609,30 @@ export const PREVIEW_PAGE_HOST_METHOD_DESCRIPTORS: PreviewPageHostMethodDescript
       method: "preview.page.debugger.send",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validatePreviewPageDebuggerMessageRequest,
-      responseCheck: validatePreviewReceivedResponse,
     }),
     "preview.page.edit": /* @__PURE__ */ Object.freeze({
       method: "preview.page.edit",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validatePreviewPageEditRequest,
-      responseCheck: validatePreviewMenuEditResponse,
     }),
     "preview.page.cookie.list": /* @__PURE__ */ Object.freeze({
       method: "preview.page.cookie.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validatePreviewPageCookieListRequest,
-      responseCheck: validatePreviewPageCookieListResponse,
     }),
     "preview.page.cookie.update": /* @__PURE__ */ Object.freeze({
       method: "preview.page.cookie.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validatePreviewPageCookieUpdateRequest,
-      responseCheck: validatePreviewPageCookieUpdateResponse,
     }),
     "preview.page.cookie.clear": /* @__PURE__ */ Object.freeze({
       method: "preview.page.cookie.clear",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validatePreviewPageCookieClearRequest,
-      responseCheck: validatePreviewClearedResponse,
     }),
     "preview.page.siteData.clear": /* @__PURE__ */ Object.freeze({
       method: "preview.page.siteData.clear",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validatePreviewPageSiteDataClearRequest,
-      responseCheck: validatePreviewClearedResponse,
     }),
   });

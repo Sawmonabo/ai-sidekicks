@@ -162,10 +162,3 @@ export interface ProviderCommandListResponse {
    */
   bindings: [ProviderCommandBindingGroup, ...ProviderCommandBindingGroup[]];
 }
-
-export {
-  validateProviderCommandBinding,
-  validateProviderCommandBindingGroup,
-  validateProviderCommandEntry,
-  validateProviderCommandListResponse,
-} from "../../checks/provider/driver/commands.js";

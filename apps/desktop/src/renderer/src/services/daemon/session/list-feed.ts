@@ -1,18 +1,15 @@
 // The service's session list, read off `session.list`: the list as it stands when the stream
-// opens, in pages when it outgrows one message, then each change to it. Every delivery is checked
-// here with the contract's generated check. One that does not match, or a re-open the daemon refuses, is handed
-// on as the list being lost, so its reader says the list could not be read rather than show a
-// list that may be wrong; the cause goes to the window's diagnostic capture. A stream that ends
-// is opened again and restates the list.
+// opens, the acknowledgment that alone carries the subscription's id, in pages when it outgrows
+// one message, then each change to it. A re-open the daemon refuses is handed on as the list being
+// lost, so its reader says the list could not be read rather than show a list that may be wrong.
+// A stream that ends is opened again and restates the list.
 
-import {
-  validateSessionListChange,
-  validateSessionSubscribeResponse,
+import type {
+  SessionListChange,
+  SessionSubscribeResponse,
 } from "@ai-sidekicks/contracts/session/directory";
 
 import { SESSION_LIST_STREAM } from "#shared/daemon/streams.js";
-import { checkFaultPaths } from "#shared/daemon/fault-path.js";
-import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
 import type { SessionDirectoryFeed } from "#renderer/store/session/directory/state.js";
 import type { PlatformBridge } from "../../platform/bridge.js";
 import { openReopeningSubscription } from "../../transport/reopening-subscription.js";
@@ -52,26 +49,17 @@ function sessionListFeedOver(bridge: PlatformBridge): SessionDirectoryFeed {
       open: (deliver, onEnded) =>
         bridge.daemon.subscribe(SESSION_LIST_STREAM, {}, deliver, onEnded),
       onFrame: (payload) => {
-        if (validateSessionSubscribeResponse(payload)) {
-          onFrame({
-            kind: "list",
-            sessions: payload.sessions,
-            chatCount: payload.chatCount,
-            isComplete: payload.isComplete,
-          });
-          return;
-        }
-        if (validateSessionListChange(payload)) {
-          onFrame({ kind: "change", change: payload });
-          return;
-        }
-        recordRefusedMemberPaths({
-          source: "services/daemon",
-          kind: "notice-unreadable",
-          subject: SESSION_LIST_STREAM,
-          issues: checkFaultPaths(validateSessionListChange, payload),
-        });
-        onFrame({ kind: "lost" });
+        const delivery = payload as SessionSubscribeResponse | SessionListChange;
+        onFrame(
+          "subscriptionId" in delivery
+            ? {
+                kind: "list",
+                sessions: delivery.sessions,
+                chatCount: delivery.chatCount,
+                isComplete: delivery.isComplete,
+              }
+            : { kind: "change", change: delivery },
+        );
       },
       onReopenRefusal: (refusal) => {
         if (refusal !== undefined) {

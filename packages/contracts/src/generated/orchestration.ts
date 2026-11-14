@@ -3,21 +3,8 @@
 
 // The session's agent tree as a client reads it, run admission under an agent and its refusal record, and their two methods, `agent.run.create` and `agent.childRunLink.list`.
 
-import type { SchemaCheck } from "../schema-check.js";
 import type { AgentDefinitionId, AgentId } from "./agent/definition.js";
 import type { AgentTreeMember, ChildHandle } from "./agent/tree.js";
-import {
-  validateAgentChildRunLinkListRequest,
-  validateAgentChildRunLinkListResponse,
-  validateAgentRunCreateRequest,
-  validateAgentRunCreateResponse,
-} from "./checks/orchestration.js";
-import {
-  validateSessionBudgetReadRequest,
-  validateSessionBudgetState,
-  validateSessionCostReceipt,
-  validateSessionCostReceiptReadRequest,
-} from "./checks/session/cost.js";
 import type { WireInstant } from "./internal/wire-scalars.js";
 import type { RunId } from "./run/id.js";
 import type { RunState } from "./run/state.js";
@@ -310,48 +297,51 @@ export interface AgentChildRunLinkListResponse {
 }
 
 export {
-  validateAgentChildRunLinkListRequest,
-  validateAgentChildRunLinkListResponse,
-  validateAgentRunCreateRequest,
-  validateAgentRunCreateResponse,
   validateAgentRunRejectedPayload,
-  validateChildRunCounts,
-  validateChildRunHead,
-  validateChildRunLink,
-  validateChildRunRejection,
   validateInterruptReason,
   validateOrchestrationRunConfig,
 } from "./checks/orchestration.js";
 
-/** The methods of {@link ORCHESTRATION_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link ORCHESTRATION_METHOD_DESCRIPTORS}, each with its kind. */
 export interface OrchestrationMethodDescriptors {
   readonly "agent.run.create": {
     readonly method: "agent.run.create";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentRunCreateRequest>;
-    readonly responseCheck: SchemaCheck<AgentRunCreateResponse>;
   };
   readonly "agent.childRunLink.list": {
     readonly method: "agent.childRunLink.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<AgentChildRunLinkListRequest>;
-    readonly responseCheck: SchemaCheck<AgentChildRunLinkListResponse>;
   };
   readonly "session.budget.read": {
     readonly method: "session.budget.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionBudgetReadRequest>;
-    readonly responseCheck: SchemaCheck<SessionBudgetState>;
   };
   readonly "session.costReceipt.read": {
     readonly method: "session.costReceipt.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionCostReceiptReadRequest>;
-    readonly responseCheck: SchemaCheck<SessionCostReceipt>;
+  };
+}
+/** The params, result and emission types of each method of {@link ORCHESTRATION_METHOD_DESCRIPTORS}. */
+export interface OrchestrationMethodTypes {
+  readonly "agent.run.create": {
+    readonly params: AgentRunCreateRequest;
+    readonly result: AgentRunCreateResponse;
+  };
+  readonly "agent.childRunLink.list": {
+    readonly params: AgentChildRunLinkListRequest;
+    readonly result: AgentChildRunLinkListResponse;
+  };
+  readonly "session.budget.read": {
+    readonly params: SessionBudgetReadRequest;
+    readonly result: SessionBudgetState;
+  };
+  readonly "session.costReceipt.read": {
+    readonly params: SessionCostReceiptReadRequest;
+    readonly result: SessionCostReceipt;
   };
 }
 /**
@@ -364,28 +354,20 @@ export const ORCHESTRATION_METHOD_DESCRIPTORS: OrchestrationMethodDescriptors =
       method: "agent.run.create",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentRunCreateRequest,
-      responseCheck: validateAgentRunCreateResponse,
     }),
     "agent.childRunLink.list": /* @__PURE__ */ Object.freeze({
       method: "agent.childRunLink.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateAgentChildRunLinkListRequest,
-      responseCheck: validateAgentChildRunLinkListResponse,
     }),
     "session.budget.read": /* @__PURE__ */ Object.freeze({
       method: "session.budget.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateSessionBudgetReadRequest,
-      responseCheck: validateSessionBudgetState,
     }),
     "session.costReceipt.read": /* @__PURE__ */ Object.freeze({
       method: "session.costReceipt.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateSessionCostReceiptReadRequest,
-      responseCheck: validateSessionCostReceipt,
     }),
   });

@@ -1,11 +1,10 @@
 // A daemon value's bytes moved out of and back into place: the wire carries each byte member as a
-// `{"$bytes": n}` placeholder beside the JSON, and the generated check reads it from the
-// attachments. A request's bytes are taken out before it is checked and sent; once a reply is
-// checked, it takes each attachment where its placeholder stood.
+// `{"$bytes": n}` placeholder beside the JSON. A request's bytes are taken out before it is sent,
+// and a reply or stream value takes each attachment where its placeholder stood.
 
 /**
- * `value` with each `{"$bytes": n}` member replaced by attachment `n`. Call it only on a value its
- * generated check admitted with the same `attachments`, which proves every placeholder names one.
+ * `value` with each `{"$bytes": n}` member replaced by attachment `n`, from the `attachments` the
+ * service sent with that value.
  */
 export function withBytesPlaced(value: unknown, attachments: readonly Uint8Array[]): unknown {
   if (attachments.length === 0 || typeof value !== "object" || value === null) {

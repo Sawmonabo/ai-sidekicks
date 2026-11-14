@@ -144,31 +144,3 @@ function scenario(options: { readonly scriptsCreate: boolean }): Scenario {
     replies: options.scriptsCreate ? [{ call: SESSION_CREATE_METHOD, result: CREATE_REPLY }] : [],
   };
 }
-
-/**
- * A reply to `session.create` the registered response schema refuses. It is short of `shape`,
- * `state` and `lead`, so the call fulfills and `callDaemon` answers `reply-unreadable`: the daemon
- * answered and only this build's reading failed.
- */
-const UNREADABLE_CREATE_REPLY = { sessionId: CREATED_SESSION_ID } as const;
-
-/**
- * A draft whose create answers unreadably, with the tally of what reached the wire. Counted,
- * because the assertion is a negative about the wire (no second `session.create`).
- */
-export function countedDraftOverUnreadableCreate(): CountedDraft {
-  const under = withDaemonCall(
-    bridgeFor({ scriptsCreate: true }),
-    async () => UNREADABLE_CREATE_REPLY,
-  );
-  const firstTurns: QueuedFirstTurn[] = [];
-  return {
-    draft: new NewSessionDraft({
-      bridge: under.bridge,
-      queueFirstTurn: firstTurnCall({ scriptsCreate: true }, firstTurns),
-      lead: NEW_SESSION_LEAD,
-    }),
-    calls: under.calls,
-    firstTurns,
-  };
-}

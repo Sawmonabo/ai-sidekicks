@@ -85,7 +85,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "event/version",
     doc: "The leaf of the session event contracts: the envelope's version. It imports no other \
           event module, so every one of them can import it.",
-    definitions: &[Definition::read::<EventEnvelopeVersion>().checked()],
+    definitions: &[Definition::read::<EventEnvelopeVersion>()],
     constants: &[],
     method_tables: &[],
 };

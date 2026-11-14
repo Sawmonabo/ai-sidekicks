@@ -171,9 +171,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           provider listed, grouped by the binding it was read under.",
     definitions: &[
         Definition::read::<ProviderCommandBinding>(),
-        Definition::read::<ProviderCommandEntry>().checked(),
+        Definition::read::<ProviderCommandEntry>(),
         Definition::read::<ProviderCommandBindingGroup>(),
-        Definition::read::<ProviderCommandListResponse>().checked(),
+        Definition::read::<ProviderCommandListResponse>(),
     ],
     constants: &[],
     method_tables: &[],

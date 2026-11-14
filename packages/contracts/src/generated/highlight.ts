@@ -3,9 +3,6 @@
 
 // Syntax color spans: the daemon colors code once and every client paints what it is handed.
 
-import type { SchemaCheck } from "../schema-check.js";
-import { validateHighlightReadRequest, validateHighlightReadResponse } from "./checks/highlight.js";
-
 /** How many numbers one span takes in a reply: offset, length, class. */
 export const HIGHLIGHT_SPAN_WIDTH = 3 as const;
 
@@ -127,21 +124,19 @@ export interface HighlightReadResponse {
   spans: HighlightSpans;
 }
 
-export {
-  validateHighlightLanguage,
-  validateHighlightReadRequest,
-  validateHighlightReadResponse,
-  validateHighlightSpans,
-} from "./checks/highlight.js";
-
-/** The methods of {@link HIGHLIGHT_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link HIGHLIGHT_METHOD_DESCRIPTORS}, each with its kind. */
 export interface HighlightMethodDescriptors {
   readonly "highlight.read": {
     readonly method: "highlight.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<HighlightReadRequest>;
-    readonly responseCheck: SchemaCheck<HighlightReadResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link HIGHLIGHT_METHOD_DESCRIPTORS}. */
+export interface HighlightMethodTypes {
+  readonly "highlight.read": {
+    readonly params: HighlightReadRequest;
+    readonly result: HighlightReadResponse;
   };
 }
 /** The `highlight.*` methods: one read, answered by the daemon's colorer. */
@@ -151,7 +146,5 @@ export const HIGHLIGHT_METHOD_DESCRIPTORS: HighlightMethodDescriptors =
       method: "highlight.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateHighlightReadRequest,
-      responseCheck: validateHighlightReadResponse,
     }),
   });

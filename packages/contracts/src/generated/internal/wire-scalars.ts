@@ -35,10 +35,6 @@ export type Bytes = Uint8Array;
 
 export {
   validateBytes,
-  validateComposedText,
-  validateNonBlankText,
   validatePort,
-  validateSafeInt0,
-  validateWireDate,
   validateWireInstant,
 } from "../checks/internal/wire-scalars.js";

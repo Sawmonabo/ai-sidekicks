@@ -64,7 +64,7 @@ pub enum AgentRunContextCompactResponse {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/driver/compaction",
     doc: "The result of a provider's compaction, composed by the daemon from the wait's own end.",
-    definitions: &[Definition::read::<AgentRunContextCompactResponse>().checked()],
+    definitions: &[Definition::read::<AgentRunContextCompactResponse>()],
     constants: &[],
     method_tables: &[],
 };

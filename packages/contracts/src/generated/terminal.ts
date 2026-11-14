@@ -3,26 +3,6 @@
 
 // A session's shells as a client addresses them: the live list, opening, closing and ordering, one shell's output stream, writing and resizing, terminal appearance, flow control, and the per-shell control lease.
 
-import type { SchemaCheck } from "../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "./checks/jsonrpc/streaming.js";
-import { validateNullPayload } from "./checks/method-descriptor.js";
-import {
-  validateTerminalAppearanceReportRequest,
-  validateTerminalCloseRequest,
-  validateTerminalControlTakeRequest,
-  validateTerminalControlTakeResponse,
-  validateTerminalFlowControlUpdateRequest,
-  validateTerminalFlowControlUpdateResponse,
-  validateTerminalListUpdate,
-  validateTerminalOpenRequest,
-  validateTerminalOpenResponse,
-  validateTerminalOutputFrame,
-  validateTerminalOutputSubscribeRequest,
-  validateTerminalReorderRequest,
-  validateTerminalResizeRequest,
-  validateTerminalSubscribeRequest,
-  validateTerminalWriteRequest,
-} from "./checks/terminal.js";
 import type { HexColor } from "./color.js";
 import type { CommandId } from "./command.js";
 import type { SubscribeAcknowledgmentResponse, SubscriptionId } from "./jsonrpc/streaming.js";
@@ -851,89 +831,95 @@ export interface TerminalControlHeldByOtherDetails {
 export {
   validateTerminalAppearanceReportRequest,
   validateTerminalCellSize,
-  validateTerminalCloseRequest,
   validateTerminalColors,
   validateTerminalControlChangedPayload,
-  validateTerminalControlHeldByOtherDetails,
   validateTerminalControlHolder,
-  validateTerminalControlTakeRequest,
-  validateTerminalControlTakeResponse,
-  validateTerminalFlowControlUpdateRequest,
-  validateTerminalFlowControlUpdateResponse,
   validateTerminalId,
   validateTerminalListEntry,
   validateTerminalListUpdate,
-  validateTerminalOpenRequest,
-  validateTerminalOpenResponse,
   validateTerminalOutputChange,
   validateTerminalOutputFrame,
-  validateTerminalOutputSubscribeRequest,
-  validateTerminalReorderRequest,
-  validateTerminalResizeRequest,
   validateTerminalShellStatus,
-  validateTerminalSubscribeRequest,
-  validateTerminalWriteRequest,
 } from "./checks/terminal.js";
 
-/** The methods of {@link TERMINAL_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link TERMINAL_METHOD_DESCRIPTORS}, each with its kind. */
 export interface TerminalMethodDescriptors {
   readonly "terminal.subscribe": {
     readonly method: "terminal.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<TerminalSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<TerminalListUpdate>;
   };
   readonly "terminal.open": {
     readonly method: "terminal.open";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<TerminalOpenRequest>;
-    readonly responseCheck: SchemaCheck<TerminalOpenResponse>;
   };
   readonly "terminal.close": {
     readonly method: "terminal.close";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<TerminalCloseRequest>;
-    readonly responseCheck: SchemaCheck<NullPayload>;
   };
   readonly "terminal.reorder": {
     readonly method: "terminal.reorder";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<TerminalReorderRequest>;
-    readonly responseCheck: SchemaCheck<NullPayload>;
   };
   readonly "terminal.output.subscribe": {
     readonly method: "terminal.output.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<TerminalOutputSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<TerminalOutputFrame>;
   };
   readonly "terminal.write": {
     readonly method: "terminal.write";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<TerminalWriteRequest>;
-    readonly responseCheck: SchemaCheck<NullPayload>;
   };
   readonly "terminal.resize": {
     readonly method: "terminal.resize";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<TerminalResizeRequest>;
-    readonly responseCheck: SchemaCheck<NullPayload>;
   };
   readonly "terminal.appearance.report": {
     readonly method: "terminal.appearance.report";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<TerminalAppearanceReportRequest>;
-    readonly responseCheck: SchemaCheck<NullPayload>;
+  };
+}
+/** The params, result and emission types of each method of {@link TERMINAL_METHOD_DESCRIPTORS}. */
+export interface TerminalMethodTypes {
+  readonly "terminal.subscribe": {
+    readonly params: TerminalSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: TerminalListUpdate;
+  };
+  readonly "terminal.open": {
+    readonly params: TerminalOpenRequest;
+    readonly result: TerminalOpenResponse;
+  };
+  readonly "terminal.close": {
+    readonly params: TerminalCloseRequest;
+    readonly result: NullPayload;
+  };
+  readonly "terminal.reorder": {
+    readonly params: TerminalReorderRequest;
+    readonly result: NullPayload;
+  };
+  readonly "terminal.output.subscribe": {
+    readonly params: TerminalOutputSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: TerminalOutputFrame;
+  };
+  readonly "terminal.write": {
+    readonly params: TerminalWriteRequest;
+    readonly result: NullPayload;
+  };
+  readonly "terminal.resize": {
+    readonly params: TerminalResizeRequest;
+    readonly result: NullPayload;
+  };
+  readonly "terminal.appearance.report": {
+    readonly params: TerminalAppearanceReportRequest;
+    readonly result: NullPayload;
   };
 }
 /** Every `terminal.*` method. */
@@ -943,78 +929,67 @@ export const TERMINAL_METHOD_DESCRIPTORS: TerminalMethodDescriptors = /* @__PURE
       method: "terminal.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateTerminalSubscribeRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateTerminalListUpdate,
     }),
     "terminal.open": /* @__PURE__ */ Object.freeze({
       method: "terminal.open",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateTerminalOpenRequest,
-      responseCheck: validateTerminalOpenResponse,
     }),
     "terminal.close": /* @__PURE__ */ Object.freeze({
       method: "terminal.close",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateTerminalCloseRequest,
-      responseCheck: validateNullPayload,
     }),
     "terminal.reorder": /* @__PURE__ */ Object.freeze({
       method: "terminal.reorder",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateTerminalReorderRequest,
-      responseCheck: validateNullPayload,
     }),
     "terminal.output.subscribe": /* @__PURE__ */ Object.freeze({
       method: "terminal.output.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateTerminalOutputSubscribeRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateTerminalOutputFrame,
     }),
     "terminal.write": /* @__PURE__ */ Object.freeze({
       method: "terminal.write",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateTerminalWriteRequest,
-      responseCheck: validateNullPayload,
     }),
     "terminal.resize": /* @__PURE__ */ Object.freeze({
       method: "terminal.resize",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateTerminalResizeRequest,
-      responseCheck: validateNullPayload,
     }),
     "terminal.appearance.report": /* @__PURE__ */ Object.freeze({
       method: "terminal.appearance.report",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateTerminalAppearanceReportRequest,
-      responseCheck: validateNullPayload,
     }),
   },
 );
 
-/** The methods of {@link TERMINAL_CONTROL_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link TERMINAL_CONTROL_METHOD_DESCRIPTORS}, each with its kind. */
 export interface TerminalControlMethodDescriptors {
   readonly "terminal.control.take": {
     readonly method: "terminal.control.take";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<TerminalControlTakeRequest>;
-    readonly responseCheck: SchemaCheck<TerminalControlTakeResponse>;
   };
   readonly "terminal.flowControl.update": {
     readonly method: "terminal.flowControl.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<TerminalFlowControlUpdateRequest>;
-    readonly responseCheck: SchemaCheck<TerminalFlowControlUpdateResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link TERMINAL_CONTROL_METHOD_DESCRIPTORS}. */
+export interface TerminalControlMethodTypes {
+  readonly "terminal.control.take": {
+    readonly params: TerminalControlTakeRequest;
+    readonly result: TerminalControlTakeResponse;
+  };
+  readonly "terminal.flowControl.update": {
+    readonly params: TerminalFlowControlUpdateRequest;
+    readonly result: TerminalFlowControlUpdateResponse;
   };
 }
 /** The two `terminal.*` methods that act on one shell: the lease take and flow control. */
@@ -1024,14 +999,10 @@ export const TERMINAL_CONTROL_METHOD_DESCRIPTORS: TerminalControlMethodDescripto
       method: "terminal.control.take",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateTerminalControlTakeRequest,
-      responseCheck: validateTerminalControlTakeResponse,
     }),
     "terminal.flowControl.update": /* @__PURE__ */ Object.freeze({
       method: "terminal.flowControl.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateTerminalFlowControlUpdateRequest,
-      responseCheck: validateTerminalFlowControlUpdateResponse,
     }),
   });

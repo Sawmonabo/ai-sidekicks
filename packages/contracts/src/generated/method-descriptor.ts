@@ -13,4 +13,4 @@ export type EmptyPayload = Record<string, never>;
  */
 export type NullPayload = null;
 
-export { validateEmptyPayload, validateNullPayload } from "./checks/method-descriptor.js";
+export { validateEmptyPayload } from "./checks/method-descriptor.js";

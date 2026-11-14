@@ -6,7 +6,6 @@ import { createContext, useContext, type Context } from "react";
 
 import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 
-import { unreadableDeliveryReading, type ReadingState } from "#renderer/lib/partial-read.js";
 import { RereadableRefusalError, refuse } from "#renderer/lib/refusal/contract.js";
 import type { ProviderSectionsState } from "../sections.js";
 import type { ProviderSectionsReading } from "./useProviderSectionsState.js";
@@ -22,15 +21,6 @@ export const ProviderSectionsContext: Context<ProviderSectionsReading | undefine
  */
 export function useProviderSections(): readonly ProviderSection[] {
   return servedSections(useContext(ProviderSectionsContext)).sections;
-}
-
-/**
- * How whole the served sections are: partial once a section delivered since the list could not
- * be read, until the next list. Throws as `useProviderSections` does.
- */
-export function useProviderSectionsReading(): ReadingState {
-  const served = servedSections(useContext(ProviderSectionsContext));
-  return unreadableDeliveryReading(served.droppedCount, undefined);
 }
 
 function servedSections(

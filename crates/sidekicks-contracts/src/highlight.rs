@@ -263,11 +263,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "Syntax color spans: the daemon colors code once and every client paints what it is \
           handed.",
     definitions: &[
-        Definition::read::<HighlightLanguage>().checked(),
+        Definition::read::<HighlightLanguage>(),
         Definition::read::<HighlightSpanClass>(),
-        Definition::read::<HighlightReadRequest>().checked(),
+        Definition::read::<HighlightReadRequest>(),
         Definition::read::<HighlightSpans>(),
-        Definition::read::<HighlightReadResponse>().checked(),
+        Definition::read::<HighlightReadResponse>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&HIGHLIGHT_METHOD_DESCRIPTORS],

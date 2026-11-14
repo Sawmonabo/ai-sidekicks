@@ -105,10 +105,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "tag",
     doc: "The one tag rule every tagged record follows: what a tag may hold, and how a list of \
           tags holds each tag once.",
-    definitions: &[
-        Definition::read::<Tag>().checked(),
-        Definition::read::<TagList>().checked(),
-    ],
+    definitions: &[Definition::read::<Tag>(), Definition::read::<TagList>()],
     constants: &[],
     method_tables: &[],
 };

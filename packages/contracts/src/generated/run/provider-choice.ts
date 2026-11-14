@@ -190,10 +190,8 @@ export interface AgentRunUsageCreditsChoiceResolvedPayload {
 
 export {
   validateAgentRunRefusalChoiceRequestedPayload,
-  validateAgentRunRefusalChoiceResolveRequest,
   validateAgentRunRefusalChoiceResolvedPayload,
   validateAgentRunUsageCreditsChoiceRequestedPayload,
-  validateAgentRunUsageCreditsChoiceResolveRequest,
   validateAgentRunUsageCreditsChoiceResolvedPayload,
   validateRunRefusalChoice,
   validateRunRefusalChoiceSettlement,

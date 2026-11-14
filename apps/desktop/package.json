@@ -39,11 +39,10 @@
     "test:endurance": "vitest run --project=endurance",
     "test:bundle": "vitest run --project=bundle",
     "test:changed": "node --experimental-strip-types scripts/test-changed.ts",
-    "budget:bundle": "size-limit",
     "structure:dead-code": "knip --directory ../.. --workspace apps/desktop --treat-config-hints-as-errors --treat-tag-hints-as-errors",
     "structure:layering": "depcruise src fixtures build scripts vitest --config .dependency-cruiser.mjs --output-type err",
     "structure": "pnpm run structure:dead-code && pnpm run structure:layering",
-    "test": "turbo run test:main-unit test:renderer --filter=@ai-sidekicks/desktop && turbo run test:browser --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:bundle budget:bundle --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:e2e --filter=@ai-sidekicks/desktop --concurrency=1"
+    "test": "turbo run test:main-unit test:renderer --filter=@ai-sidekicks/desktop && turbo run test:browser --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:bundle --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:e2e --filter=@ai-sidekicks/desktop --concurrency=1"
   },
   "dependencies": {
     "@ai-sidekicks/client-sdk": "workspace:*",
@@ -63,7 +62,6 @@
     "@ibm/plex-sans-variable": "0.2.0",
     "@iconify-json/tabler": "1.2.41",
     "@mermanjs/web-render": "0.8.0",
-    "@size-limit/file": "14.1.0",
     "@svgr/core": "8.1.0",
     "@svgr/plugin-jsx": "8.1.0",
     "@tanstack/react-virtual": "3.14.14",
@@ -117,7 +115,6 @@
     "sass": "1.105.1",
     "satteri": "0.10.5",
     "signalsmith-stretch": "1.3.2",
-    "size-limit": "14.1.0",
     "tinykeys": "4.0.1",
     "unplugin-icons": "24.0.0",
     "vitest": "catalog:testing",

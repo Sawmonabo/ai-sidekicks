@@ -23,8 +23,8 @@ function createClient(answer: () => Promise<null> = () => Promise.resolve(null))
 } {
   const reports: TerminalAppearanceReportRequest[] = [];
   const client = {
-    call: (method: { readonly method: string }, params: unknown) => {
-      expect(method.method).toBe("terminal.appearance.report");
+    call: (method: string, params: unknown) => {
+      expect(method).toBe("terminal.appearance.report");
       if (!validateTerminalAppearanceReportRequest(params)) {
         throw new Error("the report breaks its contract");
       }

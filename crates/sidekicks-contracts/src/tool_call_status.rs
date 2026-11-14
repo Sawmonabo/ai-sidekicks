@@ -61,8 +61,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The status line under a running tool call: the provider's own words for its progress, \
           live and keyed per call, never stored.",
     definitions: &[
-        Definition::read::<AgentToolCallStatusSubscribeRequest>().checked(),
-        Definition::read::<ToolCallStatusUpdate>().checked(),
+        Definition::read::<AgentToolCallStatusSubscribeRequest>(),
+        Definition::read::<ToolCallStatusUpdate>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&TOOL_CALL_STATUS_METHOD_DESCRIPTORS],

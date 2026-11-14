@@ -11,7 +11,7 @@ import {
 } from "@ai-sidekicks/contracts/terminal";
 
 import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
-import { checkFaultPaths } from "#shared/daemon/fault-path.js";
+import { checkFaultPaths } from "../wire/fault-path.js";
 import { TERMINAL_LIST_STREAM, TERMINAL_OUTPUT_STREAM } from "#shared/daemon/streams.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { isWireRecord } from "#renderer/lib/wire/record.js";

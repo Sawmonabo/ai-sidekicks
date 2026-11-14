@@ -528,7 +528,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           stored and sent in, the execution-epoch stamp and the hydrated (envelope plus body) \
           reader shape.",
     definitions: &[
-        Definition::read::<EventCategory>().checked(),
+        Definition::read::<EventCategory>(),
         Definition::read::<EventEnvelopeType>(),
         Definition::read::<EventOccurredAt>(),
         Definition::read::<EventEnvelope>().checked(),

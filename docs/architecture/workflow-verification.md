@@ -71,4 +71,4 @@ What each test layer proves, the two workflows every scenario is built from, the
 8. In chat, "build me a workflow that …" produces a saved definition through the create tool, listed in the Workflows tab and openable in the builder, laid out.
 9. "Fix the nightly workflow, the shell step's working directory is wrong" produces a new version whose difference is visible in the version chain.
 10. An approval node parks the run and the approvals surface resolves it; a spent provider account parks and auto-resumes.
-11. Frame, memory, CPU and bundle budgets unmoved beyond the builder chunk's declared cost; accessibility checks clean; every affordance keyboard-reachable.
+11. Frame, memory and CPU budgets unmoved beyond the builder chunk's declared cost; accessibility checks clean; every affordance keyboard-reachable.

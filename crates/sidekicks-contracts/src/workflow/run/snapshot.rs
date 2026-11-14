@@ -21,8 +21,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The two numbers that name one of a workflow run's snapshots: which execution of the run \
           it belongs to, and which of that execution's approval pauses took it.",
     definitions: &[
-        Definition::read::<WorkflowRunEpoch>().checked(),
-        Definition::read::<WorkflowRunPauseNumber>().checked(),
+        Definition::read::<WorkflowRunEpoch>(),
+        Definition::read::<WorkflowRunPauseNumber>(),
     ],
     constants: &[],
     method_tables: &[],

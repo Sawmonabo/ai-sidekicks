@@ -30,7 +30,7 @@ pub struct ProviderOutputSpeedState {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/driver/output-speed",
     doc: "The provider's own report of its accelerated-output state on one binding.",
-    definitions: &[Definition::read::<ProviderOutputSpeedState>().checked()],
+    definitions: &[Definition::read::<ProviderOutputSpeedState>()],
     constants: &[],
     method_tables: &[],
 };
