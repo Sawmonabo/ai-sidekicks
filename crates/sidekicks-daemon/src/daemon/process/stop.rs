@@ -623,6 +623,10 @@ pub(crate) async fn stop_work(
             failures.push(failure);
         }
     }
+    // After the drivers too, so no command ends past here; each close under way is written.
+    if let Some(session) = &process.session {
+        session.command_windows.stop().await;
+    }
     if let Some(git) = &process.git {
         process
             .stop_record

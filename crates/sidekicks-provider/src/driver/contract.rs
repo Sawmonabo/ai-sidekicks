@@ -29,6 +29,7 @@ use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::time::Instant;
 
+use crate::command::channel::stop::StoppedCommandParties;
 use crate::command::helper_background::HelperBackgroundParams;
 use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
@@ -70,7 +71,9 @@ use crate::driver::session_control::{
     UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
-use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
+use crate::port::running_command_publisher::{
+    RunningCommandParams, StopCommandParams, WriteCommandInputParams,
+};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::pricing::receiver::TelemetryExportReader;
 use crate::pricing::rule::RequestPricer;
@@ -141,6 +144,11 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: RewindConversationParams,
     ) -> BoxFuture<'_, Result<RewindConversationResult, DriverError>>;
+
+    /// Whether the provider's conversation cut can land before a message the person sent into a
+    /// running turn; where it cannot, it lands only before a turn's opening message. A fixed fact
+    /// of the driver, which the queue reads instead of naming the provider.
+    fn can_cut_inside_turn(&self) -> bool;
 
     /// Answers one interactive request the driver raised on a run.
     fn respond_to_request(
@@ -332,10 +340,12 @@ pub trait ProviderDriver: Send + Sync {
     /// Closes one session.
     fn close_session(&self, params: CloseSessionParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
-    /// Settles the tool calls a session held in the background while no process of it runs, after
-    /// a restart or the person's Stop of the daemon: each ends as the provider kept it or as the
-    /// restart or Stop ended it, one its record keeps under a Stop waits for the next resume, and
-    /// every one of a closed session ends, a task still running on its server stopped first.
+    /// Settles the tool calls a session held in the background. At rest after a restart or the
+    /// person's Stop of the daemon, while no process of it runs: each ends as the provider kept it
+    /// or as the restart or Stop ended it, one its record keeps under a Stop waits for the next
+    /// resume, and every one of a closed session ends, a task still running on its server stopped
+    /// first. For an undo, the calls it names end stopped on the session's live process, each close
+    /// recorded before the settle answers; fails `NoLiveSession` for an undo with no live process.
     fn settle_held_tool_calls(
         &self,
         params: SettleHeldToolCallsParams,
@@ -487,9 +497,14 @@ pub trait ProviderDriver: Send + Sync {
         params: ListProviderCommandsParams,
     ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>>;
 
-    /// Stops the agent's running command `params` names, answering once the provider acknowledged
-    /// the stop; refused `provider.capability.unsupported` where the provider relays no stop.
-    fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>>;
+    /// Stops the agent's running command `params` names for its cause, telling the run that
+    /// started it only for the person's stop, and answers once the provider acknowledged the stop,
+    /// with the parties of the command's wrapper the stop reached, whose ends a caller may wait
+    /// on; refused `provider.capability.unsupported` where the provider relays no stop.
+    fn stop_command(
+        &self,
+        params: StopCommandParams,
+    ) -> BoxFuture<'_, Result<StoppedCommandParties, DriverError>>;
 
     /// Moves the agent's running command to the background, answering whether the provider moved
     /// it, `false` when the agent no longer waited on it; refused `provider.capability.unsupported`

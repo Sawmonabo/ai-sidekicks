@@ -32,13 +32,17 @@ pub struct InterruptChoice {
 pub enum InterruptCause {
     /// A person's, with their choice for the waiting messages.
     Person(InterruptChoice),
-    /// The daemon's own at a limit, which leaves the waiting messages waiting.
+    /// The daemon's own at a limit, which leaves the waiting messages waiting, as the daemon's own
+    /// for an undo does.
     Limit {
         /// The limit the run reached.
         limit: RunLimit,
         /// The turn the stop cut, which the run's end ends with the limit's cause.
         cut_turn: Option<SafeInt<1>>,
     },
+    /// The daemon's own for an undo, which leaves the waiting messages waiting for the undo's
+    /// release to order.
+    Undo,
 }
 
 /// An interrupt that applied, as the write that ends its run takes it.
@@ -119,9 +123,10 @@ pub trait InterruptQueue: Send + Sync {
     ) -> BoxFuture<'_, Result<(), InterruptQueueError>>;
 
     /// Ends the run as `end` says in one write, with the verdict and what the interrupt makes of
-    /// the waiting messages: a person's choice applied, a limit's left waiting, the end handed to
-    /// the run engine with the limit and the turn it cut. Answers `false` with nothing written
-    /// when the run has ended since the accept. Fails as the write fails.
+    /// the waiting messages: a person's choice applied, the daemon's own at a limit or for an undo
+    /// left waiting, the end handed to the run engine with a limit's limit and the turn it cut.
+    /// Answers `false` with nothing written when the run has ended since the accept. Fails as the
+    /// write fails.
     fn end_run_for_interrupt(
         &self,
         end: InterruptEnd,

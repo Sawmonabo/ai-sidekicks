@@ -287,6 +287,7 @@ mod tests {
         ClaudeSpawnBoundLegs, bring_up_claude_process, claude_spawn_permission_mode,
     };
     use crate::background_work::BackgroundWorkForms;
+    use crate::command::channel::records::LineCapture;
     use crate::command::running_set::unbound_running_command_sets;
     use crate::command::waiting_checks::SystemInputWaitReader;
     use crate::driver::CurrentProviderAccount;
@@ -371,7 +372,10 @@ mod tests {
                 spawner: spawner.clone(),
             }),
             command_output,
-            Arc::new(PortRegistration::new("command capture")),
+            LineCapture {
+                capture: Arc::new(PortRegistration::new("command capture")),
+                noted_calls: None,
+            },
         );
         let session_id = new_session_id();
         let Some(opened) = channels.open(session_id).await.expect("the channel opens") else {
@@ -390,8 +394,8 @@ mod tests {
                     standard_output: String::new(),
                     exit_code: 0,
                     argument_record: None,
-                    first_call_delay: None,
                 },
+                first_call_wait: None,
             },
         )
         .expect("the stand-in is written");

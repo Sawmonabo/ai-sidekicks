@@ -10,10 +10,12 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::agent::definition::binding::ProviderToken;
 use crate::artifacts::attachment_reference::AttachmentReferenceList;
 use crate::free_form_string::FilesystemPath;
 use crate::method::KeyedRequest;
 use crate::method::methods;
+use crate::run::queue::QueuedSkillPick;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -223,7 +225,8 @@ pub struct SessionRestorePreviewResponse {
     pub also_changed_by: Vec<SessionRestoreAlsoChanged>,
 }
 
-/// The edited message an edit and resend sends once the undo has applied, with its files.
+/// The edited message an edit and resend sends once the undo has applied, with its files, the
+/// skills picked for it and the output-speed level its turn alone runs at, as a send carries them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionRestoreResend {
@@ -237,6 +240,22 @@ pub struct SessionRestoreResend {
     )]
     #[schemars(with = "AttachmentReferenceList")]
     pub attachments: Option<AttachmentReferenceList>,
+    /// Each skill picked for it, in the order picked.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Vec<QueuedSkillPick>")]
+    pub skills: Option<Vec<QueuedSkillPick>>,
+    /// The output-speed level its turn alone runs at.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ProviderToken")]
+    pub output_speed_for_turn: Option<ProviderToken>,
 }
 
 /// Undoes to a point, and with `resend` sends an edited message from there in the same call.

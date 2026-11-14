@@ -130,7 +130,8 @@ impl CodexFrameDelivery {
     }
 
     // Opens the turn's execution and its numbered turn on the run, once, with the message that
-    // opened it where a `turn/start` carried one.
+    // opened it where a `turn/start` carried one; the start's later messages, which Codex took as
+    // the turn started and never echoes, land right after it in send order.
     async fn open_turn(
         &self,
         record: &mut CodexSessionRecord,
@@ -148,6 +149,11 @@ impl CodexFrameDelivery {
             binding_id: turn_run.binding.binding_id.clone(),
         };
         self.send(record, boundary, "turn/started").await;
+        let opening = record
+            .delivery
+            .turn_opening_by_turn_id
+            .get(turn_id)
+            .cloned();
         match self
             .dependencies
             .engine
@@ -155,19 +161,24 @@ impl CodexFrameDelivery {
                 turn_run.run_id,
                 ProviderTurnId::new(turn_id.to_owned()).ok(),
                 turn_run.binding.step_bound,
-                record
-                    .delivery
-                    .turn_opening_by_turn_id
-                    .get(turn_id)
-                    .copied(),
+                opening.as_ref().map(|opening| opening.opening),
             )
             .await
         {
             Ok(Some(started)) => {
+                let turn_number = started.turn_number;
                 record
                     .delivery
                     .started_turn_by_turn_id
                     .insert(turn_id.to_owned(), started);
+                for message_id in opening.map(|opening| opening.later).unwrap_or_default() {
+                    let steered = InboundDelivery::TurnSteered {
+                        binding_id: turn_run.binding.binding_id.clone(),
+                        turn_number,
+                        message_id,
+                    };
+                    self.send(record, steered, "turn/started").await;
+                }
             }
             // The run ended before its turn opened, so the turn has no run to number it.
             Ok(None) => report_unattributed("turn/started", Some(turn_id)),

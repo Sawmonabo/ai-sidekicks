@@ -1,7 +1,8 @@
 //! Files: the crash-safe write and removal, publishing without replacing, a read held to a ceiling,
 //! a copy to a new path, a copy that hashes as it goes, an open file's clone to a new path, where a
 //! file is really reached, the precision of the times a folder keeps, the recursive copy of a tree,
-//! and a file-system step, a tree's removal among them, run off the runtime's threads.
+//! the folder of a fetched program's versions, and a file-system step, a tree's removal among them,
+//! run off the runtime's threads.
 
 use std::io;
 use std::path::Path;
@@ -18,6 +19,7 @@ pub mod real_location;
 pub mod removal_after_failure;
 pub mod time_precision;
 pub mod tree_copy;
+pub mod version_folders;
 
 /// Runs `step`, a blocking file-system step, on tokio's blocking threads and answers its result,
 /// so it must run inside a tokio runtime; the step is measured on the meter of the metered run

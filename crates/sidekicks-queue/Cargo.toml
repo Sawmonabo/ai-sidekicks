@@ -31,6 +31,8 @@ tracing.workspace = true
 rstest.workspace = true
 # The WSL place the fixture's session runs in.
 sidekicks-contracts = { workspace = true, features = ["test-support"] }
+# The test's own process an undo's test stop answers as a party that never ends.
+sidekicks-platforms.workspace = true
 # The test driver registry, the mock driver, the runtime binding's test store and the unanswered
 # driver error the tests build on.
 sidekicks-provider = { workspace = true, features = ["test-support"] }

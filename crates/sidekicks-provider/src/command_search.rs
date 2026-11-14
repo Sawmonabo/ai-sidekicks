@@ -11,23 +11,24 @@ use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{ExitStatus, Stdio};
+use std::process::ExitStatus;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use semver::Version;
 use sidekicks_platforms::{
-    ChildTree, ChildTreeOutputError, PathRules, ProgramFolder, Spawner, file_facts,
-    find_executables, program_install_folders, real_path, start_child_tree, user_programs_folder,
+    PathRules, ProgramFolder, Spawner, file_facts, find_executables, program_install_folders,
+    real_path, user_programs_folder,
 };
+use sidekicks_std::child_run::ChildRunError;
 use sidekicks_std::missing_entry::is_gone;
 use sidekicks_std::mutex_lock::lock;
-use tokio::process::Command;
 use tokio::sync::OnceCell;
 
 use crate::driver::{InstallFolderBase, ProviderDescriptor};
+use crate::program_run::{ProgramRunRequest, run_program_to_end};
 use crate::spawn_environment::{place_folder_first_on_search_path, remove_environment_names};
-use crate::spawned_version::{parse_cli_version_report, start_resolved_build};
+use crate::spawned_version::parse_cli_version_report;
 
 /// How long one build may take to print its version before it ranks below every build that did.
 const VERSION_READ_DEADLINE: Duration = Duration::from_secs(5);
@@ -72,12 +73,8 @@ struct BuildStamp {
 // Why a build's `--version` could not be read.
 #[derive(Debug, thiserror::Error)]
 enum VersionReadError {
-    #[error("the build could not be started")]
-    Start(#[source] io::Error),
-    #[error("the build's output could not be read")]
-    Output(#[source] ChildTreeOutputError),
-    #[error("the build did not print its version within its deadline")]
-    TimedOut,
+    #[error("the build's version read did not run to its end")]
+    Run(#[source] ChildRunError),
     #[error("the build exited with {0}")]
     Exited(ExitStatus),
 }
@@ -195,9 +192,9 @@ impl ProviderCommandSearch {
         Ok(parsed)
     }
 
-    // What the build printed for `version_arguments` then `--version`, started from the
-    // spawner's thread with its folder first on its search path, its tree ended when it passes the
-    // deadline or its output bound.
+    // What the build printed for `version_arguments` then `--version`, run to its end with its
+    // folder first on its search path; a run past the deadline or the output bound has its tree
+    // ended by the runner.
     async fn read_version_output(
         &self,
         hit: &ProviderCommandSearchHit,
@@ -206,46 +203,30 @@ impl ProviderCommandSearch {
     ) -> Result<Vec<u8>, VersionReadError> {
         let mut environment = spawn_environment.to_vec();
         place_folder_first_on_search_path(&mut environment, &hit.folder, PathRules::NATIVE);
-        let arguments = version_arguments.to_vec();
-        let build = hit.build.clone();
-        let daemon_pid = std::process::id();
-        let mut child = self
-            .spawner
-            .run(move || -> io::Result<ChildTree> {
-                let start = start_resolved_build(&build, &environment)?;
-                let mut command = Command::new(&start.program);
-                command
-                    .args(&start.leading_arguments)
-                    .args(arguments)
-                    .arg("--version")
-                    .env_clear()
-                    .envs(environment)
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped());
-                start_child_tree(command, daemon_pid)
-            })
-            .await
-            .map_err(VersionReadError::Start)?
-            .map_err(VersionReadError::Start)?;
-        let waited = tokio::time::timeout(
-            VERSION_READ_DEADLINE,
-            child.wait_with_output(None, VERSION_OUTPUT_BOUND),
-        )
-        .await;
-        let failure = match waited {
-            Ok(Ok(output)) if output.status.success() => return Ok(output.stdout),
-            Ok(Ok(output)) => return Err(VersionReadError::Exited(output.status)),
-            Ok(Err(error)) => VersionReadError::Output(error),
-            Err(_elapsed) => VersionReadError::TimedOut,
+        let arguments = version_arguments
+            .iter()
+            .map(OsString::from)
+            .chain([OsString::from("--version")])
+            .collect();
+        let request = ProgramRunRequest {
+            program: hit.build.clone(),
+            arguments,
+            environment,
+            working_folder: None,
         };
-        if let Err(error) = child.end_tree().await {
-            tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                "the processes of a provider build's version read could not be ended"
-            );
+        let output = run_program_to_end(
+            &self.spawner,
+            request,
+            VERSION_READ_DEADLINE,
+            VERSION_OUTPUT_BOUND,
+        )
+        .await
+        .map_err(VersionReadError::Run)?;
+        if output.status.success() {
+            Ok(output.stdout)
+        } else {
+            Err(VersionReadError::Exited(output.status))
         }
-        Err(failure)
     }
 }
 
@@ -425,40 +406,46 @@ mod tests {
 
     use super::ProviderCommandSearch;
 
-    // Past any version read's deadline, so a first read that waits it out times out.
-    const SLOW_FIRST_READ: Option<Duration> = Some(Duration::from_secs(30));
+    // A build's first version read waits this long, past the read's deadline, where a case asks.
+    const FIRST_READ_WAIT: Duration = Duration::from_secs(30);
 
     // Fails when an older build beats a newer one (by folder order or by text order of versions),
     // when a build that prints no version beats one that does, when the later of two builds of
     // equal version wins, or when a read that timed out is kept, so no later search reads that
-    // build again. Each build prints its version line, after its first call's wait where it has
-    // one; each search in turn finds the build `winners` names.
+    // build again. Each build prints its report, its first read first waiting past the deadline
+    // where its case says; each search in turn finds the build `winners` names.
     #[rstest]
-    #[case::newest_last(&[("tool 1.2.3", None), ("tool 1.10.0", None)], &[1])]
-    #[case::newest_first(&[("tool 2.0.0", None), ("tool 1.9.9", None)], &[0])]
-    #[case::unreadable_first(&[("tool ", None), ("tool 0.0.1", None)], &[1])]
-    #[case::equal_versions(&[("tool 1.2.3", None), ("tool 1.2.3", None)], &[0])]
-    #[case::timed_out_read_again(&[("tool 2.0.0", SLOW_FIRST_READ), ("tool 1.0.0", None)], &[1, 0])]
+    #[case::newest_last(&[("tool 1.2.3\n", false), ("tool 1.10.0\n", false)], &[1])]
+    #[case::newest_first(&[("tool 2.0.0\n", false), ("tool 1.9.9\n", false)], &[0])]
+    #[case::unreadable_first(&[("tool \n", false), ("tool 0.0.1\n", false)], &[1])]
+    #[case::equal_versions(&[("tool 1.2.3\n", false), ("tool 1.2.3\n", false)], &[0])]
+    #[case::timed_out_read_again(&[("tool 2.0.0\n", true), ("tool 1.0.0\n", false)], &[1, 0])]
     #[tokio::test]
     async fn the_newest_readable_build_wins_and_ties_keep_the_earlier_folder(
-        #[case] builds: &[(&str, Option<Duration>)],
+        #[case] builds: &[(&str, bool)],
         #[case] winners: &[usize],
     ) {
         let root = tempfile::tempdir().expect("the temporary folder is made");
         let mut folders = Vec::new();
-        for (index, &(version_line, first_call_delay)) in builds.iter().enumerate() {
+        for (index, (report, is_first_read_slow)) in builds.iter().enumerate() {
             let folder = root.path().join(index.to_string());
-            std::fs::create_dir(&folder).expect("the folder is made");
-            let program = StandInProgram {
-                answers_by_first_argument: Vec::new(),
-                otherwise: StandInAnswer {
-                    standard_output: format!("{version_line}\n"),
-                    exit_code: 0,
-                    argument_record: None,
-                    first_call_delay,
+            tokio::fs::create_dir(&folder)
+                .await
+                .expect("the folder is made");
+            write_stand_in_program(
+                &folder,
+                "tool",
+                &StandInProgram {
+                    answers_by_first_argument: Vec::new(),
+                    otherwise: StandInAnswer {
+                        standard_output: (*report).to_owned(),
+                        exit_code: 0,
+                        argument_record: None,
+                    },
+                    first_call_wait: is_first_read_slow.then_some(FIRST_READ_WAIT),
                 },
-            };
-            write_stand_in_program(&folder, "tool", &program).expect("the build is written");
+            )
+            .expect("the build is written");
             folders.push(folder);
         }
         let search = ProviderCommandSearch::new(

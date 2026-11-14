@@ -61,6 +61,7 @@ use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::event_emitter::WorkspaceEventEmitter;
 use sidekicks_workspace::git::process::test_git_runner;
+use sidekicks_workspace::git::turn_snapshot::capture::GitFloorReports;
 use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
@@ -242,7 +243,10 @@ pub(crate) async fn test_purge(
         conversations,
         managed_workspaces,
         data_folder: home.path().to_path_buf(),
-        packing: Arc::new(CapturePacking::new(test_git_runner())),
+        packing: Arc::new(CapturePacking::new(
+            test_git_runner(),
+            Arc::new(GitFloorReports::default()),
+        )),
         project_rules,
         list_feed,
         project_list_feed: Arc::new(ProjectListFeed::new(Arc::new(projects), &log.followers)),

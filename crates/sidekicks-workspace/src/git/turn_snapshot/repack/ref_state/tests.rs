@@ -6,6 +6,7 @@ use super::read_ref_state;
 use crate::git::process::test_repository::{commit_empty, git_in};
 use crate::git::process::{read_git_common_folder, test_git_runner};
 use crate::git::turn_snapshot::repack::CaptureFolderPass;
+use crate::git::turn_snapshot::repack::object_folders::read_object_folder_state;
 
 // A read well after the last ref write, outside the window in which a later write could keep the
 // facts it read.
@@ -101,6 +102,9 @@ async fn a_pass_reads_unchanged_only_when_no_ref_of_any_worktree_moved(
     };
     let pass = CaptureFolderPass {
         ref_state: read_ref_state(&common).expect("the refs' facts are read"),
+        object_folders: read_object_folder_state(&common.join("objects"))
+            .expect("the object folders' facts are read"),
+        counted_packs: None,
         read_at,
     };
 

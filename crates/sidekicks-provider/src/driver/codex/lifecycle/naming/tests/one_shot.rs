@@ -59,15 +59,14 @@ fn write_stand_in(
                     standard_output: listing.to_owned(),
                     exit_code: list_exit,
                     argument_record: None,
-                    first_call_delay: None,
                 },
             )],
             otherwise: StandInAnswer {
                 standard_output: exec_printed.to_owned(),
                 exit_code: exec_exit,
                 argument_record: Some(arguments.to_owned()),
-                first_call_delay: None,
             },
+            first_call_wait: None,
         },
     )
     .expect("the stand-in is written")

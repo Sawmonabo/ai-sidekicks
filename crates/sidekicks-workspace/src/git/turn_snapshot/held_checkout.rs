@@ -32,11 +32,14 @@ pub(crate) struct CaptureRoots<'roots> {
     pub(crate) checkout_root: &'roots Path,
 }
 
-/// A checkout held for one capture: its verified top level, its capture folder, whether it is
-/// sparse, and the hold on its lock, which releases the checkout when it drops.
+/// A checkout held for one capture: its verified top level, its repository's common git folder,
+/// its capture folder, whether it is sparse, and the hold on its lock, which releases the checkout
+/// when it drops.
 pub(crate) struct HeldCheckout<'lock> {
     /// The checkout's top level, symlinks resolved.
     pub(crate) root: PathBuf,
+    /// The repository's common git folder, as git names it.
+    pub(crate) common_folder: PathBuf,
     /// The owner's capture folder for the checkout's repository.
     pub(crate) capture_folder: CaptureFolder,
     /// Whether the checkout is sparse.
@@ -115,6 +118,7 @@ pub(crate) async fn hold_checkout<'lock>(
             })?;
     Ok(HeldCheckout {
         root,
+        common_folder: git_common_folder,
         capture_folder,
         is_sparse_root,
         hold,

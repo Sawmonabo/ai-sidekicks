@@ -68,18 +68,76 @@ pub(crate) struct ShellRecordDeps {
     pub(crate) runtime: Handle,
 }
 
-/// Whether a shell reports its marks, whether a device typed into it since its last prompt mark,
-/// and its last command's end; the read loop's mark filter sets them.
+/// How many of each mark a shell has reported, and the exit code its last end mark carried.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ShellMarksSeen {
+    /// Its prompt marks.
+    pub(crate) prompts: u64,
+    /// Its command start marks.
+    pub(crate) command_starts: u64,
+    /// Its command end marks.
+    pub(crate) command_ends: u64,
+    /// The exit code the last end mark carried, `None` for one with none.
+    pub(crate) last_exit_code: Option<i64>,
+}
+
+/// Whether a shell reports its marks, whether something was typed into it since its last prompt
+/// mark, the marks it reported and its last command's end; the read loop's mark filter sets them.
 #[derive(Default)]
 pub(crate) struct ShellMarkState {
     is_reporting: AtomicBool,
     has_input_since_prompt: AtomicBool,
     last_command_end: Mutex<Option<TerminalCommandEnd>>,
+    seen: watch::Sender<ShellMarksSeen>,
+}
+
+impl ShellMarkState {
+    /// Whether the shell reports its prompt and command marks: false until its first prompt mark
+    /// carrying its nonce arrives.
+    pub(crate) fn is_reporting(&self) -> bool {
+        self.is_reporting.load(Ordering::SeqCst)
+    }
+
+    /// Whether something was typed into the shell since its last prompt mark, so a run takes only
+    /// a shell sitting idle at its prompt.
+    pub(crate) fn has_input_since_prompt(&self) -> bool {
+        self.has_input_since_prompt.load(Ordering::SeqCst)
+    }
+
+    /// Notes a write to the shell's input, which leaves it no longer idle until its next prompt.
+    pub(crate) fn note_input(&self) {
+        self.has_input_since_prompt.store(true, Ordering::SeqCst);
+    }
+
+    /// The end of the last command the shell ran, once one has ended.
+    pub(crate) fn last_command_end(&self) -> Option<TerminalCommandEnd> {
+        lock(&self.last_command_end).clone()
+    }
+
+    /// The marks the shell has reported, changed once for each read that took one out.
+    pub(crate) fn subscribe(&self) -> watch::Receiver<ShellMarksSeen> {
+        self.seen.subscribe()
+    }
+
+    /// The mark filter the terminal's read loop takes the shell's marks out with, by `nonce`;
+    /// `list` is the shell's session's list, sent again once per read that ended a command.
+    pub(crate) fn mark_filter(
+        self: &Arc<Self>,
+        nonce: &str,
+        list: ShellListFollowers,
+    ) -> ShellMarkFilter {
+        ShellMarkFilter {
+            reader: ShellMarkReader::new(nonce),
+            marks: Vec::new(),
+            state: Arc::clone(self),
+            list,
+        }
+    }
 }
 
 /// The read loop's filter that takes a shell's marks out of its output before the screen copy and
-/// the scrollback see it, noting each prompt mark in the shell's mark state and each command's end
-/// there too, sending the session's list again once per read that ended a command.
+/// the scrollback see it, noting each in the shell's mark state and sending the session's list
+/// again once per read that ended a command.
 pub(crate) struct ShellMarkFilter {
     reader: ShellMarkReader,
     marks: Vec<ShellMark>,
@@ -91,6 +149,9 @@ impl OutputFilter for ShellMarkFilter {
     fn filter(&mut self, chunk: &[u8], kept: &mut Vec<u8>) {
         self.marks.clear();
         self.reader.read(chunk, kept, &mut self.marks);
+        if self.marks.is_empty() {
+            return;
+        }
         if self
             .marks
             .iter()
@@ -121,6 +182,19 @@ impl OutputFilter for ShellMarkFilter {
             });
             self.list.mark_changed();
         }
+        let marks = &self.marks;
+        self.state.seen.send_modify(|seen| {
+            for mark in marks {
+                match *mark {
+                    ShellMark::Prompt { .. } => seen.prompts += 1,
+                    ShellMark::CommandStart { .. } => seen.command_starts += 1,
+                    ShellMark::CommandEnd { exit_code, .. } => {
+                        seen.command_ends += 1;
+                        seen.last_exit_code = exit_code;
+                    }
+                }
+            }
+        });
     }
 
     fn finish(&mut self, kept: &mut Vec<u8>) {
@@ -246,16 +320,6 @@ impl ShellRecord {
         self.listener.clone()
     }
 
-    /// The mark filter the terminal's read loop takes the shell's marks out with, by `nonce`.
-    pub(crate) fn mark_filter(&self, nonce: &str) -> ShellMarkFilter {
-        ShellMarkFilter {
-            reader: ShellMarkReader::new(nonce),
-            marks: Vec::new(),
-            state: Arc::clone(&self.marks),
-            list: self.list.clone(),
-        }
-    }
-
     /// Records the shell started on `handle` with `screen`, its nonces held until it ends.
     pub(crate) fn record_started(
         &self,
@@ -307,25 +371,10 @@ impl ShellRecord {
         self.lock_state().is_removed
     }
 
-    /// Whether the shell reports its prompt and command marks.
-    pub(crate) fn is_reporting_marks(&self) -> bool {
-        self.marks.is_reporting.load(Ordering::SeqCst)
-    }
-
-    /// The end of the last command the shell ran, once one has ended.
-    pub(crate) fn last_command_end(&self) -> Option<TerminalCommandEnd> {
-        lock(&self.marks.last_command_end).clone()
-    }
-
-    /// Whether a device typed into the shell since its last prompt mark.
-    pub(crate) fn has_input_since_prompt(&self) -> bool {
-        self.marks.has_input_since_prompt.load(Ordering::SeqCst)
-    }
-
     /// The nonce file once the shell has marked a prompt with its nonce, so it has read it, taken
     /// so it is removed once.
     pub(crate) fn take_read_mark_nonce(&self) -> Option<ShellMarkNonce> {
-        if !self.is_reporting_marks() {
+        if !self.marks.is_reporting() {
             return None;
         }
         self.lock_state().mark_nonce.take()
@@ -561,10 +610,7 @@ fn input_hooks(record: Weak<ShellRecord>) -> ShellInputHooks {
     ShellInputHooks {
         queue_write: Box::new(move |bytes: Bytes| {
             let queued = writer.upgrade().map(|record| {
-                record
-                    .marks
-                    .has_input_since_prompt
-                    .store(true, Ordering::SeqCst);
+                record.marks.note_input();
                 record
                     .handle()
                     .map(|handle| record.deps.terminals.queue_write(handle, bytes))

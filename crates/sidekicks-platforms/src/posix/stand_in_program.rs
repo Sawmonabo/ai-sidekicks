@@ -16,36 +16,35 @@ pub(crate) fn write_stand_in_script(
     program: &StandInProgram,
 ) -> io::Result<PathBuf> {
     let mut script = String::from("#!/bin/sh\n");
-    for (index, (first_argument, answer)) in program.answers_by_first_argument.iter().enumerate() {
+    if let Some(wait) = program.first_call_wait {
+        let marker = folder.join(format!("{name}.first-call"));
+        writeln!(
+            script,
+            "if [ ! -e {marker} ]; then : > {marker}; sleep {}; fi",
+            wait.as_secs_f64(),
+            marker = quote_single(script_path_text(&marker)?),
+        )
+        .expect("a String takes every write");
+    }
+    for (first_argument, answer) in &program.answers_by_first_argument {
         writeln!(
             script,
             "if [ \"$1\" = {} ]; then",
             quote_single(first_argument)
         )
         .expect("a String takes every write");
-        push_answer(&mut script, index, answer)?;
+        push_answer(&mut script, answer)?;
         script.push_str("fi\n");
     }
-    let otherwise_index = program.answers_by_first_argument.len();
-    push_answer(&mut script, otherwise_index, &program.otherwise)?;
+    push_answer(&mut script, &program.otherwise)?;
     let path = folder.join(name);
     replace_file_atomically(&path, script.as_bytes(), 0o755, LeftoverSweep::Unswept)
         .map_err(|error| error.failure)?;
     Ok(path)
 }
 
-// Appends the lines of the answer at `index`: its first call's wait, marked by a file beside the
-// script, then the lines that record the arguments, print the output with nothing added and exit.
-fn push_answer(script: &mut String, index: usize, answer: &StandInAnswer) -> io::Result<()> {
-    if let Some(delay) = answer.first_call_delay {
-        writeln!(
-            script,
-            "if [ ! -e \"$0.first-call-{index}\" ]; then : > \"$0.first-call-{index}\"; \
-             sleep {}; fi",
-            delay.as_secs_f64()
-        )
-        .expect("a String takes every write");
-    }
+// Appends the lines that record the arguments, print the output with nothing added and exit.
+fn push_answer(script: &mut String, answer: &StandInAnswer) -> io::Result<()> {
     if let Some(record) = &answer.argument_record {
         writeln!(
             script,

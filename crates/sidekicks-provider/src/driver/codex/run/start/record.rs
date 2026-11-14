@@ -21,7 +21,7 @@ use tokio::sync::watch;
 
 use crate::driver::codex::attachments::compose_codex_message_input;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
-use crate::driver::codex::delivery::memory::CodexStartingTurn;
+use crate::driver::codex::delivery::memory::{CodexStartingTurn, CodexTurnOpening};
 use crate::driver::codex::output_speed::{
     CodexSettledOutputSpeed, arm_codex_run_output_speed, compose_codex_service_tier,
     resolve_codex_output_speed_level,
@@ -319,13 +319,16 @@ pub(crate) async fn begin_codex_turn_start(
         return CodexTurnBeginAnswer::Refused(error);
     }
     // Frames of the turn that arrive before Codex answers belong to this run, and the turn is
-    // opened by the first message the start carries.
+    // opened by the first message the start carries, the rest taken into it as it starts.
     let opening = run_turn.as_ref().and_then(|(_, accepted)| {
-        accepted
-            .input
-            .client_message_ids
-            .first()
-            .and_then(|message_id| QueueItemId::new(message_id).ok())
+        let (first, later) = accepted.input.client_message_ids.split_first()?;
+        Some(CodexTurnOpening {
+            opening: QueueItemId::new(first).ok()?,
+            later: later
+                .iter()
+                .filter_map(|message_id| QueueItemId::new(message_id).ok())
+                .collect(),
+        })
     });
     record.delivery.starting_turns.push_back(CodexStartingTurn {
         run_id: begin.run_id,
@@ -512,15 +515,15 @@ pub(crate) fn apply_run_turn_acceptance(
     (settled, run_turn.input)
 }
 
-/// Records an accepted turn's boundary and routes it to its run with `opening`, the queue item
-/// whose message opened it; `false` for a turn already over, which gets no route, since nothing
-/// would ever retire it.
+/// Records an accepted turn's boundary and routes it to its run with `opening`, the messages it
+/// opened on; `false` for a turn already over, which gets no route, since nothing would ever
+/// retire it.
 pub(crate) fn route_accepted_turn(
     run_routes: &CodexRunRoutes,
     record: &mut CodexSessionRecord,
     run_id: RunId,
     turn_id: &str,
-    opening: Option<QueueItemId>,
+    opening: Option<CodexTurnOpening>,
 ) -> bool {
     // Appended at acceptance, not completion: a completion-time ledger would omit interrupted and
     // failed turns and misname later positions.
@@ -540,14 +543,14 @@ pub(crate) fn route_accepted_turn(
     true
 }
 
-/// Routes the live turn `turn_id` to `run_id` as the newest, with the message that opened it, and
+/// Routes the live turn `turn_id` to `run_id` as the newest, with the messages it opened on, and
 /// binds the run to the record's session.
 pub(crate) fn add_run_turn(
     run_routes: &CodexRunRoutes,
     record: &mut CodexSessionRecord,
     turn_id: String,
     run_id: RunId,
-    opening: Option<QueueItemId>,
+    opening: Option<CodexTurnOpening>,
 ) {
     if let Some(opening) = opening {
         record

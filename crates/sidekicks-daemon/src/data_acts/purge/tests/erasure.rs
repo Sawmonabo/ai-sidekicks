@@ -9,6 +9,7 @@ use std::time::Duration;
 use rstest::rstest;
 use rusqlite::params;
 use serde_json::json;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -16,8 +17,11 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
+use sidekicks_platforms::{read_volume, real_path};
 use sidekicks_recovery::damaged_history::{SessionDeletePurge as _, SessionDeletion};
 use sidekicks_recovery::status::RECOVERY_STATUS_STATEMENT_CAPACITY;
+use sidekicks_session::checkpoints::store::shadows::{VolumeFolder, owed_folders};
+use sidekicks_session::checkpoints::volume_folders::restored_clones_folder;
 use sidekicks_session::run::engine::test_fixture;
 use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -236,8 +240,8 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
     reader
         .execute_batch(&format!(
             "INSERT INTO session_checkpoints (checkpoint_id, session_id, message_sequence, run_id,
-               epoch, position, created_at)
-             VALUES ('{checkpoint_id}', '{session}', 1, '{lead_run}', 0, 1, '{at}');
+               turn_number, epoch, position, created_at)
+             VALUES ('{checkpoint_id}', '{session}', 1, '{lead_run}', 1, 0, 1, '{at}');
              INSERT INTO checkpoint_commands (window_id, checkpoint_id, command, started_at)
              VALUES ('{window_id}', '{checkpoint_id}', '{MARKER}', '{at}');
              INSERT INTO checkpoint_shadows (shadow_id, session_id, path, not_kept_reason,
@@ -371,6 +375,89 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
         !contains(&file, MARKER),
         "no deleted byte stays in the file"
     );
+}
+
+// Kills: rows deleted before they are read (then there is no owed row), a folder on an absent
+// volume removed, an emptied user folder left, the owed row left out of the purge's write, and the
+// restored clones kept.
+#[tokio::test]
+async fn a_purge_removes_a_sessions_other_volume_folders_and_owes_an_absent_one() {
+    let fixture = purge_fixture().await;
+    let reader = fixture.database.reader();
+    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
+    store_session(&reader, session_id, SessionState::Archived);
+    let session = session_id.text();
+    let restored_clones = restored_clones_folder(fixture.home.path(), &session_id);
+    std::fs::create_dir_all(&restored_clones).expect("the restored clones' folder is made");
+    std::fs::write(restored_clones.join("clone"), MARKER).expect("a restored copy is written");
+    let home = real_path(fixture.home.path()).expect("the home resolves");
+    let [mounted, absent] = ["mounted-user", "absent-user"].map(|user_folder| {
+        let folder = home.join(user_folder).join(session.as_str());
+        std::fs::create_dir_all(&folder).expect("the session's folder is made");
+        std::fs::write(folder.join("clone"), MARKER).expect("a clone is written");
+        folder
+    });
+    let row = |folder: &Path, volume_id: &str| VolumeFolder {
+        volume_id: volume_id.parse().expect("a volume id"),
+        folder: FilesystemPath::new(folder.to_str().expect("a test path is text").to_owned())
+            .expect("a test path"),
+    };
+    let mounted_volume = read_volume(&mounted).expect("the folder's volume reads").id;
+    let absent_row = row(&absent, "absent-volume");
+    for folder in [
+        row(&mounted, &mounted_volume.to_string()),
+        absent_row.clone(),
+    ] {
+        reader
+            .execute(
+                "INSERT INTO checkpoint_volume_folders (session_id, folder, volume_id)
+                 VALUES (?1, ?2, ?3)",
+                params![
+                    session.as_str(),
+                    folder.folder.as_str(),
+                    folder.volume_id.to_string()
+                ],
+            )
+            .expect("the session's folder is recorded");
+    }
+
+    let outcome = only_outcome(
+        fixture
+            .purge
+            .purge(
+                &[session_id],
+                PurgeCaller::Retention,
+                &ProcessorMeter::default(),
+            )
+            .await,
+    );
+
+    assert!(
+        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        "the session is removed, got {outcome:?}"
+    );
+    assert!(!mounted.exists(), "the mounted volume's folder goes");
+    assert!(
+        !home.join("mounted-user").exists(),
+        "its emptied user folder goes"
+    );
+    assert!(
+        absent.join("clone").exists(),
+        "the absent volume's folder stays"
+    );
+    assert_eq!(
+        owed_folders(&reader).expect("the owed folders read"),
+        [absent_row]
+    );
+    let left: i64 = reader
+        .query_row(
+            "SELECT COUNT(*) FROM checkpoint_volume_folders WHERE session_id = ?1",
+            [session.as_str()],
+            |row| row.get(0),
+        )
+        .expect("the test counts the rows left");
+    assert_eq!(left, 0, "no folder row outlives its session");
+    assert!(!restored_clones.exists(), "the restored clones go");
 }
 
 // Mutation: leave the client's session close out of the purge; the connection then stays open.
@@ -579,4 +666,49 @@ async fn the_logs_truncation_is_tried_until_no_reader_keeps_it_busy() {
             .len(),
         0
     );
+}
+
+// Kills: no hold in the purge (it ends under the test's hold), and the hold taken after the
+// storage folder's removal (it finds no capture folder, holds nothing, and the purge ends first).
+#[tokio::test]
+async fn a_purge_waits_for_a_hold_on_its_capture_folders() {
+    let fixture = purge_fixture().await;
+    let reader = fixture.database.reader();
+    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
+    store_session(&reader, session_id, SessionState::Archived);
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    let capture_folder =
+        store_capture_folder(&test_git_runner(), fixture.home.path(), session_id, run_id).await;
+    let packing = &fixture.purge.deps.packing;
+    let hold = packing
+        .hold_owner_folders(&session_storage_folder(fixture.home.path(), &session_id))
+        .await
+        .expect("the session's capture folders are held");
+    let handles = packing
+        .folder_lock()
+        .queue_handle_count(capture_folder.clone());
+    let meter = ProcessorMeter::default();
+    let sessions = [session_id];
+    let mut purge = std::pin::pin!(
+        fixture
+            .purge
+            .purge(&sessions, PurgeCaller::Retention, &meter)
+    );
+
+    tokio::select! {
+        report = &mut purge => panic!("the purge waits for the hold, got {report:?}"),
+        () = packing.folder_lock().wait_for_queue_past(capture_folder.clone(), handles) => {}
+    }
+    assert!(
+        capture_folder.exists(),
+        "the capture folder stays while it is held"
+    );
+    drop(hold);
+    let outcome = only_outcome(purge.await);
+
+    assert!(
+        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        "the session is removed, got {outcome:?}"
+    );
+    assert!(!capture_folder.exists(), "the capture folder goes");
 }

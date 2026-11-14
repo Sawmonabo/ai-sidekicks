@@ -1,7 +1,7 @@
 //! The background jobs the start schedules once its recovery pass has ended: the writer's passive
-//! checkpoint and daily optimize, the hourly diagnostic-log expiry, the crash report pass at once
-//! and then hourly, and the daily backup; and the one-shot collect that hands freed memory back
-//! once the daemon's work goes quiet.
+//! checkpoint and daily optimize, the hourly diagnostic-log expiry, the crash report pass and the
+//! checkpoint sweep at once and then hourly, the daily backup and bun's install; and the one-shot
+//! collect that hands freed memory back once the daemon's work goes quiet.
 
 use std::error::Error;
 use std::path::PathBuf;
@@ -10,6 +10,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use sidekicks_contracts::release_manifest::ReleaseVersion;
+use sidekicks_session::checkpoints::sweep::{
+    CHECKPOINT_SWEEP_INTERVAL, CheckpointSweep, checkpoint_sweep_job,
+};
 use sidekicks_std::scheduler::{JobCadence, JobCondition, ScheduleError, Scheduler};
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::database::writer::jobs::{OPTIMIZE_INTERVAL, PASSIVE_CHECKPOINT_INTERVAL};
@@ -18,6 +21,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::daemon::backup::run::Backups;
+use crate::daemon::bun::{BunInstall, schedule_bun_install};
 use crate::daemon::crash::reports::{CrashReportDeps, crash_report_job};
 use crate::daemon::machine_settings::file::MachineSettingsFile;
 use crate::observability::diagnostic_buckets::expiry::{
@@ -40,8 +44,12 @@ pub(crate) struct JobDeps {
     pub(crate) settings: Arc<MachineSettingsFile>,
     /// The service's backups, whose daily run is scheduled here.
     pub(crate) backups: Arc<Backups>,
+    /// bun's install, whose first run is scheduled here.
+    pub(crate) bun: Arc<BunInstall>,
     /// The service's own release version, which the crash reports name.
     pub(crate) version: ReleaseVersion,
+    /// The sweep over every capture folder and owed folder.
+    pub(crate) checkpoint_sweep: Arc<CheckpointSweep>,
 }
 
 /// Why a job could not be scheduled.
@@ -58,8 +66,9 @@ pub(crate) enum JobScheduleError {
 
 /// Schedules every background job on `scheduler`, each run once it falls due and the job before it
 /// ends: the passive checkpoint every five minutes, the optimize a day after the start and daily
-/// after, the diagnostic-log expiry and the crash report pass at once and then hourly, and the
-/// daily backup. Fails with the first job the scheduler refuses.
+/// after, the diagnostic-log expiry, the crash report pass and the checkpoint sweep at once and
+/// then hourly, the daily backup, and bun's install at once. Fails with the first job the
+/// scheduler refuses.
 pub(crate) async fn schedule_jobs(
     scheduler: &Arc<Scheduler>,
     deps: JobDeps,
@@ -70,7 +79,9 @@ pub(crate) async fn schedule_jobs(
         data_folder,
         settings,
         backups,
+        bun,
         version,
+        checkpoint_sweep,
     } = deps;
     scheduler.schedule_job(
         "passive checkpoint",
@@ -117,10 +128,19 @@ pub(crate) async fn schedule_jobs(
             service_version: version,
         })),
     )?;
+    // At once, since the start's pass packs what the last run left before any idle comes.
+    scheduler.schedule_repeating(
+        "checkpoint sweep",
+        JobCondition::Always,
+        CHECKPOINT_SWEEP_INTERVAL,
+        Duration::ZERO,
+        checkpoint_sweep_job(checkpoint_sweep),
+    )?;
     backups
         .schedule_daily(scheduler)
         .await
         .map_err(JobScheduleError::DailyBackup)?;
+    schedule_bun_install(bun, scheduler)?;
     Ok(())
 }
 

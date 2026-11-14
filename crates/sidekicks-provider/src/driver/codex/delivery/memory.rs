@@ -1,5 +1,5 @@
 //! What one Codex session's deliveries remember between frames: each turn's run epoch for the
-//! session's terminal gate, the turn its run opened and the message that opened it, the runs whose
+//! session's terminal gate, the turn its run opened and the messages it opened on, the runs whose
 //! turn is starting, a turn's last error, the reviewer's and the reroute's pending halves, the
 //! helpers' child runs, the prose being streamed, and the reorder buffer rows pass.
 
@@ -118,14 +118,24 @@ pub(crate) struct CodexStreamedProse {
     pub(crate) method: &'static str,
 }
 
-/// A run whose `turn/start` is on the wire, with the queue item whose message opens its turn,
-/// the first message the start carries; `None` for a start that carries no queued message.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The person's messages a `turn/start` carried, by their queue items in send order: the first
+/// opens its turn, and Codex takes the rest into it as it starts, echoing none of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CodexTurnOpening {
+    /// The queue item whose message opens the turn.
+    pub(crate) opening: QueueItemId,
+    /// The queue items of the start's later messages.
+    pub(crate) later: Vec<QueueItemId>,
+}
+
+/// A run whose `turn/start` is on the wire, with the messages it carries; `None` for a start
+/// that carries no queued message.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexStartingTurn {
     /// The run.
     pub(crate) run_id: RunId,
-    /// The queue item whose message opens the turn.
-    pub(crate) opening: Option<QueueItemId>,
+    /// The messages the start carries.
+    pub(crate) opening: Option<CodexTurnOpening>,
 }
 
 /// One session's delivery memory; replaced with the session record on every establishment.
@@ -137,10 +147,10 @@ pub(crate) struct CodexDeliveryMemory {
     pub(crate) started_turn_by_turn_id: HashMap<String, StartedTurn>,
     /// Runs whose `turn/start` is on the wire, oldest first: Codex accepts them in send order.
     pub(crate) starting_turns: VecDeque<CodexStartingTurn>,
-    /// The queue item whose message opened each turn a `turn/start` started, by turn id, carried
-    /// from the start whichever of Codex's answer and `turn/started` came first; each leaves with
-    /// its turn's terminal.
-    pub(crate) turn_opening_by_turn_id: HashMap<String, QueueItemId>,
+    /// The messages each turn a `turn/start` started opened on, by turn id, carried from the start
+    /// whichever of Codex's answer and `turn/started` came first; each leaves with its turn's
+    /// terminal.
+    pub(crate) turn_opening_by_turn_id: HashMap<String, CodexTurnOpening>,
     /// The last error per turn Codex will not retry, by turn id.
     pub(crate) final_error_by_turn_id: HashMap<String, CodexTurnErrorReading>,
     /// Turns Codex retried after an error, so a final error on one means its retries ran out.

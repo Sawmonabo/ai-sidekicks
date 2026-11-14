@@ -64,6 +64,8 @@ pub(crate) struct ClaudeHeldAsk {
     pub(crate) input: Map<String, Value>,
     /// What the call would do.
     pub(crate) action: ProviderAskAction,
+    /// The call's tool-use id, whose command's window a refusal closes.
+    pub(crate) tool_use_id: Option<String>,
 }
 
 /// Why an ask's answer could not be composed; nothing was written.

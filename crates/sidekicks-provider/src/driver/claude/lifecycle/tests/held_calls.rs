@@ -1,7 +1,7 @@
 //! A session's held tool-server calls once its process is gone for good: the surviving tasks a
 //! person's close stops, live or at rest, the calls settled at its close and at the start after a
 //! restart, by what Claude Code kept, and left alone while the daemon stops or a fork takes the
-//! session.
+//! session; and the calls an undo cuts, stopped on the live process.
 
 use std::path::PathBuf;
 use std::pin::pin;
@@ -10,6 +10,7 @@ use std::sync::Arc;
 use rstest::rstest;
 use serde_json::{Map, json};
 use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -39,12 +40,14 @@ use crate::driver::claude::session::scripted::{
 use crate::driver::claude::session::transport::inbound::ClaudeControlFrameReader;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::environment::claude_config_folder;
+use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::session_control::{
     CloseSessionParams, HeldCallsSettle, MoveSessionToForkParams, SessionCloseCause,
     SettleHeldToolCallsParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::port::held_tool_calls::HeldToolCall;
 
 /// The conversation a resting session's stored leg names.
 const STORED_CONVERSATION: &str = "0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d";
@@ -602,12 +605,32 @@ async fn only_a_persons_close_stops_the_surviving_tasks(#[case] cause: SessionCl
 // recorded call ended under a Stop (call-3 closed); `Stopped` mapped to another settle (call-1's
 // cause, or call-3 closed).
 #[rstest]
-#[case::restarted(HeldCallsSettle::Restarted)]
-#[case::closed(HeldCallsSettle::Closed)]
-#[case::stopped(HeldCallsSettle::Stopped)]
+#[case::restarted(
+    HeldCallsSettle::Restarted,
+    vec![
+        ("call-1", Ending::Failed(Some(ToolCallEndCause::DaemonRestart)), None),
+        ("call-2", Ending::Completed, Some("Exported")),
+    ],
+)]
+#[case::closed(
+    HeldCallsSettle::Closed,
+    vec![
+        ("call-1", ENDED_WITH_THE_PROCESS, None),
+        ("call-2", Ending::Completed, Some("Exported")),
+        ("call-3", ENDED_WITH_THE_PROCESS, None),
+    ],
+)]
+#[case::stopped(
+    HeldCallsSettle::Stopped,
+    vec![
+        ("call-1", Ending::Failed(Some(ToolCallEndCause::DaemonStop)), None),
+        ("call-2", Ending::Completed, Some("Exported")),
+    ],
+)]
 #[tokio::test(start_paused = true)]
 async fn the_start_after_a_restart_settles_a_resting_sessions_held_calls(
     #[case] held_calls_settle: HeldCallsSettle,
+    #[case] expected: Vec<(&str, Ending, Option<&str>)>,
 ) {
     let fixture = ScriptedDriver::new();
     let session_id = new_session_id();
@@ -664,23 +687,10 @@ async fn the_start_after_a_restart_settles_a_resting_sessions_held_calls(
 
     let mut closed = closed_calls(&fixture);
     closed.sort_by(|left, right| left.0.cmp(&right.0));
-    let completed = (
-        "call-2".to_owned(),
-        Ending::Completed,
-        Some("Exported".to_owned()),
-    );
-    let ended_unkept = |cause| ("call-1".to_owned(), Ending::Failed(Some(cause)), None);
-    let expected = match held_calls_settle {
-        HeldCallsSettle::Closed => vec![
-            ("call-1".to_owned(), ENDED_WITH_THE_PROCESS, None),
-            completed,
-            ("call-3".to_owned(), ENDED_WITH_THE_PROCESS, None),
-        ],
-        HeldCallsSettle::Restarted => {
-            vec![ended_unkept(ToolCallEndCause::DaemonRestart), completed]
-        }
-        HeldCallsSettle::Stopped => vec![ended_unkept(ToolCallEndCause::DaemonStop), completed],
-    };
+    let expected: Vec<_> = expected
+        .into_iter()
+        .map(|(call_id, ending, text)| (call_id.to_owned(), ending, text.map(str::to_owned)))
+        .collect();
     assert_eq!(closed, expected);
 }
 
@@ -894,4 +904,163 @@ async fn the_start_after_a_restart_stops_a_closed_sessions_surviving_task() {
     assert!(fixture.starts.take_started().is_empty());
     assert_eq!(stopped_tasks(&channel), ["task-A"]);
     assert_eq!(closed_calls(&fixture), [call_a_stopped()]);
+}
+
+// The params of an undo's settle of `session_id`'s `calls`, on a leg of no account or conversation
+// the live settle reads.
+fn undo_settle(session_id: SessionId, calls: Vec<HeldToolCall>) -> SettleHeldToolCallsParams {
+    SettleHeldToolCallsParams {
+        session_id,
+        provider_account_id: ProviderAccountId::new("account-1".to_owned()).expect("an account id"),
+        conversation: STORED_CONVERSATION.to_owned(),
+        runtime_metadata: Map::new(),
+        settle: HeldCallsSettle::Undo { calls },
+    }
+}
+
+// Fails when an undo's settle leaves a cut call's task running on its server, its call open in the
+// log, or still on the stream for the stopped ending Claude Code reports after the stop to close a
+// second time. Mutations: the stream's take dropped, so the call stays held (the notification
+// writes a second close); the call ended through `release` as stopped, which keeps it settled (the
+// notification closes it again); the close not sent (no close by the settle's answer); the
+// `stop_task` send dropped (no stop for task-A).
+#[tokio::test(start_paused = true)]
+async fn an_undo_ends_a_cut_held_call_stopped_and_it_never_closes_again() {
+    let fixture = ScriptedDriver::new();
+    let channel = Arc::new(ScriptedChannel::default());
+    let (session_id, run_id, start) =
+        holding_session(&fixture, &channel, &[("call-A", "task-A")]).await;
+    let parts = fixture.driver.composed_parts().expect("composed");
+
+    fixture
+        .driver
+        .settle_held_tool_calls(undo_settle(
+            session_id,
+            vec![held_call("call-A", "task-A", (run_id, "lead"), None, None)],
+        ))
+        .await
+        .expect("the cut calls are settled");
+    let closed_by_the_settle = closed_calls(&fixture);
+    hand_scripted_frame(
+        &*start.listener,
+        &parts.run_start.routes,
+        session_id,
+        &json!({
+            "type": "system",
+            "subtype": "task_notification",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "task_id": "task-A",
+            "tool_use_id": "call-A",
+            "status": "stopped",
+        }),
+    );
+    settle().await;
+
+    assert_eq!(stopped_tasks(&channel), ["task-A"]);
+    let stopped = || {
+        (
+            "call-A".to_owned(),
+            Ending::Failed(Some(ToolCallEndCause::Stopped)),
+            None,
+        )
+    };
+    assert_eq!(closed_by_the_settle, [stopped()]);
+    assert_eq!(closed_calls(&fixture), [stopped()]);
+}
+
+// Fails when an undo's settle of a session no process runs answers or writes anything: it refuses
+// as no live session. Mutation: the undo settled at rest instead (call-1 closed from the log, and
+// the settle answers).
+#[tokio::test(start_paused = true)]
+async fn an_undo_settle_with_no_live_process_fails() {
+    let fixture = ScriptedDriver::new();
+    let session_id = new_session_id();
+    let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
+    fixture.record_session_leg(session_id, account, STORED_CONVERSATION, Map::new());
+    let call = held_call("call-1", "task-1", (new_run_id(), "binding-1"), None, None);
+    fixture
+        .services
+        .ports
+        .held_tool_calls
+        .register(logged_held_calls(vec![call.clone()], &fixture.engine))
+        .expect("the read registers once");
+
+    let settled = fixture
+        .driver
+        .settle_held_tool_calls(undo_settle(session_id, vec![call]))
+        .await;
+    settle().await;
+
+    assert!(
+        matches!(
+            &settled,
+            Err(DriverError::Refused(refusal)) if refusal.code == RefusalCode::ProviderUnavailable
+        ),
+        "{settled:?}"
+    );
+    assert_eq!(closed_calls(&fixture), []);
+}
+
+// How Claude Code answers the first of an undo's stops.
+#[derive(Clone, Copy, Debug)]
+enum FirstStop {
+    Refused,
+    Unanswered,
+}
+
+// An undo's settle whose stop of one task Claude Code refuses, or does not answer within the
+// bound, fails naming that task and leaves its call open, while the call whose stop was taken
+// closes stopped. Mutations: a refused or unanswered stop read as taken (call-A closes and the
+// settle answers), and every close held back by one failed stop (call-B stays open).
+#[rstest]
+#[case::refused(FirstStop::Refused)]
+#[case::unanswered(FirstStop::Unanswered)]
+#[tokio::test(start_paused = true)]
+async fn an_undo_whose_stop_is_not_taken_fails_and_leaves_that_call_open(
+    #[case] first_stop: FirstStop,
+) {
+    let fixture = ScriptedDriver::new();
+    let channel = Arc::new(ScriptedChannel::default());
+    let (session_id, run_id, _start) = holding_session(
+        &fixture,
+        &channel,
+        &[("call-A", "task-A"), ("call-B", "task-B")],
+    )
+    .await;
+    let _held = match first_stop {
+        FirstStop::Refused => {
+            channel.answer("stop_task", ScriptedAnswer::Refused);
+            None
+        }
+        FirstStop::Unanswered => Some(channel.hold_next_control("stop_task")),
+    };
+
+    let settled = fixture
+        .driver
+        .settle_held_tool_calls(undo_settle(
+            session_id,
+            vec![
+                held_call("call-A", "task-A", (run_id, "lead"), None, None),
+                held_call("call-B", "task-B", (run_id, "lead"), None, None),
+            ],
+        ))
+        .await;
+    settle().await;
+
+    match &settled {
+        Err(DriverError::Internal(failure)) => {
+            assert!(failure.to_string().contains("task-A"), "{failure}");
+            assert!(!failure.to_string().contains("task-B"), "{failure}");
+        }
+        other => panic!("expected the settle to fail naming task-A, got {other:?}"),
+    }
+    assert_eq!(stopped_tasks(&channel), ["task-A", "task-B"]);
+    assert_eq!(
+        closed_calls(&fixture),
+        [(
+            "call-B".to_owned(),
+            Ending::Failed(Some(ToolCallEndCause::Stopped)),
+            None,
+        )]
+    );
 }

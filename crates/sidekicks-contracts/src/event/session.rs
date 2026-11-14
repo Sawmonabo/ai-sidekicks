@@ -61,6 +61,7 @@ use crate::run::events::{
     AgentRunStartingPayload, AgentRunStoppedPayload, AgentRunWaitingForApprovalPayload,
     AgentRunWaitingForInputPayload, AgentRunWorkerShuttingDownPayload, AgentTurnCompletedPayload,
     AgentTurnFailedPayload, AgentTurnInterruptedPayload, AgentTurnStartedPayload,
+    AgentTurnSteeredPayload,
 };
 use crate::run::id::RunId;
 use crate::run::provider_choice::{
@@ -328,6 +329,9 @@ session_events! {
         = "agent.run.providerInitialized" => versioned,
     /// Emitted when a turn opens within a run; it moves no state.
     AgentTurnStarted(AgentTurnStartedPayload) = "agent.turn.started" => turn,
+    /// Emitted when a provider takes one of the person's waiting messages into a running turn,
+    /// in the same write as the message's own checkpoint; it moves no state.
+    AgentTurnSteered(AgentTurnSteeredPayload) = "agent.turn.steered" => turn,
     /// Emitted when a turn ends normally; it moves no state.
     AgentTurnCompleted(AgentTurnCompletedPayload) = "agent.turn.completed" => turn,
     /// Emitted when a turn is cut, its partial output kept; it moves no state.

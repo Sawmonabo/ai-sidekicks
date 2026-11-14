@@ -1,9 +1,10 @@
 //! The repository services the daemon's start builds once on its git: the repository mounts, the
 //! chats' managed workspaces, the broker git's questions reach the person through, the watch over
 //! each working folder, the live sessions' folders and their projects' fetches, the branch lists,
-//! the worktrees, the turn snapshots and the mounts' health re-probe. Their background work begins
-//! once the start's recovery pass has settled the runs. Here too are the worktrees folder the start
-//! makes once, and the record of the instant the chats' write watch walks from at a start.
+//! the worktrees, the turn snapshots, the commands' captures and the mounts' health re-probe. Their
+//! background work begins once the start's recovery pass has settled the runs. Here too are the
+//! worktrees folder the start makes once, and the record of the instant the chats' write watch
+//! walks from at a start.
 
 use std::error::Error;
 use std::io;
@@ -37,6 +38,8 @@ use sidekicks_workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerEr
 use sidekicks_workspace::clone::askpass::program::git_askpass_program_path;
 use sidekicks_workspace::event_emitter::WorkspaceEventEmitter;
 use sidekicks_workspace::git::process::GitRunner;
+use sidekicks_workspace::git::turn_snapshot::capture::GitFloorReports;
+use sidekicks_workspace::git::turn_snapshot::command_capture::CommandCaptureService;
 use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::git::turn_snapshot::service::TurnSnapshotService;
 use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
@@ -127,10 +130,13 @@ pub(crate) struct RepoServices {
     pub(crate) worktree_events: Arc<WorktreeEventEmitter>,
     /// Each turn's checkout snapshot and the prune of a run's snapshot refs.
     pub(crate) snapshots: Arc<TurnSnapshotService>,
-    /// The packing of the capture folders, which forgets a purged session's folders.
+    /// The packing of the capture folders, which packs each command window's captures and
+    /// forgets a purged session's folders.
     pub(crate) packing: Arc<CapturePacking>,
-    /// The per-checkout lock, keyed by the canonical folder, that the turn snapshots, the worktree
-    /// creator and the run setup gate share.
+    /// The two captures around each command a command window records.
+    pub(crate) command_captures: Arc<CommandCaptureService>,
+    /// The per-checkout lock, keyed by the canonical folder, that the turn snapshots, the commands'
+    /// captures, the worktree creator and the run setup gate share.
     pub(crate) checkout_lock: Arc<KeyedLock<PathBuf>>,
     /// The mounts' health, re-probed on the slow tick, a wake and a repository's change.
     pub(crate) mount_health: Arc<RepoMountHealthReprobe>,
@@ -226,12 +232,19 @@ pub(crate) fn build_repo_services(
     }));
     let review_notes = Arc::new(live_folders.review_note_store(Arc::clone(&writer)));
     let checkout_lock = Arc::new(KeyedLock::new());
-    let packing = Arc::new(CapturePacking::new(git.clone()));
+    let floor_reports = Arc::new(GitFloorReports::default());
+    let packing = Arc::new(CapturePacking::new(git.clone(), Arc::clone(&floor_reports)));
     let snapshots = Arc::new(TurnSnapshotService::new(
         git.clone(),
         Arc::clone(&reads),
         Arc::clone(&checkout_lock),
         Arc::clone(&packing),
+        Arc::clone(&floor_reports),
+    ));
+    let command_captures = Arc::new(CommandCaptureService::new(
+        git.clone(),
+        Arc::clone(&checkout_lock),
+        floor_reports,
     ));
     let worktrees = Arc::new(WorktreeService::new(WorktreeServiceDeps {
         git: git.clone(),
@@ -260,6 +273,7 @@ pub(crate) fn build_repo_services(
         worktree_events,
         snapshots,
         packing,
+        command_captures,
         checkout_lock,
         mount_health,
         scheduler,

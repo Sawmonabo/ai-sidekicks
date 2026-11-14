@@ -284,7 +284,7 @@ fn a_record_s_pane_ends_after_its_runtime_stopped_without_a_panic() {
         let record = fixture
             .table
             .shared
-            .find_shell(&session(), &terminal_id)
+            .held_shell(&session(), &terminal_id)
             .expect("the shell is held");
         record.add_stream(subscription_id, TransportId(1));
         (fixture, record, gate)

@@ -86,6 +86,7 @@ use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
 use crate::daemon::artifact_methods::ArtifactMethods;
 use crate::daemon::backup::methods::BackupMethodsDeps;
 use crate::daemon::backup::run::Backups;
+use crate::daemon::bun::BunInstall;
 use crate::daemon::config_methods::ConfigMethodsDeps;
 use crate::daemon::configuration::ConfigurationStore;
 use crate::daemon::data_methods::DataMethodsDeps;
@@ -185,6 +186,8 @@ pub(crate) struct MethodInputsStart<'start> {
     pub(crate) configuration: Arc<ConfigurationStore>,
     /// The service's backups.
     pub(crate) backups: Arc<Backups>,
+    /// bun's install, which the drivers ask bun's path from.
+    pub(crate) bun: Arc<BunInstall>,
     /// The session list's feed, the one the repository services refresh.
     pub(crate) list_feed: Arc<SessionListFeed>,
     /// The plan store's holds, the same the session list reads.
@@ -292,6 +295,7 @@ pub(crate) async fn register_method_inputs(
         settings,
         configuration,
         backups,
+        bun,
         list_feed,
         plan_holds,
         orphan_guard,
@@ -425,6 +429,8 @@ pub(crate) async fn register_method_inputs(
         working_folders: Arc::clone(&repo.folder_watch),
         git: git.clone(),
         snapshots: Arc::clone(&repo.snapshots),
+        command_captures: Arc::clone(&repo.command_captures),
+        packing: Arc::clone(&repo.packing),
         list_feed: Arc::clone(&list_feed),
         plan_holds,
         payloads: Arc::clone(&artifacts.payloads),
@@ -514,6 +520,8 @@ pub(crate) async fn register_method_inputs(
             run_pauses: Arc::clone(&session.pauses),
             usage: Arc::clone(&session.usage),
             running_commands: Arc::clone(&session.running_commands),
+            edit_checkpoints: Arc::clone(&session.edit_checkpoints),
+            command_windows: Arc::clone(&session.command_windows),
             turn_readings: Arc::clone(&session.turn_readings),
             context_readings: Arc::clone(&session.context_readings),
             tool_call_statuses: Arc::clone(&session.tool_call_statuses),
@@ -522,6 +530,7 @@ pub(crate) async fn register_method_inputs(
             idle_sleep: Arc::clone(&session.idle_sleep),
             session_resumes: Arc::clone(&session.stored_resumes),
             provider_sessions: Arc::clone(&session.provider_sessions),
+            bun_program: bun,
             raw_provider_messages: Arc::new(raw_message_recorder(data_folder, &configuration)),
             tool_traces: Arc::new(tool_trace_recorder(data_folder, &configuration)),
         },
@@ -534,17 +543,7 @@ pub(crate) async fn register_method_inputs(
             appender: Arc::clone(&session.appender),
             settings: Arc::clone(&settings),
             base_environment,
-            reserved_names: Arc::clone(&providers.reserved_names),
-            screen_reader_environment_names: registry
-                .drivers()
-                .flat_map(|(provider, _)| {
-                    registry
-                        .descriptor(provider)
-                        .expect("a provider the registry lists has a descriptor")
-                        .screen_reader_environment_names()
-                })
-                .copied()
-                .collect(),
+            providers,
             run_folder: run_folder.folder_path.clone(),
             orphan_guard,
             daemon_program: daemon_program.to_path_buf(),

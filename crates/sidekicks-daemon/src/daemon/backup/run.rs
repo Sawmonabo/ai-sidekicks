@@ -55,7 +55,8 @@ use sidekicks_std::scheduler::budget::{
 use sidekicks_std::scheduler::{JobCadence, JobCondition, ScheduleError, Scheduler};
 use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::backup_mirror::{
-    MIRROR_FOLDER_NAME, MIRROR_ROOTS_FILE_NAME, MirrorError, MirrorRoot, mirror_roots,
+    LiveGitFolders, MIRROR_FOLDER_NAME, MIRROR_ROOTS_FILE_NAME, MirrorError, MirrorRoot,
+    mirror_roots,
 };
 use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::database::connection::read_pool::{
@@ -77,8 +78,9 @@ use crate::daemon::machine_settings::file::{MachineSettingsFile, MachineSettings
 /// The lock file in the backups folder a run holds while it writes there.
 pub(crate) const BACKUP_LOCK_FILE_NAME: &str = "backup.lock";
 
-/// The statements the last run's read prepares, counted into the read pool's capacity.
-pub(crate) const BACKUP_STATEMENT_CAPACITY: usize = 1;
+/// The statements a run's reads prepare, counted into the read pool's capacity: the read of the
+/// last run, and the read of the sessions' folders on other volumes.
+pub(crate) const BACKUP_STATEMENT_CAPACITY: usize = 2;
 
 /// A run's processor budget, and a repack's, since a `VACUUM` copies the store too: one second
 /// per 256 MiB of store.
@@ -180,6 +182,8 @@ pub(crate) struct BackupDeps {
     pub(crate) home_folder: PathBuf,
     /// The files and folders the mirror keeps.
     pub(crate) read_mirror_roots: MirrorRootsReader,
+    /// The holds and checks the mirror asks of each git folder it copies.
+    pub(crate) git_folders: Arc<dyn LiveGitFolders>,
     /// The versions each manifest records.
     pub(crate) manifest_facts: BackupManifestFacts,
 }
@@ -537,9 +541,16 @@ impl Backups {
         let mirrored_folder = mirror_folder.clone();
         let mirrored_roots = roots.clone();
         let home = self.deps.home_folder.clone();
+        let git_folders = Arc::clone(&self.deps.git_folders);
         let mirror_stop = stop.clone();
         let mirrored = run_blocking(move || {
-            mirror_roots(&mirrored_folder, &home, &mirrored_roots, &mirror_stop)
+            mirror_roots(
+                &mirrored_folder,
+                &home,
+                &mirrored_roots,
+                &*git_folders,
+                &mirror_stop,
+            )
         })
         .await
         .map_err(BackupRunError::Interrupted)?;
@@ -548,10 +559,17 @@ impl Backups {
             Err(MirrorError::Stopped) => return Ok(None),
             Err(failure) => return Err(failure.into()),
         };
+        for folder in &report.skipped_folders {
+            tracing::warn!(
+                folder = %folder.display(),
+                "a folder was not copied whole this run, so its last copy is kept"
+            );
+        }
         tracing::info!(
             copied_files = report.copied_files,
             copied_bytes = report.copied_bytes,
             removed_entries = report.removed_entries,
+            skipped_folders = report.skipped_folders.len(),
             "the backup's mirror was brought level"
         );
         let roots_list = serde_json::to_vec(&roots).map_err(BackupRunError::MirrorList)?;

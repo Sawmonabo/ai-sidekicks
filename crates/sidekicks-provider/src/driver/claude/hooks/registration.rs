@@ -6,9 +6,11 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use crate::driver::claude::event_normalizer::CLAUDE_QUESTION_TOOL_NAME;
+use crate::driver::claude::hooks::command_capture::compose_command_capture_matcher;
 use crate::driver::claude::session::transport::control::{
     ClaudeAgentDefinition, ClaudeControlRequest, ClaudeHookMatcher, ClaudeHooks,
 };
+use crate::driver::claude::spawn::settings::CLAUDE_SHELL_TOOL_NAME;
 use crate::driver::session_control::{SubagentDefinition, SubagentPolicy};
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
@@ -29,9 +31,6 @@ pub(crate) const CLAUDE_HELPER_TOOL_NAME: &str = "Agent";
 
 /// The tool a lead or a helper sends a message to a helper with, which may resume it.
 pub(crate) const CLAUDE_MESSAGE_TOOL_NAME: &str = "SendMessage";
-
-/// The shell tool, whose commands the background-work refusal reads.
-const CLAUDE_SHELL_TOOL_MATCHER: &str = "^Bash$";
 
 /// The settings files whose change the daemon reads Claude Code's settings again after, by the
 /// source the change hook names: every one but the skills folder.
@@ -57,6 +56,10 @@ pub(crate) enum ClaudeHookCallback {
     HelperSteerAfterTool,
     /// Hands a helper the person's waiting words as it finishes, so it goes on.
     HelperSteerAtStop,
+    /// Closes the window of a command that ran with no wrapper once its call ends.
+    CaptureAfterTool,
+    /// Closes the window of a command that ran with no wrapper once its call fails.
+    CaptureAfterFailedTool,
     /// Forgets what a helper call asked for once the call fails, so no start will take it.
     HelperCallFailed,
     /// Reads the settings Claude Code dropped again once a settings file changes.
@@ -65,7 +68,7 @@ pub(crate) enum ClaudeHookCallback {
 
 impl ClaudeHookCallback {
     /// Every hook, so a callback id is read back against each.
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 12] = [
         Self::PauseBeforeTool,
         Self::PauseAfterBatch,
         Self::HelperLimit,
@@ -74,6 +77,8 @@ impl ClaudeHookCallback {
         Self::BackgroundWork,
         Self::HelperSteerAfterTool,
         Self::HelperSteerAtStop,
+        Self::CaptureAfterTool,
+        Self::CaptureAfterFailedTool,
         Self::HelperCallFailed,
         Self::SettingsChanged,
     ];
@@ -89,6 +94,8 @@ impl ClaudeHookCallback {
             Self::BackgroundWork => "sidekicks-background-claude",
             Self::HelperSteerAfterTool => "sidekicks-helper-steer-after-tool",
             Self::HelperSteerAtStop => "sidekicks-helper-steer-at-stop",
+            Self::CaptureAfterTool => "sidekicks-capture-after-tool",
+            Self::CaptureAfterFailedTool => "sidekicks-capture-after-failed-tool",
             Self::HelperCallFailed => "sidekicks-helper-call-failed",
             Self::SettingsChanged => "sidekicks-settings-changed",
         }
@@ -154,7 +161,7 @@ pub(crate) fn compose_claude_initialize_request(
             ClaudeHookCallback::QuestionBridge,
         ),
         unheld(
-            Some(CLAUDE_SHELL_TOOL_MATCHER.to_owned()),
+            Some(format!("^{CLAUDE_SHELL_TOOL_NAME}$")),
             ClaudeHookCallback::BackgroundWork,
         ),
     ];
@@ -179,11 +186,23 @@ pub(crate) fn compose_claude_initialize_request(
     ClaudeControlRequest::Initialize {
         hooks: Some(ClaudeHooks {
             pre_tool_use,
-            post_tool_use: vec![unheld(None, ClaudeHookCallback::HelperSteerAfterTool)],
-            post_tool_use_failure: vec![unheld(
-                Some(format!("^{CLAUDE_HELPER_TOOL_NAME}$")),
-                ClaudeHookCallback::HelperCallFailed,
-            )],
+            post_tool_use: vec![
+                unheld(None, ClaudeHookCallback::HelperSteerAfterTool),
+                unheld(
+                    Some(compose_command_capture_matcher()),
+                    ClaudeHookCallback::CaptureAfterTool,
+                ),
+            ],
+            post_tool_use_failure: vec![
+                unheld(
+                    Some(compose_command_capture_matcher()),
+                    ClaudeHookCallback::CaptureAfterFailedTool,
+                ),
+                unheld(
+                    Some(format!("^{CLAUDE_HELPER_TOOL_NAME}$")),
+                    ClaudeHookCallback::HelperCallFailed,
+                ),
+            ],
             post_tool_batch: vec![unheld(None, ClaudeHookCallback::PauseAfterBatch)],
             permission_denied: vec![unheld(None, ClaudeHookCallback::PermissionDenied)],
             subagent_stop: vec![unheld(None, ClaudeHookCallback::HelperSteerAtStop)],

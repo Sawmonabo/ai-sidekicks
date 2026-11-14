@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use semver::Version;
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::{PathRules, ProgramFolder};
@@ -18,6 +19,7 @@ use crate::capability::probe::CapabilityProbeExchange;
 use crate::command_search::{ProviderCommandSearch, list_command_folders};
 use crate::driver::ReportedVersionReading;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::agent_sdk::ClaudeAgentSdkClient;
 use crate::driver::claude::capabilities::read_claude_capabilities;
 use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
@@ -173,20 +175,26 @@ pub(crate) struct ClaudeInstalledBuild {
     launcher: Arc<ClaudeProcessLauncher>,
     command_search: Arc<ProviderCommandSearch>,
     home_folder: PathBuf,
+    /// The Agent SDK's files, fetched for each session's build as it starts; a client that could
+    /// not be built starts no fetch and is kept for the fork that needs the file to answer.
+    agent_sdk: ClaudeAgentSdkClient,
 }
 
 impl ClaudeInstalledBuild {
     /// The build `command_search` finds below `home_folder` when the environment's `PATH` holds
-    /// none, started through `launcher`.
+    /// none, started through `launcher`, each session's start fetching the Agent SDK's file for its
+    /// version through `agent_sdk`.
     pub(crate) fn new(
         launcher: Arc<ClaudeProcessLauncher>,
         command_search: Arc<ProviderCommandSearch>,
         home_folder: PathBuf,
+        agent_sdk: ClaudeAgentSdkClient,
     ) -> Self {
         Self {
             launcher,
             command_search,
             home_folder,
+            agent_sdk,
         }
     }
 
@@ -276,14 +284,23 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
             )
             .await;
             match version {
-                Ok(version) => Ok(ClaudeStartedSession {
-                    identity: process.identity(),
-                    channel: process,
-                    initialize: brought_up.initialize,
-                    settings_readback: brought_up.settings_readback,
-                    spawned_version: to_binding_version_carriers(&version),
-                    executable: handshake.executable,
-                }),
+                Ok(version) => {
+                    // Fetched now, so an undo that forks never waits on the download.
+                    if let Ok(agent_sdk) = &self.agent_sdk
+                        && let Some(parsed) = version.report.parsed_version.as_deref()
+                        && let Ok(claude_code_version) = Version::parse(parsed)
+                    {
+                        agent_sdk.start_fetch(&claude_code_version).await;
+                    }
+                    Ok(ClaudeStartedSession {
+                        identity: process.identity(),
+                        channel: process,
+                        initialize: brought_up.initialize,
+                        settings_readback: brought_up.settings_readback,
+                        spawned_version: to_binding_version_carriers(&version),
+                        executable: handshake.executable,
+                    })
+                }
                 Err(error) => {
                     process.terminate().await;
                     Err(error.into())
@@ -628,8 +645,8 @@ mod tests {
                         standard_output: format!("{version} (Claude Code)\n"),
                         exit_code: 0,
                         argument_record: Some(record.clone()),
-                        first_call_delay: None,
                     },
+                    first_call_wait: None,
                 },
             )
             .expect("the build is written");

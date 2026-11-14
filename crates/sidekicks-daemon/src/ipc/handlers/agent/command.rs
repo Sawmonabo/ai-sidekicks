@@ -30,6 +30,7 @@ use sidekicks_provider::command::helper_background::{
 use sidekicks_provider::command::running_set::{CommandInput, RunningCommandSets};
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::port::running_command_publisher::CommandStopCause;
 use sidekicks_session::agent_tree::controls::ChildRunControlError;
 use sidekicks_session::agent_tree::read::{AgentTreeReadError, ResolvedChild, resolve_child};
 use sidekicks_session::directory::lookups::session_exists;
@@ -156,7 +157,12 @@ pub(crate) fn register_command_methods(
             let driver = sources.session_driver(request.session_id).await?;
             sources
                 .running
-                .stop(driver.as_ref(), request.session_id, &request.command_id)
+                .stop(
+                    driver.as_ref(),
+                    request.session_id,
+                    &request.command_id,
+                    CommandStopCause::Person,
+                )
                 .await?;
             Ok(AgentCommandStopResponse {
                 command_id: request.command_id,

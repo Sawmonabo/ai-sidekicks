@@ -6,7 +6,6 @@
 //! error its caller reads as it goes is started instead of run, and a listing whose whole may pass
 //! the output bound is read one entry at a time.
 
-use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -20,6 +19,7 @@ use sidekicks_platforms::{
     ChildTree, ChildTreeOutputError, NULL_DEVICE_PATH, PathRules, Spawner,
     path_from_program_output, read_child_exit, start_child_tree,
 };
+use sidekicks_std::child_run::{ChildRunError, run_child_to_end};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 use tokio_util::task::TaskTracker;
@@ -531,7 +531,7 @@ impl GitRunner {
         Ok(FILE_WATCH_OFF_SETTING)
     }
 
-    // Starts the git at `executable` with `arguments` and holds it to `timeout` and the runner's
+    // Runs the git at `executable` with `arguments` to its end, held to `timeout` and the runner's
     // output bound. A failure is answered at once and its tree ended after, on a tracked task, so a
     // git the system cannot end at once (one held on a hard network mount) holds no caller.
     async fn run_git(
@@ -545,22 +545,24 @@ impl GitRunner {
             environment,
             input,
         } = call;
-        let mut child = self
-            .start_git(
-                executable,
-                arguments,
-                environment,
-                input.is_some(),
-                Stdio::piped(),
-            )
-            .await?;
-        let waited = tokio::time::timeout(
+        let command = self.git_command(
+            executable,
+            arguments,
+            environment,
+            input.is_some(),
+            Stdio::piped(),
+        );
+        let ran = run_child_to_end(
+            &self.spawner,
+            move || Ok(command),
+            input,
             timeout,
-            child.wait_with_output(input, self.limits.output_bytes),
+            self.limits.output_bytes,
+            Some(&self.tree_ends),
         )
         .await;
-        let failure = match waited {
-            Ok(Ok(output)) => {
+        match ran {
+            Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
                 if output.status.success() {
                     return Ok(GitOutput {
@@ -568,25 +570,12 @@ impl GitRunner {
                         stderr,
                     });
                 }
-                return Err(exited_failure(output.status, output.stdout, stderr));
+                Err(exited_failure(output.status, output.stdout, stderr))
             }
-            Ok(Err(error)) => error.into(),
-            Err(_elapsed) => GitError::TimedOut { timeout },
-        };
-        self.end_failed_tree(child);
-        Err(failure)
-    }
-
-    // Ends the tree of a call that failed on a tracked task, after the failure is answered.
-    fn end_failed_tree(&self, mut child: ChildTree) {
-        self.tree_ends.spawn(async move {
-            if let Err(error) = child.end_tree().await {
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    "the processes of a git call that failed could not be ended"
-                );
-            }
-        });
+            Err(ChildRunError::Start(error)) => Err(GitError::Start(error)),
+            Err(ChildRunError::Output(error)) => Err(error.into()),
+            Err(ChildRunError::TimedOut) => Err(GitError::TimedOut { timeout }),
+        }
     }
 
     // Starts the git at `executable` with `arguments` in the login shell's environment from the
@@ -600,6 +589,27 @@ impl GitRunner {
         is_input_written: bool,
         stdout: Stdio,
     ) -> Result<ChildTree, GitError> {
+        let command =
+            self.git_command(executable, arguments, environment, is_input_written, stdout);
+        let daemon_pid = std::process::id();
+        self.spawner
+            .run(move || start_child_tree(command, daemon_pid))
+            .await
+            .map_err(GitError::Start)?
+            .map_err(GitError::Start)
+    }
+
+    // The git at `executable` with `arguments` in the login shell's environment, its standard
+    // error piped, its standard input piped when `is_input_written` and its standard output as
+    // `stdout` sets it.
+    fn git_command(
+        &self,
+        executable: &Path,
+        arguments: Vec<OsString>,
+        environment: Vec<(OsString, OsString)>,
+        is_input_written: bool,
+        stdout: Stdio,
+    ) -> Command {
         let login_environment = self
             .login_environment
             .iter()
@@ -616,12 +626,7 @@ impl GitRunner {
             })
             .stdout(stdout)
             .stderr(Stdio::piped());
-        let daemon_pid = std::process::id();
-        self.spawner
-            .run(move || start_child_tree(command, daemon_pid))
-            .await
-            .map_err(GitError::Start)?
-            .map_err(GitError::Start)
+        command
     }
 }
 

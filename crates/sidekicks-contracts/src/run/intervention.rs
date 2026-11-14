@@ -266,9 +266,20 @@ pub struct LimitInterruptRecord {
     pub turn_number: Option<SafeInt<1>>,
 }
 
-/// The stored `payload` of an interrupt's `interventions` row: a person's, or the daemon's own at
-/// a limit. The arms are disjoint: a person's carries `pending` and no limit, the daemon's only
-/// its limit, so a person's reason never reads as a limit.
+/// The daemon's own interrupt for an undo as its `interventions` row stores it, with no device:
+/// the undo it stopped the run for, named by its idempotency key. The waiting messages stay
+/// waiting.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UndoInterruptRecord {
+    /// The idempotency key of the undo the interrupt serves.
+    pub undo_key: ClientUuid,
+}
+
+/// The stored `payload` of an interrupt's `interventions` row: a person's, the daemon's own at a
+/// limit, or the daemon's own for an undo. The three arms are disjoint: a person's carries
+/// `pending` and no limit, a limit's only its limit, an undo's only its `undoKey`, so a person's
+/// reason never reads as a limit and a mixed row is refused.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum InterruptInterventionRecord {
@@ -276,13 +287,15 @@ pub enum InterruptInterventionRecord {
     Person(PersonInterruptRecord),
     /// The daemon's own stop at a limit.
     Limit(LimitInterruptRecord),
+    /// The daemon's own stop for an undo.
+    Undo(UndoInterruptRecord),
 }
 
 impl InterruptInterventionRecord {
-    /// The limit the daemon stopped the run at, `None` on a person's interrupt.
+    /// The limit the daemon stopped the run at, `None` on a person's interrupt or an undo's.
     pub fn limit(&self) -> Option<RunLimit> {
         match self {
-            Self::Person(_) => None,
+            Self::Person(_) | Self::Undo(_) => None,
             Self::Limit(record) => Some(record.limit),
         }
     }
@@ -450,6 +463,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RunLimit>(),
         Definition::read::<PersonInterruptRecord>(),
         Definition::read::<LimitInterruptRecord>(),
+        Definition::read::<UndoInterruptRecord>(),
         Definition::read::<InterruptInterventionRecord>(),
         Definition::read::<AgentRunInterveneRequest>().checked(),
         Definition::read::<AgentRunInterveneResponse>().checked(),
@@ -490,18 +504,24 @@ mod tests {
         assert_received_written_form::<AgentRunInterveneRequest>(request);
     }
 
-    /// What reading a stored interrupt record gives: the limit it names, a record with no limit,
-    /// or a refusal.
+    /// The undo's key the test rows store.
+    const UNDO_KEY: &str = "0190f2a0-0000-7000-8000-000000000003";
+
+    /// Which arm reading a stored interrupt record gives: a person's, a limit's with the limit it
+    /// names, an undo's, or a refusal.
     #[derive(Debug, PartialEq)]
     enum RecordRead {
+        Person,
         Limit(RunLimit),
-        NoLimit,
+        Undo,
         Refused,
     }
 
     // Dropping the person arms' `limit: Never` reads the mixed row as a person's interrupt,
     // reading `reason` as a limit makes the person's text settle as one, and a limit record that
-    // refuses the turn its stop cut leaves every stored limit row unreadable.
+    // refuses the turn its stop cut leaves every stored limit row unreadable. The undo's record
+    // without `deny_unknown_fields` reads either mixed row as an undo's, and one whose key may be
+    // absent, placed ahead of the limit's arm, reads every limit row as an undo's.
     #[rstest]
     #[case(json!({"limit": "stepLimit"}), RecordRead::Limit(RunLimit::StepLimit))]
     #[case(
@@ -509,15 +529,24 @@ mod tests {
         RecordRead::Limit(RunLimit::SpendLimit)
     )]
     #[case(json!({"limit": "tokenLimit"}), RecordRead::Limit(RunLimit::TokenLimit))]
-    #[case(json!({"pending": "nextTurn", "reason": "stepLimit"}), RecordRead::NoLimit)]
-    #[case(json!({"pending": "returnToDraft"}), RecordRead::NoLimit)]
+    #[case(json!({"pending": "nextTurn", "reason": "stepLimit"}), RecordRead::Person)]
+    #[case(json!({"pending": "returnToDraft"}), RecordRead::Person)]
+    #[case(json!({"undoKey": UNDO_KEY}), RecordRead::Undo)]
     #[case(json!({"pending": "nextTurn", "limit": "stepLimit"}), RecordRead::Refused)]
     #[case(json!({"limit": "budget"}), RecordRead::Refused)]
-    fn only_the_daemons_record_reads_a_limit(#[case] payload: Value, #[case] expected: RecordRead) {
+    #[case(json!({"undoKey": UNDO_KEY, "limit": "stepLimit"}), RecordRead::Refused)]
+    #[case(json!({"undoKey": UNDO_KEY, "pending": "nextTurn"}), RecordRead::Refused)]
+    fn each_stored_interrupt_reads_as_its_own_arm(
+        #[case] payload: Value,
+        #[case] expected: RecordRead,
+    ) {
         let read = match serde_json::from_value::<InterruptInterventionRecord>(payload) {
-            Ok(record) => record
-                .limit()
-                .map_or(RecordRead::NoLimit, RecordRead::Limit),
+            Ok(record) => match (&record, record.limit()) {
+                (InterruptInterventionRecord::Person(_), None) => RecordRead::Person,
+                (InterruptInterventionRecord::Limit(_), Some(limit)) => RecordRead::Limit(limit),
+                (InterruptInterventionRecord::Undo(_), None) => RecordRead::Undo,
+                (_, limit) => panic!("{record:?} reads as {limit:?}"),
+            },
             Err(_) => RecordRead::Refused,
         };
         assert_eq!(read, expected);

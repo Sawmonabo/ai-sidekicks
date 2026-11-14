@@ -498,7 +498,9 @@ pub use regular_file_open::RegularFileOpen;
 pub use run_folder::{DaemonRunFolder, RunFolderRefused, askpass_socket_path};
 #[cfg(not(target_os = "linux"))]
 pub(crate) use running_program::replaced_mark::is_program_path_marked_replaced;
-pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
+pub use running_program::{
+    IS_MUSL_BUILD, RUNNING_ARCH, RunningProgramPath, read_running_program_path,
+};
 #[cfg(any(test, feature = "test-support"))]
 pub use scratch_volume::{ScratchVolume, scratch_volume};
 pub use service_registration::{

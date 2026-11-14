@@ -21,27 +21,34 @@ pub(crate) fn write_stand_in_script(
     program: &StandInProgram,
 ) -> io::Result<PathBuf> {
     let mut answers = Map::new();
-    for (index, (first_argument, answer)) in program.answers_by_first_argument.iter().enumerate() {
-        answers.insert(first_argument.clone(), answer_value(index, answer)?);
+    for (first_argument, answer) in &program.answers_by_first_argument {
+        answers.insert(first_argument.clone(), answer_value(answer)?);
     }
-    let otherwise_index = program.answers_by_first_argument.len();
+    let marker = folder.join(format!("{name}.first-call"));
+    let first_call_wait = json!({
+        "marker": script_path_text(&marker)?,
+        "ms": program
+            .first_call_wait
+            .map_or(0, |wait| u64::try_from(wait.as_millis()).unwrap_or(u64::MAX)),
+    });
     let script = format!(
         "const fs = require(\"fs\");\n\
+         const firstCallWait = {};\n\
+         if (firstCallWait.ms > 0 && !fs.existsSync(firstCallWait.marker)) {{\n\
+           fs.writeFileSync(firstCallWait.marker, \"\");\n\
+           Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, firstCallWait.ms);\n\
+         }}\n\
          const answers = {};\n\
          const otherwise = {};\n\
          const args = process.argv.slice(2);\n\
          const answer = Object.hasOwn(answers, args[0] ?? \"\") ? answers[args[0]] : otherwise;\n\
-         const marker = __filename + \".first-call-\" + answer.index;\n\
-         if (answer.delay !== null && !fs.existsSync(marker)) {{\n\
-           fs.writeFileSync(marker, \"\");\n\
-           Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, answer.delay);\n\
-         }}\n\
          const record = args.map((arg) => JSON.stringify(arg) + \"\\n\").join(\"\");\n\
          if (answer.record !== null) fs.appendFileSync(answer.record, record);\n\
          fs.writeSync(1, answer.output);\n\
          process.exitCode = answer.code;\n",
+        first_call_wait,
         Value::Object(answers),
-        answer_value(otherwise_index, &program.otherwise)?,
+        answer_value(&program.otherwise)?,
     );
     std::fs::write(folder.join(format!("{name}.cjs")), script)?;
     let shim = folder.join(format!("{name}.cmd"));
@@ -59,9 +66,8 @@ pub(crate) fn read_recorded_argument(line: &str) -> io::Result<String> {
     serde_json::from_str(line).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
-// The answer at `index` as the script's data: its output, its exit code, its record file or
-// `null`, and its first call's wait in milliseconds or `null`.
-fn answer_value(index: usize, answer: &StandInAnswer) -> io::Result<Value> {
+// One answer as the script's data: its output, its exit code and its record file or `null`.
+fn answer_value(answer: &StandInAnswer) -> io::Result<Value> {
     let record = match &answer.argument_record {
         Some(record) => Value::from(script_path_text(record)?),
         None => Value::Null,
@@ -70,8 +76,6 @@ fn answer_value(index: usize, answer: &StandInAnswer) -> io::Result<Value> {
         "output": answer.standard_output,
         "code": answer.exit_code,
         "record": record,
-        "index": index,
-        "delay": answer.first_call_delay.map(|delay| delay.as_millis()),
     }))
 }
 

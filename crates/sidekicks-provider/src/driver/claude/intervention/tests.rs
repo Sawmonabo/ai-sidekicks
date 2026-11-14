@@ -457,7 +457,8 @@ async fn a_helpers_interrupt_holds_it_and_stops_its_commands_its_lead_going_on(
         lock(&session.parts.run_controls.pauses).answer_before_tool(
             &session.session_id,
             Some("agent-1"),
-            "r1"
+            "r1",
+            &mut None,
         ),
         ClaudePauseAnswer::Hold {
             has_taken_effect: false

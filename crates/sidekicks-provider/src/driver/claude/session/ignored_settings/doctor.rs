@@ -243,8 +243,8 @@ mod tests {
                     standard_output: DOCTOR_OUTPUT.to_owned(),
                     exit_code: 0,
                     argument_record: Some(record.clone()),
-                    first_call_delay: None,
                 },
+                first_call_wait: None,
             },
         )
         .expect("the stand-in is written");

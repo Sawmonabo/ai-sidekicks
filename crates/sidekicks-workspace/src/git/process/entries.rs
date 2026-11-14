@@ -5,23 +5,27 @@ use std::process::Stdio;
 
 use sidekicks_contracts::place::Place;
 use sidekicks_platforms::read_bounded_to_end;
+use sidekicks_std::child_run::end_failed_tree;
 use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, BufReader};
 
 use super::{GitCall, GitError, GitRunner, exited_failure};
 
 impl GitRunner {
     /// Runs `call` for a project at `place` as [`run`](Self::run) does, but hands each entry of its
-    /// standard output to `on_entry` as git prints it, without the `separator` that ends it. Each
-    /// entry and the standard error keep to the runner's output bound, and the whole call to its
-    /// time. Fails as `run` does, with `NotStartable` for a call given input, and with `Exited`
-    /// holding no standard output.
+    /// standard output to `on_entry` as git prints it, without the `separator` that ends it, and
+    /// answers what git printed on its standard error, as [`GitOutput::stderr`] holds it for
+    /// `run`. Each entry and the standard error keep to the runner's output bound, and the whole
+    /// call to its time. Fails as `run` does, with `NotStartable` for a call given input, and with
+    /// `Exited` holding no standard output.
+    ///
+    /// [`GitOutput::stderr`]: super::GitOutput::stderr
     pub(crate) async fn run_by_entry(
         &self,
         place: Option<&Place>,
         call: GitCall,
         separator: u8,
         mut on_entry: impl FnMut(&[u8]),
-    ) -> Result<(), GitError> {
+    ) -> Result<String, GitError> {
         if call.input.is_some() {
             return Err(GitError::NotStartable);
         }
@@ -58,12 +62,12 @@ impl GitRunner {
         })
         .await;
         let failure = match ran {
-            Ok(Ok((status, _))) if status.success() => return Ok(()),
+            Ok(Ok((status, stderr))) if status.success() => return Ok(stderr),
             Ok(Ok((status, stderr))) => return Err(exited_failure(status, Vec::new(), stderr)),
             Ok(Err(failure)) => failure,
             Err(_elapsed) => GitError::TimedOut { timeout },
         };
-        self.end_failed_tree(child);
+        end_failed_tree(&self.tree_ends, child);
         Err(failure)
     }
 }

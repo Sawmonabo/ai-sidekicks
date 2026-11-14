@@ -212,6 +212,18 @@ pub async fn run_blocking<Answer: Send + 'static>(
 /// as a run its condition skipped.
 pub type MeteredJobOutcome<Unit> = Result<Option<JobWorkload<Unit>>, Box<dyn Error + Send + Sync>>;
 
+/// A run that failed after it did work: the work it did, which its processor time is still set
+/// against, and the failure the scheduler reports.
+#[derive(Debug, thiserror::Error)]
+#[error("the job failed after its work")]
+pub struct FailedAfterWork<Unit: Debug> {
+    /// The work the run did before it failed.
+    pub workload: JobWorkload<Unit>,
+    /// The failure.
+    #[source]
+    pub failure: Box<dyn Error + Send + Sync>,
+}
+
 /// A job's work as a metered job takes it: given the scheduler's stop, it runs with the run's
 /// meter as its task's task-local.
 pub(crate) type MeteredRun<Unit> =
@@ -220,7 +232,8 @@ pub(crate) type MeteredRun<Unit> =
 /// The job the scheduler runs for `run` under `budget`: each run is metered on its own threads,
 /// each poll of its future measured on the thread that polls it, its meter the task-local of the
 /// run's task, and its time is written to the program's log beside its budget, as a warning when
-/// it went over; a run over its budget is not stopped.
+/// it went over; a run over its budget is not stopped. A run that fails with [`FailedAfterWork`]
+/// has its time written for that work too, and fails with the failure it carries.
 pub fn metered_job<Unit: Copy + Eq + Debug + Send + Sync + 'static>(
     budget: JobBudget<Unit>,
     mut run: MeteredRun<Unit>,
@@ -232,8 +245,18 @@ pub fn metered_job<Unit: Copy + Eq + Debug + Send + Sync + 'static>(
             meter: meter.clone(),
         };
         async move {
-            if let Some(workload) = polled.await? {
-                log_processor_time(budget, &workload, meter.take_spent());
+            match polled.await {
+                Ok(Some(workload)) => log_processor_time(budget, &workload, meter.take_spent()),
+                Ok(None) => {}
+                Err(error) => {
+                    return match error.downcast::<FailedAfterWork<Unit>>() {
+                        Ok(failed) => {
+                            log_processor_time(budget, &failed.workload, meter.take_spent());
+                            Err(failed.failure)
+                        }
+                        Err(error) => Err(error),
+                    };
+                }
             }
             Ok(())
         }

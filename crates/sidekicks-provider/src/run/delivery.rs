@@ -34,7 +34,7 @@ use sidekicks_contracts::run::provider_choice::{
     AgentRunRefusalChoiceRequestedPayload, AgentRunRefusalChoiceResolvedPayload,
     AgentRunUsageCreditsChoiceRequestedPayload, AgentRunUsageCreditsChoiceResolvedPayload,
 };
-use sidekicks_contracts::run::queue::MessageContent;
+use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
 use sidekicks_contracts::session::controls::events::{
@@ -48,6 +48,7 @@ use sidekicks_contracts::session::events::{
 use sidekicks_contracts::session::goal::{SessionGoalClearedPayload, SessionGoalUpdatedPayload};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -108,6 +109,16 @@ pub enum InboundDelivery<'key> {
     TurnBoundary {
         /// The binding.
         binding_id: RuntimeBindingId,
+    },
+    /// The provider took the message `message_id` into turn `turn_number` of the binding's run,
+    /// at this point in the binding's delivery order: a steer, or a turn's later opening message.
+    TurnSteered {
+        /// The binding.
+        binding_id: RuntimeBindingId,
+        /// The turn the message joined, within its run.
+        turn_number: SafeInt<1>,
+        /// The queue item whose message the provider took.
+        message_id: QueueItemId,
     },
     /// The provider moved a run.
     RunLifecycle {
@@ -227,6 +238,7 @@ impl InboundDelivery<'_> {
     pub(crate) fn kind_name(&self) -> &'static str {
         match self {
             Self::TurnBoundary { .. } => "turnBoundary",
+            Self::TurnSteered { .. } => "turnSteered",
             Self::RunLifecycle { .. } => "runLifecycle",
             Self::RunContinued { .. } => "runContinued",
             Self::ChildRun { .. } => "childRun",
@@ -305,6 +317,9 @@ pub enum InboundOutcome {
         /// Why.
         reason: LateEventAbsorbReason,
     },
+    /// Nothing was written and the run's position did not move: the message the provider took
+    /// into the turn is not one the person sent, such as an answer the daemon wrote into it.
+    NotSentByPerson,
 }
 
 /// Why the daemon refused a run at its setup, in the refusing gate's own words as the run's
@@ -329,7 +344,8 @@ impl InboundOutcome {
             | Self::ChildRunRefused { .. }
             | Self::Published
             | Self::AskAdmitted
-            | Self::Absorbed { .. } => None,
+            | Self::Absorbed { .. }
+            | Self::NotSentByPerson => None,
         }
     }
 }
@@ -575,8 +591,8 @@ impl MachineScopedRow {
 }
 
 /// Stamps a payload's source pair with `source` and answers the pair it took; a payload that
-/// carries its own pair, where its provider named the turn it belongs to, keeps it. Epochs are
-/// run-local, so a stamp on a row that names no run fails that row's draft.
+/// carries its own pair, where its provider named the run position it belongs to, keeps it. Epochs
+/// are run-local, so a stamp on a row that names no run fails that row's draft.
 pub fn stamp(
     source_epoch: &mut Option<SourceEpoch>,
     source_position: &mut Option<SourcePosition>,

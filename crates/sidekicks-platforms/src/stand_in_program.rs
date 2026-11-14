@@ -10,9 +10,8 @@ use crate::posix::stand_in_program::write_stand_in_script;
 #[cfg(windows)]
 use crate::windows::stand_in_program::{read_recorded_argument, write_stand_in_script};
 
-/// What a stand-in program does for one call: waits `first_call_delay` on the answer's first call
-/// only, prints `standard_output` byte for byte, and exits with `exit_code`, first appending each
-/// argument to `argument_record` where one is set.
+/// What a stand-in program does for one call: prints `standard_output` byte for byte, and exits
+/// with `exit_code`, first appending each argument to `argument_record` where one is set.
 pub struct StandInAnswer {
     /// The exact text the program prints, nothing added.
     pub standard_output: String,
@@ -20,9 +19,6 @@ pub struct StandInAnswer {
     pub exit_code: u8,
     /// The file each argument of the call is appended to, for [`read_recorded_arguments`].
     pub argument_record: Option<PathBuf>,
-    /// A wait before anything else on the answer's first call, which later calls skip, as a
-    /// program slow on its first run is.
-    pub first_call_delay: Option<Duration>,
 }
 
 /// The answers of a stand-in program: the one paired with a call's first argument, or
@@ -32,6 +28,9 @@ pub struct StandInProgram {
     pub answers_by_first_argument: Vec<(String, StandInAnswer)>,
     /// The answer to every other call.
     pub otherwise: StandInAnswer,
+    /// How long the program's first call waits before it answers, its later calls answering at
+    /// once; a file beside the program named `<name>.first-call` marks the first call made.
+    pub first_call_wait: Option<Duration>,
 }
 
 /// Writes `program` in `folder` as a script the system's program search finds for `name`, and
@@ -107,15 +106,14 @@ mod tests {
                         standard_output: listing.to_owned(),
                         exit_code: 3,
                         argument_record: None,
-                        first_call_delay: None,
                     },
                 )],
                 otherwise: StandInAnswer {
                     standard_output: String::new(),
                     exit_code: 1,
                     argument_record: Some(record.clone()),
-                    first_call_delay: None,
                 },
+                first_call_wait: None,
             },
         )
         .expect("the stand-in is written");

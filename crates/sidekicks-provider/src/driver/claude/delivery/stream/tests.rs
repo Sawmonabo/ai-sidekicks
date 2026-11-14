@@ -1,18 +1,26 @@
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::watch;
 
 use super::daemon_ends::ClaudeDaemonEndSettlement;
-use crate::driver::claude::session::scripted::held_calls::{helper_started, init};
+use crate::driver::claude::hooks::callbacks::UNTIMED_BACKGROUND_REASON;
+use crate::driver::claude::hooks::command_capture::tests::register_windows_capture;
+use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
+use crate::driver::claude::session::scripted::held_calls::{helper_started, init, stand_in};
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
 };
 use crate::driver::diagnostics::RecordedEvents;
 use crate::driver::run_control::HelperStopReason;
+use crate::port::command_capture::{
+    CaptureCall, CommandWindowEnd, CommandWindowStart, next_call, no_call,
+};
 use crate::port::run_host::test_host::EngineCall;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::delivery::RunSetupRefusal;
@@ -23,6 +31,7 @@ use crate::run::turn_end::TurnOutcome;
 mod exit;
 mod held_calls;
 mod resume;
+mod steers;
 mod traces;
 mod usage;
 
@@ -124,8 +133,8 @@ async fn a_turn_opened_by_a_written_message_names_that_messages_item(#[case] is_
 }
 
 // A resume writes every waiting message into one turn, which the oldest opens, as the first of a
-// start's messages opens a Codex turn, so both providers key the turn's checkpoint on one message.
-// Killed by taking the newest message written as the opening.
+// start's messages opens a Codex turn; the newer lands in it as a message of its own. Killed by
+// taking the newest message written as the opening.
 #[tokio::test(start_paused = true)]
 async fn a_turn_taking_two_written_messages_is_opened_by_the_older() {
     let session = ScriptedSession::new().await;
@@ -456,12 +465,13 @@ async fn a_result_of_an_unlisted_subtype_or_none_fails_its_run_once_and_is_repor
     );
 }
 
-// A `tool_name` call's pre-tool hook, the helper `agent_id`'s or, with none, the lead's.
-fn before_tool(tool_name: &str, agent_id: Option<&str>) -> Value {
+// The pre-tool hook of the `tool_name` call `tool_use_id`, the helper `agent_id`'s or, with none,
+// the lead's.
+fn before_tool(tool_name: &str, tool_use_id: &str, agent_id: Option<&str>) -> Value {
     let mut input = json!({
         "hook_event_name": "PreToolUse",
         "tool_name": tool_name,
-        "tool_use_id": "call-2",
+        "tool_use_id": tool_use_id,
         "tool_input": {"command": "ls"},
     });
     if let (Some(input), Some(agent_id)) = (input.as_object_mut(), agent_id) {
@@ -492,8 +502,11 @@ async fn a_refused_helper_is_denied_its_next_tool_use_and_the_lead_goes_on() {
     session.frame(&init());
     session.frame(&helper_started("helper", "local_agent", "call-1"));
     settle().await;
-    session.request("helper-tool", &before_tool("Bash", Some("helper")));
-    session.request("lead-tool", &before_tool("Bash", None));
+    session.request(
+        "helper-tool",
+        &before_tool("Bash", "call-2", Some("helper")),
+    );
+    session.request("lead-tool", &before_tool("Bash", "call-2", None));
 
     assert_eq!(
         session
@@ -533,13 +546,16 @@ async fn a_helper_start_is_checked_against_the_live_posture() {
     lock(&session.live.settings).execution_posture = Some(sandboxed_over_root);
     session.frame(&init());
 
-    session.request("gone-start", &before_tool("Agent", None));
+    session.request("gone-start", &before_tool("Agent", "call-2", None));
     let refused = session.channel.answer_to("gone-start").await.to_string();
     assert!(refused.contains(r#""permissionDecision":"deny""#));
     assert!(refused.contains("Not started: this session's permission level cannot run right now"));
 
     std::fs::create_dir(&root).expect("the root is made");
-    session.request("back-start", &before_tool("Agent", Some("helper")));
+    session.request(
+        "back-start",
+        &before_tool("Agent", "call-2", Some("helper")),
+    );
     assert!(
         !session
             .channel
@@ -622,4 +638,152 @@ async fn a_goal_met_just_before_the_result_reads_complete_and_no_unfinished_chec
             .any(|delivery| matches!(delivery.row, Some(LateAppendableRow::AgentMessageSent(_)))),
         "the goal line is no message of the agent's"
     );
+}
+
+/// A session whose command windows open through a capture that lets every open through, with
+/// the lead's turn held, its process started and, where `helper` names one, that helper started;
+/// the `PowerShell` call `call-2` of `helper` or the lead has its window open and its hook
+/// answered. Answers the receiver the capture's calls arrive on.
+pub(crate) async fn session_with_open_window(
+    helper: Option<&str>,
+) -> (
+    ScriptedSession,
+    tokio::sync::mpsc::UnboundedReceiver<CaptureCall>,
+) {
+    let session = ScriptedSession::new().await;
+    let (_opens, held) = watch::channel(Some(true));
+    let windows = &session.parts.establishment.task_services.command_windows;
+    let mut called = register_windows_capture(windows, held);
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    if let Some(helper) = helper {
+        session.frame(&helper_started(helper, "local_agent", "call-1"));
+        settle().await;
+    }
+    session.request("pre", &before_tool("PowerShell", "call-2", helper));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(1));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Began(1, true));
+    session.channel.answer_to("pre").await;
+    (session, called)
+}
+
+/// Which frame settles the call.
+#[derive(Clone, Copy, Debug)]
+enum SettlingFrame {
+    LeadResult,
+    HelperResult,
+    Refusal,
+}
+
+// Killed by no reader, by the reader in one branch only, and by the refusal frame unread.
+#[rstest]
+#[case::the_leads_result(SettlingFrame::LeadResult, CommandWindowEnd::Untold)]
+#[case::a_helpers_result(SettlingFrame::HelperResult, CommandWindowEnd::Untold)]
+#[case::a_refusal(SettlingFrame::Refusal, CommandWindowEnd::Unrun)]
+#[tokio::test(start_paused = true)]
+async fn a_frame_closes_its_window(#[case] settling: SettlingFrame, #[case] end: CommandWindowEnd) {
+    let helper = matches!(settling, SettlingFrame::HelperResult).then_some("helper");
+    let (session, mut called) = session_with_open_window(helper).await;
+
+    let mut frame = match settling {
+        SettlingFrame::LeadResult | SettlingFrame::HelperResult => stand_in("call-2", "Exit 1"),
+        SettlingFrame::Refusal => json!({
+            "type": "system",
+            "subtype": "permission_denied",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "tool_use_id": "call-2",
+            "message": "Permission to use PowerShell has been denied.",
+        }),
+    };
+    if let Some(helper) = helper {
+        frame["agent_id"] = json!(helper);
+    }
+    session.frame(&frame);
+    settle().await;
+
+    assert_eq!(next_call(&mut called).await, CaptureCall::Close(1, end));
+    no_call(&mut called, "a window closed twice").await;
+}
+
+// Killed by a background window closed at its result, and by the task frame unread.
+#[tokio::test(start_paused = true)]
+async fn a_background_call_closes_at_its_task_notification() {
+    let (session, mut called) = session_with_open_window(None).await;
+    session.request(
+        "post",
+        &json!({
+            "subtype": "hook_callback",
+            "callback_id": "sidekicks-capture-after-tool",
+            "input": {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "PowerShell",
+                "tool_use_id": "call-2",
+                "tool_response": {"backgroundTaskId": "shell-1"},
+            },
+        }),
+    );
+    session.channel.answer_to("post").await;
+    session.frame(&stand_in("call-2", "Running in the background"));
+    settle().await;
+    no_call(&mut called, "a background window closed at its result").await;
+
+    session.frame(&json!({
+        "type": "system",
+        "subtype": "task_notification",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "task_id": "shell-1",
+        "tool_use_id": "call-2",
+        "status": "completed",
+    }));
+    settle().await;
+    assert_eq!(
+        next_call(&mut called).await,
+        CaptureCall::Close(1, CommandWindowEnd::Untold)
+    );
+}
+
+// Killed by the route not noting the shell call, and by the background-work refusal's mark not
+// taken.
+#[cfg(unix)]
+#[rstest]
+#[case::in_the_foreground(false)]
+#[case::refused_in_the_background(true)]
+#[tokio::test(start_paused = true)]
+async fn a_bash_call_no_wrapper_paired_is_named_at_its_result(#[case] is_refused: bool) {
+    let session = ScriptedSession::new().await;
+    let (_opens, held) = watch::channel(Some(true));
+    let windows = &session.parts.establishment.task_services.command_windows;
+    let mut called = register_windows_capture(windows, held);
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    let mut hook = before_tool("Bash", "call-2", None);
+    if is_refused {
+        hook["input"]["tool_input"]["run_in_background"] = json!(true);
+        let mut background_work = hook.clone();
+        background_work["callback_id"] = json!("sidekicks-background-claude");
+        session.request("background", &background_work);
+        let denied = ClaudeHookAnswer::Deny {
+            reason: UNTIMED_BACKGROUND_REASON.to_owned(),
+        };
+        assert_eq!(
+            session.channel.answer_to("background").await,
+            serde_json::to_value(denied).expect("an answer serializes")
+        );
+    }
+
+    session.request("pre", &hook);
+    assert_eq!(session.channel.answer_to("pre").await, json!({}));
+    session.frame(&stand_in("call-2", "done"));
+    settle().await;
+
+    if !is_refused {
+        let named = CommandWindowStart {
+            session_id: session.session_id,
+            apart_run: None,
+            command: "ls".to_owned(),
+            tool_call_id: Some(ToolCallId::new("call-2".to_owned()).expect("a call id")),
+        };
+        assert_eq!(next_call(&mut called).await, CaptureCall::Uncovered(named));
+    }
+    no_call(&mut called, "a call named again, or a refused call named").await;
 }

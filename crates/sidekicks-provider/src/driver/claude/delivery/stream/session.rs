@@ -17,7 +17,9 @@ use tokio::time::Instant;
 
 use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
 use crate::driver::claude::delivery::mcp_tasks::restore::{ClaudeKeptCall, ClaudeKeptCallsSource};
-use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStreamSession};
+use crate::driver::claude::delivery::run_readings::{
+    ClaudeOpenTurn, ClaudeStreamSession, ClaudeTakenMessage,
+};
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::driver::claude::delivery::turn_readings::ClaudeTurnReadings;
 use crate::driver::claude::goals::file::ClaudeProcessGoal;
@@ -28,6 +30,7 @@ use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAt
 use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::diagnostics::OnceReportedDiagnostics;
+use crate::run::delivery::InboundDelivery;
 use crate::tool_call_arguments::ToolCallArgumentStore;
 
 /// Claude Code's error word for a request refused for its login.
@@ -130,11 +133,12 @@ impl ClaudeSessionStream {
 
     /// Opens the stream on `run`'s turn `turn_number` as it was before the process came up, which a
     /// resumed process continues: its frames go to that turn and its end is that turn's, with no
-    /// other turn started. `provider_turn_id` is the id the turn's start recorded. Answers the
-    /// turn the stream read before, which [`Self::restore_turn`] puts back.
+    /// other turn started. `provider_turn_id` is the id the turn's start recorded. The messages of
+    /// the run Claude Code took while no turn of it was open land in that turn ahead of any frame
+    /// read after. Answers the turn the stream read before, which [`Self::restore_turn`] puts back.
     pub(crate) fn continue_turn(
         &self,
-        run: ClaudeBoundRun,
+        run: &ClaudeBoundRun,
         turn_number: SafeInt<1>,
         provider_turn_id: Option<ProviderTurnId>,
     ) -> ClaudeTurnBeforeContinue {
@@ -147,11 +151,27 @@ impl ClaudeSessionStream {
         readings.turn_readings.open(run.run_id, provider_turn_id);
         // The resumed turn is under way, so a message it takes in joins it.
         readings.has_turn_message = true;
+        let (taken, kept): (Vec<ClaudeTakenMessage>, _) =
+            std::mem::take(&mut readings.taken_without_turn)
+                .into_iter()
+                .partition(|taken| taken.run_id == run.run_id);
+        readings.taken_without_turn = kept;
         readings.turn = Some(ClaudeOpenTurn {
             run_id: run.run_id,
-            binding_id: run.binding_id,
+            binding_id: run.binding_id.clone(),
             turn_number: Some(turn_number),
+            opening: None,
         });
+        drop(readings);
+        for taken in taken {
+            // Queued at the call, so it lands before any frame the continued turn reads; nothing
+            // waits on its outcome.
+            drop(self.arrivals.dispatch(InboundDelivery::TurnSteered {
+                binding_id: run.binding_id.clone(),
+                turn_number,
+                message_id: taken.message_id,
+            }));
+        }
         before
     }
 

@@ -6,7 +6,7 @@ use super::open_kept_index;
 use crate::git::process::test_repository::{commit_empty, make_test_repository};
 use crate::git::process::{read_git_common_folder, test_git_runner_with_environment};
 use crate::git::turn_snapshot::capture_folder::CaptureFolder;
-use crate::git::turn_snapshot::capture_steps::SnapshotCheckout;
+use crate::git::turn_snapshot::capture_steps::{SnapshotCheckout, index_lock_path};
 
 // The three settings each call on the kept index carries, as `-c` values.
 const GUARDS: [&str; 3] = [
@@ -69,8 +69,7 @@ async fn the_kept_index_is_seeded_with_its_guards_and_again_only_when_head_moves
         .expect("the index is reused");
     let after_reuse = traced_refreshes(&trace);
     commit_empty(&git, &repository, "moved").await;
-    let mut stale_lock = seeded.path().as_os_str().to_owned();
-    stale_lock.push(".lock");
+    let stale_lock = index_lock_path(seeded.path());
     std::fs::write(&stale_lock, b"").expect("a stale lock is left");
     let reseeded = open_kept_index(&checkout)
         .await
@@ -91,5 +90,5 @@ async fn the_kept_index_is_seeded_with_its_guards_and_again_only_when_head_moves
     }
     assert_eq!(after_reuse.len(), 1, "an unmoved HEAD reuses it");
     assert_eq!(after_move.len(), 2, "a moved HEAD reseeds it");
-    assert!(!Path::new(&stale_lock).exists(), "the stale lock is gone");
+    assert!(!stale_lock.exists(), "the stale lock is gone");
 }

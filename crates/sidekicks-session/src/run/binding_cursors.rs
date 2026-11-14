@@ -54,8 +54,8 @@ use crate::run::stored_state_change::read_stored_run_state_change;
 use crate::transcript::turn_attribution::{RunTurnReads, TurnAttributionError};
 
 /// The statements the cursors prepare on a pooled connection: a run's row, a session's run ids and
-/// their bindings for its leg, the run's rollbacks and turn starts its standing is read from, and a
-/// moved binding's row with the session's agents and the bindings they ride.
+/// their bindings for its leg, the run's rollbacks and its turn starts and steers its standing is
+/// read from, and a moved binding's row with the session's agents and the bindings they ride.
 pub const RUN_BINDING_CURSORS_STATEMENT_CAPACITY: usize =
     3 + 2 + 2 + AGENT_TREE_SWEEP_STATEMENT_CAPACITY;
 
@@ -376,9 +376,10 @@ impl RunBindingCursors {
         Ok(())
     }
 
-    /// Records the binding a resume runs under, whose cursor `open_relaunch` opened, without
-    /// opening it again. Fails as the store fails, its predecessor missing among the refused
-    /// writes, and then forgets the binding's cursor, recording nothing.
+    /// Records the binding a resume or a fork restart runs under, whose cursor `open_relaunch` or
+    /// the fork restart's `fence_cut` opened, without opening it again. Fails as the store fails,
+    /// its predecessor missing among the refused writes, and then forgets the binding's cursor,
+    /// recording nothing.
     pub async fn record_relaunch(
         &self,
         relaunch: RuntimeBindingRelaunch,
@@ -481,6 +482,13 @@ impl RunBindingCursors {
     #[cfg(any(test, feature = "test-support"))]
     pub fn is_binding_open(&self, binding_id: &RuntimeBindingId) -> bool {
         lock(&self.epochs).binding(binding_id).is_ok()
+    }
+
+    /// The epoch and run position `binding_id`'s cursor stands at, for a test that reads a fence's
+    /// point from outside; `None` for a binding with no cursor open.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn standing(&self, binding_id: &RuntimeBindingId) -> Option<EpochPosition> {
+        lock(&self.epochs).standing(binding_id)
     }
 
     /// The binding `session_id` runs on now: the one its cursors recorded or continued last,

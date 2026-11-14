@@ -62,6 +62,8 @@ use sidekicks_queue::delivery::QueueDelivery;
 use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_session::addresses::{ForeignPlaceError, SessionInboxAddresses};
 use sidekicks_session::agent_tree::lookup::StoredAgentTreeLookup;
+use sidekicks_session::checkpoints::command_windows::CommandWindows;
+use sidekicks_session::checkpoints::edits::EditCheckpoints;
 use sidekicks_session::console_state::ConsoleStateAdvisors;
 use sidekicks_session::idle_sleep::SessionIdleSleep;
 use sidekicks_session::questions::service::QuestionsService;
@@ -89,6 +91,7 @@ use sidekicks_workspace::repo::root_resolver::{RepoRootResolver, refusal_of_file
 use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
+use crate::daemon::bun::BunInstall;
 use crate::daemon::process::session_services::stored_resumes::StoredSessionResumes;
 use crate::observability::diagnostic_buckets::recorders::{RawMessageRecorder, ToolTraceRecorder};
 use crate::program::dispatches_hook_mode;
@@ -347,6 +350,10 @@ pub(crate) struct DriverPortOwners {
     pub(crate) usage: Arc<UsageRecord>,
     /// Every session's running commands, which each driver reports its agent's commands to.
     pub(crate) running_commands: Arc<RunningCommandSets>,
+    /// The copy kept before each edit an agent's file tool makes, which each driver's hook awaits.
+    pub(crate) edit_checkpoints: Arc<EditCheckpoints>,
+    /// The captures around every command an agent runs, which each driver's command legs open.
+    pub(crate) command_windows: Arc<CommandWindows>,
     /// Each run's latest turn readings.
     pub(crate) turn_readings: Arc<TurnReadings>,
     /// Each session's latest context reading.
@@ -367,6 +374,8 @@ pub(crate) struct DriverPortOwners {
     pub(crate) session_account_moves: Arc<dyn SessionAccountMoveRecorder>,
     /// The one lock on account homes, which a driver's renewal in an account's home holds.
     pub(crate) account_home_lock: Arc<AccountHomeLock>,
+    /// bun's install, which a driver asks bun's path from for a step that runs under bun.
+    pub(crate) bun_program: Arc<BunInstall>,
     /// The `driver_raw_events` recorder, which each driver's reader hands every provider message.
     pub(crate) raw_provider_messages: Arc<RawMessageRecorder>,
     /// The `tool_traces` recorder, which each driver hands every tool call it delivers.
@@ -421,6 +430,8 @@ pub(crate) fn register_driver_ports(
     ports.reviewer_denials.register(owners.reviewer_denials)?;
     ports.usage.register(owners.usage)?;
     ports.command_output.register(owners.running_commands)?;
+    ports.edit_checkpoint.register(owners.edit_checkpoints)?;
+    ports.command_capture.register(owners.command_windows)?;
     ports.turn_readings.register(owners.turn_readings)?;
     ports.context_readings.register(owners.context_readings)?;
     ports
@@ -448,6 +459,7 @@ pub(crate) fn register_driver_ports(
         .session_account_moves
         .register(owners.session_account_moves)?;
     ports.account_home_lock.register(owners.account_home_lock)?;
+    ports.bun_program.register(owners.bun_program)?;
     ports
         .raw_provider_messages
         .register(owners.raw_provider_messages)?;

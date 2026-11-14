@@ -622,18 +622,10 @@ impl SessionDirectoryProviderPort {
                 .await?;
         }
         // A provider that continued the conversation in a new one left the old one behind.
-        let left_conversations = predecessor
-            .resume_handle
-            .as_ref()
-            .filter(|handle| handle.as_str() != resume_handle.as_str())
-            .map(|handle| LeftConversation {
-                session_id,
-                provider_account_id: predecessor.spawn_config.provider_account_id.clone(),
-                conversation_id: handle.clone(),
-                runtime_metadata: predecessor.runtime_metadata.clone(),
-            })
-            .into_iter()
-            .collect();
+        let left_conversations =
+            LeftConversation::of_relaunch(session_id, &predecessor, resume_handle.as_str())
+                .into_iter()
+                .collect();
         self.deps
             .binding_cursors
             .record_relaunch(RuntimeBindingRelaunch {

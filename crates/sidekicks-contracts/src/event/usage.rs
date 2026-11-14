@@ -207,7 +207,7 @@ pub struct UsageTokenCountRecordedPayload {
         check_epoch_stamp(*epoch, self.source_position, self.run_id.is_some())
     }))]
     pub source_epoch: Option<SourceEpoch>,
-    /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
+    /// The run position the row occupies within its epoch; comes with `sourceEpoch`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -295,7 +295,7 @@ pub struct UsageCostUpdatedPayload {
         check_epoch_stamp(*epoch, self.source_position, self.run_id.is_some())
     }))]
     pub source_epoch: Option<SourceEpoch>,
-    /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
+    /// The run position the row occupies within its epoch; comes with `sourceEpoch`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -376,7 +376,7 @@ pub struct UsageContextWindowUpdatedPayload {
         check_epoch_stamp(*epoch, self.source_position, self.run_id.is_some())
     }))]
     pub source_epoch: Option<SourceEpoch>,
-    /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
+    /// The run position the row occupies within its epoch; comes with `sourceEpoch`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -592,7 +592,7 @@ pub struct UsageApiRequestRetriedPayload {
         check_epoch_stamp(*epoch, self.source_position, self.run_id.is_some())
     }))]
     pub source_epoch: Option<SourceEpoch>,
-    /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
+    /// The run position the row occupies within its epoch; comes with `sourceEpoch`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -652,7 +652,7 @@ pub struct AgentRunContextCompactedPayload {
         check_epoch_stamp(*epoch, self.source_position, true)
     }))]
     pub source_epoch: Option<SourceEpoch>,
-    /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
+    /// The run position the row occupies within its epoch; comes with `sourceEpoch`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -752,7 +752,7 @@ pub struct AgentTurnReroutedPayload {
         check_epoch_stamp(*epoch, self.source_position, true)
     }))]
     pub source_epoch: Option<SourceEpoch>,
-    /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
+    /// The run position the row occupies within its epoch; comes with `sourceEpoch`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
