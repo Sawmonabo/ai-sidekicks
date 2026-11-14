@@ -13,7 +13,8 @@ type VcsType = "git";
 // Derived projection, never persisted — Spec-007 §Repo Mount Health (V1 Definition).
 // "identityMismatch": root reachable but the re-derived common directory no longer equals the
 // attach-persisted anchor (repo_mounts.metadata.commonDir); "unreachable" takes precedence;
-// re-attach (`repoMount.reattach`) is the recovery while the folder is still a git repository.
+// re-attach (`repoMount.reattach`) is the recovery while the folder is still a git repository, and
+// a move (`repoMount.move`) follows the repository to a picked folder from either lost state.
 // checkedAt: ISO-8601 instant of the probe that produced the verdict.
 type RepoMountHealth =
   | { status: "healthy" | "unreachable"; checkedAt: string }
@@ -106,6 +107,23 @@ interface RepoMountReattachResponse {
   repoMountId: RepoMountId; // the new mount
 }
 
+// RepoMountMove — the banner's `Open folder…` on a mount reading unreachable or identityMismatch
+// (Spec-007 §Repo Mount Health). Where the picked folder's repository holds the first commit the
+// attach recorded (repo_mounts.metadata.rootCommit), it commits as a re-attach does with the new
+// row at the picked root: git's `worktree repair` points the daemon's worktrees at the moved
+// repository, and the project's folder and every workspace path inside the old root follow the new
+// root. Refused with repoMount.repositoryDiffers when the folder holds another repository (the
+// screen then attaches it as its own project), repoMount.reattachRefused (reason identityMatches)
+// on a healthy mount, repoMount.rootResolutionFailed, repoMount.distributionNotFound,
+// repoMount.alreadyAttached when another mount holds the repository or the folder, or
+// repoMount.reattachConflict while a run is live anywhere in the project. Answers a
+// `RepoMountReattachResponse`.
+interface RepoMountMoveRequest {
+  repoMountId: RepoMountId; // the lost mount
+  localPath: string; // the picked folder, as repoMount.attach takes it
+  place?: WslPlace; // the distribution a Linux path was given in; absent on macOS and Linux
+}
+
 // WorkspaceBind — binds one session to its project's mount and to where it works: a worktree of its
 // own (`provisionedWorktree`) or the checkout the project already has (`boundRoot`). A new session
 // binds in the same step as `session.create`; this call serves a converted chat, and it checks,
@@ -158,6 +176,7 @@ Plan-006's repo-attachment and workspace-binding surface is exposed as `repoMoun
 | `workspace.list` | `query` | `WorkspaceListRequest` | `WorkspaceListResponse` |
 | `repoMount.detach` | `mutation` | `RepoMountRequest` | `RepoMountDetachResponse` |
 | `repoMount.reattach` | `mutation` | `RepoMountRequest` | `RepoMountReattachResponse` |
+| `repoMount.move` | `mutation` | `RepoMountMoveRequest` | `RepoMountReattachResponse` |
 | `repoMount.list` | `query` | `EmptyPayload` | `RepoMountListResponse` |
 | `machine.folder.list` | `query` | `MachineFolderListRequest` | `MachineFolderListResponse` |
 | `project.subscribe` | `subscription` | `EmptyPayload` | `ProjectList` (stream) |
@@ -174,7 +193,7 @@ Plan-006's repo-attachment and workspace-binding surface is exposed as `repoMoun
 | `project.clone.folder.read` | `query` | `EmptyPayload` | `ProjectCloneFolderReadResponse` |
 | `project.largeFile.pull` | `mutation` | `ProjectCloneRequest` | `EmptyPayload` |
 
-The Rust types live in `crates/sidekicks-contracts/src/repo/folders.rs` (`repoMount.attach`, `repoMount.read`, `repoMount.list`, `machine.folder.list`, `repoMount.detach`, `repoMount.reattach`), `crates/sidekicks-contracts/src/repo/workspace.rs` (`workspace.bind`, `workspace.list`), `crates/sidekicks-contracts/src/project.rs` (the `project.*` methods) and `crates/sidekicks-contracts/src/repo/clone.rs` (`project.clone.start`, its card, its questions, its folder and `project.largeFile.pull`), the generated TypeScript at the matching `.ts` paths under `packages/contracts/src/`, per the api-payload-contracts.md §Source-of-Truth Policy; `crates/sidekicks-contracts/src/repo/methods.rs` declares every method of this table in the method table.
+The Rust types live in `crates/sidekicks-contracts/src/repo/folders.rs` (`repoMount.attach`, `repoMount.read`, `repoMount.list`, `machine.folder.list`, `repoMount.detach`, `repoMount.reattach`, `repoMount.move`), `crates/sidekicks-contracts/src/repo/workspace.rs` (`workspace.bind`, `workspace.list`), `crates/sidekicks-contracts/src/project.rs` (the `project.*` methods) and `crates/sidekicks-contracts/src/repo/clone.rs` (`project.clone.start`, its card, its questions, its folder and `project.largeFile.pull`), the generated TypeScript at the matching `.ts` paths under `packages/contracts/src/`, per the api-payload-contracts.md §Source-of-Truth Policy; `crates/sidekicks-contracts/src/repo/methods.rs` declares every method of this table in the method table.
 
 **The folders the service can reach.** `repoMount.list {}` lists every folder the service can reach, each with its `path` in its place's own form, its `place` (absent on macOS and Linux; on Windows `"windows"` or `{distro}`, since a Linux path alone cannot tell two distributions apart), its origin (`attached`, `managed` or `worktree`) and how many sessions use it; a project's worktrees follow their project's folder and its place. `project.subscribe` rows carry the same `place`, fixed at attach, and `repoMount.attach`'s and `repoMount.read`'s answers carry the mount's `place`, the place both its paths are written in. `repoMount.attach` takes the picked path, `{localPath, place?}`, where `place` is a distribution, `{distro}`, given only with a Linux path given in that distribution and absent wherever the path's own form says, Windows itself among them; the daemon decides the mount's place from them: a drive path, `/mnt/<drive>` given inside a distribution included, is Windows; a `\\wsl.localhost\<distro>\…` or `\\wsl$\<distro>\…` path, or a Linux path given from inside a distribution, is that distribution; a folder in a WSL 1 distribution is refused `repoMount.distributionNeedsWsl2`, and a path in a distribution not on this computer `repoMount.distributionNotFound` (error-contracts.md §Repo Mount). `machine.folder.list` lists the machine's folders in place for another device. `machine.folder.list` takes one folder, `{place?, path?, filter?, showHidden?}`, which opens that place's home folder when no path is given, its `place` a distribution, `{distro}`, and absent for Windows itself and on macOS and Linux; or `{top: true}`, the top level of a Windows computer, which starts no distribution; macOS and Linux have no top level and refuse `{top: true}` with `machine.folder.topLevel.notOffered`. The top level answers `{top: true, entries}`: the Windows drives first, `{kind: "drive", path}`, then one entry per WSL 2 distribution, `{kind: "distribution", place: {distro}}`, drawn `Ubuntu (WSL)`, which opens with `machine.folder.list {place: {distro}}` on its home folder, listed through its WSL server. A folder answers `{place?, path, segments, entries, more}`, its segments `{kind: "top"}` or `{kind: "folder", name, path}`: on Windows the first is `top`, so the device can go back up and change drive or distribution; macOS and Linux have no top segment. The answer's `place` is absent on macOS and Linux. A folder's answer carries the folder in view as the service writes its path, the path's segments from the top down (the last is the folder in view, each pressable to go back), every folder in it with its `name`, its `path` and whether it `isRepository`, and `more: true` when the filter would narrow further. The entries come in the machine's language order with numbers read by value (`build-9` before `build-10`). The service may page the entries or load them incrementally, and no folder is unreachable from it. A place naming a WSL 1 distribution is refused `repoMount.distributionNeedsWsl2`, and one naming a distribution not on this computer `repoMount.distributionNotFound`.
 

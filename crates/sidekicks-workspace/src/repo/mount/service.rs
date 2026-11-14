@@ -38,7 +38,7 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::statement::{
-    StatementBindings, WriteStatement, place_value, text_binding,
+    StatementBindings, WriteStatement, nullable_text_binding, place_value, text_binding,
 };
 use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, place_column, text_column,
@@ -52,7 +52,7 @@ use crate::projector::{HealthProjectionError, RepoMountHealthRow};
 use crate::repo::errors::{RepoRefusal, refuse_distribution};
 use crate::repo::mount::health::{MountHealthProbeError, probe_repo_mount_health};
 use crate::repo::root_resolver::RepoRootResolver;
-use crate::row_guards::COMMON_DIR_METADATA_PATH;
+use crate::row_guards::{COMMON_DIR_METADATA_PATH, ROOT_COMMIT_METADATA_PATH};
 use crate::schema::MountOrigin;
 
 /// The statements the service's reads keep prepared on each read connection.
@@ -70,7 +70,8 @@ static INSERT_ATTACHED_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
   )
   SELECT @id, @machine_id, @local_path, @canonical_root, @place, @vcs_type, '{origin}',
          @project_id, '{attached}', @now, @now,
-         json_set('{{}}', '{COMMON_DIR_METADATA_PATH}', @common_dir)
+         json_set('{{}}', '{COMMON_DIR_METADATA_PATH}', @common_dir,
+                  '{ROOT_COMMIT_METADATA_PATH}', @root_commit)
    WHERE NOT EXISTS (
      SELECT 1 FROM repo_mounts
       WHERE machine_id = @machine_id
@@ -239,6 +240,9 @@ pub(crate) struct RepoAttachTarget {
     pub(crate) canonical_root: FilesystemPath,
     /// The repository's resolved git common folder, the mount's identity anchor.
     pub(crate) common_folder: PathBuf,
+    /// The first commit of the repository's history, which knows it after its folder moves;
+    /// `None` while it has no commit.
+    pub(crate) root_commit: Option<String>,
     /// Where the root is; `None` on macOS and Linux.
     pub(crate) place: Option<Place>,
 }
@@ -381,21 +385,14 @@ impl RepoMountService {
 
     /// The attach target of `resolved`, once the machine has no active mount of its repository,
     /// writing nothing. Refuses a root that resolved past the wire's path cap
-    /// (`repoMount.rootResolutionFailed`, `pathTooLong`), and `repoMount.alreadyAttached` naming
-    /// the mount that holds the repository.
+    /// (`repoMount.rootResolutionFailed`, `pathTooLong`), `repoMount.alreadyAttached` naming
+    /// the mount that holds the repository, and a first-commit read git cannot answer as the
+    /// resolver refuses it.
     pub(crate) async fn attach_target_of(
         &self,
         resolved: &ResolvedFolder,
     ) -> Result<RepoAttachTarget, RepoMountServiceError> {
-        // A link or junction can resolve to a longer path than the one entered; a resolved path
-        // holds no NUL, so passing the cap is the one way it is refused.
-        let canonical_root =
-            FilesystemPath::new(stored_path(&resolved.canonical_root)).map_err(|_over_cap| {
-                RepoRefusal::RootResolutionFailed {
-                    reason: RepoMountRootResolutionReason::PathTooLong,
-                    detail: None,
-                }
-            })?;
+        let canonical_root = wire_root(&resolved.canonical_root)?;
         let place = None;
         if let Some(holder) = self
             .find_active_mount_of_repository(
@@ -407,10 +404,15 @@ impl RepoMountService {
         {
             return Err(already_attached(&holder).into());
         }
+        let root_commit = self
+            .resolver
+            .read_root_commit(&resolved.canonical_root)
+            .await?;
         Ok(RepoAttachTarget {
             local_path: resolved.local_path.clone(),
             canonical_root,
             common_folder: resolved.common_folder.clone(),
+            root_commit,
             place,
         })
     }
@@ -446,6 +448,7 @@ impl RepoMountService {
                 text_binding("@vcs_type", <&'static str>::from(VcsType::Git)),
                 text_binding("@project_id", project_id.text().as_str()),
                 text_binding("@common_dir", &stored_path(&target.common_folder)),
+                nullable_text_binding("@root_commit", target.root_commit.as_deref()),
                 text_binding("@now", WireInstant::now().as_str()),
             ]),
             expected_row_count: Some(1),
@@ -741,6 +744,17 @@ fn already_attached(holder: &ActiveMount) -> RepoRefusal {
         conflicting_repo_mount_id: holder.id,
         conflicting_project_id: holder.project_id,
     }
+}
+
+/// A resolved root as the wire carries it. Refuses `repoMount.rootResolutionFailed` with reason
+/// `pathTooLong` for one past the wire's path cap.
+pub(crate) fn wire_root(root: &Path) -> Result<FilesystemPath, RepoRefusal> {
+    // A link or junction can resolve to a longer path than the one entered; a resolved path holds
+    // no NUL, so passing the cap is the one way it is refused.
+    FilesystemPath::new(stored_path(root)).map_err(|_over_cap| RepoRefusal::RootResolutionFailed {
+        reason: RepoMountRootResolutionReason::PathTooLong,
+        detail: None,
+    })
 }
 
 /// A freshly minted repository mount id.

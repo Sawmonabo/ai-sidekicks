@@ -14,8 +14,8 @@ use crate::repo::clone::{
 };
 use crate::repo::folders::{
     MachineFolderListRequest, MachineFolderListResponse, RepoMountAttachRequest,
-    RepoMountAttachResponse, RepoMountDetachResponse, RepoMountListResponse, RepoMountReadResponse,
-    RepoMountReattachResponse, RepoMountRequest,
+    RepoMountAttachResponse, RepoMountDetachResponse, RepoMountListResponse, RepoMountMoveRequest,
+    RepoMountReadResponse, RepoMountReattachResponse, RepoMountRequest,
 };
 use crate::repo::git_reads::{
     ProjectBranchListRequest, ProjectBranchListResponse, ProjectFileReadRequest,
@@ -85,6 +85,22 @@ methods! {
                 RepoMountReattachConflict,
                 RepoMountRootResolutionFailed,
                 RepoMountAlreadyAttached,
+            ],
+        },
+        /// Moves a lost mount to a picked folder that holds the same repository.
+        RepoMountMove = mutation "repoMount.move" {
+            mutating: true,
+            params: RepoMountMoveRequest,
+            result: RepoMountReattachResponse,
+            refusals: [
+                RepoMountNotFound,
+                RepoMountManaged,
+                RepoMountReattachRefused,
+                RepoMountReattachConflict,
+                RepoMountRootResolutionFailed,
+                RepoMountAlreadyAttached,
+                RepoMountRepositoryDiffers,
+                RepoMountDistributionNotFound,
             ],
         },
         /// Lists the machine's folders for another device to browse.

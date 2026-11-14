@@ -1,7 +1,8 @@
 //! The canonical repository root of a path a person picked: the repository it belongs to, known by
 //! its git common folder, with the main checkout's root as the canonical root and the path's own
-//! working tree beside it. It also answers the narrower git questions the trust envelope and the
-//! mount health probe ask of a folder.
+//! working tree beside it. It also answers the narrower git questions the trust envelope, the
+//! mount health probe and a mount's move ask of a folder, and has git repair a moved main
+//! checkout's links to its worktrees.
 //!
 //! Every path it returns went through `real_path`, and git's answers are checked, not trusted:
 //! git is asked rather than walking up for `.git`, which is a file in linked worktrees and
@@ -28,8 +29,8 @@ use sidekicks_std::text_cut::cut_to_code_points;
 
 use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{
-    GIT_FATAL_EXIT_CODE, GitCall, GitError, GitRunner, background_read, read_git_common_folder,
-    strip_line_end,
+    GIT_FATAL_EXIT_CODE, GitCall, GitError, GitRunner, background_read, in_folder,
+    read_git_common_folder, strip_line_end,
 };
 use crate::git::worktree::reads::{ListedWorktree, read_listed_worktrees};
 use crate::repo::errors::RepoRefusal;
@@ -240,6 +241,62 @@ impl RepoRootResolver {
             }
         }
         Ok(trees)
+    }
+
+    /// The first commit of the history the HEAD of the repository at `root` stands on: a move or a
+    /// copy of the repository keeps it and an unrelated repository lacks it, so it knows the
+    /// repository wherever its folder goes. `None` while HEAD names no commit. Fails with
+    /// `notReadable` when a git call passes its bound, and `vcsError` when git cannot answer
+    /// otherwise.
+    pub(crate) async fn read_root_commit(
+        &self,
+        root: &Path,
+    ) -> Result<Option<String>, RepoRefusal> {
+        if !self.holds_commit(root, "HEAD").await? {
+            return Ok(None);
+        }
+        let call = GitCall::read(background_read(
+            root,
+            &["rev-list", "--max-parents=0", "--max-count=1", "HEAD"],
+        ))
+        .with_timeout(Some(ROOT_RESOLUTION_GIT_TIMEOUT));
+        let output = self
+            .git
+            .run(None, call)
+            .await
+            .map_err(|error| vcs_refusal(&error))?;
+        let commit = String::from_utf8_lossy(&strip_line_end(output.stdout)).into_owned();
+        Ok((!commit.is_empty()).then_some(commit))
+    }
+
+    /// Whether the repository at `root` holds a commit `revision` names. Fails with `notReadable`
+    /// when the git call passes its bound, and `vcsError` when git cannot answer otherwise.
+    pub(crate) async fn holds_commit(
+        &self,
+        root: &Path,
+        revision: &str,
+    ) -> Result<bool, RepoRefusal> {
+        let peeled = format!("{revision}^{{commit}}");
+        let call = GitCall::read(background_read(
+            root,
+            &["rev-parse", "--quiet", "--verify", &peeled],
+        ))
+        .with_timeout(Some(ROOT_RESOLUTION_GIT_TIMEOUT));
+        match self.git.run(None, call).await {
+            Ok(_named) => Ok(true),
+            // `--verify --quiet` exits 1, printing nothing, for a name that names no commit.
+            Err(GitError::Exited { code: Some(1), .. }) => Ok(false),
+            Err(error) => Err(vcs_refusal(&error)),
+        }
+    }
+
+    /// Points the linked worktrees of the repository whose main checkout is `root` back at it, as
+    /// git's own `worktree repair` does once the main checkout has moved; a tree git cannot repair
+    /// stays unlisted. Fails as the git call fails, a tree it could not repair among them.
+    pub(crate) async fn repair_working_trees(&self, root: &Path) -> Result<(), GitError> {
+        let call = GitCall::read(in_folder(root, &["worktree", "repair"]))
+            .with_timeout(Some(ROOT_RESOLUTION_GIT_TIMEOUT));
+        self.git.run(None, call).await.map(drop)
     }
 
     // The list's first record, each link resolved, when git asked from inside it names it as its

@@ -141,7 +141,8 @@ pub(crate) struct ExecutionRootServices {
     pub(crate) workspaces: Arc<WorkspaceService>,
     /// The owner of every workspace's preparation hold.
     pub(crate) execution_roots: Arc<ExecutionRootService>,
-    /// Re-attaches a mount whose folder holds another repository now.
+    /// Re-attaches a mount whose folder holds another repository now, or moves a lost one to a
+    /// picked folder holding its repository.
     pub(crate) reattach: Arc<RepoMountReattachService>,
     /// The sessions' working-folder moves and the sweep out of a removed tree.
     pub(crate) session_working_folders: Arc<SessionWorkingFolders>,
@@ -263,11 +264,13 @@ pub(crate) struct RepoMountMethods {
     pub(crate) mounts: Arc<RepoMountService>,
     /// The folders the service can reach and the sessions using each.
     pub(crate) usage: Arc<RepoFolderUsage>,
-    /// Re-attaches a mount whose folder holds another repository now.
+    /// Re-attaches a mount whose folder holds another repository now, or moves a lost one to a
+    /// picked folder holding its repository.
     pub(crate) reattach: Arc<RepoMountReattachService>,
-    /// The setup card of every worktree made, whose retired trees a re-attach forgets.
+    /// The setup card of every worktree made, whose retired trees a re-attach or a move forgets.
     pub(crate) setup: Arc<WorktreeSetupRunner>,
-    /// The live projects list, which a re-attach moves a project's mount in without an event.
+    /// The live projects list, which a re-attach or a move changes a project's mount in without
+    /// an event.
     pub(crate) list_feed: Arc<ProjectListFeed>,
     /// Requests the worktree cleanup after a detach.
     pub(crate) cleanup: WorktreeCleanupRequests,

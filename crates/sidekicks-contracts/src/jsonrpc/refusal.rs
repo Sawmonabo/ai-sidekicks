@@ -581,10 +581,14 @@ refusal_codes! {
     RepoMountNotFound = "repoMount.notFound" (NotFound, 404);
     /// A picked folder lies outside the project's admitted roots.
     RepoMountOutsideTrustEnvelope = "repoMount.outsideTrustEnvelope" (InvalidArgument, 422);
-    /// `repoMount.reattach` refused, writing nothing, while an agent runs anywhere in the project.
+    /// `repoMount.reattach` or `repoMount.move` refused, writing nothing, while an agent runs
+    /// anywhere in the project.
     RepoMountReattachConflict = "repoMount.reattachConflict" (FailedPrecondition, 409);
-    /// `repoMount.reattach` refused, writing nothing.
+    /// `repoMount.reattach` or `repoMount.move` refused, writing nothing.
     RepoMountReattachRefused = "repoMount.reattachRefused" (FailedPrecondition, 409);
+    /// `repoMount.move` refused, writing nothing, because the picked folder does not hold the
+    /// lost mount's repository; the screen attaches that folder as its own project instead.
+    RepoMountRepositoryDiffers = "repoMount.repositoryDiffers" (FailedPrecondition, 409);
     /// A path's canonical repository root could not be resolved, or a folder a request named
     /// (a mount, a clone's parent) names no complete location, does not exist or cannot be read.
     RepoMountRootResolutionFailed = "repoMount.rootResolutionFailed" (InvalidArgument, 422);

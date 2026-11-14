@@ -25,6 +25,11 @@ use crate::service::WorkspaceServiceError;
 /// each link resolved, that its attach recorded.
 pub(crate) const COMMON_DIR_METADATA_PATH: &str = "$.commonDir";
 
+/// The JSON path in `repo_mounts.metadata` of the first commit of the repository's history that
+/// its attach recorded, which knows the repository after its folder moves; JSON `null` while it
+/// had no commit.
+pub(crate) const ROOT_COMMIT_METADATA_PATH: &str = "$.rootCommit";
+
 /// The JSON path in `workspaces.metadata` of why a `rootLost` workspace's last preparation failed,
 /// the one metadata key that reaches the wire.
 pub(crate) const LAST_ERROR_METADATA_PATH: &str = "$.lastError";

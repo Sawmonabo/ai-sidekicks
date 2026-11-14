@@ -1,6 +1,7 @@
 //! The re-attach's one write: the running and holder checks tested again, the old mount's detach
-//! and the new mount's insert, the workspaces' and listed trees' move, and the other trees'
-//! retirement; and what the committed write read back.
+//! and the new mount's insert, the workspaces' and listed trees' move, the other trees'
+//! retirement, and for a move to a picked folder the project's folder and the workspaces' paths
+//! inside the old root carried to the new one; and what the committed write read back.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -11,13 +12,15 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 use sidekicks_store::database::statement::{
-    StatementBindings, StatementResult, WriteStatement, text_binding,
+    StatementBindings, StatementResult, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::returned_parsed;
 
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
 use crate::repo::mount::service::detach::SELECT_RUNNING_RUN_SQL;
-use crate::row_guards::{COMMON_DIR_METADATA_PATH, LAST_ERROR_METADATA_PATH};
+use crate::row_guards::{
+    COMMON_DIR_METADATA_PATH, LAST_ERROR_METADATA_PATH, ROOT_COMMIT_METADATA_PATH,
+};
 
 /// The position of the write's running check, whose refusal names the run that holds the project.
 pub(super) const RUNNING_RUN_STATEMENT: usize = 0;
@@ -29,8 +32,8 @@ pub(super) const DETACH_OLD_MOUNT_STATEMENT: usize = 3;
 const INSERT_NEW_MOUNT_STATEMENT: usize = 4;
 const UNLISTED_WORKTREES_STATEMENT: usize = 8;
 
-/// Another attached mount of the repository the folder holds now, on this machine in the mount's
-/// place; bound to `@repo_mount_id` and `@common_dir`.
+/// Another attached mount of the repository the folder holds now, or of the folder's root, on this
+/// machine in the mount's place; bound to `@repo_mount_id`, `@common_dir` and `@canonical_root`.
 pub(super) static SELECT_IDENTITY_HOLDER_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT holder.id, holder.project_id
@@ -40,7 +43,8 @@ pub(super) static SELECT_IDENTITY_HOLDER_SQL: LazyLock<String> = LazyLock::new(|
     AND coalesce(holder.place, '') = coalesce(mount.place, '')
     AND holder.state = '{}'
     AND holder.id <> mount.id
-    AND json_extract(holder.metadata, '{COMMON_DIR_METADATA_PATH}') = @common_dir
+    AND (json_extract(holder.metadata, '{COMMON_DIR_METADATA_PATH}') = @common_dir
+         OR holder.canonical_root = @canonical_root)
   ORDER BY holder.id
   LIMIT 1",
         <&'static str>::from(RepoMountState::Attached)
@@ -71,16 +75,18 @@ static DETACH_OLD_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The new mount takes the old one's machine, place, root and project, anchored on the repository
-// there now; its project is answered for the service log.
+// The new mount takes the old one's machine, place and project at the folder bound, anchored on
+// the repository there now; its project is answered for the service log.
 static INSERT_NEW_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO repo_mounts (
     id, machine_id, local_path, canonical_root, place, vcs_type, origin, project_id, state,
     attached_at, updated_at, metadata
   )
-  SELECT @new_repo_mount_id, machine_id, local_path, canonical_root, place, vcs_type, origin,
-         project_id, '{}', @now, @now, json_set('{{}}', '{COMMON_DIR_METADATA_PATH}', @common_dir)
+  SELECT @new_repo_mount_id, machine_id, @local_path, @canonical_root, place, vcs_type, origin,
+         project_id, '{}', @now, @now,
+         json_set('{{}}', '{COMMON_DIR_METADATA_PATH}', @common_dir,
+                  '{ROOT_COMMIT_METADATA_PATH}', @root_commit)
     FROM repo_mounts
    WHERE id = @repo_mount_id
   RETURNING project_id",
@@ -145,6 +151,32 @@ static RETIRE_UNLISTED_WORKTREES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// The project's folder follows its mount's root; unchanged by a re-attach in place.
+const UPDATE_PROJECT_FOLDER_SQL: &str = "UPDATE projects
+    SET folder_path = @canonical_root, updated_at = @now
+  WHERE id = (SELECT project_id FROM repo_mounts WHERE id = @new_repo_mount_id)
+    AND folder_path <> @canonical_root";
+
+// A moved workspace's paths inside the old root, carried to the new one; the root guard leaves a
+// row whose root changed since it was read to its admission.
+const REBASE_WORKSPACE_SQL: &str = "UPDATE workspaces
+    SET fs_root = coalesce(@fs_root, fs_root), metadata = json_patch(metadata, @metadata_patch),
+        updated_at = @now
+  WHERE id = @workspace_id AND repo_mount_id = @new_repo_mount_id AND fs_root IS @read_fs_root";
+
+/// One moved workspace whose stored paths sit inside the old root, with those paths in the new
+/// root.
+pub(super) struct RebasedWorkspace {
+    /// The workspace.
+    pub(super) workspace_id: WorkspaceId,
+    /// Its root as read before the write.
+    pub(super) read_fs_root: Option<String>,
+    /// Its root in the new folder; `None` keeps the stored one.
+    pub(super) fs_root: Option<String>,
+    /// The metadata members that move, as the JSON object `json_patch` merges.
+    pub(super) metadata_patch: String,
+}
+
 /// What the write's statements bind: each binds only the names its SQL holds.
 pub(super) struct ReattachBindings {
     /// The mount re-attached.
@@ -155,6 +187,14 @@ pub(super) struct ReattachBindings {
     pub(super) old_common_dir: String,
     /// The repository's common folder now, the new mount's anchor.
     pub(super) common_dir: String,
+    /// The new mount's path as entered: the old one's for a re-attach in place.
+    pub(super) local_path: String,
+    /// The new mount's root: the old one's for a re-attach in place.
+    pub(super) canonical_root: String,
+    /// The first commit of the repository there now, `None` while it has none.
+    pub(super) root_commit: Option<String>,
+    /// The workspaces whose paths move with the root; none for a re-attach in place.
+    pub(super) rebased_workspaces: Vec<RebasedWorkspace>,
     /// The ids of the trees that move, as a JSON array.
     pub(super) listed_worktree_ids: String,
     /// When the write happens.
@@ -181,12 +221,13 @@ pub(super) fn reattach_statements(bindings: &ReattachBindings) -> Vec<WriteState
     );
     let now = text_binding("@now", bindings.now.as_str());
     let common_dir = text_binding("@common_dir", &bindings.common_dir);
+    let canonical_root = text_binding("@canonical_root", &bindings.canonical_root);
     let statement = |sql: &'static str, bindings, expected_row_count| WriteStatement {
         sql: Cow::Borrowed(sql),
         bindings: StatementBindings::Named(bindings),
         expected_row_count,
     };
-    vec![
+    let mut statements = vec![
         statement(
             SELECT_RUNNING_RUN_SQL.as_str(),
             vec![mount.clone()],
@@ -194,7 +235,7 @@ pub(super) fn reattach_statements(bindings: &ReattachBindings) -> Vec<WriteState
         ),
         statement(
             SELECT_IDENTITY_HOLDER_SQL.as_str(),
-            vec![mount.clone(), common_dir.clone()],
+            vec![mount.clone(), common_dir.clone(), canonical_root.clone()],
             Some(0),
         ),
         statement(
@@ -213,7 +254,15 @@ pub(super) fn reattach_statements(bindings: &ReattachBindings) -> Vec<WriteState
         ),
         statement(
             INSERT_NEW_MOUNT_SQL.as_str(),
-            vec![new_mount.clone(), mount.clone(), common_dir, now.clone()],
+            vec![
+                new_mount.clone(),
+                mount.clone(),
+                text_binding("@local_path", &bindings.local_path),
+                canonical_root.clone(),
+                common_dir,
+                nullable_text_binding("@root_commit", bindings.root_commit.as_deref()),
+                now.clone(),
+            ],
             Some(1),
         ),
         statement(
@@ -229,7 +278,7 @@ pub(super) fn reattach_statements(bindings: &ReattachBindings) -> Vec<WriteState
         statement(
             MOVE_LISTED_WORKTREES_SQL.as_str(),
             vec![
-                new_mount,
+                new_mount.clone(),
                 mount.clone(),
                 now.clone(),
                 text_binding("@listed_worktree_ids", &bindings.listed_worktree_ids),
@@ -243,10 +292,31 @@ pub(super) fn reattach_statements(bindings: &ReattachBindings) -> Vec<WriteState
         ),
         statement(
             RETIRE_UNLISTED_WORKTREES_SQL.as_str(),
-            vec![mount, now],
+            vec![mount, now.clone()],
             None,
         ),
-    ]
+        statement(
+            UPDATE_PROJECT_FOLDER_SQL,
+            vec![canonical_root, new_mount.clone(), now.clone()],
+            None,
+        ),
+    ];
+    // Last, so every statement position named above holds.
+    statements.extend(bindings.rebased_workspaces.iter().map(|rebased| {
+        statement(
+            REBASE_WORKSPACE_SQL,
+            vec![
+                nullable_text_binding("@fs_root", rebased.fs_root.as_deref()),
+                text_binding("@metadata_patch", &rebased.metadata_patch),
+                now.clone(),
+                text_binding("@workspace_id", rebased.workspace_id.text().as_str()),
+                new_mount.clone(),
+                nullable_text_binding("@read_fs_root", rebased.read_fs_root.as_deref()),
+            ],
+            None,
+        )
+    }));
+    statements
 }
 
 /// What the committed write read back, each row in its typed facts. Fails for a row the contracts

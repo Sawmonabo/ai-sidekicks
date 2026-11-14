@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -5,9 +6,11 @@ use futures::future::BoxFuture;
 use notify::NullWatcher;
 use rusqlite::params;
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::folders::{
-    RepoMountReattachConflictDetails, RepoMountReattachResponse, RepoMountRequest,
+    RepoMountMoveRequest, RepoMountReattachConflictDetails, RepoMountReattachResponse,
+    RepoMountRequest,
 };
 use sidekicks_contracts::repo::mount::{RepoMountId, WorkspaceId};
 use sidekicks_contracts::session::id::SessionId;
@@ -22,7 +25,7 @@ use super::{
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::execution_root::test_fixture::{ExecutionRootFixture, MOUNT_ID, SESSION_ID};
 use crate::git::process::test_git_runner;
-use crate::git::process::test_repository::{git_in, make_test_repository};
+use crate::git::process::test_repository::{commit_empty, git_in, make_test_repository};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::repo::root_resolver::RepoRootResolver;
 use crate::test_rows::PARENT_ROWS_AT;
@@ -94,6 +97,21 @@ impl ReattachFixture {
         self.service
             .reattach(&RepoMountRequest {
                 repo_mount_id: RepoMountId::new(repo_mount_id).expect("the id is a UUID"),
+            })
+            .await
+    }
+
+    async fn move_to(
+        &self,
+        repo_mount_id: &str,
+        folder: &Path,
+    ) -> Result<RepoMountReattachResponse, RepoMountReattachError> {
+        self.service
+            .move_to_folder(&RepoMountMoveRequest {
+                repo_mount_id: RepoMountId::new(repo_mount_id).expect("the id is a UUID"),
+                local_path: FilesystemPath::new(folder.to_string_lossy().into_owned())
+                    .expect("the path is short"),
+                place: None,
             })
             .await
     }
@@ -354,4 +372,138 @@ async fn a_run_that_starts_after_the_checks_refuses_the_write_naming_its_agent()
         })))
     );
     assert_eq!(fixture.written(), before);
+}
+
+#[tokio::test]
+async fn a_lost_mount_follows_its_repository_keeping_every_id_and_refuses_another() {
+    // Catches the repository check dropped or keyed on the folder: another repository's folder
+    // would take the project; and the checkout's paths or the trees' links left at the old root:
+    // the workspace or the tree would turn `rootLost` or retired.
+    let fixture = ReattachFixture::new().await;
+    let git = &fixture.roots.git;
+    let workspace_id = fixture.roots.bind().await;
+    fixture
+        .roots
+        .prepare(workspace_id, None)
+        .await
+        .expect("the workspace roots at the repository");
+    let tree = fixture.roots.add_tree("session-tree").await;
+    fixture
+        .roots
+        .rows
+        .execute(
+            "INSERT INTO worktrees (id, repo_mount_id, created_by_session_id, branch_name, \
+             base_ref, fs_root, state, created_at, updated_at) VALUES (?1, ?2, ?3, \
+             'session-tree', 'main', ?4, 'ready', ?5, ?5)",
+            params![
+                LISTED_TREE_ID,
+                MOUNT_ID,
+                SESSION_ID,
+                tree.to_string_lossy(),
+                PARENT_ROWS_AT
+            ],
+        )
+        .expect("the daemon's tree is recorded");
+    let repository = fixture.roots.repository.clone();
+    let root_commit = git_in(git, &repository, &["rev-list", "--max-parents=0", "HEAD"]).await;
+    fixture
+        .roots
+        .rows
+        .execute(
+            "UPDATE repo_mounts SET metadata = json_set(metadata, '$.rootCommit', ?1) \
+             WHERE id = ?2",
+            params![root_commit, MOUNT_ID],
+        )
+        .expect("the mount records its first commit");
+    let scratch = repository
+        .parent()
+        .expect("the repository sits in the scratch folder")
+        .to_path_buf();
+    // Its own first commit, so it shares no history with the mount's repository.
+    git_in(git, &scratch, &["init", "--quiet", "other"]).await;
+    let other = scratch.join("other");
+    for setting in [
+        ["user.name", "Test"],
+        ["user.email", "test@example.invalid"],
+    ] {
+        git_in(git, &other, &["config", setting[0], setting[1]]).await;
+    }
+    commit_empty(git, &other, "another project").await;
+
+    // Moved away, another repository in its place: `identityMismatch`.
+    let moved = scratch.join("moved");
+    std::fs::rename(&repository, &moved).expect("the repository moves");
+    make_test_repository(git, &scratch, "app").await;
+    git_in(
+        git,
+        &repository,
+        &[
+            "init",
+            "--quiet",
+            "--separate-git-dir",
+            &scratch.join("impostor.git").to_string_lossy(),
+        ],
+    )
+    .await;
+    let before = fixture.written();
+    let refused = refusal(
+        fixture
+            .move_to(MOUNT_ID, &other)
+            .await
+            .expect_err("another repository is not the mount's"),
+    );
+    assert_eq!(refused.code, RefusalCode::RepoMountRepositoryDiffers);
+    assert_eq!(fixture.written(), before);
+
+    let mut mount = MOUNT_ID.to_owned();
+    // Then moved again with nothing left behind: `unreachable`.
+    for (from, to) in [
+        (None, moved.clone()),
+        (Some(moved), scratch.join("moved-again")),
+    ] {
+        if let Some(from) = from {
+            std::fs::rename(&from, &to).expect("the repository moves again");
+        }
+        let response = fixture
+            .move_to(&mount, &to)
+            .await
+            .expect("the mount follows its repository");
+        let new_mount = response.repo_mount_id.text().as_str().to_owned();
+        let to = to.to_string_lossy();
+        assert_eq!(
+            fixture.text(&format!(
+                "SELECT canonical_root || ' ' || project_id FROM repo_mounts \
+                 WHERE id = '{new_mount}' AND state = 'attached'"
+            )),
+            Some(format!("{to} {MOUNT_ID}"))
+        );
+        assert_eq!(
+            fixture.text(&format!(
+                "SELECT folder_path FROM projects WHERE id = '{MOUNT_ID}'"
+            )),
+            Some(to.clone().into_owned())
+        );
+        assert_eq!(
+            fixture.text(&format!(
+                "SELECT repo_mount_id || ' ' || state || ' ' || fs_root FROM workspaces \
+                 WHERE id = '{workspace_id}'"
+            )),
+            Some(format!("{new_mount} ready {to}"))
+        );
+        assert_eq!(
+            fixture.text(&format!(
+                "SELECT repo_mount_id || ' ' || state FROM worktrees WHERE id = '{LISTED_TREE_ID}'"
+            )),
+            Some(format!("{new_mount} ready"))
+        );
+        assert_eq!(
+            fixture.roots.count(&format!(
+                "SELECT count(*) FROM session_events WHERE type = 'repoMount.health.changed' \
+                 AND json_extract(payload, '$.repoMountId') = '{new_mount}' \
+                 AND json_extract(payload, '$.health.status') = 'healthy'"
+            )),
+            1
+        );
+        mount = new_mount;
+    }
 }

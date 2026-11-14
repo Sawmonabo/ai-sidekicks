@@ -1,6 +1,6 @@
 //! The folders the service can reach and where each came from (`repoMount.list`), browsing the
 //! machine's folders from another device (`machine.folder.list`), one folder's attach, read, detach
-//! and re-attach, and the details of their refusals.
+//! and re-attach, a lost mount's move to a picked folder, and the details of their refusals.
 //!
 //! Attach is the only way a path enters the machine's trust envelope. A mount belongs to the
 //! machine, not to a session: the daemon stamps its own machine id on the row, and a session
@@ -504,8 +504,31 @@ pub struct RepoMountAlreadyAttachedDetails {
     pub conflicting_project_id: Option<ProjectId>,
 }
 
-/// The `repoMount.reattach` result: the new mount. The old one turns `detached` and the folder is
-/// attached fresh under the same project record, keeping its sessions and their workspaces.
+/// `repoMount.move`: a lost mount and the folder picked for it, which takes the mount's place where
+/// it holds the same repository. The path comes as `repoMount.attach` takes it, with its WSL 2
+/// distribution where the path alone does not say which one holds it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct RepoMountMoveRequest {
+    /// The mount whose folder is lost.
+    pub repo_mount_id: RepoMountId,
+    /// The picked folder's path as entered.
+    pub local_path: FilesystemPath,
+    /// The distribution a Linux path was given in; absent on macOS and Linux and wherever the
+    /// path's own form says, Windows itself among them.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WslPlace")]
+    pub place: Option<WslPlace>,
+}
+
+/// The `repoMount.reattach` and `repoMount.move` result: the new mount. The old one turns
+/// `detached` and the folder, the same one or the picked one, is attached fresh under the same
+/// project record, keeping its sessions and their workspaces.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -545,8 +568,8 @@ pub struct RepoMountReattachConflictDetails {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "repo/folders",
     doc: "The folders the service can reach and where each came from, browsing the machine's \
-          folders, one folder's attach, read, detach and re-attach, and the details of their \
-          refusals.",
+          folders, one folder's attach, read, detach and re-attach, a lost mount's move to a \
+          picked folder, and the details of their refusals.",
     definitions: &[
         Definition::read::<RepoMountOrigin>().checked(),
         Definition::read::<RepoMountListEntry>(),
@@ -567,6 +590,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RepoMountRootResolutionReason>(),
         Definition::read::<RepoMountRootResolutionFailedDetails>(),
         Definition::read::<RepoMountAlreadyAttachedDetails>(),
+        Definition::read::<RepoMountMoveRequest>(),
         Definition::read::<RepoMountReattachResponse>(),
         Definition::read::<RepoMountReattachRefusedReason>(),
         Definition::read::<RepoMountReattachRefusedDetails>(),

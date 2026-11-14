@@ -1,7 +1,9 @@
 //! The re-attach: the recovery for a mount whose folder holds another repository than the one
 //! attached there. The old row turns `detached` and a new `attached` row takes its root under the
 //! same project, anchored on the repository git finds there now; no detach cascade runs, so the
-//! project, its sessions and the folder are untouched.
+//! project, its sessions and the folder are untouched. A lost mount's move to a picked folder
+//! holding its repository commits through the same write, the new row taking the picked root (see
+//! `moved_folder`).
 //!
 //! - The refusals are decided before the write and tested again inside it, so a refusal writes
 //!   nothing.
@@ -16,6 +18,7 @@
 //!   as it is and no sweep removes it. Its `worktree.retired` follows the commit. A tree's kept
 //!   copies stay on the old mount.
 
+mod moved_folder;
 mod moved_workspace;
 #[cfg(test)]
 mod tests;
@@ -52,7 +55,8 @@ use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionE
 
 use self::write::{
     DETACH_OLD_MOUNT_STATEMENT, IDENTITY_HOLDER_STATEMENT, RUNNING_RUN_STATEMENT, ReattachBindings,
-    ReattachWritten, SELECT_IDENTITY_HOLDER_SQL, read_written, reattach_statements,
+    ReattachWritten, RebasedWorkspace, SELECT_IDENTITY_HOLDER_SQL, read_written,
+    reattach_statements,
 };
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::execution_root::{ExecutionRootError, ExecutionRootService};
@@ -68,10 +72,12 @@ use crate::repo::mount::service::detach::read_running_run;
 use crate::repo::mount::service::new_repo_mount_id;
 use crate::repo::root_resolver::RepoRootResolver;
 use crate::service::{AttachedMount, WorkspaceService, WorkspaceServiceError, root_mismatch};
+use crate::trust_envelope::components_equal;
 
 /// The statements the re-attach's reads keep prepared on each read connection: the running run,
-/// the holder of the repository, the mount's live trees and the sessions on the new mount.
-pub const REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY: usize = 4;
+/// the holder of the repository, the mount's live trees, the sessions on the new mount, and a
+/// move's recorded first commit and workspace paths.
+pub const REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY: usize = 6;
 
 // What a log line names a failed follow-up's group as.
 const FOLLOW_UP_OPERATION: &str = "a re-attach's follow-ups";
@@ -230,8 +236,9 @@ pub struct RepoMountReattachServiceDeps<W = RecommendedWatcher> {
     pub holders: Arc<dyn RunningHolderLookup>,
 }
 
-/// Re-attaches a mount whose folder holds another repository now, keeping the project's sessions
-/// and every workspace id. See the module doc.
+/// Re-attaches a mount whose folder holds another repository now, or moves a lost one to a picked
+/// folder holding its repository, keeping the project's sessions and every workspace id. See the
+/// module doc.
 pub struct RepoMountReattachService<W = RecommendedWatcher> {
     writer: Arc<DatabaseWriter>,
     reads: Arc<DatabaseReadPool>,
@@ -278,17 +285,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         request: &RepoMountRequest,
     ) -> Result<RepoMountReattachResponse, RepoMountReattachError> {
         let repo_mount_id = request.repo_mount_id;
-        let mount = self
-            .workspaces
-            .require_attached_mount(repo_mount_id)
-            .await?;
-        if mount.managed_session_id.is_some() {
-            return Err(RepoRefusal::MountManaged { repo_mount_id }.into());
-        }
-        // A mount with no anchor has no identity to mismatch.
-        let Some(old_anchor) = mount.common_folder_anchor.clone() else {
-            return Err(RepoRefusal::ReattachRefused { repo_mount_id }.into());
-        };
+        let (mount, old_anchor) = self.require_project_mount(repo_mount_id).await?;
         match self.probe_health(&mount, &old_anchor).await? {
             RepoMountHealth::IdentityMismatch {
                 is_repository: true,
@@ -316,17 +313,83 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         if resolution.canonical_root != mount.canonical_root {
             return Err(root_mismatch().into());
         }
+        let root_commit = self
+            .resolver
+            .read_root_commit(&resolution.canonical_root)
+            .await?;
+        let target = ReattachTarget {
+            local_path: mount.local_path.clone(),
+            canonical_root: resolution.canonical_root,
+            common_folder: resolution.common_folder,
+            root_commit,
+            rebased_workspaces: Vec::new(),
+        };
+        self.commit(mount, &old_anchor, target).await
+    }
 
+    // The project's mount `repo_mount_id` with its identity anchor, refusing a chat's managed
+    // mount and a mount with no anchor, which has no identity to lose.
+    async fn require_project_mount(
+        &self,
+        repo_mount_id: RepoMountId,
+    ) -> Result<(AttachedMount, PathBuf), RepoMountReattachError> {
+        let mount = self
+            .workspaces
+            .require_attached_mount(repo_mount_id)
+            .await?;
+        if mount.managed_session_id.is_some() {
+            return Err(RepoRefusal::MountManaged { repo_mount_id }.into());
+        }
+        let Some(anchor) = mount.common_folder_anchor.clone() else {
+            return Err(RepoRefusal::ReattachRefused { repo_mount_id }.into());
+        };
+        Ok((mount, anchor))
+    }
+
+    // Ends `mount` and attaches `target` under its project in one write once no run holds the
+    // project and no other mount holds the repository or the root, then owes each follow-up.
+    async fn commit(
+        &self,
+        mount: AttachedMount,
+        old_anchor: &Path,
+        target: ReattachTarget,
+    ) -> Result<RepoMountReattachResponse, RepoMountReattachError> {
+        let repo_mount_id = mount.id;
+        let canonical_root = target.canonical_root.to_string_lossy().into_owned();
+        let common_dir = target.common_folder.to_string_lossy().into_owned();
+        self.refuse_running_run(repo_mount_id).await?;
+        self.refuse_identity_holder(repo_mount_id, &common_dir, &canonical_root)
+            .await?;
+        if !components_equal(&target.canonical_root, &mount.canonical_root) {
+            // A tree git cannot repair stays unlisted, so it is retired below and its workspace
+            // turns `rootLost`, as a re-attach leaves it; the move goes on.
+            if let Err(error) = self
+                .resolver
+                .repair_working_trees(&target.canonical_root)
+                .await
+            {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    %repo_mount_id,
+                    "git could not repair every worktree of a moved repository; each it left is \
+                     retired"
+                );
+            }
+        }
         let bindings = ReattachBindings {
             repo_mount_id,
             new_repo_mount_id: new_repo_mount_id(),
             old_common_dir: old_anchor.to_string_lossy().into_owned(),
-            common_dir: resolution.common_folder.to_string_lossy().into_owned(),
-            listed_worktree_ids: self.read_listed_worktree_ids(&mount).await?,
+            common_dir,
+            local_path: target.local_path.to_string_lossy().into_owned(),
+            canonical_root,
+            root_commit: target.root_commit,
+            listed_worktree_ids: self
+                .read_listed_worktree_ids(repo_mount_id, &target.canonical_root)
+                .await?,
+            rebased_workspaces: target.rebased_workspaces,
             now: WireInstant::now(),
         };
-        self.refuse_running_run(repo_mount_id).await?;
-        self.refuse_identity_holder(&bindings).await?;
         #[cfg(test)]
         self.write_pause.pass().await;
 
@@ -386,11 +449,13 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         }
         let new_mount = AttachedMount {
             id: new_repo_mount_id,
-            common_folder_anchor: Some(resolution.common_folder.clone()),
+            local_path: target.local_path,
+            canonical_root: target.canonical_root,
+            common_folder_anchor: Some(target.common_folder.clone()),
             ..mount
         };
         failures.extend(
-            self.announce_health(&new_mount, &resolution.common_folder)
+            self.announce_health(&new_mount, &target.common_folder)
                 .await,
         );
 
@@ -428,24 +493,20 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
     }
 
     // The ids of the daemon's live trees on the mount whose folders git lists for the repository
-    // there now, as the JSON array the move binds.
+    // at `root` now, as the JSON array the move binds.
     async fn read_listed_worktree_ids(
         &self,
-        mount: &AttachedMount,
+        repo_mount_id: RepoMountId,
+        root: &Path,
     ) -> Result<String, RepoMountReattachError> {
         let mut listed = HashSet::new();
-        for root in self
-            .resolver
-            .list_working_trees(&mount.canonical_root)
-            .await?
-        {
+        for root in self.resolver.list_working_trees(root).await? {
             listed.insert(
                 canonical_folder_path(&root)
                     .await
                     .map_err(RepoMountReattachError::Folder)?,
             );
         }
-        let repo_mount_id = mount.id;
         let live = self
             .reads
             .read(ReadLength::Short, move |connection| {
@@ -489,17 +550,20 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         .into())
     }
 
-    // Refuses `alreadyAttached` naming another attached mount of the folder's repository.
+    // Refuses `alreadyAttached` naming another attached mount of the folder's repository or of
+    // its root, a chat's own workspace among them.
     async fn refuse_identity_holder(
         &self,
-        bindings: &ReattachBindings,
+        repo_mount_id: RepoMountId,
+        common_dir: &str,
+        canonical_root: &str,
     ) -> Result<(), RepoMountReattachError> {
-        let repo_mount_id = bindings.repo_mount_id;
-        let common_dir = bindings.common_dir.clone();
+        let common_dir = common_dir.to_owned();
+        let canonical_root = canonical_root.to_owned();
         let holder = self
             .reads
             .read(ReadLength::Short, move |connection| {
-                read_identity_holder(connection, repo_mount_id, &common_dir)
+                read_identity_holder(connection, repo_mount_id, &common_dir, &canonical_root)
             })
             .await?;
         match holder {
@@ -523,7 +587,14 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
     ) -> RepoMountReattachError {
         let refusal = match error.refused_statement_index() {
             Some(RUNNING_RUN_STATEMENT) => self.refuse_running_run(bindings.repo_mount_id).await,
-            Some(IDENTITY_HOLDER_STATEMENT) => self.refuse_identity_holder(bindings).await,
+            Some(IDENTITY_HOLDER_STATEMENT) => {
+                self.refuse_identity_holder(
+                    bindings.repo_mount_id,
+                    &bindings.common_dir,
+                    &bindings.canonical_root,
+                )
+                .await
+            }
             // A detach or re-attach moved the mount since it was read.
             Some(DETACH_OLD_MOUNT_STATEMENT) => self
                 .workspaces
@@ -584,6 +655,16 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
     }
 }
 
+// Where a re-attach's new mount goes: the old root for a re-attach in place, the picked one for a
+// move, with the repository's anchor and first commit there and the workspace paths that follow.
+struct ReattachTarget {
+    local_path: PathBuf,
+    canonical_root: PathBuf,
+    common_folder: PathBuf,
+    root_commit: Option<String>,
+    rebased_workspaces: Vec<RebasedWorkspace>,
+}
+
 fn read_live_worktrees(
     connection: &Connection,
     repo_mount_id: RepoMountId,
@@ -606,6 +687,7 @@ fn read_identity_holder(
     connection: &Connection,
     repo_mount_id: RepoMountId,
     common_dir: &str,
+    canonical_root: &str,
 ) -> Result<Option<(RepoMountId, Option<ProjectId>)>, RepoMountReattachError> {
     Ok(connection
         .prepare_cached(&SELECT_IDENTITY_HOLDER_SQL)?
@@ -613,6 +695,7 @@ fn read_identity_holder(
             named_params! {
                 "@repo_mount_id": repo_mount_id.text().as_str(),
                 "@common_dir": common_dir,
+                "@canonical_root": canonical_root,
             },
             |row| {
                 Ok((

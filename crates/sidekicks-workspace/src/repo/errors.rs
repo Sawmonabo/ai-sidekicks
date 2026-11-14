@@ -97,13 +97,23 @@ pub enum RepoRefusal {
         /// The managed mount.
         repo_mount_id: RepoMountId,
     },
-    /// A re-attach of a mount that does not read `identityMismatch`, so there is nothing to
-    /// recover (`repoMount.reattachRefused`).
+    /// A re-attach of a mount that does not read `identityMismatch`, or a move of one that is not
+    /// lost, so there is nothing to recover (`repoMount.reattachRefused`).
     #[error(
         "repo mount {} still holds the repository attached there",
         .repo_mount_id
     )]
     ReattachRefused {
+        /// The mount asked for; named in the message, not in the detail.
+        repo_mount_id: RepoMountId,
+    },
+    /// A move to a picked folder that does not hold the mount's repository, or of a mount whose
+    /// repository has no recorded first commit to know it by (`repoMount.repositoryDiffers`).
+    #[error(
+        "repo mount {} cannot move: the picked folder does not hold its repository",
+        .repo_mount_id
+    )]
+    RepositoryDiffers {
         /// The mount asked for; named in the message, not in the detail.
         repo_mount_id: RepoMountId,
     },
@@ -238,6 +248,9 @@ impl From<RepoRefusal> for DomainError {
                     reason: RepoMountReattachRefusedReason::IdentityMatches,
                 })),
             ),
+            RepoRefusal::RepositoryDiffers { repo_mount_id: _ } => {
+                (RefusalCode::RepoMountRepositoryDiffers, None)
+            }
             RepoRefusal::ReattachConflict {
                 running_session_id,
                 running_holder,
