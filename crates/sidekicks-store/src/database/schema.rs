@@ -27,6 +27,10 @@ pub const SESSION_EVENTS_TABLE: &str = "session_events";
 /// and the reads that name it use.
 pub const SESSION_EVENTS_TYPE_INDEX: &str = "idx_session_events_type";
 
+/// The index of one run's events by type in log order, by the name the schema creates it under
+/// and the reads that name it use.
+pub const SESSION_EVENTS_RUN_INDEX: &str = "idx_session_events_run";
+
 /// One named piece of the database schema: the tables, indexes and triggers one module owns.
 #[derive(Clone, Debug)]
 pub struct SchemaPart {

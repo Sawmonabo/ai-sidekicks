@@ -168,6 +168,15 @@ impl ClaudeToolServerTasks {
         self.held.drain().collect()
     }
 
+    /// Takes the call the tool server's task `task_id` runs out whole, held or settled, so a later
+    /// ending of its task finds nothing and closes it no second time; `None` for a task neither
+    /// holds.
+    pub(crate) fn take_named(&mut self, task_id: &str) -> Option<ClaudeHeldCall> {
+        let held = self.held.remove(task_id);
+        let settled = self.settled.pop(task_id);
+        held.or(settled)
+    }
+
     /// Each held call's task id and call id.
     pub(crate) fn held_tasks(&self) -> impl Iterator<Item = (&str, &str)> {
         self.held

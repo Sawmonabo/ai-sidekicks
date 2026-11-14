@@ -66,6 +66,7 @@ fn write_stand_in(
                 exit_code: exec_exit,
                 argument_record: Some(arguments.to_owned()),
             },
+            first_call_wait: None,
         },
     )
     .expect("the stand-in is written")

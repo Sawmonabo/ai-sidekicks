@@ -16,6 +16,9 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::worktree::lifecycle::WorktreeState;
+use sidekicks_session::checkpoints::store::shadows::{
+    VolumeFolder, insert_owed_folder_statement, volume_folders,
+};
 use sidekicks_session::directory::lookups::never_activated_sql;
 use sidekicks_session::groups::store::remove_empty_groups_of_session_project_statement;
 use sidekicks_session::messaging::exchanges::DELETE_SESSION_EXCHANGES_SQL;
@@ -36,7 +39,7 @@ use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
 use sidekicks_workspace::repo::mount::service::managed_mount_deletion_statements;
 
 /// The statements the purge's reads prepare, counted into the read pool's statement capacity.
-pub(crate) const SESSION_PURGE_STATEMENT_CAPACITY: usize = 7;
+pub(crate) const SESSION_PURGE_STATEMENT_CAPACITY: usize = 8;
 
 /// The position of the guard that no hand-off of a plan the session made waits on its seed, in the
 /// mark's write.
@@ -97,13 +100,16 @@ impl PurgeCaller {
     }
 }
 
-/// What the purge reads before it deletes a file: the session's workflow runs and the payloads its
-/// manifests name.
+/// What the purge reads before it deletes a file: the session's workflow runs, the payloads its
+/// manifests name and its own folders on other volumes.
 pub(super) struct PurgeTargets {
     /// The session's workflow runs.
     pub(super) workflow_run_ids: Vec<WorkflowRunId>,
     /// The payloads the session's manifests name.
     pub(super) payload_hashes: Vec<ContentHash>,
+    /// The session's own folders on other volumes, read before their rows go so each is removed
+    /// or owed.
+    pub(super) volume_folders: Vec<VolumeFolder>,
 }
 
 // No hand-off names the session as its planning session while the fresh session's seed has no
@@ -339,6 +345,7 @@ pub(super) fn read_purge_targets(
     Ok(PurgeTargets {
         workflow_run_ids,
         payload_hashes,
+        volume_folders: volume_folders(connection, session_id)?,
     })
 }
 
@@ -443,13 +450,15 @@ pub(super) async fn gone_worktree_ids(
 /// still marked, and no event of it lies past `last_sequence` (its receipt's range, `None` for a
 /// session with no event). The workflow runs go first with every row hanging off them, then the
 /// rows keyed by the session's runs, then its questions and the queued answers paired with them,
-/// then the session's own, its plans and its hand-off row among them, the chat's managed mount
-/// last.
+/// then the session's own, its plans and its hand-off row among them, then the chat's managed
+/// mount, and last one owed row for each of `owed_folders`, the session's folders on volumes that
+/// were absent, so each folder stays named by one row or the other.
 pub(super) fn session_deletion_statements(
     session_id: SessionId,
     last_sequence: Option<i64>,
     workflow_run_ids: &[WorkflowRunId],
     gone_worktree_ids: &[String],
+    owed_folders: &[VolumeFolder],
 ) -> Vec<WriteStatement> {
     let session_binding = || text_binding("@sessionId", session_id.text().as_str());
     let by_session = |sql: Cow<'static, str>| WriteStatement {
@@ -506,5 +515,6 @@ pub(super) fn session_deletion_statements(
     });
     statements.push(by_session(Cow::Borrowed(WORKSPACES_DELETE_SQL)));
     statements.extend(managed_mount_deletion_statements(session_id));
+    statements.extend(owed_folders.iter().map(insert_owed_folder_statement));
     statements
 }

@@ -5,15 +5,18 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use rusqlite::params;
 use secrecy::SecretString;
 use sidekicks_contracts::daemon::data::{
     DaemonDataEraseResponse, DataEraseAccountListing, DataEraseSignOutFailure,
     DataEraseSignedInAccount,
 };
 use sidekicks_contracts::daemon::secrets_place::{PlaceRecord, SecretsPlace};
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_platforms::CredentialStore;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_platforms::{CredentialStore, read_volume, real_path};
 use sidekicks_provider::account::credential_home::{
     HomeLeftSignedIn, HomeSignOutError, HomesSignOut,
 };
@@ -26,11 +29,15 @@ use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::TestStoreAccess;
 use sidekicks_store::credential_store::place::{record_path, write_record};
 use sidekicks_store::credential_store::service::KeychainService;
+use sidekicks_store::database::connection::writer_open::{
+    DAEMON_DATABASE_FILE_NAME, open_database,
+};
 use tokio::sync::{Notify, watch};
 
 use super::{
     DataErase, DataEraseDeps, DataEraseFailure, DataEraseOutcome, DataEraseRefusal, erase_data,
 };
+use crate::daemon::schema::schema_parts;
 
 type CallLog = Arc<Mutex<Vec<String>>>;
 
@@ -54,6 +61,27 @@ fn write_file(path: &Path) {
     fs::write(path, "kept").expect("the file is written");
 }
 
+// Makes the daemon's database in `data`, on the daemon's schema.
+fn make_database(data: &Path) -> rusqlite::Connection {
+    fs::create_dir_all(data).expect("the data folder is made");
+    open_database(
+        &data.join(DAEMON_DATABASE_FILE_NAME),
+        &schema_parts().into_schema(),
+    )
+    .expect("the database opens")
+}
+
+// Secret items over an empty in-memory store, kept in `data`.
+fn empty_secret_items(data: &Path) -> Arc<SecretItems> {
+    SecretItems::new(SecretItemsStart {
+        data_folder: data.to_path_buf(),
+        runs_while_logged_out: false,
+        access: TestStoreAccess::new(CredentialStore::in_memory()) as _,
+        call_timeout: Duration::from_secs(5),
+    })
+    .expect("the system gives random bytes")
+}
+
 // The erase runs in its order: the sign-ins under way end, then the provider accounts sign out in
 // their homes while the folder and the keychain are whole, and only then does the erase answer,
 // naming the account left signed in and that a home row could not be named, so the account list
@@ -73,11 +101,8 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     let data_folder = tempfile::tempdir().expect("the data folder is made");
     let data = data_folder.path().join(".ai-sidekicks");
     let project = tempfile::tempdir().expect("the project folder is made");
-    for kept in [
-        "daemon.db",
-        "logs/service.log",
-        "accounts/account-1/settings.json",
-    ] {
+    drop(make_database(&data));
+    for kept in ["logs/service.log", "accounts/account-1/settings.json"] {
         write_file(&data.join(kept));
     }
     let backup = data
@@ -222,6 +247,8 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
                 cause: DataEraseSignOutFailure::TimedOut,
             }],
             is_account_list_unread: true,
+            volume_folders_left: Vec::new(),
+            is_volume_folder_list_unread: false,
         }
     );
     tokio::time::timeout(Duration::from_secs(10), ended.notified())
@@ -299,13 +326,7 @@ async fn a_refused_item_keeps_the_data_folder_and_is_answered_as_kept() {
 async fn an_erase_that_ends_before_it_answers_fails_and_admits_the_next() {
     let data_folder = tempfile::tempdir().expect("the data folder is made");
     let data = data_folder.path().join(".ai-sidekicks");
-    let secret_items = SecretItems::new(SecretItemsStart {
-        data_folder: data.clone(),
-        runs_while_logged_out: false,
-        access: TestStoreAccess::new(CredentialStore::in_memory()) as _,
-        call_timeout: Duration::from_secs(5),
-    })
-    .expect("the system gives random bytes");
+    let secret_items = empty_secret_items(&data);
     let sign_outs = Arc::new(Mutex::new(0_usize));
     let sign_out_count = Arc::clone(&sign_outs);
     let erase = Arc::new(DataErase::new(DataEraseDeps {
@@ -335,4 +356,108 @@ async fn an_erase_that_ends_before_it_answers_fails_and_admits_the_next() {
         2,
         "the second erase starts and signs out"
     );
+}
+
+// Two sessions' folders on other volumes and a folder a purge owes go, each user folder with them,
+// before the erase answers; a folder whose volume is not connected stays and is named in the
+// answer. Killed by the sweep left out or moved after the answer, by the owed folders not read,
+// and by a folder left unnamed.
+#[tokio::test]
+async fn an_erase_removes_every_sessions_other_volume_folder_and_names_each_left() {
+    let root = tempfile::tempdir().expect("a scratch folder is made");
+    let data = root.path().join(".ai-sidekicks");
+    let connection = make_database(&data);
+    let volumes = real_path(root.path()).expect("the scratch folder resolves");
+    let make_folder = |user_folder: &str| {
+        let folder = volumes.join(user_folder).join(mint_uuid_v7().to_string());
+        write_file(&folder.join("clone"));
+        folder
+    };
+    let (first, second, owed, absent) = (
+        make_folder("user-a"),
+        make_folder("user-a"),
+        make_folder("user-b"),
+        make_folder("user-c"),
+    );
+    let volume_id = read_volume(&volumes)
+        .expect("the scratch volume reads")
+        .id
+        .to_string();
+    let text = |folder: &Path| folder.to_str().expect("a test path is text").to_owned();
+    for (folder, volume) in [
+        (&first, volume_id.as_str()),
+        (&second, volume_id.as_str()),
+        (&absent, "absent-volume"),
+    ] {
+        connection
+            .execute(
+                "INSERT INTO checkpoint_volume_folders (session_id, folder, volume_id)
+                 VALUES (?1, ?2, ?3)",
+                params![
+                    folder
+                        .file_name()
+                        .expect("a session's folder is named for it")
+                        .to_str()
+                        .expect("a session id is text"),
+                    text(folder),
+                    volume
+                ],
+            )
+            .expect("the session's folder is recorded");
+    }
+    connection
+        .execute(
+            "INSERT INTO checkpoint_owed_folders (folder, volume_id) VALUES (?1, ?2)",
+            params![text(&owed), volume_id],
+        )
+        .expect("the owed folder is recorded");
+    drop(connection);
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_shutdown()
+        .returning(|_intent, _deadline| async {}.boxed());
+    let ended = Arc::new(Notify::new());
+    let end_signal = Arc::clone(&ended);
+    let erase = Arc::new(DataErase::new(DataEraseDeps {
+        data_folder: data.clone(),
+        secret_items: empty_secret_items(&data),
+        providers: Arc::new(registry_of_first_provider(Arc::new(driver))),
+        sign_out_accounts: Arc::new(|| {
+            async {
+                Ok(HomesSignOut {
+                    left_signed_in: Vec::new(),
+                    has_unnamed_home: false,
+                })
+            }
+            .boxed()
+        }),
+        end_sign_ins: Arc::new(|| async { true }.boxed()),
+        stop_work: Arc::new(|| async {}.boxed()),
+        close_data_folder: Arc::new(|| async {}.boxed()),
+        end_process: Arc::new(move || end_signal.notify_one()),
+    }));
+
+    let answer = erase.begin().await.expect("the keychain can be emptied");
+
+    assert_eq!(
+        answer.volume_folders_left,
+        [FilesystemPath::new(text(&absent)).expect("a test path")]
+    );
+    assert!(!answer.is_volume_folder_list_unread);
+    for gone in [&first, &second, &owed] {
+        assert!(!gone.exists(), "{} is left", gone.display());
+    }
+    for user_folder in ["user-a", "user-b"] {
+        assert!(
+            !volumes.join(user_folder).exists(),
+            "the emptied {user_folder} is left"
+        );
+    }
+    assert!(
+        absent.join("clone").exists(),
+        "a folder whose volume is not connected stays"
+    );
+    tokio::time::timeout(Duration::from_secs(10), ended.notified())
+        .await
+        .expect("the erase ends the process");
 }

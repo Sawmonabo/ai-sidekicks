@@ -30,7 +30,7 @@ use sidekicks_provider::driver::run_control::{
     FindTakenMessagesParams, PauseRunParams, ResumeRunParams, TakenMessages,
 };
 use sidekicks_provider::port::run_pause::{
-    ContinuedMessages, ContinuedMessagesError, RunPauses, SessionOpening,
+    ContinuedMessages, ContinuedMessagesError, ContinuedRead, RunPauses, SessionOpening,
 };
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
@@ -214,6 +214,19 @@ impl From<RunPauseError> for HandlerError {
     }
 }
 
+// Why a resume's driver call did not go: an undo holds the run's session, the run as the engine
+// read it answering the call, or the resume failed.
+enum ResumeHalt {
+    HeldForUndo(RunRead),
+    Failed(RunPauseError),
+}
+
+impl From<RunPauseError> for ResumeHalt {
+    fn from(failure: RunPauseError) -> Self {
+        Self::Failed(failure)
+    }
+}
+
 /// The statements [`RunPauseControl`] prepares on a read connection: the run's row, the provider
 /// it runs on, the run's newest turn end and whether it is a provider's helper.
 pub const RUN_PAUSE_STATEMENT_CAPACITY: usize = 4;
@@ -316,6 +329,8 @@ impl RunPauseControl {
     /// A lead whose session's opening was deferred because a run beneath it waits on the person
     /// calls no driver either: its waiting messages are kept and it moves to `running`, its
     /// continue carrying them going with the person's answer that frees the session.
+    /// While an undo holds the run's session the driver is not asked and nothing moves: the answer
+    /// is the run as read, `paused` or `pausing`, and the run resumes at the undo's release.
     /// A resume the driver refuses moves nothing, gives the
     /// messages back and fails with [`RunPauseError::Driver`], as does one whose answer never
     /// came, which keeps the messages for the provider's own word to settle. A move refused once
@@ -353,7 +368,8 @@ impl RunPauseControl {
                         .map_err(|unopened| {
                             RunPauseError::Driver(DriverError::Internal(unopened))
                         })?;
-                    let driver = resolve_live_run_driver(&self.providers, run_id, bound)?;
+                    let driver = resolve_live_run_driver(&self.providers, run_id, bound)
+                        .map_err(RunPauseError::from)?;
                     let (is_continuation_owed, is_helper) = self
                         .pool
                         .read(
@@ -372,10 +388,13 @@ impl RunPauseControl {
                     // with the answer that frees it, so only a helper's is handed now.
                     if opening == SessionOpening::Deferred && (!is_helper || is_continuation_owed) {
                         let hold = continued.hold_session(session_id).await;
-                        continued
+                        let read = continued
                             .read(&hold, run_id, driver.message_handing())
                             .await
                             .map_err(RunPauseError::WaitingMessagesUnread)?;
+                        if let ContinuedRead::HeldForUndo = read {
+                            return Err(ResumeHalt::HeldForUndo(run));
+                        }
                         continued.keep(&hold, run_id);
                         if is_helper {
                             is_held_lead_continue.get_or_init(|| ());
@@ -384,12 +403,18 @@ impl RunPauseControl {
                         is_hold_lost.get_or_init(|| false);
                         return Ok(());
                     }
-                    let messages = {
+                    let read = {
                         let hold = continued.hold_session(session_id).await;
                         continued
                             .read(&hold, run_id, driver.message_handing())
                             .await
                             .map_err(RunPauseError::WaitingMessagesUnread)?
+                    };
+                    // An undo holds the session: the run resumes at its release, so the driver is
+                    // not asked and nothing is written.
+                    let messages = match read {
+                        ContinuedRead::Messages(messages) => messages,
+                        ContinuedRead::HeldForUndo => return Err(ResumeHalt::HeldForUndo(run)),
                     };
                     let params = ResumeRunParams {
                         session_id,
@@ -408,11 +433,11 @@ impl RunPauseControl {
                             // The provider may have taken the messages; its own word settles
                             // them.
                             continued.keep(&hold, run_id);
-                            Err(RunPauseError::Driver(unanswered))
+                            Err(RunPauseError::Driver(unanswered).into())
                         }
                         Err(driver_error) => {
                             let failure = RunPauseError::Driver(driver_error);
-                            Err(release(continued, &hold, run_id, failure).await)
+                            Err(release(continued, &hold, run_id, failure).await.into())
                         }
                     }
                 },
@@ -421,7 +446,13 @@ impl RunPauseControl {
         let running = match resumed {
             Ok(running) => running,
             Err(RunResumeError::Unstarted(refused)) => return Err(refused.into()),
-            Err(RunResumeError::Driver(failure)) => return Err(failure),
+            Err(RunResumeError::Driver(ResumeHalt::Failed(failure))) => return Err(failure),
+            Err(RunResumeError::Driver(ResumeHalt::HeldForUndo(run))) => {
+                return Ok(RunResumed {
+                    response: run_control_response(run_id, &run),
+                    is_hold_lost: false,
+                });
+            }
             Err(RunResumeError::Change(change)) => {
                 tracing::warn!(
                     run_id = %run_id,
@@ -456,6 +487,13 @@ impl RunPauseControl {
                 .get()
                 .expect("the driver took the resume the run moved on"),
         })
+    }
+
+    /// Waits out a pause's or a resume's call on `run_id` already under way, so its outcome is
+    /// written when this returns; nothing is moved. Never called under the queue's lock on the
+    /// run's session, which a resume holding the run waits for at its read.
+    pub async fn wait_out_calls(&self, run_id: RunId) {
+        drop(self.run_lock.acquire(run_id).await);
     }
 
     // Settles the messages a resume the driver took read, its move refused or failed, answering

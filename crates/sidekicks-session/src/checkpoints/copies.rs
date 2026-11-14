@@ -219,4 +219,4 @@ fn copy_hashing(reader: &mut impl Read, writer: &mut impl Write) -> io::Result<S
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

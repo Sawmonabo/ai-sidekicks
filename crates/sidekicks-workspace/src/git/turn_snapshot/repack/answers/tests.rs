@@ -16,29 +16,33 @@ fn id(text: &str) -> GitObjectId {
 // The capture of the test's tree over `base`.
 fn point(base: Option<&str>) -> SnapshotPoint {
     SnapshotPoint {
+        commit: id(COMMIT),
         tree: id(TREE),
         base: base.map(id),
     }
 }
 
-// A count read from anything but one decimal `count:` and one `packs:` would let a missing pack
-// count read as 0 and skip a due fold, or a garbled one skip the sweep. Fails when a missing,
-// repeated or non-decimal count reads, or when another line is not ignored.
+// A count read from anything but one decimal `count:`, `packs:` and `garbage:` line each would let
+// a missing pack count read as 0 and skip a due fold, a missing garbage count read as 0 and never
+// walk a fan-out folder for git's temporaries, or a garbled one skip the sweep. Fails when a
+// missing, repeated or non-decimal count reads, or when another line is not ignored.
 #[rstest]
-#[case::both_counts(
-    b"count: 0\nsize: 0\nin-pack: 3\npacks: 11\nsize-pack: 1\n".as_slice(),
-    Some(ObjectCounts { loose: 0, packs: 11 })
+#[case::every_count(
+    b"count: 0\nsize: 0\nin-pack: 3\npacks: 11\nsize-pack: 1\ngarbage: 2\nsize-garbage: 0\n"
+        .as_slice(),
+    Some(ObjectCounts { loose: 0, packs: 11, garbage: 2 })
 )]
 #[case::loose_objects(
-    b"count: 4\npacks: 0\n".as_slice(),
-    Some(ObjectCounts { loose: 4, packs: 0 })
+    b"count: 4\npacks: 0\ngarbage: 0\n".as_slice(),
+    Some(ObjectCounts { loose: 4, packs: 0, garbage: 0 })
 )]
-#[case::packs_missing(b"count: 0\nsize: 0\n".as_slice(), None)]
-#[case::count_missing(b"packs: 2\n".as_slice(), None)]
-#[case::packs_repeated(b"count: 0\npacks: 1\npacks: 2\n".as_slice(), None)]
-#[case::packs_not_decimal(b"count: 0\npacks: +2\n".as_slice(), None)]
-#[case::count_empty(b"count: \npacks: 2\n".as_slice(), None)]
-fn object_counts_read_only_from_one_decimal_count_and_pack_line(
+#[case::packs_missing(b"count: 0\nsize: 0\ngarbage: 0\n".as_slice(), None)]
+#[case::count_missing(b"packs: 2\ngarbage: 0\n".as_slice(), None)]
+#[case::garbage_missing(b"count: 0\npacks: 2\nsize-garbage: 0\n".as_slice(), None)]
+#[case::packs_repeated(b"count: 0\npacks: 1\npacks: 2\ngarbage: 0\n".as_slice(), None)]
+#[case::packs_not_decimal(b"count: 0\npacks: +2\ngarbage: 0\n".as_slice(), None)]
+#[case::count_empty(b"count: \npacks: 2\ngarbage: 0\n".as_slice(), None)]
+fn object_counts_read_only_from_one_decimal_count_pack_and_garbage_line(
     #[case] answer: &[u8],
     #[case] expected: Option<ObjectCounts>,
 ) {

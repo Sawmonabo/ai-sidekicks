@@ -7,7 +7,10 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::approval::RememberedScopeKind;
 use url::Url;
 
-use crate::driver::claude::delivery::patches::is_claude_file_changing_tool;
+use crate::driver::claude::delivery::patches::{
+    is_claude_file_changing_tool, select_claude_edit_path,
+};
+use crate::driver::claude::spawn::settings::CLAUDE_SHELL_TOOL_NAME;
 use crate::port::permission_ask::ProviderAskAction;
 use crate::record_readers::read_non_empty_string;
 
@@ -49,7 +52,7 @@ pub(crate) fn read_claude_ask_action(
 }
 
 fn read_action(tool_name: &str, input: &Map<String, Value>) -> ProviderAskAction {
-    if tool_name == "Bash"
+    if tool_name == CLAUDE_SHELL_TOOL_NAME
         && let Some(command) = read_non_empty_string(input, "command")
     {
         return ProviderAskAction::Command {
@@ -57,8 +60,10 @@ fn read_action(tool_name: &str, input: &Map<String, Value>) -> ProviderAskAction
         };
     }
     if is_claude_file_changing_tool(tool_name)
-        && let Some(path) = read_non_empty_string(input, "file_path")
-            .or_else(|| read_non_empty_string(input, "notebook_path"))
+        && let Some(path) = select_claude_edit_path(
+            input.get("file_path").and_then(Value::as_str),
+            input.get("notebook_path").and_then(Value::as_str),
+        )
     {
         return ProviderAskAction::FileChange {
             paths: vec![path.to_owned()],

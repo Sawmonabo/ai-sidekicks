@@ -1,15 +1,18 @@
 //! The shadow rows of files over 10 MiB, which are never hashed: each shadow's clone or why none
 //! was kept with the facts a later capture compares, the shadows an open window's before-capture
-//! stood on, and the session's own folders on other volumes. Each write is a statement for the
+//! stood on, the retired shadows nothing uses any more, the session's own folders on other volumes,
+//! and the folders a purge owes on volumes that were absent. Each write is a statement for the
 //! caller's own write; the clones' bytes sit on disk, never in a row.
 
 use std::borrow::Cow;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use rusqlite::types::{Type, Value as SqlValue};
 use rusqlite::{Connection, Row, named_params};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::{IdError, UuidText, UuidTextForm, mint_uuid_v7};
 use sidekicks_platforms::{EntryIdentity, FileFacts, VolumeId};
 use sidekicks_store::database::statement::{
@@ -32,6 +35,24 @@ const INSERT_CURRENT_SHADOW_SQL: &str = "INSERT INTO checkpoint_shadows
 const RETIRE_CURRENT_SHADOW_SQL: &str = "UPDATE checkpoint_shadows SET is_current = 0
   WHERE session_id = @sessionId AND path = @path AND is_current = 1";
 
+/// The condition a shadow row, named `shadows`, meets while it is retired, linked to no window and
+/// named by no version.
+macro_rules! unused_shadow {
+    () => {
+        "shadows.is_current = 0
+   AND NOT EXISTS (SELECT 1 FROM checkpoint_window_shadows AS links
+                    WHERE links.shadow_id = shadows.shadow_id)
+   AND NOT EXISTS (SELECT 1 FROM checkpoint_versions AS versions
+                    WHERE versions.shadow_id = shadows.shadow_id)"
+    };
+}
+
+// The guard sits in the statement itself, so a shadow that became used is refused, never deleted.
+const DELETE_UNUSED_SHADOW_SQL: &str = concat!(
+    "DELETE FROM checkpoint_shadows AS shadows WHERE shadows.shadow_id = @shadowId AND ",
+    unused_shadow!()
+);
+
 const LINK_WINDOW_SHADOW_SQL: &str =
     "INSERT INTO checkpoint_window_shadows (window_id, shadow_id) VALUES (@windowId, @shadowId)";
 
@@ -44,16 +65,21 @@ const INSERT_VOLUME_FOLDER_SQL: &str =
   VALUES (@sessionId, @folder, @volumeId)
   ON CONFLICT DO NOTHING";
 
-/// A select of the shadow columns [`shadow_of`] reads, in its order, with `$tail`.
+const INSERT_OWED_FOLDER_SQL: &str =
+    "INSERT INTO checkpoint_owed_folders (folder, volume_id) VALUES (@folder, @volumeId)";
+
+const DELETE_OWED_FOLDER_SQL: &str = "DELETE FROM checkpoint_owed_folders WHERE folder = @folder";
+
+/// A select of the shadow columns [`shadow_of`] reads, in its order, with `$tail` joined on.
 macro_rules! select_shadows {
-    ($tail:literal) => {
+    ($($tail:tt)+) => {
         concat!(
             "SELECT shadows.shadow_id, shadows.session_id, shadows.path, shadows.clone_path,
        shadows.volume_id, shadows.not_kept_reason, shadows.identity, shadows.size,
        shadows.link_count, shadows.modified, shadows.changed, shadows.taken_at,
        shadows.time_precision
   FROM checkpoint_shadows AS shadows ",
-            $tail
+            $($tail)+
         )
     };
 }
@@ -68,8 +94,33 @@ const WINDOW_SHADOWS_SQL: &str = select_shadows!(
  ORDER BY shadows.path"
 );
 
+const UNUSED_SHADOWS_SQL: &str = select_shadows!(
+    "WHERE shadows.session_id = @sessionId AND ",
+    unused_shadow!(),
+    " ORDER BY shadows.path"
+);
+
+// A session marked for its purge is left to the purge, which removes its clones' folder whole.
+static SESSIONS_WITH_UNUSED_SHADOWS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT DISTINCT shadows.session_id FROM checkpoint_shadows AS shadows
+ WHERE {}
+   AND NOT EXISTS (SELECT 1 FROM sessions
+                    WHERE sessions.id = shadows.session_id AND sessions.state = '{}')
+ ORDER BY shadows.session_id",
+        unused_shadow!(),
+        <&'static str>::from(SessionState::PurgeRequested)
+    )
+});
+
 const VOLUME_FOLDERS_SQL: &str = "SELECT folder, volume_id FROM checkpoint_volume_folders
   WHERE session_id = @sessionId ORDER BY folder";
+
+const EVERY_VOLUME_FOLDER_SQL: &str = "SELECT folder, volume_id, session_id
+  FROM checkpoint_volume_folders ORDER BY session_id, folder";
+
+const OWED_FOLDERS_SQL: &str =
+    "SELECT folder, volume_id FROM checkpoint_owed_folders ORDER BY folder";
 
 /// The daemon-minted id of one shadow, which its row, the versions and windows naming it, and its
 /// clone's file name carry.
@@ -189,7 +240,8 @@ pub fn insert_current_shadow_statement(shadow: &Shadow) -> WriteStatement {
 }
 
 /// The retire of `session_id`'s current shadow of `path`, which stays while a window or a version
-/// names it. Writes nothing when the path holds no current shadow in that session.
+/// names it. Refused when the path holds no current shadow in that session, since its caller reads
+/// the current shadows first.
 pub fn retire_current_shadow_statement(
     session_id: SessionId,
     path: &FilesystemPath,
@@ -200,7 +252,20 @@ pub fn retire_current_shadow_statement(
             text_binding("@sessionId", session_id.text().as_str()),
             text_binding("@path", path.as_str()),
         ]),
-        expected_row_count: None,
+        expected_row_count: Some(1),
+    }
+}
+
+/// The delete of the row of `shadow_id` while it is retired, linked to no window and named by no
+/// version; refused otherwise, as when the shadow became used since it was read.
+pub fn delete_unused_shadow_statement(shadow_id: ShadowId) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(DELETE_UNUSED_SHADOW_SQL),
+        bindings: StatementBindings::Named(vec![text_binding(
+            "@shadowId",
+            shadow_id.text().as_str(),
+        )]),
+        expected_row_count: Some(1),
     }
 }
 
@@ -213,7 +278,7 @@ pub fn link_window_shadow_statement(
     WriteStatement {
         sql: Cow::Borrowed(LINK_WINDOW_SHADOW_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@windowId", window_id.0.text().as_str()),
+            text_binding("@windowId", window_id.text().as_str()),
             text_binding("@shadowId", shadow_id.text().as_str()),
         ]),
         expected_row_count: Some(1),
@@ -227,7 +292,7 @@ pub fn unlink_window_shadows_statement(window_id: CommandWindowId) -> WriteState
         sql: Cow::Borrowed(UNLINK_WINDOW_SHADOWS_SQL),
         bindings: StatementBindings::Named(vec![text_binding(
             "@windowId",
-            window_id.0.text().as_str(),
+            window_id.text().as_str(),
         )]),
         expected_row_count: None,
     }
@@ -247,6 +312,31 @@ pub fn insert_volume_folder_statement(
             text_binding("@folder", folder.folder.as_str()),
             text_binding("@volumeId", &volume_id),
         ]),
+        expected_row_count: None,
+    }
+}
+
+/// The row of `folder`, owed by its purged session until its volume is back, written in the write
+/// that deletes the folder's row in its session. Refused by SQLite when the folder is already
+/// owed, which no purge meets, since a folder is named for its one session.
+pub fn insert_owed_folder_statement(folder: &VolumeFolder) -> WriteStatement {
+    let volume_id = folder.volume_id.to_string();
+    WriteStatement {
+        sql: Cow::Borrowed(INSERT_OWED_FOLDER_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@folder", folder.folder.as_str()),
+            text_binding("@volumeId", &volume_id),
+        ]),
+        expected_row_count: Some(1),
+    }
+}
+
+/// The delete of the owed row of `folder`, once the folder is gone; writes nothing for a folder
+/// owed by no row.
+pub fn delete_owed_folder_statement(folder: &FilesystemPath) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(DELETE_OWED_FOLDER_SQL),
+        bindings: StatementBindings::Named(vec![text_binding("@folder", folder.as_str())]),
         expected_row_count: None,
     }
 }
@@ -275,9 +365,34 @@ pub fn window_shadows(
     connection
         .prepare_cached(WINDOW_SHADOWS_SQL)?
         .query_map(
-            named_params! { "@windowId": window_id.0.text().as_str() },
+            named_params! { "@windowId": window_id.text().as_str() },
             shadow_of,
         )?
+        .collect()
+}
+
+/// `session_id`'s shadows that are retired, linked to no window and named by no version, by path.
+/// The caller removes each one's clone only after its delete committed, so a row never names a
+/// clone that is gone. Fails as SQLite does, or when a stored column does not read.
+pub fn unused_shadows(
+    connection: &Connection,
+    session_id: SessionId,
+) -> rusqlite::Result<Vec<Shadow>> {
+    connection
+        .prepare_cached(UNUSED_SHADOWS_SQL)?
+        .query_map(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            shadow_of,
+        )?
+        .collect()
+}
+
+/// The sessions, none marked for its purge, holding a shadow that is retired, linked to no window
+/// and named by no version, in id order. Fails as SQLite does, or when a stored id does not read.
+pub fn sessions_with_unused_shadows(connection: &Connection) -> rusqlite::Result<Vec<SessionId>> {
+    connection
+        .prepare_cached(&SESSIONS_WITH_UNUSED_SHADOWS_SQL)?
+        .query_map([], |row| text_column(row, 0, |text| SessionId::new(&text)))?
         .collect()
 }
 
@@ -291,13 +406,33 @@ pub fn volume_folders(
         .prepare_cached(VOLUME_FOLDERS_SQL)?
         .query_map(
             named_params! { "@sessionId": session_id.text().as_str() },
-            |row| {
-                Ok(VolumeFolder {
-                    folder: text_column(row, 0, FilesystemPath::new)?,
-                    volume_id: text_column(row, 1, |text| text.parse::<VolumeId>())?,
-                })
-            },
+            volume_folder_of,
         )?
+        .collect()
+}
+
+/// Every session's own folders on other volumes, by session and then folder. Fails as SQLite does,
+/// or when a stored column does not read.
+pub fn every_volume_folder(
+    connection: &Connection,
+) -> rusqlite::Result<Vec<(SessionId, VolumeFolder)>> {
+    connection
+        .prepare_cached(EVERY_VOLUME_FOLDER_SQL)?
+        .query_map([], |row| {
+            Ok((
+                text_column(row, 2, |text| SessionId::new(&text))?,
+                volume_folder_of(row)?,
+            ))
+        })?
+        .collect()
+}
+
+/// The folders purges still owe on volumes that were absent, by folder. Fails as SQLite does, or
+/// when a stored column does not read.
+pub fn owed_folders(connection: &Connection) -> rusqlite::Result<Vec<VolumeFolder>> {
+    connection
+        .prepare_cached(OWED_FOLDERS_SQL)?
+        .query_map([], volume_folder_of)?
         .collect()
 }
 
@@ -314,6 +449,14 @@ where
     value
         .try_into()
         .unwrap_or(if is_negative { i64::MIN } else { i64::MAX })
+}
+
+// Reads a folder and its volume id, in that order.
+fn volume_folder_of(row: &Row<'_>) -> rusqlite::Result<VolumeFolder> {
+    Ok(VolumeFolder {
+        folder: text_column(row, 0, FilesystemPath::new)?,
+        volume_id: text_column(row, 1, |text| text.parse::<VolumeId>())?,
+    })
 }
 
 // Reads the columns `select_shadows!` takes, in its order. A stored size, link count and time

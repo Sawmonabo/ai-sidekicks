@@ -16,6 +16,16 @@ pub(crate) fn write_stand_in_script(
     program: &StandInProgram,
 ) -> io::Result<PathBuf> {
     let mut script = String::from("#!/bin/sh\n");
+    if let Some(wait) = program.first_call_wait {
+        let marker = folder.join(format!("{name}.first-call"));
+        writeln!(
+            script,
+            "if [ ! -e {marker} ]; then : > {marker}; sleep {}; fi",
+            wait.as_secs_f64(),
+            marker = quote_single(script_path_text(&marker)?),
+        )
+        .expect("a String takes every write");
+    }
     for (first_argument, answer) in &program.answers_by_first_argument {
         writeln!(
             script,

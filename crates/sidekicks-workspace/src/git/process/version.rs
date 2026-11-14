@@ -1,7 +1,7 @@
 //! The record of what was read of the daemon's git build (its release, whether it has its built-in
 //! file watch, and the stat data of the program and of the git it runs), kept once per runner and
 //! read again only before a refusal and only when that stat data changed, and the first git
-//! release of each feature a capture or its packing calls.
+//! release of each feature a capture, its packing or a read of an index calls.
 
 use std::ffi::OsString;
 use std::fmt;
@@ -22,6 +22,10 @@ pub(crate) enum GitFeature {
     CoreFsync,
     /// `sparse-checkout check-rules`, from 2.41, which a capture in a sparse root runs.
     SparseCheckoutCheckRules,
+    /// `ls-files --sparse`, from 2.35, which keeps a sparse index's folders as the trees they
+    /// name, so the backup's read of an index and the clone's listing of its submodules never
+    /// expand one.
+    LsFilesSparse,
 }
 
 impl GitFeature {
@@ -31,6 +35,7 @@ impl GitFeature {
             Self::RepackGeometric => 32,
             Self::CoreFsync => 36,
             Self::SparseCheckoutCheckRules => 41,
+            Self::LsFilesSparse => 35,
         };
         GitVersion {
             major: 2,

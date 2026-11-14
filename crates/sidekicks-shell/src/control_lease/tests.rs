@@ -19,14 +19,16 @@ use super::{ShellConnection, ShellControlLease, ShellLeaseCaller, ShellLeaseRun,
 
 /// A lease whose broadcasts are recorded as sent, and whose next broadcasts a case can hold back
 /// and then land or fail.
-struct LeaseUnderTest {
-    lease: Arc<ShellControlLease>,
+pub(crate) struct LeaseUnderTest {
+    /// The lease.
+    pub(crate) lease: Arc<ShellControlLease>,
     changes: Arc<Mutex<Vec<Value>>>,
     held: Arc<Mutex<VecDeque<oneshot::Receiver<bool>>>>,
 }
 
 impl LeaseUnderTest {
-    fn open() -> Self {
+    /// A lease nobody holds, of the machine `device-machine`, whose every caller is open.
+    pub(crate) fn open() -> Self {
         let changes = Arc::new(Mutex::new(Vec::new()));
         let held: Arc<Mutex<VecDeque<oneshot::Receiver<bool>>>> = Arc::default();
         let recorded = Arc::clone(&changes);
@@ -67,7 +69,7 @@ impl LeaseUnderTest {
     }
 
     /// Holds the next broadcast back; the sender lands it with `true` and fails it with `false`.
-    fn hold_next_broadcast(&self) -> oneshot::Sender<bool> {
+    pub(crate) fn hold_next_broadcast(&self) -> oneshot::Sender<bool> {
         let (land, gate) = oneshot::channel();
         self.held
             .lock()
@@ -77,7 +79,7 @@ impl LeaseUnderTest {
     }
 
     /// Lets spawned acts run until `count` broadcasts have been sent.
-    async fn sent(&self, count: usize) {
+    pub(crate) async fn sent(&self, count: usize) {
         while self
             .changes
             .lock()
@@ -90,7 +92,7 @@ impl LeaseUnderTest {
     }
 
     /// Each broadcast as `(reason, leaseVersion, holderDeviceId, previousHolderDeviceId)`.
-    fn changes(&self) -> Vec<(String, u64, Option<String>, Option<String>)> {
+    pub(crate) fn changes(&self) -> Vec<(String, u64, Option<String>, Option<String>)> {
         let text = |value: &Value| value.as_str().map(str::to_owned);
         self.changes
             .lock()
@@ -126,7 +128,8 @@ fn caller(device_id: &str, transport: u64, subscription: &str) -> ShellLeaseCall
     }
 }
 
-fn run(run_id: &str, command_id: &str) -> ShellLeaseRun {
+/// The run `run_id` holding a shell for its command `command_id`.
+pub(crate) fn run(run_id: &str, command_id: &str) -> ShellLeaseRun {
     ShellLeaseRun {
         run_id: RunId::new(run_id).expect("a run id"),
         command_id: CommandId::new(command_id.to_owned()).expect("a command id"),
