@@ -118,7 +118,6 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
         kind="error"
         placement="block"
         title="Couldn't load run"
-        detail={runState.refusal.detail}
         action={<TryAgainButton onPress={page.readRunAgain} />}
         attempt={runState.refusal}
       />

@@ -52,7 +52,7 @@ import {
 } from "#renderer/features/transcript/viewport/caps.js";
 import {
   deriveTranscriptWindow,
-  type TranscriptPipelineStage,
+  type TranscriptWindowModel,
 } from "#renderer/features/transcript/window/transcript-window.js";
 import { BudgetRegistry } from "../../helpers/budget/registry.js";
 import { evaluateBudget } from "../../helpers/budget/evaluation.js";
@@ -270,16 +270,16 @@ describe("endurance — the transcript's fold over a long session", () => {
 
     const stage = new RunGroupFold().fold(model, new Set(), wholeRunWindowInputs());
 
-    expect(stage.window.viewportRows.length).toBeGreaterThan(listRowBound);
+    expect(stage.viewportRows.length).toBeGreaterThan(listRowBound);
   });
 
   it("negative control: a press that walks every admitted row and keeps its stage crosses the press and retention ceilings", async () => {
     // Without this the walk's ceilings could pass over a reading that timed nothing of the press
     // or a heap sample that saw nothing it kept. Each press resolves the window again for every
     // row it admits, and keeps the stage it folded.
-    const keptStages: TranscriptPipelineStage[] = [];
+    const keptStages: TranscriptWindowModel[] = [];
     const walk = await walkRunWindow(PLANTED_SWEEP_COUNT, (press) => {
-      for (let row = 0; row < press.stage.window.viewportRows.length; row += 1) {
+      for (let row = 0; row < press.stage.viewportRows.length; row += 1) {
         press.inputs.windows.windowOf(press.runGroup, RUN_WINDOW_MEASURE);
       }
       keptStages.push(press.stage);
@@ -299,7 +299,7 @@ describe("endurance — the transcript's fold over a long session", () => {
 
 /** One press of the walk, as a planted regression sees it inside the press's timing. */
 interface RunWindowPress {
-  readonly stage: TranscriptPipelineStage;
+  readonly stage: TranscriptWindowModel;
   readonly inputs: ReturnType<typeof measuredRunWindowInputs>;
   readonly runGroup: RunGroup;
 }
@@ -366,7 +366,7 @@ async function walkRunWindow(
         const spent = process.threadCpuUsage(before);
         pressCpuMs[pressCount] = (spent.user + spent.system) / 1000;
         pressCount += 1;
-        mostListRows = Math.max(mostListRows, stage.window.viewportRows.length);
+        mostListRows = Math.max(mostListRows, stage.viewportRows.length);
       }
     }
     // The warm-up sweep's presses compile the walk; they are timed but not read.

@@ -6,7 +6,6 @@ import { formatCount } from "#renderer/lib/wire/figures.js";
 import { partialReadNotices } from "#renderer/lib/partial-read.js";
 import {
   answeredReadingStates,
-  ATTENTION_SUBJECT,
   type AnsweredAttentionReading,
 } from "#renderer/store/attention/summary.js";
 
@@ -41,8 +40,8 @@ function uncheckedSessionsSentence(refusedCount: number): string {
  */
 function incompletenessSentences(reading: AnsweredAttentionReading): readonly string[] {
   const sentences: string[] = [];
-  for (const notice of partialReadNotices(answeredReadingStates(reading), ATTENTION_SUBJECT)) {
-    // The `reading` shape says nothing aloud (`Nothing` speaks its own title); `none` was whole.
+  for (const notice of partialReadNotices(answeredReadingStates(reading))) {
+    // `none` owes no sentence.
     if (notice.shape === "counted-sentence") {
       sentences.push(`${notice.figure} ${notice.copy}`);
     }

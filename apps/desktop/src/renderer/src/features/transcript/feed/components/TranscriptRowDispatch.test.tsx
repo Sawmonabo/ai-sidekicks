@@ -70,7 +70,7 @@ describe("the feed's row dispatch — a key the window no longer holds", () => {
       ),
       new Set<string>(),
       wholeRunWindowInputs(),
-    ).window;
+    );
   }
 
   it("names a row the window no longer holds rather than drawing a blank band", () => {
@@ -108,7 +108,7 @@ describe("the feed's row dispatch — the edges of a long run's window", () => {
     const inputs = measuredRunWindowInputs(measure);
     inputs.windows.windowOf(runGroup, measure);
     inputs.windows.openStretch(runGroup, "earlier", measure);
-    const transcriptWindow = new RunGroupFold().fold(model, new Set(), inputs).window;
+    const transcriptWindow = new RunGroupFold().fold(model, new Set(), inputs);
     const admittedIds = new Set(transcriptWindow.rows.map((row) => row.id));
     const callIds = longRunCallIds(events);
     const firstAdmitted = callIds.findIndex((callId) => admittedIds.has(callId));

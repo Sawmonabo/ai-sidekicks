@@ -13,6 +13,7 @@ import { createRunRead, type WorkflowReadSources } from "#renderer/features/work
 import { isPersonWaitCause, latestStepWith } from "../../steps.js";
 import { stepKeyText, type StepAddress } from "../step/address.js";
 import type { HeldStepAnswer } from "../step/held-answer.js";
+import { recordReadFailure } from "../read-failure.js";
 import { useRunDocument, type RunDocumentHold } from "./useRunDocument.js";
 
 /** Everything one run's page draws, and the acts on what it shows. */
@@ -74,6 +75,13 @@ export function useRunPage(options: {
       onRunMissing();
     }
   }, [isMissing, onRunMissing]);
+  // The failed line names no cause, so the cause goes to diagnostics, once per refusal.
+  const failedRefusal = runState.kind === "failed" ? runState.refusal : undefined;
+  useEffect(() => {
+    if (failedRefusal !== undefined) {
+      recordReadFailure(failedRefusal);
+    }
+  }, [failedRefusal]);
 
   const selectNode = useCallback((nodeId: string | undefined) => {
     setPicked({ nodeId });

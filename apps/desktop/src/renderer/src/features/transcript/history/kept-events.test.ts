@@ -81,7 +81,7 @@ describe("letting go of the calls a long run's window leaves out", () => {
       windows,
       measureOf: () => MEASURE,
       moveCount: 0,
-    }).window;
+    });
     const kept = keptEventCursors([], drawn.viewportRows, {
       unfurledWindow: model,
       transcriptWindow: drawn,
@@ -155,7 +155,7 @@ describe("letting go of the calls a long run's window leaves out", () => {
         windows,
         measureOf: () => MEASURE,
         moveCount: 0,
-      }).window;
+      });
       return {
         entries: runGroupHeadingOf(runGroup).entryCount,
         rows: drawn.viewportRows.map((row) =>

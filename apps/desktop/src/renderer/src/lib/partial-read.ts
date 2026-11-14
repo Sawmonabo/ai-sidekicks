@@ -1,13 +1,11 @@
 // What a reading is when it is not the whole of what was asked for, and the one sentence set
 // that says so, so every view words it the same way.
 //
-// A view never claims a completeness it cannot prove: `served` is the only state with no notice,
-// and `readingNoticeFor` is total over the union, so a state without a sentence fails to compile.
+// A view never claims a completeness it cannot prove: `served` and a read still in flight, which
+// its view draws its own loading line for, are the only states with no notice, and
+// `readingNoticeFor` is total over the union, so a state without a sentence fails to compile.
 // `partialReadNotices` takes every reading a view holds, so a served snapshot beside an unreadable
 // tail cannot render as exhaustive.
-//
-// The subject is a caller-written noun phrase of unknown number ("the queue", "these quotas"), so
-// no arm puts it in front of a verb.
 
 import type { Refusal } from "./refusal/contract.js";
 import { formatCount } from "./wire/figures.js";
@@ -33,12 +31,11 @@ export type ReadingState =
     };
 
 /**
- * What a notice says, so its reader branches on a closed instruction. `"reading"` is a read still
- * in flight; the counted sentence is led by its figure.
+ * What a notice says, so its reader branches on a closed instruction. The counted sentence is led
+ * by its figure.
  */
 export type PartialReadNotice =
   | { readonly shape: "none" }
-  | { readonly shape: "reading"; readonly title: string }
   | {
       readonly shape: "counted-sentence";
       /** The count, already `Intl`-formatted. */
@@ -48,8 +45,8 @@ export type PartialReadNotice =
       readonly refusal: Refusal | undefined;
     };
 
-/** The one shape that claims the reading is whole. */
-const COMPLETE_NOTICE: PartialReadNotice = { shape: "none" };
+/** The one shape that owes no notice: the reading is whole, or still in flight. */
+const NO_NOTICE: PartialReadNotice = { shape: "none" };
 
 /**
  * The reading a count of unreadable deliveries is: a running count and the newest parse refusal
@@ -68,16 +65,19 @@ export function unreadableDeliveryReading(
 }
 
 /**
- * The sentence a reading state says of itself, about `subject`: a lowercase noun phrase such as
- * "the queue" or "these quotas", placed mid-sentence in every arm so callers never capitalize it.
- * Total over `ReadingState`.
+ * Every notice a view's readings owe, in the order the view holds them. An empty answer means
+ * every reading is served or still in flight, the only way this module says a view owes no notice.
  */
-export function readingNoticeFor(state: ReadingState, subject: string): PartialReadNotice {
+export function partialReadNotices(states: readonly ReadingState[]): readonly PartialReadNotice[] {
+  return states.map((state) => readingNoticeFor(state)).filter((notice) => notice.shape !== "none");
+}
+
+/** The notice a reading state owes. Total over `ReadingState`. */
+function readingNoticeFor(state: ReadingState): PartialReadNotice {
   switch (state.kind) {
     case "served":
-      return COMPLETE_NOTICE;
     case "reading":
-      return { shape: "reading", title: `Loading ${subject}…` };
+      return NO_NOTICE;
     case "partial":
       return {
         shape: "counted-sentence",
@@ -86,17 +86,4 @@ export function readingNoticeFor(state: ReadingState, subject: string): PartialR
         refusal: state.newestRefusal,
       };
   }
-}
-
-/**
- * Every notice a view's readings owe, in the order the view holds them. An empty answer means
- * every reading is served, the only way this module says a view shows the whole of it.
- */
-export function partialReadNotices(
-  states: readonly ReadingState[],
-  subject: string,
-): readonly PartialReadNotice[] {
-  return states
-    .map((state) => readingNoticeFor(state, subject))
-    .filter((notice) => notice.shape !== "none");
 }

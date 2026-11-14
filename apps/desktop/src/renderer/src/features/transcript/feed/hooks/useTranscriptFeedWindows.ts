@@ -29,7 +29,6 @@ import { ChangingRowIndex } from "../../window/changing-rows.js";
 import { type RowSourceWindows } from "../../window/row-sources.js";
 import {
   deriveTranscriptWindow,
-  type TranscriptPipelineStage,
   type TranscriptWindowModel,
 } from "../../window/transcript-window.js";
 import {
@@ -90,18 +89,13 @@ export interface TranscriptFeedWindowsInputs {
   readonly prepareRow: TranscriptRowRenderer["prepareRow"];
 }
 
-/**
- * The chain, with every stage's own report beside it. Published as separate members because find
- * classifies an id against every stage to say which one removed a row, while the rows render the
- * folded one.
- */
+/** The chain's windows, unfolded and as the feed draws them, with what the feed does over them. */
 export interface TranscriptFeedWindows {
   readonly firstReadSettled: boolean;
   /** What this session's reader folded, and the acts that fold and open. */
   readonly folds: TranscriptFolds;
   /** Every member row of every run group, before any fold. */
   readonly unfurledWindow: TranscriptWindowModel;
-  readonly runGroupFold: TranscriptPipelineStage;
   /**
    * The last model window: folded by run group, its lists holding only rows the feed draws and
    * only once each draws whole.
@@ -184,14 +178,14 @@ export function useTranscriptFeedWindows(
       runWindowMoveCount,
     ],
   );
-  const runGroupFold = useFoldedRunGroups(
+  const foldedWindow = useFoldedRunGroups(
     unfurledWindow,
     folds.foldedRunGroupKeys,
     runWindowInputs,
     inputs.sessionStore.sessionId,
   );
   const drawsBody = inputs.drawsBody;
-  const drawnWindow = useDrawnRows(runGroupFold.window, drawsBody, inputs.sessionStore.sessionId);
+  const drawnWindow = useDrawnRows(foldedWindow, drawsBody, inputs.sessionStore.sessionId);
   // Over the unfurled window's system messages, which name the rows a fold hides as well.
   const drawsRow = useCallback(
     (row: ProjectedTranscriptRow) =>
@@ -400,7 +394,7 @@ export function useTranscriptFeedWindows(
           new RunGroupFold().fold(derivedWindow, foldedRunGroupKeys, {
             ...runWindowInputs,
             windows: runCallWindows.clone(),
-          }).window,
+          }),
           drawsBody,
         ),
       };
@@ -475,7 +469,6 @@ export function useTranscriptFeedWindows(
     firstReadSettled,
     folds,
     unfurledWindow,
-    runGroupFold,
     transcriptWindow,
     reveal,
     viewport,

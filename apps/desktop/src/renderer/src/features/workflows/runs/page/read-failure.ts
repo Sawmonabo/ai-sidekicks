@@ -14,8 +14,13 @@ export function recordedReadFailure(refusal: Refusal): {
   readonly kind: "failed";
   readonly refusal: Refusal;
 } {
+  recordReadFailure(refusal);
+  return { kind: "failed", refusal };
+}
+
+/** Record a failed read's cause in diagnostics unless a daemon call already did. Once per settle. */
+export function recordReadFailure(refusal: Refusal): void {
   if (refusal.origin !== DAEMON_REPLY_REFUSAL_ORIGIN) {
     recordRejectedRequest(refusal.origin, refusal.code, refusal);
   }
-  return { kind: "failed", refusal };
 }

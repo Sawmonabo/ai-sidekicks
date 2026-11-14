@@ -1,7 +1,7 @@
 // One loaded transcript window, derived from a session's log on every store revision. The
 // virtualizer's rows are identity only (`key`, `parentKey`, `rootCursor`); `rowsByKey` joins a key
 // to its projected row. The window is unfurled (every member of every run group) because the fold
-// in `feed/run-group-fold.ts` runs after it, and Find counts a folded group's rows.
+// in `feed/run-group-fold.ts` runs after it.
 //
 // A log the store grew at its end is derived a stretch at a time: the appended events are projected
 // and joined to every index, and only what they touched is published anew. Anything else the store
@@ -31,23 +31,6 @@ import { PublishedKeyedList } from "./published-keyed-list.js";
 import { ReplyIndex } from "./reply-rows.js";
 import { appendedStretchOf } from "./row-positions.js";
 import { hasSameMembers } from "./row-retention.js";
-
-/**
- * What one pipeline stage admitted and the rows it removed. The stage reports its own removals
- * because it already has them; deriving them downstream costs two whole-projection passes per
- * stage on every append while a query is in the find field.
- */
-export interface TranscriptPipelineStage {
-  readonly window: TranscriptWindowModel;
-  /** The rows this stage took out of the window it was handed, in log order. */
-  readonly removedRows: readonly ProjectedTranscriptRow[];
-}
-
-/**
- * The removal a pass-through stage reports. One shared array: a consumer keys a memo on its
- * identity, and a fresh `[]` per pass would re-run that memo on every append.
- */
-export const NO_ROWS_REMOVED: readonly ProjectedTranscriptRow[] = [];
 
 /**
  * Everything one render of the transcript needs, derived once per store revision. A member that

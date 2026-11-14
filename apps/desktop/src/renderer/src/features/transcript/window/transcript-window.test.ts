@@ -41,11 +41,7 @@ import {
 import { type RunWindowInputs } from "../feed/run-group-fold.js";
 import { FindMatchList, type FindResult } from "../find/matcher.js";
 import { ChangingRowIndex } from "./changing-rows.js";
-import {
-  TranscriptWindowDerivation,
-  type TranscriptPipelineStage,
-  type TranscriptWindowModel,
-} from "./transcript-window.js";
+import { TranscriptWindowDerivation, type TranscriptWindowModel } from "./transcript-window.js";
 import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 /**
@@ -77,7 +73,7 @@ function drawsBody(row: ProjectedTranscriptRow): boolean {
 /** Every window the feed derives from one log, the rows still changing in it, and each find. */
 interface Windows {
   readonly unfurled: TranscriptWindowModel;
-  readonly fold: TranscriptPipelineStage;
+  readonly fold: TranscriptWindowModel;
   readonly drawn: TranscriptWindowModel;
   readonly changingRowIds: ReadonlySet<string>;
   /** What each find query reads over the drawn rows. */
@@ -118,7 +114,7 @@ class HeldWindows {
       this.#foldedRunGroupKeys = new Set(foldedRunGroupKeys);
     }
     const fold = this.#fold.fold(unfurled, this.#foldedRunGroupKeys, this.#runWindowInputs);
-    const drawn = this.#drawnRowFilter.filter(fold.window, drawsBody);
+    const drawn = this.#drawnRowFilter.filter(fold, drawsBody);
     return {
       unfurled,
       fold,
@@ -212,7 +208,11 @@ describe("the transcript windows held across a session's revisions", () => {
           entryTexts,
         );
       }
-      if (windows.fold.removedRows.some((row) => !foldedRunIds.has(rowRunId(row)))) {
+      if (
+        windows.unfurled.rows.some(
+          (row) => !windows.fold.rowsByKey.has(row.id) && !foldedRunIds.has(rowRunId(row)),
+        )
+      ) {
         coverage.runWindowLetGo += 1;
       }
       const runGroups = [...windows.unfurled.runGroupByHeaderKey.values()];
@@ -306,7 +306,7 @@ interface CheckedStep {
 
 /**
  * Everything the windows publish, as plain values: every list, every map walked, the size each map
- * reports, the fold's withheld rows, the rows still changing and what each find reads.
+ * reports, the rows still changing and what each find reads.
  */
 function contentOf(windows: Windows): unknown {
   const runGroupKeyByRowId = windows.unfurled.runGroupKeyByRowId;
@@ -314,8 +314,7 @@ function contentOf(windows: Windows): unknown {
     unfurled: modelContentOf(windows.unfurled),
     // One map every stage hands on, so it is walked once.
     runGroupKeyByRowId: { entries: [...runGroupKeyByRowId], size: runGroupKeyByRowId.size },
-    fold: modelContentOf(windows.fold.window),
-    removedRows: windows.fold.removedRows,
+    fold: modelContentOf(windows.fold),
     drawn: modelContentOf(windows.drawn),
     changingRowIds: [...windows.changingRowIds].sort(),
     finds: windows.finds,
@@ -365,7 +364,7 @@ function keysAnsweredApartFromEntries(
 ): readonly string[] {
   const mismatched: string[] = [];
   const namedMaps: [string, ReadonlyMap<string, unknown>][] = [
-    ...[windows.unfurled, windows.fold.window, windows.drawn].flatMap((model) =>
+    ...[windows.unfurled, windows.fold, windows.drawn].flatMap((model) =>
       Object.entries(mapsOf(model)),
     ),
     ["runGroupKeyByRowId", windows.unfurled.runGroupKeyByRowId],

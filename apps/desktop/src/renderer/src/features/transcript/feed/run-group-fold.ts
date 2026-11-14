@@ -13,12 +13,8 @@ import {
 import { type RunGroup } from "../runs/groups.js";
 import { type ViewportRow } from "../viewport/snapshot.js";
 import { FilteredMap } from "../window/map-views.js";
-import { positionOfRow, rowGrowthOf, sequenceInsertionPosition } from "../window/row-positions.js";
-import {
-  NO_ROWS_REMOVED,
-  type TranscriptPipelineStage,
-  type TranscriptWindowModel,
-} from "../window/transcript-window.js";
+import { positionOfRow, rowGrowthOf } from "../window/row-positions.js";
+import { type TranscriptWindowModel } from "../window/transcript-window.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** The windows of a session's long runs, and what they are measured in. */
@@ -45,14 +41,13 @@ const CAP_LEAVERS_FOLDED_IN_PLACE = 64;
  * already carries, so the group counts once against the window cap folded or open. A folded group
  * is its header alone; its rows leave both the viewport rows and the body lookup. An open group
  * keeps the rows of its window, with an edge line at each edge that has rows beyond it, keyed
- * under the group as its rows are. The rows it withholds are returned as `removedRows` for the
- * find field's counts.
+ * under the group as its rows are.
  */
 export class RunGroupFold {
   #input: TranscriptWindowModel | undefined;
   #foldedRunGroupKeys: ReadonlySet<string> | undefined;
   #runWindowInputs: RunWindowInputs | undefined;
-  #stage: TranscriptPipelineStage | undefined;
+  #stage: TranscriptWindowModel | undefined;
   /** Each run group header's and edge line's identity, kept while its group stands. */
   #identityByKey = new Map<string, ViewportRow>();
   /** Each open group's window as the last stage folded it. */
@@ -70,7 +65,7 @@ export class RunGroupFold {
     model: TranscriptWindowModel,
     foldedRunGroupKeys: ReadonlySet<string>,
     runWindowInputs: RunWindowInputs,
-  ): TranscriptPipelineStage {
+  ): TranscriptWindowModel {
     const previousInput = this.#input;
     const previousStage = this.#stage;
     const previousRunWindowInputs = this.#runWindowInputs;
@@ -82,9 +77,9 @@ export class RunGroupFold {
     if (previousStage !== undefined && model === previousInput && isSameReading) {
       return previousStage;
     }
-    let stage: TranscriptPipelineStage;
+    let stage: TranscriptWindowModel;
     if (model.runGroupByHeaderKey.size === 0) {
-      stage = { window: model, removedRows: NO_ROWS_REMOVED };
+      stage = model;
       this.#windowByKey = new Map();
       this.#admittedRowIdsByKey = new Map();
       this.#withheldSystemMessageCount = 0;
@@ -92,7 +87,7 @@ export class RunGroupFold {
       const grown =
         previousInput !== undefined &&
         previousStage !== undefined &&
-        previousStage.window !== previousInput &&
+        previousStage !== previousInput &&
         isSameReading
           ? this.#foldGrowth(
               previousInput,
@@ -115,10 +110,9 @@ export class RunGroupFold {
     model: TranscriptWindowModel,
     foldedRunGroupKeys: ReadonlySet<string>,
     runWindowInputs: RunWindowInputs,
-  ): TranscriptPipelineStage {
+  ): TranscriptWindowModel {
     const viewportRows: ViewportRow[] = [];
     const rows: ProjectedTranscriptRow[] = [];
-    const removedRows: ProjectedTranscriptRow[] = [];
     let withheldSystemMessageCount = 0;
     const identityByKey = new Map<string, ViewportRow>();
     const windowByKey = new Map<string, RunCallWindow>();
@@ -168,7 +162,6 @@ export class RunGroupFold {
         viewportRows.push(identity);
         rows.push(row);
       } else {
-        removedRows.push(row);
         withheldSystemMessageCount += model.systemMessageByRowId.has(row.id) ? 1 : 0;
       }
       const laterEdgeGroupKey = laterEdgeKeyByRowId.get(row.id);
@@ -188,7 +181,6 @@ export class RunGroupFold {
       model,
       viewportRows,
       rows,
-      removedRows.length === 0 ? NO_ROWS_REMOVED : removedRows,
       foldedRunGroupKeys,
       admittedRowIdsByKey,
       withheldSystemMessageCount,
@@ -203,11 +195,11 @@ export class RunGroupFold {
    */
   #foldGrowth(
     previousInput: TranscriptWindowModel,
-    previousStage: TranscriptPipelineStage,
+    previousStage: TranscriptWindowModel,
     model: TranscriptWindowModel,
     foldedRunGroupKeys: ReadonlySet<string>,
     runWindowInputs: RunWindowInputs,
-  ): TranscriptPipelineStage | undefined {
+  ): TranscriptWindowModel | undefined {
     const growth = rowGrowthOf(previousInput.rows, model.rows);
     if (growth === undefined) {
       return undefined;
@@ -217,11 +209,11 @@ export class RunGroupFold {
       const previousRow = previousInput.rows[position] as ProjectedTranscriptRow;
       if (
         previousInput.systemMessageByRowId.has(previousRow.id) !==
-          model.systemMessageByRowId.has(previousRow.id) ||
-        !lists.replaceRow(previousRow, model.rows[position] as ProjectedTranscriptRow)
+        model.systemMessageByRowId.has(previousRow.id)
       ) {
         return undefined;
       }
+      lists.replaceRow(previousRow, model.rows[position] as ProjectedTranscriptRow);
     }
     // Each open group the stretch grew, with its window before and after.
     const measure = runWindowInputs.measureOf(model);
@@ -265,7 +257,6 @@ export class RunGroupFold {
       }
       const window = grownWindows.get(runGroupKey)?.after;
       if (foldedRunGroupKeys.has(runGroupKey) || (window !== undefined && window.laterCount > 0)) {
-        lists.withhold(row);
         countWithheld(row);
       } else {
         lists.admit(identity, row);
@@ -299,7 +290,6 @@ export class RunGroupFold {
       model,
       lists.viewportRows(),
       lists.rows(),
-      lists.removedRows(),
       foldedRunGroupKeys,
       admittedRowIdsByKey,
       withheldSystemMessageCount,
@@ -371,15 +361,15 @@ function withoutKey<TValue>(
 
 /**
  * The lists a stage published, written on copies taken at the first write, so a stretch that moves
- * none of them hands on the arrays the last stage published.
+ * none of them hands on the arrays the last stage published. A row the fold withholds is in none of
+ * them.
  */
 class FoldedLists {
-  readonly #previous: TranscriptPipelineStage;
+  readonly #previous: TranscriptWindowModel;
   #viewportRows: ViewportRow[] | undefined;
   #rows: ProjectedTranscriptRow[] | undefined;
-  #removedRows: ProjectedTranscriptRow[] | undefined;
 
-  public constructor(previous: TranscriptPipelineStage) {
+  public constructor(previous: TranscriptWindowModel) {
     this.#previous = previous;
   }
 
@@ -394,30 +384,18 @@ class FoldedLists {
     this.#writableViewportRows().push(header);
   }
 
-  /** Append a row the fold withholds. Appended rows are the log's newest, so log order holds. */
-  public withhold(row: ProjectedTranscriptRow): void {
-    this.#writableRemovedRows().push(row);
-  }
-
-  /** Put a row projected again where its earlier object stands. Answers whether it stood. */
-  public replaceRow(previous: ProjectedTranscriptRow, next: ProjectedTranscriptRow): boolean {
-    const rowPosition = positionOfRow(this.#previous.window.rows, previous);
+  /**
+   * Put a row projected again where its earlier object stands. A row of the last input that is not
+   * among the admitted rows was withheld, and stays out.
+   */
+  public replaceRow(previous: ProjectedTranscriptRow, next: ProjectedTranscriptRow): void {
+    const rowPosition = positionOfRow(this.#previous.rows, previous);
     if (rowPosition !== -1) {
       this.#writableRows()[rowPosition] = next;
-      return true;
     }
-    const removedPosition = positionOfRow(this.#previous.removedRows, previous);
-    if (removedPosition === -1) {
-      return false;
-    }
-    this.#writableRemovedRows()[removedPosition] = next;
-    return true;
   }
 
-  /**
-   * Move an admitted row out of the window and into the withheld rows at its place in log order.
-   * Answers whether it was admitted.
-   */
+  /** Take an admitted row out of the window. Answers whether it was admitted. */
   public letGo(row: ProjectedTranscriptRow): boolean {
     const rows = this.#writableRows();
     const rowPosition = positionOfRow(rows, row);
@@ -436,39 +414,27 @@ class FoldedLists {
       identityPosition += 1;
     }
     viewportRows.splice(identityPosition, 1);
-    const removedRows = this.#writableRemovedRows();
-    removedRows.splice(sequenceInsertionPosition(removedRows, row.sequence), 0, row);
     return true;
   }
 
   /** The identity list as it now stands. */
   public viewportRows(): readonly ViewportRow[] {
-    return this.#viewportRows ?? this.#previous.window.viewportRows;
+    return this.#viewportRows ?? this.#previous.viewportRows;
   }
 
   /** The admitted rows as they now stand. */
   public rows(): readonly ProjectedTranscriptRow[] {
-    return this.#rows ?? this.#previous.window.rows;
-  }
-
-  /** The withheld rows as they now stand, in log order. */
-  public removedRows(): readonly ProjectedTranscriptRow[] {
-    return this.#removedRows ?? this.#previous.removedRows;
+    return this.#rows ?? this.#previous.rows;
   }
 
   #writableViewportRows(): ViewportRow[] {
-    this.#viewportRows ??= [...this.#previous.window.viewportRows];
+    this.#viewportRows ??= [...this.#previous.viewportRows];
     return this.#viewportRows;
   }
 
   #writableRows(): ProjectedTranscriptRow[] {
-    this.#rows ??= [...this.#previous.window.rows];
+    this.#rows ??= [...this.#previous.rows];
     return this.#rows;
-  }
-
-  #writableRemovedRows(): ProjectedTranscriptRow[] {
-    this.#removedRows ??= [...this.#previous.removedRows];
-    return this.#removedRows;
   }
 }
 
@@ -493,7 +459,7 @@ function isAdmitted(
 }
 
 /**
- * The stage over these lists. Its body lookup and system messages are views over the window's
+ * The window over these lists. Its body lookup and system messages are views over the window's
  * own, narrowed to the rows the fold lets through, so no whole-log map is built per stretch. Each
  * row is filed under its own id, so each view's size is a count of the lists, except in a window
  * where two rows share an id, whose views count themselves.
@@ -502,11 +468,10 @@ function foldedStage(
   model: TranscriptWindowModel,
   viewportRows: readonly ViewportRow[],
   rows: readonly ProjectedTranscriptRow[],
-  removedRows: readonly ProjectedTranscriptRow[],
   foldedRunGroupKeys: ReadonlySet<string>,
   admittedRowIdsByKey: ReadonlyMap<string, ReadonlySet<string>>,
   withheldSystemMessageCount: number,
-): TranscriptPipelineStage {
+): TranscriptWindowModel {
   const isEveryRowIdOwn = model.rowsByKey.size === model.rows.length;
   const rowsByKey = new FilteredMap(
     model.rowsByKey,
@@ -520,17 +485,14 @@ function foldedStage(
     isEveryRowIdOwn ? rows.length : undefined,
   );
   return {
-    window: {
-      ...model,
-      viewportRows,
-      rows,
-      rowsByKey,
-      systemMessageByRowId: new FilteredMap(
-        model.systemMessageByRowId,
-        (rowId) => rowsByKey.has(rowId),
-        isEveryRowIdOwn ? model.systemMessageByRowId.size - withheldSystemMessageCount : undefined,
-      ),
-    },
-    removedRows,
+    ...model,
+    viewportRows,
+    rows,
+    rowsByKey,
+    systemMessageByRowId: new FilteredMap(
+      model.systemMessageByRowId,
+      (rowId) => rowsByKey.has(rowId),
+      isEveryRowIdOwn ? model.systemMessageByRowId.size - withheldSystemMessageCount : undefined,
+    ),
   };
 }

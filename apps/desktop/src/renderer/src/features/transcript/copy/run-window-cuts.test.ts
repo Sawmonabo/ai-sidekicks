@@ -40,7 +40,7 @@ describe("a copy over a long run's window", () => {
     fold.fold(unfurledWindow, new Set(), inputs);
     // A stretch opened from the newest calls, so the window cuts calls on both of its sides.
     inputs.windows.openStretch(runGroup, "earlier", MEASURE);
-    const drawnWindow = fold.fold(unfurledWindow, new Set(), { ...inputs, moveCount: 1 }).window;
+    const drawnWindow = fold.fold(unfurledWindow, new Set(), { ...inputs, moveCount: 1 });
     const drawnKeys = drawnWindow.viewportRows.map((row) => row.key);
     expect(drawnKeys).toContain(runWindowEdgeKey(runGroup.key, "earlier"));
     expect(drawnKeys).toContain(runWindowEdgeKey(runGroup.key, "later"));

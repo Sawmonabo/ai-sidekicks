@@ -46,7 +46,7 @@ export function estimateDrawnHeightPx(
     windows: new RunCallWindows(),
     measureOf: (model) => runWindowMeasureOf(model, estimates),
     moveCount: 0,
-  }).window;
+  });
   const drawn = new DrawnRowFilter().filter(folded, inputs.drawsBody);
   let heightPx = 0;
   for (const row of drawn.viewportRows) {

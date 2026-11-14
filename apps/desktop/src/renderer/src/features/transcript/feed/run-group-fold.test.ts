@@ -94,15 +94,12 @@ describe("a long run's window in the outer list", () => {
       runGroup.rowIds.indexOf(firstCallId),
       runGroup.rowIds.indexOf(lastCallId) + 1,
     );
-    expect(folded.window.viewportRows.map((row) => row.key)).toStrictEqual([
+    expect(folded.viewportRows.map((row) => row.key)).toStrictEqual([
       runGroup.key,
       runWindowEdgeKey(runGroup.key, "earlier"),
       ...windowRowIds,
       runWindowEdgeKey(runGroup.key, "later"),
     ]);
-    expect(folded.removedRows.map((row) => row.id)).toStrictEqual(
-      runGroup.rowIds.filter((rowId) => !windowRowIds.includes(rowId)),
-    );
   });
 
   it("folds a run's growth in place as it would fold the grown log whole", () => {
@@ -121,13 +118,11 @@ describe("a long run's window in the outer list", () => {
     const grown = fold.fold(grownModel, new Set(), inputs);
     const whole = new RunGroupFold().fold(grownModel, new Set(), inputs);
 
-    expect(grown.window.viewportRows.map((row) => row.key)).toStrictEqual(
-      whole.window.viewportRows.map((row) => row.key),
+    expect(grown.viewportRows.map((row) => row.key)).toStrictEqual(
+      whole.viewportRows.map((row) => row.key),
     );
-    expect(grown.removedRows.map((row) => row.id)).toStrictEqual(
-      whole.removedRows.map((row) => row.id),
-    );
-    expect(grown.removedRows.length).toBeGreaterThan(0);
+    expect(grown.rows.map((row) => row.id)).toStrictEqual(whole.rows.map((row) => row.id));
+    expect(grown.rows.length).toBeLessThan(grownModel.rows.length);
   });
 });
 
@@ -140,11 +135,7 @@ describe("a person's fold stays with its stretch as the window around it moves",
     model: TranscriptWindowModel,
     foldedRunGroupKeys: ReadonlySet<string>,
   ): boolean {
-    const folded = new RunGroupFold().fold(
-      model,
-      foldedRunGroupKeys,
-      wholeRunWindowInputs(),
-    ).window;
+    const folded = new RunGroupFold().fold(model, foldedRunGroupKeys, wholeRunWindowInputs());
     return folded.rows.length === 0 && folded.viewportRows.length === 1;
   }
 
@@ -209,9 +200,8 @@ describe("a person's fold stays with its stretch as the window around it moves",
     model: TranscriptWindowModel,
     foldedRunGroupKeys: ReadonlySet<string>,
   ): readonly string[] {
-    return new RunGroupFold()
-      .fold(model, foldedRunGroupKeys, wholeRunWindowInputs())
-      .removedRows.map((row) => row.id);
+    const folded = new RunGroupFold().fold(model, foldedRunGroupKeys, wholeRunWindowInputs());
+    return model.rows.filter((row) => !folded.rowsByKey.has(row.id)).map((row) => row.id);
   }
 
   it("keeps two stretches apart when pages land through a row that draws nothing", () => {
@@ -297,13 +287,13 @@ describe("a run with nothing drawn has no header", () => {
     );
     expect(started.runGroupByHeaderKey.size).toBe(0);
     expect(
-      new RunGroupFold().fold(started, new Set(), wholeRunWindowInputs()).window.viewportRows,
+      new RunGroupFold().fold(started, new Set(), wholeRunWindowInputs()).viewportRows,
     ).toStrictEqual(started.viewportRows);
 
     const replied = deriveTranscriptWindow(log, runEntitiesOf(log), fixtureProviderNameOf);
     const keys = new RunGroupFold()
       .fold(replied, new Set(), wholeRunWindowInputs())
-      .window.viewportRows.map((row) => row.key);
+      .viewportRows.map((row) => row.key);
     const runGroupKey = onlyRunGroupKey(replied);
     expect(keys).toStrictEqual(["event-0", "event-1", runGroupKey, "event-2", "event-3"]);
   });

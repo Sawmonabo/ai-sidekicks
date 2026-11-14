@@ -2,10 +2,7 @@ import { useMemo } from "react";
 
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import {
-  type TranscriptPipelineStage,
-  type TranscriptWindowModel,
-} from "../../window/transcript-window.js";
+import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 import { RunGroupFold, type RunWindowInputs } from "../run-group-fold.js";
 
 /**
@@ -17,7 +14,7 @@ export function useFoldedRunGroups(
   foldedRunGroupKeys: ReadonlySet<string>,
   runWindowInputs: RunWindowInputs,
   sessionId: string,
-): TranscriptPipelineStage {
+): TranscriptWindowModel {
   // One fold per session, not per mount, as the projection hook keeps one derivation: this pane
   // follows a navigation to another log without unmounting, and a fold carried across would hold
   // the rows of a session nobody is reading.
