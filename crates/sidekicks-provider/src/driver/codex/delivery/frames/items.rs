@@ -153,8 +153,8 @@ impl CodexFrameDelivery {
                     message_id,
                     turn_id: turn_id.to_owned(),
                 });
-            } else if let Ok(opening) = QueueItemId::new(client_message_id) {
-                dispatch.echoed_openings.push(opening);
+            } else if let Ok(echoed) = QueueItemId::new(client_message_id) {
+                dispatch.unsteered_echoes.push(echoed);
             }
         }
         let command = take_running_command(record, &thread_id, &item_id);

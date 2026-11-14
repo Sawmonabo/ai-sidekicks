@@ -168,9 +168,9 @@ pub(crate) struct CodexTurnMove {
 pub(crate) struct CodexFrameDispatch {
     /// The steers Codex took into a turn.
     pub(crate) taken_messages: Vec<CodexTakenMessage>,
-    /// The messages Codex echoed that no steer registered, such as a start's opening, by the id
-    /// each was sent under.
-    pub(crate) echoed_openings: Vec<QueueItemId>,
+    /// The messages Codex echoed into a turn that no steer registered, a start's opening among
+    /// them, by the id each was sent under.
+    pub(crate) unsteered_echoes: Vec<QueueItemId>,
     /// The `userPromptSubmit` hook runs the frame reported.
     pub(crate) prompt_hook_runs: Vec<CodexPromptHookRun>,
     /// The runs the frame moved.

@@ -100,8 +100,8 @@ pub(crate) async fn apply_codex_routed_frames(
                 listener.message_taken(session_id, &taken.message_id.to_string(), run_id);
             }
         }
-        for opening in dispatch.echoed_openings {
-            settle_echoed(intake, session_id, opening);
+        for echoed in dispatch.unsteered_echoes {
+            settle_echoed(intake, session_id, echoed);
         }
         for hook_run in dispatch.prompt_hook_runs {
             remember_codex_prompt_hook_run(record, hook_run);
