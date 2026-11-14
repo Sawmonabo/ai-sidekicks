@@ -51,10 +51,14 @@ static SENT_MESSAGE_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The checkpoints of the runs `@runIds`, a JSON array, from `@fromSequence` on, in prompt order.
-const CHECKPOINTS_OF_RUNS_FROM_SQL: &str = select_checkpoints!(
-    "WHERE session_id = @sessionId AND message_sequence >= @fromSequence
-    AND run_id IN (SELECT value FROM json_each(@runIds))
+// The checkpoints of `@runId` at or after the run position `@position` of epoch `@epoch`, read on
+// the checkpoints' turn index, with those of the runs `@laterRunIds`, a JSON array, from
+// `@fromSequence` on, in prompt order.
+const CHECKPOINTS_REACHED_FROM_SQL: &str = select_checkpoints!(
+    "WHERE session_id = @sessionId
+    AND ((run_id = @runId AND (epoch > @epoch OR (epoch = @epoch AND position >= @position)))
+      OR (message_sequence >= @fromSequence
+        AND run_id IN (SELECT value FROM json_each(@laterRunIds))))
   ORDER BY message_sequence"
 );
 
@@ -243,28 +247,34 @@ pub fn sent_message_checkpoint(
     .pop())
 }
 
-/// The checkpoints of `run_ids` in `session_id` from the prompt at `from_sequence` on, oldest
-/// prompt first, but those a later undo cut away: one read of the rows, then one of each listed
-/// run's rollbacks. Fails as [`list_checkpoints`] does.
-pub fn checkpoints_of_runs_from(
+/// The checkpoints an undo to `reach` in `session_id` takes, oldest prompt first, but those a
+/// later undo cut away: those of `reach`'s run from its run position on, as the run's rollback
+/// cuts it, whenever their prompts were sent, and those of `later_run_ids`, each taken whole, from
+/// `reach`'s prompt on; one read of the rows, then one of each listed run's rollbacks. Fails as
+/// [`list_checkpoints`] does.
+pub fn checkpoints_reached_from(
     connection: &Connection,
     read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
     session_id: SessionId,
-    run_ids: &[RunId],
-    from_sequence: SafeInt<0>,
+    reach: &Checkpoint,
+    later_run_ids: &[RunId],
 ) -> Result<Vec<StoredCheckpoint>, SupersededTurnsReadError> {
-    let run_ids: Vec<String> = run_ids
+    let later_run_ids: Vec<String> = later_run_ids
         .iter()
         .map(|run_id| run_id.text().as_str().to_owned())
         .collect();
-    let run_ids = serde_json::to_string(&run_ids).expect("a list of run ids writes as JSON");
+    let later_run_ids =
+        serde_json::to_string(&later_run_ids).expect("a list of run ids writes as JSON");
     let checkpoints = connection
-        .prepare_cached(CHECKPOINTS_OF_RUNS_FROM_SQL)?
+        .prepare_cached(CHECKPOINTS_REACHED_FROM_SQL)?
         .query_map(
             named_params! {
                 "@sessionId": session_id.text().as_str(),
-                "@fromSequence": i64::from(from_sequence),
-                "@runIds": run_ids,
+                "@runId": reach.run_id.text().as_str(),
+                "@epoch": i64::from(reach.turn.epoch.0),
+                "@position": i64::from(reach.turn.position.0),
+                "@fromSequence": i64::from(reach.message_sequence),
+                "@laterRunIds": later_run_ids,
             },
             stored_checkpoint_of,
         )?

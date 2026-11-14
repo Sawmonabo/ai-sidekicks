@@ -234,6 +234,8 @@ struct SteerScene {
     scene: Scene,
     /// The queue item of the turn's opening message.
     opening_message_id: QueueItemId,
+    /// The opening message's checkpoint.
+    opening: SessionRestoreTarget,
     /// The queue item of O3, which opened the run's next turn.
     later_message_id: QueueItemId,
     /// The queue item of S2 and its checkpoint.
@@ -246,6 +248,9 @@ struct SteerScene {
 enum SteerLanding {
     /// Each is cut alone, as a Claude Code steer taken mid-turn.
     Alone,
+    /// Each is cut alone, S2 sent before S and taken after it, as Claude Code takes a `Send now`
+    /// steer ahead of a message already waiting.
+    AloneTakenAhead,
     /// Each is cut with its turn's opening, as a provider whose cut lands only at turns has it.
     AtTurns,
     /// Both rode one command with O, which the turn opens at as its first message, as Claude Code
@@ -282,19 +287,31 @@ async fn steer_scene(answer: RewindAnswer, landing: SteerLanding, opening: Form)
             .append_turn_event(run_id, "agent.turn.completed", turn_before)
             .await;
     }
-    let steer_group = |first: QueueItemId| match landing {
-        SteerLanding::Alone => None,
+    // S begins the group it rides where it rides one of its own, as a continued batch's first
+    // does, so its landing names none.
+    let steer_group = |first: Option<QueueItemId>| match landing {
+        SteerLanding::Alone | SteerLanding::AloneTakenAhead => None,
         SteerLanding::AtTurns => Some(CutGroupStart::TurnOpening),
         SteerLanding::MergedWithOpening => Some(CutGroupStart::Message {
             message_id: opening_message_id,
         }),
-        SteerLanding::Continued => Some(CutGroupStart::Message { message_id: first }),
+        SteerLanding::Continued => first.map(|message_id| CutGroupStart::Message { message_id }),
     };
     fixture
         .append_turn_event(run_id, "agent.turn.started", TARGET_TURN_NUMBER)
         .await;
     fixture.insert_edit(&opening, OPENING_EDIT).await;
-    // S names itself where it begins the group it rides, as the members of a continued batch do.
+    let second_sent_ahead = match landing {
+        SteerLanding::AloneTakenAhead => Some(
+            fixture
+                .insert_sent_message(run_id, Form::Words(SECOND_STEER_WORDS))
+                .await,
+        ),
+        SteerLanding::Alone
+        | SteerLanding::AtTurns
+        | SteerLanding::MergedWithOpening
+        | SteerLanding::Continued => None,
+    };
     let steer_message_id = fixture
         .insert_sent_message(run_id, Form::Words(STEER_WORDS))
         .await;
@@ -304,20 +321,36 @@ async fn steer_scene(answer: RewindAnswer, landing: SteerLanding, opening: Form)
             steer_message_id,
             TARGET_TURN_NUMBER,
             STEER_POSITION,
-            steer_group(steer_message_id.0),
+            steer_group(None),
         )
         .await;
     let steer_message_id = steer_message_id.0;
     fixture.insert_edit(&steer, STEER_EDIT).await;
-    let second_steer = fixture
-        .insert_steer(
-            run_id,
-            SECOND_STEER_WORDS,
-            TARGET_TURN_NUMBER,
-            SECOND_STEER_POSITION,
-            steer_group(steer_message_id),
-        )
-        .await;
+    let second_steer = match second_sent_ahead {
+        Some(sent) => (
+            sent.0,
+            fixture
+                .insert_landing(
+                    run_id,
+                    sent,
+                    TARGET_TURN_NUMBER,
+                    SECOND_STEER_POSITION,
+                    None,
+                )
+                .await,
+        ),
+        None => {
+            fixture
+                .insert_steer(
+                    run_id,
+                    SECOND_STEER_WORDS,
+                    TARGET_TURN_NUMBER,
+                    SECOND_STEER_POSITION,
+                    steer_group(Some(steer_message_id)),
+                )
+                .await
+        }
+    };
     fixture
         .append_turn_event(run_id, "agent.turn.completed", TARGET_TURN_NUMBER)
         .await;
@@ -342,6 +375,7 @@ async fn steer_scene(answer: RewindAnswer, landing: SteerLanding, opening: Form)
     SteerScene {
         scene,
         opening_message_id,
+        opening,
         later_message_id,
         second_steer,
     }

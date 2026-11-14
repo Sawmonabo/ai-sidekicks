@@ -150,6 +150,7 @@ async fn a_repository_with_no_commit_is_captured_and_packed() {
     let commands = CommandCaptureService::new(
         git.clone(),
         Arc::new(KeyedLock::new()),
+        Arc::clone(&packing),
         Arc::new(GitFloorReports::default()),
     );
     let owner = root.path().join("owner");

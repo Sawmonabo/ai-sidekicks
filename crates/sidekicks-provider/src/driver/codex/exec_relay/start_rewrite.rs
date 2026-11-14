@@ -198,7 +198,7 @@ impl CodexExecRelay {
         forward(&executor, Value::Object(message).to_string()).await;
         let relay = Arc::downgrade(&self);
         drop(self);
-        match answered.await {
+        let terminate = match answered.await {
             Ok(WatchedAnswer::Refused) => {
                 // A refused start runs nothing, so nothing of it is kept.
                 if is_minted {
@@ -215,13 +215,16 @@ impl CodexExecRelay {
                 let is_command = relay
                     .upgrade()
                     .is_some_and(|relay| relay.runs_command(&process_id));
-                if !is_command {
-                    forward(&executor, executor.compose_process_terminate(&process_id)).await;
-                }
+                (!is_command)
+                    .then(|| forward(&executor, executor.compose_process_terminate(&process_id)))
             }
-            Ok(WatchedAnswer::Taken) | Err(_) => {}
-        }
+            Ok(WatchedAnswer::Taken) | Err(_) => None,
+        };
+        // The terminate's send holds no handle on the executor, so the watch keeps none alive.
         drop(executor);
+        if let Some(terminate) = terminate {
+            terminate.await;
+        }
         let end = exited
             .wait_for(Option::is_some)
             .await

@@ -12,7 +12,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_std::mutex_lock::lock;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 use tokio::time::Instant;
 
 use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
@@ -52,6 +52,18 @@ pub(crate) struct ClaudeTurnBeforeContinue {
     // The run's messages Claude Code took while no turn of it was open, which the continued turn
     // lands once the continue has reached the process.
     taken: Vec<ClaudeTakenMessage>,
+    // Holds the stream's frames back until the continue is confirmed or put back.
+    _frames_hold: ClaudeContinueFramesHold,
+}
+
+// Holds a session's frames back while its continue's write is under way, so the messages the
+// continued turn lands go ahead of the answer's first frame; released as it drops.
+struct ClaudeContinueFramesHold(Arc<watch::Sender<bool>>);
+
+impl Drop for ClaudeContinueFramesHold {
+    fn drop(&mut self) {
+        self.0.send_replace(false);
+    }
 }
 
 /// One session's stream while its process runs: its readings, behind one lock never held across
@@ -86,6 +98,8 @@ pub(crate) struct ClaudeSessionStream {
     pub(super) result_pricing: Mutex<ClaudeResultPricing>,
     // The arguments of the process's calls awaiting their results, kept for their traces.
     pub(super) tool_call_arguments: ToolCallArgumentStore,
+    // Whether a continue's write is under way, which holds the frames back until it settles.
+    is_continue_pending: Arc<watch::Sender<bool>>,
 }
 
 impl ClaudeSessionStream {
@@ -126,7 +140,16 @@ impl ClaudeSessionStream {
             kept_calls,
             result_pricing: Mutex::default(),
             tool_call_arguments,
+            is_continue_pending: Arc::new(watch::Sender::new(false)),
         }
+    }
+
+    /// Waits while a continue's write is under way, until it is confirmed or put back; at once
+    /// when none is.
+    pub(super) async fn wait_for_continue(&self) {
+        let mut is_continue_pending = self.is_continue_pending.subscribe();
+        // The sender lives with the stream, so the wait ends only once no continue is pending.
+        drop(is_continue_pending.wait_for(|is_pending| !is_pending).await);
     }
 
     /// Where the process keeps its tool servers' background calls.
@@ -139,7 +162,9 @@ impl ClaudeSessionStream {
     /// other turn started. `provider_turn_id` is the id the turn's start recorded. Answers the turn
     /// the stream read before, with the messages of the run Claude Code took while no turn of it
     /// was open: [`Self::confirm_continued_turn`] lands them in the continued turn ahead of the
-    /// next frame read, and [`Self::restore_turn`] puts the turn and them back.
+    /// next frame read, and [`Self::restore_turn`] puts the turn and them back. No frame is taken
+    /// until one of the two runs or the answer drops, so the landing goes ahead of every frame the
+    /// continue's message brings.
     pub(crate) fn continue_turn(
         &self,
         run: &ClaudeBoundRun,
@@ -152,11 +177,13 @@ impl ClaudeSessionStream {
                 .into_iter()
                 .partition(|taken| taken.run_id == run.run_id);
         readings.taken_without_turn = kept;
+        self.is_continue_pending.send_replace(true);
         let before = ClaudeTurnBeforeContinue {
             turn: readings.turn.clone(),
             has_turn_message: readings.has_turn_message,
             turn_readings: readings.turn_readings.clone(),
             taken,
+            _frames_hold: ClaudeContinueFramesHold(Arc::clone(&self.is_continue_pending)),
         };
         readings.turn_readings.open(run.run_id, provider_turn_id);
         // The resumed turn is under way, so a message it takes in joins it.

@@ -42,6 +42,9 @@ pub(crate) struct ClaudeSentPrompts {
     // a steer lands in the turn running, and Claude Code takes every message waiting into its next
     // turn, so the oldest of them opens it, as the first of a start's messages does on Codex.
     unopened_by_session: HashMap<SessionId, Vec<String>>,
+    // Each session's openings written for a turn the daemon made, a review, which carries none of
+    // the person's words, until that turn opens.
+    daemon_openings_by_session: HashMap<SessionId, HashSet<String>>,
 }
 
 impl ClaudeSentPrompts {
@@ -72,6 +75,27 @@ impl ClaudeSentPrompts {
                 is_steer,
             },
         );
+    }
+
+    /// Records that `message_uuid`, an opening the session's process was written, opens a turn the
+    /// daemon made, a review, which carries none of the person's words.
+    pub(crate) fn record_daemon_opening(&mut self, session_id: SessionId, message_uuid: &str) {
+        self.daemon_openings_by_session
+            .entry(session_id)
+            .or_default()
+            .insert(message_uuid.to_owned());
+    }
+
+    /// Whether `message_uuid`, the opening of the session's turn starting now, opens a turn the
+    /// daemon made; it is forgotten either way.
+    pub(crate) fn take_daemon_opening(
+        &mut self,
+        session_id: SessionId,
+        message_uuid: &str,
+    ) -> bool {
+        self.daemon_openings_by_session
+            .get_mut(&session_id)
+            .is_some_and(|openings| openings.remove(message_uuid))
     }
 
     /// Claude Code took `message_uuid` (its `started` state, a turn's `user_message_uuids` or its
@@ -132,6 +156,9 @@ impl ClaudeSentPrompts {
         if let Some(unopened) = self.unopened_by_session.get_mut(&session_id) {
             unopened.retain(|uuid| uuid != message_uuid);
         }
+        if let Some(openings) = self.daemon_openings_by_session.get_mut(&session_id) {
+            openings.remove(message_uuid);
+        }
         self.settled_by_session
             .entry(session_id)
             .or_default()
@@ -169,6 +196,7 @@ impl ClaudeSentPrompts {
     pub(crate) fn forget_session(&mut self, session_id: SessionId) {
         self.written_by_session.remove(&session_id);
         self.unopened_by_session.remove(&session_id);
+        self.daemon_openings_by_session.remove(&session_id);
         self.settled_by_session.remove(&session_id);
         self.unreported
             .retain(|_uuid, prompt| prompt.session_id != session_id);

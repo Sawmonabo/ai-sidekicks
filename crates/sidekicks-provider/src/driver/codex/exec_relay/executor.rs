@@ -500,10 +500,15 @@ impl CodexExecutor {
         self.fire_every_missing_watch();
     }
 
-    /// Writes one message to the executor as its own line. Fails with `CodexError::Transport`
-    /// once the connection ended.
-    pub(super) async fn send_line(&self, message: String) -> Result<(), CodexError> {
-        self.lines.send(message).await.map_err(|_closed| ended())
+    /// Writes one message to the executor as its own line. The send holds only a clone of the
+    /// input's sender, so a caller that lets its handle go before awaiting it keeps no executor
+    /// alive. Fails with `CodexError::Transport` once the connection ended.
+    pub(super) fn send_line(
+        &self,
+        message: String,
+    ) -> impl Future<Output = Result<(), CodexError>> + Send + use<> {
+        let lines = self.lines.clone();
+        async move { lines.send(message).await.map_err(|_closed| ended()) }
     }
 
     /// Watches the end of the executor's process `process_id`; the watch holds its end from its
@@ -627,14 +632,17 @@ impl CodexExecutor {
 
     // Sends `line`, one of the relay's own that must reach the executor, on a task of its own that
     // awaits the executor's input, so it is never dropped past the own queue's bound; the task
-    // holds the executor weakly until it runs, so it keeps no ended executor.
+    // holds the executor weakly until it runs and lets it go before the wait, so it keeps no
+    // executor alive.
     fn send_own_line_awaited(&self, line: String) {
         let executor = self.me.clone();
         tokio::spawn(async move {
             let Some(executor) = executor.upgrade() else {
                 return;
             };
-            if let Err(error) = executor.send_line(line).await {
+            let sent = executor.send_line(line);
+            drop(executor);
+            if let Err(error) = sent.await {
                 tracing::debug!(
                     error = &error as &(dyn std::error::Error + 'static),
                     "the Codex executor ended before a line of the relay's own went out"

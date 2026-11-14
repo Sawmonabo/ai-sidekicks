@@ -40,6 +40,15 @@ struct ClaudeResourceLink {
 
 lenient_object!(ClaudeResourceLink);
 
+/// The held calls a process's end takes, each by its task: those still running, and those whose
+/// task ended while an undo's stop of it waited, with their own ending.
+pub(crate) struct ClaudeTakenHeldCalls {
+    /// The calls still running.
+    pub(crate) running: Vec<(String, ClaudeHeldCall)>,
+    /// The calls whose task ended while its stop waited.
+    pub(crate) ended: Vec<(String, ClaudeHeldCallEnd)>,
+}
+
 /// How a held call closes: its opening, which names its run, how it ended, and its body.
 pub(crate) struct ClaudeHeldCallEnd {
     /// The call.
@@ -189,37 +198,31 @@ impl ClaudeToolServerTasks {
     }
 
     /// Takes every held call out, each by its task, as the process ends with them still running,
-    /// with each call an undo's stop of its task left open, whether its task still ran or ended
-    /// while the stop waited; the settled calls are left.
-    pub(crate) fn take_held(&mut self) -> Vec<(String, ClaudeHeldCall)> {
-        let stopping = self
-            .stopping
-            .drain()
-            .filter_map(|(task_id, stopping)| match stopping {
+    /// with each call an undo's stop of its task left open: first those that still run, then those
+    /// whose task ended while the stop waited, with their own ending; the settled calls are left.
+    pub(crate) fn take_held(&mut self) -> ClaudeTakenHeldCalls {
+        let mut running: Vec<(String, ClaudeHeldCall)> = self.held.drain().collect();
+        let mut ended = Vec::new();
+        for (task_id, stopping) in self.stopping.drain() {
+            match stopping {
                 ClaudeStoppingCall::Running {
                     call,
                     is_settled: false,
-                } => Some((task_id, call)),
+                } => running.push((task_id, call)),
                 ClaudeStoppingCall::Ended {
                     end,
                     is_settled: false,
-                } => Some((
-                    task_id,
-                    ClaudeHeldCall {
-                        tool_use_id: end.tool_use_id,
-                        opened: end.opened,
-                        newest_run_id: None,
-                    },
-                )),
+                } => ended.push((task_id, end)),
                 // A settled call's close is already in the log.
                 ClaudeStoppingCall::Running {
                     is_settled: true, ..
                 }
                 | ClaudeStoppingCall::Ended {
                     is_settled: true, ..
-                } => None,
-            });
-        self.held.drain().chain(stopping).collect()
+                } => {}
+            }
+        }
+        ClaudeTakenHeldCalls { running, ended }
     }
 
     /// Moves the call the tool server's task `task_id` runs, held or settled, among the calls an

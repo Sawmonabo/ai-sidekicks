@@ -56,19 +56,22 @@ impl<Key: Eq + Hash + Clone> KeyedReadWriteLock<Key> {
         }
     }
 
+    /// The one hold on `key` where it can be taken at once, as when no one holds or waits on it,
+    /// else `None`, waiting for no one.
+    pub fn try_write(&self, key: Key) -> Option<KeyWriteHold<'_, Key>> {
+        let handle = self.locks.join(key);
+        let guard = handle.key_lock().try_write_owned().ok()?;
+        Some(KeyWriteHold {
+            _guard: guard,
+            _handle: handle,
+        })
+    }
+
     /// How many handles on `key`'s lock its holders and its waiters keep, beside the map's own; 0
     /// when no one holds or waits on it.
     #[cfg(any(test, feature = "test-support"))]
     pub fn handle_count(&self, key: &Key) -> usize {
         self.locks.handle_count(key)
-    }
-
-    /// Waits until `key`'s lock holds more handles than `handles`, a count
-    /// [`Self::handle_count`] read, as once another caller joins its line; woken by each caller
-    /// that joins a line, never by a timer.
-    #[cfg(any(test, feature = "test-support"))]
-    pub async fn wait_for_line_past(&self, key: &Key, handles: usize) {
-        self.locks.wait_for_handles_past(key, handles).await;
     }
 }
 

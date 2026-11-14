@@ -39,8 +39,9 @@ impl ClaudeDeliveryStream {
     // continued run's report, the boundary, then the turn numbered under the uuid of the user
     // message that opened it, the readings of the turn before emptied. The run's other messages
     // taken before it opened rode that command with it, so the turn opens at the first of them all
-    // in send order and the others land after its start naming that first one; every other run's
-    // are dropped.
+    // in send order and the others land after its start naming that first one; an opening the
+    // daemon made, a review's, stays the turn's opening and the person's messages land after it
+    // naming it. Every other run's are dropped.
     pub(super) async fn open_turn(&self, session: &ClaudeSessionStream, lead: &ClaudeBoundRun) {
         let routes = &self.dependencies.routes;
         if session
@@ -51,7 +52,14 @@ impl ClaudeDeliveryStream {
         {
             return;
         }
-        let opening_uuid = session.lock_prompts().take_turn_opening(session.session_id);
+        let (opening_uuid, is_daemons_opening) = {
+            let mut prompts = session.lock_prompts();
+            let opening_uuid = prompts.take_turn_opening(session.session_id);
+            let is_daemons_opening = opening_uuid
+                .as_deref()
+                .is_some_and(|uuid| prompts.take_daemon_opening(session.session_id, uuid));
+            (opening_uuid, is_daemons_opening)
+        };
         let opening = opening_uuid
             .as_deref()
             .and_then(|uuid| QueueItemId::new(uuid).ok());
@@ -109,9 +117,15 @@ impl ClaudeDeliveryStream {
         self.send(session, boundary, None).await;
         // A queue item's id is minted as the person sends it, so the ids sort in send order.
         let mut members = taken;
-        members.extend(opening);
+        if !is_daemons_opening {
+            members.extend(opening);
+        }
         members.sort_unstable();
-        let first = members.first().copied();
+        let first = if is_daemons_opening {
+            opening
+        } else {
+            members.first().copied()
+        };
         let started = match self
             .dependencies
             .engine
@@ -137,12 +151,20 @@ impl ClaudeDeliveryStream {
         let Some(first) = first else {
             return;
         };
-        for message_id in members.into_iter().skip(1) {
+        let (landed, cut_group_start) = if is_daemons_opening {
+            (members.as_slice(), CutGroupStart::TurnOpening)
+        } else {
+            (
+                members.get(1..).unwrap_or_default(),
+                CutGroupStart::Message { message_id: first },
+            )
+        };
+        for message_id in landed.iter().copied() {
             let steered = InboundDelivery::TurnSteered {
                 binding_id: lead.binding_id.clone(),
                 turn_number: started.turn_number,
                 message_id,
-                cut_group_start: Some(CutGroupStart::Message { message_id: first }),
+                cut_group_start: Some(cut_group_start.clone()),
             };
             self.send(session, steered, None).await;
         }

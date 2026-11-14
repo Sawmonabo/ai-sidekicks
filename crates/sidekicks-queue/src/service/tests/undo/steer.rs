@@ -73,6 +73,8 @@ fn edited() -> SessionRestoreResend {
 // Which of the steer scene's messages an undo is aimed at.
 #[derive(Clone, Copy, Debug)]
 enum Pressed {
+    // O.
+    Opening,
     // S.
     Steer,
     // S2.
@@ -89,33 +91,35 @@ enum GroupFirst {
 }
 
 // An undo with the conversation in scope goes back to before the first message of the group the
-// provider's cut takes the pressed message with, whichever member is pressed: it asks the cut
-// before that first message, rolls the run back to the position before its own, takes back the
-// words of every message from it on in send order and names the group's members as undoing
-// together; a message cut alone is undone exactly and names none. The shapes: S2 or S of a Codex
-// turn, which `thread/revert` cuts only whole (to O); S or S2 merged into one Claude Code command
-// with O, O first as a message held over from the turn before, the command's own message pressed,
-// with P, a priority steer sent after O that landed in the turn before, kept out of the draft (to
-// O); S2 of a batch merged into a turn continued after an interrupt (to S, never to the turn's
-// start); a steer taken mid-turn, cut alone (S, nothing together). Killed by the landing's group
-// ignored, where the cut lands at the pressed member and the draft lacks the first member's words,
-// by the reach taken to the turn's start for a continued batch, by P put into the draft, and by a
+// provider's cut takes the pressed message with, whichever member is pressed, the first included:
+// it asks the cut before that first message, rolls the run back to the position before its own,
+// takes back the words of every message the rollback cuts in send order and names the group's
+// members as undoing together; a message cut alone is undone exactly and names none. The shapes:
+// O, S or S2 of a Codex turn, which `thread/revert` cuts only whole (to O); O, S or S2 merged into
+// one Claude Code command with O, O first as a message held over from the turn before, with P, a
+// priority steer sent after O that landed in the turn before, kept out of the draft (to O); S or
+// S2 of a batch merged into a turn continued after an interrupt, S naming no group (to S, never to
+// the turn's start); a steer taken mid-turn, cut alone (S, nothing together), and one taken ahead
+// of S2, sent before it, whose words still come back. Killed by the landing's group ignored, where
+// the cut lands at the pressed member and the draft lacks the first member's words, by a press on
+// a group's first read as a message cut alone, by the reach taken to the turn's start for a
+// continued batch, by P put into the draft, by the draft read from the reach's sequence, and by a
 // group of one or none named as undoing together.
 #[rstest]
+#[case::at_turns_opening(SteerLanding::AtTurns, Pressed::Opening, GroupFirst::Opening)]
 #[case::at_turns_middle(SteerLanding::AtTurns, Pressed::Steer, GroupFirst::Opening)]
 #[case::at_turns_last(SteerLanding::AtTurns, Pressed::SecondSteer, GroupFirst::Opening)]
-#[case::merged_opening_pressed(
-    SteerLanding::MergedWithOpening,
-    Pressed::Steer,
-    GroupFirst::Opening
-)]
+#[case::merged_first(SteerLanding::MergedWithOpening, Pressed::Opening, GroupFirst::Opening)]
+#[case::merged_middle(SteerLanding::MergedWithOpening, Pressed::Steer, GroupFirst::Opening)]
 #[case::merged_last(
     SteerLanding::MergedWithOpening,
     Pressed::SecondSteer,
     GroupFirst::Opening
 )]
-#[case::continued_batch(SteerLanding::Continued, Pressed::SecondSteer, GroupFirst::Steer)]
+#[case::continued_first(SteerLanding::Continued, Pressed::Steer, GroupFirst::Steer)]
+#[case::continued_last(SteerLanding::Continued, Pressed::SecondSteer, GroupFirst::Steer)]
 #[case::alone(SteerLanding::Alone, Pressed::Steer, GroupFirst::Steer)]
+#[case::alone_taken_ahead(SteerLanding::AloneTakenAhead, Pressed::Steer, GroupFirst::Steer)]
 #[tokio::test]
 async fn an_undo_goes_back_to_before_the_first_message_its_group_is_cut_with(
     #[case] landing: SteerLanding,
@@ -124,8 +128,15 @@ async fn an_undo_goes_back_to_before_the_first_message_its_group_is_cut_with(
 ) {
     let mut steer = steer_scene(applied_in_place(), landing, Form::Words(OPENING_WORDS)).await;
     let steer_message_id = steer.scene.target_message_id;
-    if let Pressed::SecondSteer = pressed {
-        (steer.scene.target_message_id, steer.scene.target) = steer.second_steer.clone();
+    match pressed {
+        Pressed::Opening => {
+            (steer.scene.target_message_id, steer.scene.target) =
+                (steer.opening_message_id, steer.opening.clone());
+        }
+        Pressed::Steer => {}
+        Pressed::SecondSteer => {
+            (steer.scene.target_message_id, steer.scene.target) = steer.second_steer.clone();
+        }
     }
     let scene = &steer.scene;
 
@@ -144,7 +155,16 @@ async fn an_undo_goes_back_to_before_the_first_message_its_group_is_cut_with(
             STEER_WORDS,
             STEER_POSITION,
             vec![STEER_EDIT],
-            vec![STEER_WORDS, SECOND_STEER_WORDS, LATER_WORDS],
+            match landing {
+                // S2 was sent first, so its words come first.
+                SteerLanding::AloneTakenAhead => {
+                    vec![SECOND_STEER_WORDS, STEER_WORDS, LATER_WORDS]
+                }
+                SteerLanding::Alone
+                | SteerLanding::AtTurns
+                | SteerLanding::MergedWithOpening
+                | SteerLanding::Continued => vec![STEER_WORDS, SECOND_STEER_WORDS, LATER_WORDS],
+            },
         ),
     };
     assert_eq!(
@@ -159,20 +179,19 @@ async fn an_undo_goes_back_to_before_the_first_message_its_group_is_cut_with(
         restored
     );
     assert_eq!(cut_words(&reach), words);
-    if let SteerLanding::Alone = landing {
+    if let SteerLanding::Alone | SteerLanding::AloneTakenAhead = landing {
         assert!(reach.is_pressed_message());
         assert_eq!(reach.undone_together(), []);
         return;
     }
-    assert_eq!(
-        reach.opening,
-        Some(TurnOpening::Queued {
-            queue_item_id: first_id,
-            kind: QueuedOpeningKind::Message(
-                FreeFormText::new(first_words.to_owned()).expect("a test message")
-            ),
-        })
-    );
+    // A press on the group's first goes back to the pressed message itself.
+    let opening = (scene.target_message_id != first_id).then(|| TurnOpening::Queued {
+        queue_item_id: first_id,
+        kind: QueuedOpeningKind::Message(
+            FreeFormText::new(first_words.to_owned()).expect("a test message"),
+        ),
+    });
+    assert_eq!(reach.opening, opening);
     let together = match first {
         GroupFirst::Opening => vec![
             steer.opening_message_id,
@@ -182,6 +201,25 @@ async fn an_undo_goes_back_to_before_the_first_message_its_group_is_cut_with(
         GroupFirst::Steer => vec![steer_message_id, steer.second_steer.0],
     };
     assert_eq!(reach.undone_together(), together);
+    // The pencil resends the whole group with the edit in the pressed message's place.
+    let resent: Vec<&str> = together
+        .iter()
+        .map(|member| {
+            if *member == scene.target_message_id {
+                EDITED_WORDS
+            } else if *member == steer.opening_message_id {
+                OPENING_WORDS
+            } else if *member == steer_message_id {
+                STEER_WORDS
+            } else {
+                SECOND_STEER_WORDS
+            }
+        })
+        .collect();
+    assert_eq!(
+        reach.resend_with(edited()).content.as_str(),
+        resent.join("\n\n")
+    );
 }
 
 // With the files alone in scope, an undo to a steer with no point of its own goes back to the

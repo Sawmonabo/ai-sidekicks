@@ -526,8 +526,10 @@ impl ClaudeDeliveryStream {
             readings.now_steers.clear();
             readings.turn = None;
             readings.command_tasks.forget();
+            let tool_server_calls = readings.tool_server_tasks.take_held();
             let held = ClaudeExitHolds {
-                tool_server_calls: readings.tool_server_tasks.take_held(),
+                tool_server_calls: tool_server_calls.running,
+                ended_during_stop: tool_server_calls.ended,
                 helper_calls: readings.helper_tool_calls.take_held(),
             };
             readings.tool_server_tasks.forget();

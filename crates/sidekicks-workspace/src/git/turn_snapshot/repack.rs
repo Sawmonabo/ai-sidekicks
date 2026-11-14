@@ -288,6 +288,13 @@ impl CapturePacking {
         lock(&self.swept_folders).retain(|folder| !folder.starts_with(owner_folder));
     }
 
+    /// Records the capture folder `folder` as made in this daemon run, as it is made: it holds
+    /// nothing an earlier run left loose, so its folds need no first sweep pass, even when its
+    /// first capture fails before its pack.
+    pub(crate) fn record_made_folder(&self, folder: &Path) {
+        lock(&self.swept_folders).insert(folder.to_path_buf());
+    }
+
     /// Holds every capture folder under the owner folder `owner_folder`, a folder still being made
     /// aside, once each one's pack, fold or sweep pass under way ends; the hold lasts until the
     /// answer drops. An owner with no captures folder answers an empty hold. Fails as listing the
@@ -336,11 +343,6 @@ impl CapturePacking {
         let hold = self.folder_lock.acquire(folder.clone()).await;
         if is_folder_removed(&folder).await {
             return;
-        }
-        // A folder made in this run holds nothing an earlier run left loose, so its folds need
-        // no first sweep pass.
-        if capture_folder.is_made_in_this_run() {
-            lock(&self.swept_folders).insert(folder.clone());
         }
         let packed = self
             .pack_revisions(place, capture_folder, revisions.into_bytes(), &hold)

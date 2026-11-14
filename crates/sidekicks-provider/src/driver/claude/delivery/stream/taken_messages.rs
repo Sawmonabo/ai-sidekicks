@@ -76,10 +76,12 @@ impl ClaudeDeliveryStream {
     }
 
     // Lands, ahead of the frame being read, the messages a continued turn took over from the time
-    // no turn of their run was open, in that turn; one whose run's turn is no longer open waits
-    // for the run's next turn. Claude Code took them in one batch, which it merged into one
-    // command its cut finds only whole, so each of several names the first in send order.
+    // no turn of their run was open, in that turn, once its continue settled; one whose run's turn
+    // is no longer open waits for the run's next turn. Claude Code took them in one batch, which
+    // it merged into one command its cut finds only whole, so each of several names the first in
+    // send order.
     pub(super) async fn land_continued(&self, session: &ClaudeSessionStream) {
+        session.wait_for_continue().await;
         let landings: Vec<InboundDelivery> = {
             let mut readings = session.lock();
             let taken = std::mem::take(&mut readings.continued_landings);
@@ -99,19 +101,21 @@ impl ClaudeDeliveryStream {
             }
             // A queue item's id is minted as the person sends it, so the ids sort in send order.
             landed.sort_unstable_by_key(|(_, _, message_id)| *message_id);
-            let group_start = (landed.len() > 1).then(|| CutGroupStart::Message {
-                message_id: landed[0].2,
-            });
+            let first = landed.first().map(|(_, _, message_id)| *message_id);
             landed
                 .into_iter()
-                .map(
-                    |(binding_id, turn_number, message_id)| InboundDelivery::TurnSteered {
+                .enumerate()
+                .map(|(index, (binding_id, turn_number, message_id))| {
+                    InboundDelivery::TurnSteered {
                         binding_id,
                         turn_number,
                         message_id,
-                        cut_group_start: group_start.clone(),
-                    },
-                )
+                        // The first begins the group, so it names none.
+                        cut_group_start: first
+                            .filter(|_| index > 0)
+                            .map(|message_id| CutGroupStart::Message { message_id }),
+                    }
+                })
                 .collect()
         };
         for steered in landings {

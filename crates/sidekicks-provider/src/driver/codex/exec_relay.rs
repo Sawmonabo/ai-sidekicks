@@ -495,22 +495,33 @@ impl CodexExecRelay {
             let (Some(relay), Some(executor)) = (relay.upgrade(), executor.upgrade()) else {
                 return;
             };
-            if let Some(processes) = executor.end_hold(&hold) {
-                relay.end_unowned_processes(&executor, processes).await;
-            }
+            let Some(processes) = executor.end_hold(&hold) else {
+                return;
+            };
+            let terminated = relay.end_unowned_processes(&executor, processes);
+            drop((relay, executor));
+            terminated.await;
         });
     }
 
     // Ends each of `processes`, by their relay ids, that no connection owns any more, an ended
     // hold's or a sessionless connection's: every one is terminated but a command the relay
-    // started under a call, which runs to its end.
-    async fn end_unowned_processes(&self, executor: &CodexExecutor, processes: Vec<String>) {
-        let ended: Vec<String> = processes
+    // started under a call, which runs to its end. The terminates are composed at once and their
+    // sends hold neither the relay nor the executor.
+    fn end_unowned_processes(
+        &self,
+        executor: &CodexExecutor,
+        processes: Vec<String>,
+    ) -> impl Future<Output = ()> + Send + use<> {
+        let terminates: Vec<_> = processes
             .into_iter()
             .filter(|relay_id| !self.runs_command(relay_id))
+            .map(|relay_id| forward(executor, executor.compose_process_terminate(&relay_id)))
             .collect();
-        for relay_id in ended {
-            forward(executor, executor.compose_process_terminate(&relay_id)).await;
+        async move {
+            for terminate in terminates {
+                terminate.await;
+            }
         }
     }
 
@@ -812,13 +823,16 @@ fn refuse_unreadable(executor: &CodexExecutor, connection: RelayConnectionId, li
     executor.answer_connection(connection, refusal.to_string());
 }
 
-// Passes `line` on to the executor as it came.
-async fn forward(executor: &CodexExecutor, line: String) {
-    if let Err(error) = executor.send_line(line).await {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "a message for the Codex executor could not be sent"
-        );
+// Passes `line` on to the executor as it came; the send holds no handle on the executor.
+fn forward(executor: &CodexExecutor, line: String) -> impl Future<Output = ()> + Send + use<> {
+    let sent = executor.send_line(line);
+    async move {
+        if let Err(error) = sent.await {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "a message for the Codex executor could not be sent"
+            );
+        }
     }
 }
 

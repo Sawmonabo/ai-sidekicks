@@ -170,6 +170,9 @@ impl EditCheckpoints {
                 "an edit's file could not be kept, so the edit is recorded as failed"
             );
         }
+        // A copy kept, then a failed parent read, is written as not kept, so it lies unnamed.
+        let is_copy_unnamed = matches!(content, Ok(CheckpointVersionContent::Copy { .. }))
+            && parent_real_path.is_err();
         let (content, parent_real_path) = match (content, parent_real_path) {
             (Ok(content), Ok(parent_real_path)) => (content, parent_real_path),
             (_, parent_real_path) => (
@@ -192,9 +195,11 @@ impl EditCheckpoints {
             .write(vec![insert_version_statement(&checkpoint_id, &version)])
             .await;
         drop(copies_hold);
-        if let Err(error) = written {
-            // The copy may now lie unnamed, so the next orphans walk takes the session.
+        // The copy may now lie unnamed, so the next orphans walk takes the session.
+        if is_copy_unnamed || written.is_err() {
             mark_unnamed_keep_session(session_id);
+        }
+        if let Err(error) = written {
             tracing::error!(
                 %session_id,
                 tool_call_id = tool_call,

@@ -34,7 +34,7 @@ use crate::git::turn_snapshot::diagnostics::{CaptureDiagnostic, CaptureStep, Com
 use crate::git::turn_snapshot::held_checkout::{CaptureStartFailure, hold_checkout};
 use crate::git::turn_snapshot::kept_index::{KeptIndex, open_kept_index};
 use crate::git::turn_snapshot::refs::USE_REPLACE_REFS_PIN;
-use crate::git::turn_snapshot::repack::CapturedCommit;
+use crate::git::turn_snapshot::repack::{CapturePacking, CapturedCommit};
 
 pub mod before_images;
 
@@ -127,21 +127,27 @@ pub struct CommandCaptureService {
     /// The run setup gate's lock, keyed by each checkout's canonical folder, held while a capture
     /// stages into the checkout's kept index.
     checkout_lock: Arc<KeyedLock<PathBuf>>,
+    /// The packing every capture's borrowed objects go through, which learns each capture folder
+    /// a capture makes.
+    packing: Arc<CapturePacking>,
     /// The daemon run's record of the old gits already reported.
     floor_reports: Arc<GitFloorReports>,
 }
 
 impl CommandCaptureService {
     /// A service running `git`, holding a checkout in `checkout_lock`, the run setup gate's, while
-    /// it captures it, and reporting an old git once through `floor_reports`, the daemon run's.
+    /// it captures it, recording each capture folder it makes in `packing` and reporting an old
+    /// git once through `floor_reports`, the daemon run's.
     pub fn new(
         git: GitRunner,
         checkout_lock: Arc<KeyedLock<PathBuf>>,
+        packing: Arc<CapturePacking>,
         floor_reports: Arc<GitFloorReports>,
     ) -> Self {
         Self {
             git,
             checkout_lock,
+            packing,
             floor_reports,
         }
     }
@@ -189,6 +195,7 @@ impl CommandCaptureService {
             &self.git,
             place,
             &self.checkout_lock,
+            &self.packing,
             &self.floor_reports,
             input.roots(),
         )

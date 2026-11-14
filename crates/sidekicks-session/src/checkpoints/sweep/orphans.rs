@@ -156,12 +156,6 @@ struct KeptNames {
     volume_folders: Vec<VolumeFolder>,
 }
 
-/// How a session's walk ended: walked, the session to walk again or not, or cut by the stop.
-enum SessionWalkEnd {
-    Walked { should_walk_again: bool },
-    Stopped,
-}
-
 impl CheckpointSweep {
     /// Walks each session due a walk for its orphans, counting each walked session and its files
     /// into `counts`. A walk `stop` cuts leaves the previous walk's start, so the next walk takes
@@ -198,18 +192,11 @@ impl CheckpointSweep {
                 is_whole = false;
                 break;
             }
-            match self
-                .walk_session_orphans(session_id, stop, meter, counts)
-                .await
-            {
-                Ok(SessionWalkEnd::Walked { should_walk_again }) => {
+            match self.walk_session_orphans(session_id, meter, counts).await {
+                Ok(should_walk_again) => {
                     if should_walk_again {
                         next_walk_again.insert(session_id);
                     }
-                }
-                Ok(SessionWalkEnd::Stopped) => {
-                    is_whole = false;
-                    break;
                 }
                 Err(error) => {
                     next_walk_again.insert(session_id);
@@ -228,15 +215,16 @@ impl CheckpointSweep {
     }
 
     // Lists `session_id`'s places with no lock, then, when the listing found an orphan, takes its
-    // copies lock exclusive, reads its names again and removes each one still unnamed. Fails when
-    // its names do not read; a failed step is logged and the session walked again.
+    // copies lock exclusive where no one holds it, reads its names again and removes each one
+    // still unnamed; answers whether to walk the session again. Fails when its names do not read;
+    // a failed step is logged and the session walked again, and so is one whose lock a close or an
+    // edit holds, so no edit waits behind the walk.
     async fn walk_session_orphans(
         &self,
         session_id: SessionId,
-        stop: &CancellationToken,
         meter: &ProcessorMeter,
         counts: &mut CheckpointSweepCounts,
-    ) -> Result<SessionWalkEnd, CheckpointSweepError> {
+    ) -> Result<bool, CheckpointSweepError> {
         let names = self.read_kept_names(session_id, meter).await?;
         let owner_folder = session_storage_folder(&self.deps.data_folder, &session_id);
         let restored_folder = restored_clones_folder(&self.deps.data_folder, &session_id);
@@ -255,22 +243,17 @@ impl CheckpointSweep {
                     error = &ended as &(dyn Error + 'static),
                     "a session's orphans walk ended before it finished"
                 );
-                return Ok(SessionWalkEnd::Walked {
-                    should_walk_again: true,
-                });
+                return Ok(true);
             }
         };
         counts.sessions_walked += 1;
         counts.entries_examined += listing.entries_examined;
         if listing.candidates.is_empty() {
-            return Ok(SessionWalkEnd::Walked {
-                should_walk_again: listing.should_walk_again,
-            });
+            return Ok(listing.should_walk_again);
         }
-        let hold = tokio::select! {
-            biased;
-            () = stop.cancelled() => return Ok(SessionWalkEnd::Stopped),
-            hold = COPIES_LOCK.write(session_id) => hold,
+        // The lock is fair, so a walk waiting behind a long close would queue every edit behind it.
+        let Some(hold) = COPIES_LOCK.try_write(session_id) else {
+            return Ok(true);
         };
         let names = self.read_kept_names(session_id, meter).await?;
         let candidates = listing.candidates;
@@ -290,9 +273,7 @@ impl CheckpointSweep {
             }
         });
         counts.entries_removed += removal.entries_removed;
-        Ok(SessionWalkEnd::Walked {
-            should_walk_again: listing.should_walk_again || removal.has_failed,
-        })
+        Ok(listing.should_walk_again || removal.has_failed)
     }
 
     // The names `session_id`'s rows hold.
@@ -525,7 +506,7 @@ fn remove_unnamed(
 
 // Logs a place or an entry of a session's walk that did not read.
 fn log_unread(session_id: SessionId, path: &Path, failure: &io::Error) {
-    tracing::warn!(
+    tracing::error!(
         %session_id,
         path = %path.display(),
         error = failure as &(dyn Error + 'static),

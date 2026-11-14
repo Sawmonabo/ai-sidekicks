@@ -125,16 +125,17 @@ async fn a_before_capture_stages_ignored_files_outside_ignored_folders_and_leave
     let live_index = repository.join(".git").join("index");
     let index_before = std::fs::read(&live_index).expect("the live index reads");
     let owner = root.path().join("owner");
-    let service = CommandCaptureService::new(
-        git.clone(),
-        Arc::new(KeyedLock::new()),
-        Arc::new(GitFloorReports::default()),
-    );
     let database = TestDatabase::new(schema_parts());
     let packing = Arc::new(CapturePacking::new(
         git.clone(),
         Arc::new(GitFloorReports::default()),
     ));
+    let service = CommandCaptureService::new(
+        git.clone(),
+        Arc::new(KeyedLock::new()),
+        Arc::clone(&packing),
+        Arc::new(GitFloorReports::default()),
+    );
     let turns = service_reading(git.clone(), &database, Arc::new(KeyedLock::new()), packing);
 
     let captured = service
@@ -208,6 +209,10 @@ async fn a_before_capture_in_a_sparse_root_keeps_the_paths_outside_its_cone() {
     let service = CommandCaptureService::new(
         git.clone(),
         Arc::new(KeyedLock::new()),
+        Arc::new(CapturePacking::new(
+            git.clone(),
+            Arc::new(GitFloorReports::default()),
+        )),
         Arc::new(GitFloorReports::default()),
     );
 
@@ -245,6 +250,10 @@ async fn a_capture_names_its_checkouts_real_path_and_its_repository() {
     let service = CommandCaptureService::new(
         git.clone(),
         Arc::new(KeyedLock::new()),
+        Arc::new(CapturePacking::new(
+            git.clone(),
+            Arc::new(GitFloorReports::default()),
+        )),
         Arc::new(GitFloorReports::default()),
     );
 
@@ -283,6 +292,10 @@ async fn an_after_capture_reads_a_path_past_the_size_bound_as_deleted() {
     let service = CommandCaptureService::new(
         git.clone(),
         Arc::new(KeyedLock::new()),
+        Arc::new(CapturePacking::new(
+            git.clone(),
+            Arc::new(GitFloorReports::default()),
+        )),
         Arc::new(GitFloorReports::default()),
     );
     let input = command_in(&repository, &owner);

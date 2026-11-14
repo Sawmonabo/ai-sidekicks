@@ -19,6 +19,7 @@ use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::statement::{DATABASE_NOW_SQL, WriteStatement};
+use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use crate::checkpoints::command_windows::test_fixture::{Fixture, utf8};
@@ -38,6 +39,9 @@ use crate::checkpoints::volume_folders::restored_clone_folder;
 
 // Twice the age past which a file no row names is an orphan.
 const TWO_HOURS: Duration = Duration::from_hours(2);
+
+// Far past one session's walk, which a walk that waited on a keeper would pass.
+const HELD_WALK_BOUND: Duration = Duration::from_secs(10);
 
 // One orphans walk with the sweep's clock at `now`.
 async fn walk_at(
@@ -209,43 +213,43 @@ async fn a_walk_removes_what_no_row_names_an_hour_on_and_keeps_the_rest() {
     );
 }
 
-// Kills: the walk removing what its unlocked listing read as unnamed without reading the names
-// again under the session's copies lock, which removes the copy once the keeper lets go.
+// Kills: the walk waiting behind a keeper of the session's copies lock, which queues every edit
+// behind it, and the walk removing a copy while a keeper holds that lock, before its row is
+// written; the session is walked again instead.
 #[tokio::test]
-async fn a_copy_named_again_while_the_walk_waits_is_kept() {
+async fn a_walk_leaves_a_session_a_keeper_holds_for_its_next_walk() {
     let fixture = Fixture::with_repository(&[]).await;
     let copies = copies_folder(&session_storage_folder(
         &fixture.data_folder,
         &fixture.session_id,
     ));
     fs::create_dir_all(&copies).expect("the copies folder is made");
-    let name = copy_name('c');
-    let copy = copies.join(&name);
+    let copy = copies.join(copy_name('c'));
     fs::write(&copy, "copy").expect("the copy is written");
     let (sweep, clock) = sweep_over(&fixture);
     clock.set_now(SystemTime::now() + TWO_HOURS);
     let session_id = fixture.session_id;
     let keeper = COPIES_LOCK.read(session_id).await;
-    let held = COPIES_LOCK.handle_count(&session_id);
     let mut counts = CheckpointSweepCounts::default();
-    let naming = async {
-        COPIES_LOCK.wait_for_line_past(&session_id, held).await;
-        fixture
-            .log
-            .writer
-            .write(vec![copy_version(&fixture, &name)])
-            .await
-            .expect("the version is written");
-        drop(keeper);
-    };
-
     let (stop, meter) = (CancellationToken::new(), ProcessorMeter::default());
 
-    let (walked, ()) = tokio::join!(sweep.walk_orphans(&stop, &meter, &mut counts), naming);
+    let walked = timeout(
+        HELD_WALK_BOUND,
+        sweep.walk_orphans(&stop, &meter, &mut counts),
+    )
+    .await
+    .expect("the walk waits for no keeper");
+    drop(keeper);
 
     walked.expect("the walk reads");
-    assert!(copy.exists(), "the copy named while the walk waited stays");
+    assert!(copy.exists(), "the copy a keeper may name stays");
     assert_eq!(counts.sessions_walked, 1);
+    assert!(
+        lock(&sweep.orphan_walks.memory)
+            .walk_again
+            .contains(&session_id),
+        "the held session is walked again"
+    );
 }
 
 // Kills: every session walked each time (the second walk takes three), and the sessions active
