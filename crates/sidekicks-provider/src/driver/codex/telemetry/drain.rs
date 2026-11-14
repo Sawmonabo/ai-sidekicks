@@ -37,15 +37,15 @@ use crate::driver::codex::telemetry::sighting::compose_codex_sighting;
 const STOPPED: &str = "the daemon stopped before its thread could be placed";
 
 // What the reader hands the drain, each with the service that ran it and its launch's placement
-// state: one completed response of the export numbered `export_number`, or, after that export's
-// responses, a retry of the responses the launch kept before it; or, as the launch registers and
+// state: the completed responses of the export numbered `export_number`, handed over together, or,
+// after that export's responses, a retry of the responses the launch kept before it; or, as the launch registers and
 // as it settles a request turn while its export status reads stopped, a read of its rollout
 // files, with its fallback's handles.
 pub(super) enum CodexExportItem {
-    Response {
+    Responses {
         service: Weak<CodexService>,
         launch: Weak<Mutex<CodexLaunchPlacement>>,
-        response: Box<CodexCompletedResponse>,
+        responses: Vec<CodexCompletedResponse>,
         export_number: u64,
     },
     Retry {
@@ -118,92 +118,116 @@ impl CodexExportDrain {
             let Some(item) = item else {
                 return;
             };
-            if let Some((service, launch, work)) = self.route(item) {
-                self.hand_to_launch(&mut workers, &tasks, &service, &launch, work);
+            match item {
+                CodexExportItem::Responses {
+                    service,
+                    launch,
+                    responses,
+                    export_number,
+                } => {
+                    for work in self.route_responses(&service, &launch, responses, export_number) {
+                        self.hand_to_launch(&mut workers, &tasks, &service, &launch, work);
+                    }
+                }
+                CodexExportItem::Retry {
+                    service,
+                    launch,
+                    export_number,
+                } => {
+                    let work = CodexLaunchWork::Retry { export_number };
+                    self.hand_to_launch(&mut workers, &tasks, &service, &launch, work);
+                }
+                CodexExportItem::ReadRollouts {
+                    service,
+                    launch,
+                    rollouts,
+                } => {
+                    let work = CodexLaunchWork::ReadRollouts(rollouts);
+                    self.hand_to_launch(&mut workers, &tasks, &service, &launch, work);
+                }
             }
         }
         self.items.close();
         while let Ok(item) = self.items.try_recv() {
-            if let CodexExportItem::Response { response, .. } = item {
-                refuse_response(&response, STOPPED);
+            if let CodexExportItem::Responses { responses, .. } = item {
+                for response in &responses {
+                    refuse_response(response, STOPPED);
+                }
             }
         }
     }
 
-    // Routes `item`: a response on a thread a session of its service holds goes onto that
-    // session's queue, one on a thread another live launch streams to the session its own service
-    // released the thread from, else refused; one on a copy's thread, any other, and a retry, is
-    // answered as work for its launch. A response whose service or launch
-    // is gone is refused.
-    fn route(
+    // Routes one export's `responses`: those on threads a session of their service holds go onto
+    // that session's queue together, one hand-over per session; one on a thread another live
+    // launch streams goes to the session its own service released the thread from, else is
+    // refused; one on a copy's thread, and any other, is answered as work for its launch, which
+    // this returns. A response whose service or launch is gone is refused.
+    fn route_responses(
         &self,
-        item: CodexExportItem,
-    ) -> Option<(
-        Weak<CodexService>,
-        Weak<Mutex<CodexLaunchPlacement>>,
-        CodexLaunchWork,
-    )> {
-        match item {
-            CodexExportItem::Response {
-                service,
-                launch,
-                response,
-                export_number,
-            } => {
-                let Some(live_service) = service.upgrade() else {
-                    refuse_response(&response, "the service that sent it has ended");
-                    return None;
+        service: &Weak<CodexService>,
+        launch: &Weak<Mutex<CodexLaunchPlacement>>,
+        responses: Vec<CodexCompletedResponse>,
+        export_number: u64,
+    ) -> Vec<CodexLaunchWork> {
+        let Some(live_service) = service.upgrade() else {
+            for response in &responses {
+                refuse_response(response, "the service that sent it has ended");
+            }
+            return Vec::new();
+        };
+        let mut held: Vec<(SessionId, Vec<CodexExportedResponse>)> = Vec::new();
+        let mut others: Option<Vec<Arc<CodexService>>> = None;
+        let mut works = Vec::new();
+        for response in responses {
+            if let Some(session_id) = live_service.session_of_thread(&response.conversation_id) {
+                let exported = CodexExportedResponse {
+                    response,
+                    placed: None,
+                    rollout: None,
                 };
-                if let Some(session_id) = live_service.session_of_thread(&response.conversation_id)
+                match held
+                    .iter_mut()
+                    .find(|(held_id, _group)| *held_id == session_id)
                 {
-                    let exported = CodexExportedResponse {
-                        response: *response,
-                        placed: None,
-                        rollout: None,
-                    };
-                    push_exported_response(&live_service, session_id, exported);
-                    return None;
+                    Some((_held_id, group)) => group.push(exported),
+                    None => held.push((session_id, vec![exported])),
                 }
-                let others = self
-                    .register
+                continue;
+            }
+            let others = others.get_or_insert_with(|| {
+                self.register
                     .upgrade()
                     .map(|register| live_services(&register))
-                    .unwrap_or_default();
-                if others
-                    .iter()
-                    .any(|other| other.session_of_thread(&response.conversation_id).is_some())
-                {
-                    deliver_moved(&live_service, &others, *response);
-                    return None;
-                }
-                let Some(live_launch) = launch.upgrade() else {
-                    refuse_response(&response, "the launch that sent it has ended");
-                    return None;
-                };
-                // A copy's thread is filed where the copy's spend is.
-                let copy = lock(&live_launch)
-                    .copies()
-                    .copy_of(&response.conversation_id);
-                let work = match copy {
-                    Some(copy) => CodexLaunchWork::FileCopy { copy, response },
-                    None => CodexLaunchWork::Place {
-                        response,
-                        export_number,
-                    },
-                };
-                Some((service, launch, work))
+                    .unwrap_or_default()
+            });
+            if others
+                .iter()
+                .any(|other| other.session_of_thread(&response.conversation_id).is_some())
+            {
+                deliver_moved(&live_service, others, response);
+                continue;
             }
-            CodexExportItem::Retry {
-                service,
-                launch,
-                export_number,
-            } => Some((service, launch, CodexLaunchWork::Retry { export_number })),
-            CodexExportItem::ReadRollouts {
-                service,
-                launch,
-                rollouts,
-            } => Some((service, launch, CodexLaunchWork::ReadRollouts(rollouts))),
+            let Some(live_launch) = launch.upgrade() else {
+                refuse_response(&response, "the launch that sent it has ended");
+                continue;
+            };
+            // A copy's thread is filed where the copy's spend is.
+            let copy = lock(&live_launch)
+                .copies()
+                .copy_of(&response.conversation_id);
+            let response = Box::new(response);
+            works.push(match copy {
+                Some(copy) => CodexLaunchWork::FileCopy { copy, response },
+                None => CodexLaunchWork::Place {
+                    response,
+                    export_number,
+                },
+            });
         }
+        for (session_id, group) in held {
+            push_exported_responses(&live_service, session_id, group);
+        }
+        works
     }
 
     // Hands `work` to the queue of `launch`, starting its task on `tasks` where none runs; a full
@@ -438,7 +462,7 @@ fn deliver_moved(
         rollout: None,
     };
     match attached {
-        Some(attached) => push_exported_response(attached, session_id, exported),
+        Some(attached) => push_exported_responses(attached, session_id, vec![exported]),
         None => refuse_response(
             &exported.response,
             "the session its launch streamed it for is attached to no service",
@@ -446,15 +470,25 @@ fn deliver_moved(
     }
 }
 
-/// Pushes `exported` onto `session_id`'s queue on `service`; one no session takes is refused,
-/// naming its thread.
-pub(crate) fn push_exported_response(
+/// Pushes `exported`, one hand-over, onto `session_id`'s queue on `service` as one item, which the
+/// session prices together; a hand-over no session takes is refused, each response naming its
+/// thread. An empty one pushes nothing.
+pub(crate) fn push_exported_responses(
     service: &CodexService,
     session_id: SessionId,
-    exported: CodexExportedResponse,
+    exported: Vec<CodexExportedResponse>,
 ) {
-    let response = exported.response.clone();
-    if !service.push_session_item(&session_id, CodexSessionInbound::ExportedResponse(exported)) {
-        refuse_response(&response, "no session took it");
+    if exported.is_empty() {
+        return;
+    }
+    let responses: Vec<CodexCompletedResponse> =
+        exported.iter().map(|each| each.response.clone()).collect();
+    if !service.push_session_item(
+        &session_id,
+        CodexSessionInbound::ExportedResponses(exported),
+    ) {
+        for response in &responses {
+            refuse_response(response, "no session took it");
+        }
     }
 }

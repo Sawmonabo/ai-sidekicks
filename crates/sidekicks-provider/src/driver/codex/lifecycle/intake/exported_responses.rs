@@ -1,6 +1,7 @@
-//! The completed responses Codex's export or a rollout file states that reach a session, each
-//! priced as it arrives on the turn live then, with its sighting, which the usage record passes
-//! over where another sighting of the same request was priced first. One its rollout file stated
+//! The completed responses Codex's export or a rollout file states that reach a session, one
+//! hand-over at a time, each priced on the turn live then, with its sighting, which the usage
+//! record passes over where another sighting of the same request was priced first; a hand-over's
+//! sightings are recorded together, so they take one commit. One its rollout file stated
 //! is filed on the run the stored rows name at its record's time, and a spawned helper's takes its
 //! root thread's tier from the stored rows then.
 
@@ -14,24 +15,29 @@ use sidekicks_contracts::wire::text::BoundedText;
 use crate::driver::codex::lifecycle::intake::CodexSessionIntake;
 use crate::driver::codex::lifecycle::intake::routed_frames::attribute_codex_usage;
 use crate::driver::codex::telemetry::exported_response::{
-    CodexExportedResponse, CodexOffStreamPlacement,
+    CodexExportedResponse, CodexOffStreamPlacement, CodexRolloutLine,
 };
 use crate::driver::codex::telemetry::placement::refuse_response;
 use crate::driver::codex::telemetry::sighting::compose_codex_sighting;
+use crate::driver::codex::web_search::CodexWebSearch;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 
 impl CodexSessionIntake {
-    /// Prices `exported`, a completed response the drain or the rollout fallback pushed onto the
-    /// session, with its sighting.
-    pub(super) async fn price_exported_response(&mut self, mut exported: CodexExportedResponse) {
-        // With no record registered, nothing is recorded, so nothing is read.
-        if let Some(sink) = self.parts.ports.usage.port().map(Arc::clone)
-            && !read_rollout_filing(&*sink, self.session_id, &mut exported).await
-        {
-            return;
+    /// Prices `hand_over`, the completed responses the drain or the rollout fallback pushed onto
+    /// the session together, each with its sighting, recorded as one batch.
+    pub(super) async fn price_exported_responses(&mut self, hand_over: Vec<CodexExportedResponse>) {
+        let sink = self.parts.ports.usage.port().map(Arc::clone);
+        let mut usage = Vec::with_capacity(hand_over.len());
+        for mut exported in hand_over {
+            // With no record registered, nothing is recorded, so nothing is read.
+            if let Some(sink) = &sink
+                && !read_rollout_filing(&**sink, self.session_id, &mut exported).await
+            {
+                continue;
+            }
+            usage.extend(self.meter_exported_response(&exported));
         }
-        let usage = self.meter_exported_response(&exported);
-        self.record_usage(usage.into_iter().collect()).await;
+        self.record_usage(usage).await;
     }
 
     // `exported`'s spend with its sighting, filed as its owner thread's on the turn it is filed on,
@@ -60,23 +66,30 @@ impl CodexSessionIntake {
                 .map(str::to_owned),
         };
         let mut delta = response.meter();
-        delta.attributed_turn_id = turn_id;
-        let (source, response_id) = match &exported.rollout {
-            Some(rollout) => {
-                delta.request.request_key = Some(rollout.request_key.clone());
-                (
-                    UsageSightingSource::File,
-                    Some(rollout.request_key.as_str()),
-                )
+        match exported.rollout.as_ref().map(|rollout| &rollout.line) {
+            Some(CodexRolloutLine::Search { search_id }) => {
+                let search = CodexWebSearch::new(&response.conversation_id, search_id);
+                delta = search.meter(UsageSightingSource::File, delta.request);
             }
-            None => (UsageSightingSource::Export, None),
-        };
-        delta.sighting = compose_codex_sighting(
-            source,
-            &response.conversation_id,
-            &response.counts,
-            response_id,
-        );
+            Some(CodexRolloutLine::Response { request_key }) => {
+                delta.request.request_key = Some(request_key.clone());
+                delta.sighting = compose_codex_sighting(
+                    UsageSightingSource::File,
+                    &response.conversation_id,
+                    &response.counts,
+                    Some(request_key.as_str()),
+                );
+            }
+            None => {
+                delta.sighting = compose_codex_sighting(
+                    UsageSightingSource::Export,
+                    &response.conversation_id,
+                    &response.counts,
+                    None,
+                );
+            }
+        }
+        delta.attributed_turn_id = turn_id;
         let filing_run = exported
             .rollout
             .as_ref()

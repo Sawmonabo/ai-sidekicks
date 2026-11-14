@@ -84,9 +84,10 @@ const USAGE_TURN_EVENT_TYPES: [SessionEventType; 2] = [
 
 /// The statements that write a usage event's rows in the append's own write: the row of a
 /// `usage.tokenCount.recorded` event, marked with `daemon_started_at`, the running daemon's start
-/// in the stored form, the figure a `usage.cost.updated` event sets on each row it names, and none
-/// for any other event. Fails when the stored payload does not read as its variant, which the
-/// append's own checks rule out.
+/// in the stored form, with the link of the sighting record its write opened to the event, the
+/// figure a `usage.cost.updated` event sets on each row it names, and none for any other event.
+/// Fails when the stored payload does not read as its variant, which the append's own checks rule
+/// out.
 pub fn usage_turn_projection_statements(
     envelope: &UnsequencedEventEnvelope,
     daemon_started_at: &WireInstant,
@@ -94,13 +95,17 @@ pub fn usage_turn_projection_statements(
     let event_type = envelope.event_type();
     if event_type == SessionEventType::UsageTokenCountRecorded {
         let recorded = UsageTokenCountRecordedPayload::deserialize(envelope.payload())?;
-        return Ok(vec![insert_usage_turn_statement(
+        let link = recorded.sighting.as_ref().map(|sighting| {
+            sightings::link_sighting_record_statement(sighting, envelope.id.as_str())
+        });
+        let row = insert_usage_turn_statement(
             envelope.id.as_str(),
             envelope.occurred_at.as_str(),
             envelope.session_id(),
             &recorded,
             Some(daemon_started_at),
-        )]);
+        );
+        return Ok(std::iter::once(row).chain(link).collect());
     }
     if event_type == SessionEventType::UsageCostUpdated {
         let cost = UsageCostUpdatedPayload::deserialize(envelope.payload())?;

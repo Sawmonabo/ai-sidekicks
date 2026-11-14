@@ -125,7 +125,9 @@ impl CopyTurnMeter {
         if let Some(search) = CodexWebSearch::read(method, params)
             .filter(|search| search.thread_id() == self.thread_id)
         {
-            return CopyFrameReading::Usage(Box::new(search.meter(self.request.clone())));
+            return CopyFrameReading::Usage(Box::new(
+                search.meter(UsageSightingSource::Stream, self.request.clone()),
+            ));
         }
         match method {
             CODEX_ITEM_COMPLETED_METHOD => read_codex_object::<CopyFrame>(params.get())

@@ -1,7 +1,7 @@
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{CodexRolloutFile, CodexRolloutRequest, CodexRolloutTier};
+use super::{CodexRolloutCharge, CodexRolloutFile, CodexRolloutRequest, CodexRolloutTier};
 use crate::driver::codex::pricing::tests::{PLAN, price};
 use crate::pricing::rule::RequestPricing;
 
@@ -122,7 +122,9 @@ fn cost(request: &CodexRolloutRequest) -> u64 {
         CodexRolloutTier::Snapshot(tier) => tier.clone(),
         CodexRolloutTier::RootThread => None,
     };
-    let counts = &request.counts;
+    let CodexRolloutCharge::Response { counts, .. } = &request.charge else {
+        panic!("the test's file states only records")
+    };
     let count = |axis: Option<u64>| axis.expect("a record carries every count");
     let cached = count(counts.cached_input);
     let input = [
@@ -185,7 +187,10 @@ fn a_child_rollout_prices_its_own_records_once(
 
     let priced: Vec<&str> = requests
         .iter()
-        .map(|request| request.response_id.as_str())
+        .map(|request| match &request.charge {
+            CodexRolloutCharge::Response { response_id, .. } => response_id.as_str(),
+            CodexRolloutCharge::Search { search_id } => search_id.as_str(),
+        })
         .collect();
     assert_eq!(priced, ["child-response-1", "child-response-2"]);
     assert_eq!(

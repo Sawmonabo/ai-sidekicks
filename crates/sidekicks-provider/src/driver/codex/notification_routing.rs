@@ -582,7 +582,9 @@ impl CodexSessionRouting {
             return;
         };
         let request = self.request_facts(record, search.thread_id(), search.turn_id(), is_helper);
-        routed.metered_usage.push(search.meter(request));
+        routed
+            .metered_usage
+            .push(search.meter(UsageSightingSource::Stream, request));
     }
 
     // The facts a request on `thread_id` under `turn_id` is priced by: a helper's runs at the

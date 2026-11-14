@@ -2,4 +2,4 @@
 //! state, and each launch's fallback that follows the files in its service's home.
 
 pub(crate) mod fallback;
-mod file;
+pub(crate) mod file;

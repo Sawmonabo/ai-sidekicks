@@ -480,7 +480,7 @@ impl TestCodexTask {
             }
             CodexSessionInbound::HeldThread { .. }
             | CodexSessionInbound::SideQuestionReleased { .. }
-            | CodexSessionInbound::ExportedResponse(_) => {}
+            | CodexSessionInbound::ExportedResponses(_) => {}
             // A let-go is kept and answered; the record stays for the test to read.
             CodexSessionInbound::Lifecycle(CodexLifecycleCall::LetGo { exit, reply }) => {
                 self.let_go_exits.push(exit);
@@ -784,8 +784,8 @@ impl CodexSessionInboundHandler for ItemsToTest {
         async {}.boxed()
     }
 
-    fn exported_response(&mut self, response: CodexExportedResponse) -> BoxFuture<'_, ()> {
-        self.hand(CodexSessionInbound::ExportedResponse(response));
+    fn exported_responses(&mut self, responses: Vec<CodexExportedResponse>) -> BoxFuture<'_, ()> {
+        self.hand(CodexSessionInbound::ExportedResponses(responses));
         async {}.boxed()
     }
 

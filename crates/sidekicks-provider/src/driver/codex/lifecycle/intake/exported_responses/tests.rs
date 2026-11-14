@@ -16,7 +16,7 @@ use sidekicks_std::mutex_lock::lock;
 use super::read_rollout_filing;
 use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
 use crate::driver::codex::telemetry::exported_response::{
-    CodexExportedResponse, CodexRolloutFacts,
+    CodexExportedResponse, CodexRolloutFacts, CodexRolloutLine,
 };
 use crate::driver::test_registry::new_session_id;
 use crate::port::usage_sink::{
@@ -139,7 +139,9 @@ fn rollout_response(is_root_tier: bool) -> CodexExportedResponse {
         },
         placed: None,
         rollout: Some(CodexRolloutFacts {
-            request_key: BoundedText::new("response-1".to_owned()).expect("a key"),
+            line: CodexRolloutLine::Response {
+                request_key: BoundedText::new("response-1".to_owned()).expect("a key"),
+            },
             is_root_tier,
             filing_run: None,
         }),

@@ -4,8 +4,10 @@
 //! each request turn the launch settles and one at each export read, each file resumed from the
 //! offset its last read stopped at and opened only once it grew. A file of a thread a session
 //! streams is read too; any other is read once the walk from the thread it came from reaches a
-//! thread a session holds. Each record is handed to its session as it is read, with its sighting,
-//! which the usage record passes over where the stream or the export priced the request first. The
+//! thread a session holds. Each record, and each billed web search, is handed to its session with
+//! its sighting, which the usage record passes over where the stream or the export priced the
+//! request first; one read's charges go over together, up to `HAND_OVER_LINES` at a time, before the
+//! read answers the offset it reached. The
 //! first export after a stop ends it, under the export status's lock, and the pass at that end
 //! reads every file on; each file is then read on at each export that names its thread, and at
 //! each turn of its session's thread that settles, until the turn it showed live at that export's
@@ -20,20 +22,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Notify, watch};
 
 use crate::bounded_queue::remember;
 use crate::driver::codex::service::supervisor::CodexService;
-use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
-use crate::driver::codex::telemetry::drain::push_exported_response;
+use crate::driver::codex::telemetry::drain::push_exported_responses;
 use crate::driver::codex::telemetry::exported_response::{
-    CodexExportedResponse, CodexOffStreamPlacement, CodexRolloutFacts,
+    CodexExportedResponse, CodexOffStreamPlacement,
 };
-use crate::driver::codex::telemetry::rollouts::file::{
-    CodexRolloutFile, CodexRolloutRequest, CodexRolloutThread, CodexRolloutTier,
-};
+use crate::driver::codex::telemetry::rollouts::file::{CodexRolloutFile, CodexRolloutThread};
 use crate::driver::codex::thread::ancestry::{
     CodexListedThread, CodexThreadPlacement, CodexUnplacedThread, list_recent_helper_threads,
     place_codex_thread,
@@ -51,6 +49,10 @@ const ROLLOUTS_KEPT: usize = 256;
 
 /// How many walks a file's thread gets while the listing lacks it before it is given up.
 const WALKS_KEPT: u8 = 3;
+
+/// How many charges one read hands its session at a time, as many as the store's writer commits
+/// together, so a long first read holds no more than that.
+const HAND_OVER_LINES: usize = 50;
 
 /// The handles a launch's fallback reads and publishes through: the launch's export status, which
 /// counts its stops and takes the rollout files it cannot read, its exports' stamps, the stops
@@ -96,7 +98,7 @@ impl CodexLaunchRollouts {
         arrived_at_ms: u64,
     ) {
         let mut times = lock(&self.times);
-        times.named.name(threads, false);
+        times.named.name_exported(threads);
         if stops > times.last_ended_stop {
             let since_ms = times.since_ms();
             times.ended_stops.push_back(CodexEndedStop {
@@ -113,11 +115,12 @@ impl CodexLaunchRollouts {
         self.wake.notify_one();
     }
 
-    /// A turn of the session thread `thread_id` settled: its file, and the files of the threads
-    /// below it, are read on at the next pass, since a response whose export was lost may be the
-    /// turn's last, which no later export names.
-    pub(crate) fn turn_settled(&self, thread_id: &str) {
-        lock(&self.times).named.name([thread_id.to_owned()], true);
+    /// A turn of `session_id`'s thread settled: every file placed on the session, its thread's and
+    /// those of the threads below it, helpers and their helpers included, is read on at the next
+    /// pass, since a response whose export was lost may be the turn's last, which no later export
+    /// names.
+    pub(crate) fn turn_settled(&self, session_id: SessionId) {
+        lock(&self.times).named.name_settled([session_id]);
         self.wake.notify_one();
     }
 }
@@ -240,9 +243,9 @@ pub(crate) struct CodexRolloutFallback {
     reading: Option<CodexReading>,
     // The threads named for the pass due, taken as it was found due.
     named: CodexNamedThreads,
-    // The session threads whose settled turn the files below them do not show ended yet, named
-    // again at the next pass, since Codex may write a turn's end after its settle.
-    unended_settled: HashSet<String>,
+    // The sessions whose settled turn the files placed on them do not show ended yet, named again
+    // at the next pass, since Codex may write a turn's end after its settle.
+    unended_settled: HashSet<SessionId>,
     files: HashMap<PathBuf, CodexFollowedRollout>,
     let_go: VecDeque<(PathBuf, CodexFollowedRollout)>,
 }
@@ -368,7 +371,7 @@ impl CodexRolloutFallback {
             .ended(stop)
             .map(|ended| ended.newest_record_ms);
         let mut named = std::mem::take(&mut self.named);
-        named.name(std::mem::take(&mut self.unended_settled), true);
+        named.name_settled(std::mem::take(&mut self.unended_settled));
         let is_past_end = ended_ms.is_some() && is_scanned;
         let found = if is_past_end {
             let followed: Vec<PathBuf> = self
@@ -452,9 +455,9 @@ impl CodexRolloutFallback {
         if let Some(ended_ms) = ended_ms {
             for followed in self.files.values() {
                 if followed.is_followed_past(ended_ms)
-                    && let Some(thread) = named.settled_thread_of(followed)
+                    && let Some(session_id) = named.settled_session_of(followed)
                 {
-                    self.unended_settled.insert(thread);
+                    self.unended_settled.insert(session_id);
                 }
             }
             let ended: Vec<_> = self
@@ -635,9 +638,10 @@ async fn follow(
 }
 
 // Reads `path` on from `offset` into `file`, stopping just past the line that names its thread
-// where it is not known yet; each request read is handed, as its line is read, to `target`'s
-// session on its service, so a read cut short leaves only unread lines behind. Answers the file,
-// and the offset the next read starts at or the failure. Blocking.
+// where it is not known yet; the charges read are handed to `target`'s session on its service
+// together, `HAND_OVER_LINES` at a time and the rest before this answers, so the offset is kept
+// only once every line before it was handed over. Answers the file, and the offset the next read
+// starts at or the failure. Blocking.
 fn read_on(
     path: &Path,
     offset: u64,
@@ -646,12 +650,22 @@ fn read_on(
     target: Option<(&CodexRolloutTarget, &CodexService)>,
 ) -> (CodexRolloutFile, io::Result<u64>) {
     let is_thread_unknown = file.thread().is_none();
+    let mut hand_over = Vec::new();
     let read = read_usage_file_lines(path, offset, |line| {
         let request = file.read_line(line, since_ms);
         if let (Some(request), Some((target, service)), Some(thread)) =
             (request, target, file.thread())
         {
-            price_rollout_request(service, target, &thread.thread_id, request);
+            let provider_account_id = service.account_at(request.at_ms);
+            hand_over.extend(CodexExportedResponse::from_rollout(
+                &thread.thread_id,
+                request,
+                target.placed.clone(),
+                provider_account_id,
+            ));
+            if hand_over.len() >= HAND_OVER_LINES {
+                push_exported_responses(service, target.session_id, std::mem::take(&mut hand_over));
+            }
         }
         if is_thread_unknown && file.thread().is_some() {
             ControlFlow::Break(())
@@ -659,48 +673,10 @@ fn read_on(
             ControlFlow::Continue(())
         }
     });
+    if let Some((target, service)) = target {
+        push_exported_responses(service, target.session_id, hand_over);
+    }
     (file, read)
-}
-
-// Hands `request`, of `thread_id`'s file, to `target`'s session on `service`, under the account
-// its record's time ran on; one whose model or key does not fit the wire is refused and logged.
-fn price_rollout_request(
-    service: &CodexService,
-    target: &CodexRolloutTarget,
-    thread_id: &str,
-    request: CodexRolloutRequest,
-) {
-    let (service_tier, is_root_tier) = match request.tier {
-        CodexRolloutTier::Snapshot(tier) => (tier.and_then(BoundedText::new), false),
-        CodexRolloutTier::RootThread => (None, true),
-    };
-    let (Ok(model_id), Some(request_key)) = (
-        FreeFormText::new(request.model),
-        BoundedText::new(request.response_id),
-    ) else {
-        tracing::warn!(
-            conversation_id = thread_id,
-            "a codex rollout record's model or response id does not fit the wire; it is refused"
-        );
-        return;
-    };
-    let exported = CodexExportedResponse {
-        response: CodexCompletedResponse {
-            conversation_id: thread_id.to_owned(),
-            model_id,
-            service_tier,
-            counts: request.counts,
-            observed_at_ms: request.at_ms,
-            provider_account_id: service.account_at(request.at_ms),
-        },
-        placed: target.placed.clone(),
-        rollout: Some(CodexRolloutFacts {
-            request_key,
-            is_root_tier,
-            filing_run: None,
-        }),
-    };
-    push_exported_response(service, target.session_id, exported);
 }
 
 // Where `thread`'s requests go: on the session that streams it, else below the first held thread

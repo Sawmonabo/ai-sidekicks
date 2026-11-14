@@ -27,15 +27,19 @@ use super::super::intake::USAGE_RECORDER_QUEUE;
 use super::{LiveCodexSession, TEST_TURN, driver_holding};
 use crate::account::usage_turns::sightings::{
     is_sighting_passed_over, mark_sighting_statements, open_sighting_record_statement,
+    read_sighting_passed_over,
 };
 use crate::bounded_poll::poll_until;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, bind_test_listener, start_scripted_codex_service,
 };
+use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::session::side_questions::test_copies::{
     CopyTurnEnding, read_only_profile, resting_question, resting_session, serve_copy,
 };
 use crate::driver::codex::session::test_fixture::TEST_THREAD;
+use crate::driver::codex::telemetry::exported_response::CodexExportedResponse;
+use crate::driver::codex::telemetry::rollouts::file::CodexRolloutFile;
 use crate::driver::ports::{HeldRequest, RequestHeldListener};
 use crate::driver::session_control::ExportHandoverBriefParams;
 use crate::driver::test_registry::{TestProviderAccounts, new_session_id};
@@ -98,9 +102,9 @@ impl GatedUsage {
             .collect()
     }
 
-    // Whether `metered`'s sighting is its request's first, by the usage record's own statements:
-    // its record opened, or where that is refused, the mark written, tried again where neither
-    // took; a delta with no sighting is always recorded.
+    // Whether `metered`'s sighting is its request's first, decided as the usage record decides it:
+    // read first, then its record opened, or the mark written where the read passes it over, read
+    // again where the write refuses what the read said; a delta with no sighting is recorded.
     async fn is_first_sighting(&self, metered: &MeteredUsage) -> bool {
         let Some(sighting) = &metered.delta.sighting else {
             return true;
@@ -111,6 +115,19 @@ impl GatedUsage {
             .clone()
             .unwrap_or_else(test_provider_account_id);
         loop {
+            let is_passed_over = read_sighting_passed_over(&record.database.reader(), sighting)
+                .expect("the sighting reads");
+            if is_passed_over {
+                let marked = record
+                    .writer
+                    .write(Vec::from(mark_sighting_statements(sighting, None)))
+                    .await
+                    .expect("the sighting's mark writes");
+                if is_sighting_passed_over(&marked) {
+                    return false;
+                }
+                continue;
+            }
             let opened = record
                 .writer
                 .write(vec![open_sighting_record_statement(
@@ -127,14 +144,6 @@ impl GatedUsage {
                     "only the record refuses a sighting"
                 ),
             }
-            let marked = record
-                .writer
-                .write(Vec::from(mark_sighting_statements(sighting)))
-                .await
-                .expect("the sighting's mark writes");
-            if is_sighting_passed_over(&marked) {
-                return false;
-            }
         }
     }
 
@@ -150,7 +159,7 @@ impl GatedUsage {
 // The usage record's table of sightings on a store test database of its own, and its writer.
 struct SightingRecord {
     writer: DatabaseWriter,
-    _database: TestDatabase,
+    database: TestDatabase,
 }
 
 impl SightingRecord {
@@ -159,10 +168,7 @@ impl SightingRecord {
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
             .expect("the writer opens its database");
-        Self {
-            writer,
-            _database: database,
-        }
+        Self { writer, database }
     }
 }
 
@@ -409,18 +415,34 @@ fn web_search_frame(search_id: &str, action: &str) -> Value {
     })
 }
 
-// A turn's two billed searches, a page it opened and the first search stated again: on an API key
-// each billed search is charged once at OpenAI's published $0.01, since the model's row carries no
-// per-search rate, and on a plan each is part of the plan. Killed by no charge (no cost), by the
-// opened page or the repeat charged (three or four), by holding a row with no search rate
-// (nothing priced) and by charging a plan's searches.
+/// A `response_item` line of the session's thread's rollout file on the test's turn: the
+/// `web_search_call` item `search_id` whose action is `action`.
+fn rollout_search_line(at: &str, search_id: &str, action: &str) -> Value {
+    json!({
+        "timestamp": at,
+        "type": "response_item",
+        "payload": {
+            "type": "web_search_call", "id": search_id, "status": "completed",
+            "action": {"type": action, "query": "steer order"},
+            "internal_chat_message_metadata_passthrough": {"turn_id": TEST_TURN},
+        },
+    })
+}
+
+// A turn's two billed searches, a page it opened and the first search stated again on the stream,
+// then its rollout file naming the second search again, a search only the file names and a page
+// it opened: on an API key each billed search is charged once at OpenAI's published $0.01, since
+// the model's row carries no per-search rate, and on a plan each is part of the plan. Killed by no
+// charge (no cost), by an opened page or a repeat charged (more than three), by the file's search
+// left uncharged (two), by holding a row with no search rate (nothing priced) and by charging a
+// plan's searches.
 #[rstest]
-#[case::api_key(ProviderAuthMode::ApiKey, [10_000, 10_000])]
-#[case::plan(ProviderAuthMode::OauthSubscription, [0, 0])]
+#[case::api_key(ProviderAuthMode::ApiKey, [10_000, 10_000, 10_000])]
+#[case::plan(ProviderAuthMode::OauthSubscription, [0, 0, 0])]
 #[tokio::test]
 async fn each_billed_search_is_charged_once_on_a_key_and_never_on_a_plan(
     #[case] sign_in_kind: ProviderAuthMode,
-    #[case] expected: [u64; 2],
+    #[case] expected: [u64; 3],
 ) {
     let mut live = LiveCodexSession::start(&[]).await;
     let usage = Arc::new(GatedUsage::new(watch::channel(true).1));
@@ -461,9 +483,30 @@ async fn each_billed_search_is_charged_once_on_a_key_and_never_on_a_plan(
             .send(&web_search_frame(search_id, action));
     }
     answer_region_read(&mut live.scripted).await;
+    let at = "2026-11-14T10:00:00.000Z";
+    let mut file = CodexRolloutFile::default();
+    let hand_over: Vec<CodexExportedResponse> = [
+        json!({"timestamp": at, "type": "session_meta", "payload": {"id": TEST_THREAD}}),
+        json!({"timestamp": at, "type": "turn_context",
+            "payload": {"turn_id": TEST_TURN, "model": "gpt-5"}}),
+        rollout_search_line(at, "ws_3", "search"),
+        rollout_search_line(at, "ws_4", "search"),
+        rollout_search_line(at, "ws_5", "open_page"),
+    ]
+    .iter()
+    .filter_map(|line| file.read_line(line.to_string().as_bytes(), 0))
+    .filter_map(|request| {
+        let provider_account_id = live.scripted.service.account_at(request.at_ms);
+        CodexExportedResponse::from_rollout(TEST_THREAD, request, None, provider_account_id)
+    })
+    .collect();
+    assert!(live.scripted.service.push_session_item(
+        &live.session_id,
+        CodexSessionInbound::ExportedResponses(hand_over)
+    ));
 
-    // The opened page is no row; the repeat is decided and passed over.
-    assert_eq!(usage.rows_once_decided(3).await.len(), 2);
+    // The opened pages are no row; each repeat is decided and passed over.
+    assert_eq!(usage.rows_once_decided(5).await.len(), 3);
     poll_until(
         || {
             lock(&usage.costs)
@@ -471,7 +514,7 @@ async fn each_billed_search_is_charged_once_on_a_key_and_never_on_a_plan(
                 .map(|request| request.rows.len())
                 .sum::<usize>()
         },
-        |priced| *priced >= 2,
+        |priced| *priced >= 3,
     )
     .await;
     stop.cancel();
@@ -479,7 +522,7 @@ async fn each_billed_search_is_charged_once_on_a_key_and_never_on_a_plan(
         .iter()
         .map(|metered| metered.delta.request.web_search_requests)
         .collect();
-    assert_eq!(charged, [Some(1), Some(1)]);
+    assert_eq!(charged, [Some(1), Some(1), Some(1)]);
     let shares: Vec<u64> = lock(&usage.costs)
         .iter()
         .flat_map(|request| request.rows.iter().map(|row| row.cost_usd_micros.0.get()))

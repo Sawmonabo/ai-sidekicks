@@ -1,8 +1,8 @@
 //! The usage record's reads of the log and the accounts: where a reading's row goes, an account's
 //! generation and the quota windows kept for it, a run's tally seeded once per run, the turn a
-//! provider's turn id opened, a thread's prior counts, whether a request's rows are held and the
-//! thread tier live at an instant; and the one expression of a token count, which the agent tree's
-//! heads read too.
+//! provider's turn id opened, a thread's prior counts, whether a request's rows are held, the
+//! thread tier live at an instant and the tokens of a sighting record's row; and the one expression
+//! of a token count, which the agent tree's heads read too.
 
 use std::sync::LazyLock;
 
@@ -88,16 +88,34 @@ pub(crate) const TOKEN_COUNT_SUM_SQL: &str = "COALESCE(SUM(
     COALESCE(json_extract(payload, '$.inputTokens'), 0)
       + COALESCE(json_extract(payload, '$.outputTokens'), 0)), 0)";
 
-// A run's token count.
+// A run's token count: its own rows, and the session's rows whose sighting records a later
+// sighting counted toward the run, each through the record's link to its row.
 static SELECT_TOKEN_COUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     let recorded = SessionEventType::UsageTokenCountRecorded;
     format!(
+        "SELECT
+  (SELECT {TOKEN_COUNT_SUM_SQL}
+     FROM session_events
+     WHERE session_id = @session_id
+       AND type = '{recorded}'
+       AND run_id = @run_id)
+  + (SELECT {TOKEN_COUNT_SUM_SQL}
+       FROM session_events
+       WHERE id IN (SELECT opener.event_id
+                      FROM usage_sightings AS counted
+                      JOIN usage_sightings AS opener ON opener.record_id = counted.record_id
+                     WHERE counted.run_id = @run_id AND opener.event_id IS NOT NULL))",
+        recorded = recorded.as_str(),
+    )
+});
+
+// The token count of the row a sighting record's first sighting priced.
+static SELECT_RECORD_TOKEN_COUNT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
         "SELECT {TOKEN_COUNT_SUM_SQL}
   FROM session_events
-  WHERE session_id = @session_id
-    AND type = '{recorded}'
-    AND run_id = @run_id",
-        recorded = recorded.as_str(),
+  WHERE id IN (SELECT event_id FROM usage_sightings
+                WHERE record_id = @record_id AND event_id IS NOT NULL)"
     )
 });
 
@@ -282,8 +300,9 @@ pub(super) fn read_stored_windows(
 }
 
 /// `run_id`'s tally as its log stands, read at its first report: the token limit admitted with it
-/// and, under a limit, the count of its rows so far; `None` for a run that has ended or that the
-/// daemon has no row for, which no limit stops.
+/// and, under a limit, the count of its rows so far with the session's rows its sightings counted
+/// toward it; `None` for a run that has ended or that the daemon has no row for, which no limit
+/// stops.
 pub(super) fn read_tally_seed(
     reader: &Connection,
     session_id: SessionId,
@@ -318,13 +337,7 @@ pub(super) fn read_tally_seed(
             },
             |row| row.get(0),
         )?;
-        u64::try_from(count).map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                0,
-                rusqlite::types::Type::Integer,
-                Box::new(error),
-            )
-        })?
+        token_count_of(count)?
     };
     Ok(Some(RunUsageTally {
         token_limit,
@@ -332,6 +345,29 @@ pub(super) fn read_tally_seed(
         limit_stop: TokenLimitStop::Unasked,
         turn_opening: None,
     }))
+}
+
+/// The token count of the row that opened the sighting record `record_id`, 0 where the record names
+/// no row. Fails as the read fails.
+pub(super) fn read_counted_record_tokens(
+    reader: &Connection,
+    record_id: i64,
+) -> Result<u64, UsageRecordError> {
+    let count: i64 = reader
+        .prepare_cached(&SELECT_RECORD_TOKEN_COUNT_SQL)?
+        .query_row(named_params! { "@record_id": record_id }, |row| row.get(0))?;
+    Ok(token_count_of(count)?)
+}
+
+// A summed token count as stored, which is never negative.
+fn token_count_of(count: i64) -> rusqlite::Result<u64> {
+    u64::try_from(count).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            0,
+            rusqlite::types::Type::Integer,
+            Box::new(error),
+        )
+    })
 }
 
 /// The epoch and run position of `run_id`'s newest turn the provider opened under

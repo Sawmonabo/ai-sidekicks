@@ -1,7 +1,9 @@
 //! A hosted web search's per-call charge: each `webSearch` item Codex's stream completes with a
-//! `search` action is one call the API bills, charged as a usage row of its own with no tokens,
-//! since the export and a rollout's usage record never count searches. Opening a page or finding
-//! in one is no billed call.
+//! `search` action, and each `web_search_call` line a rollout file holds with one, is one call the
+//! API bills, charged as a usage row of its own with no tokens, since the export and a rollout's
+//! usage record never count searches; its sighting is keyed by the item's id, which the stream and
+//! the file share, so the search is charged once whichever names it first. Opening a page or
+//! finding in one is no billed call.
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -66,11 +68,29 @@ impl CodexWebSearch {
         if !is_billed {
             return None;
         }
+        let thread_id = frame.thread_id.filter(|thread_id| !thread_id.is_empty())?;
+        let Some(id) = item.id.filter(|id| !id.is_empty()) else {
+            tracing::warn!(
+                conversation_id = thread_id.as_str(),
+                "a codex web search names no id; it is not charged"
+            );
+            return None;
+        };
         Some(Self {
-            thread_id: frame.thread_id.filter(|thread_id| !thread_id.is_empty())?,
+            thread_id,
             turn_id: frame.turn_id.filter(|turn_id| !turn_id.is_empty()),
-            id: item.id.filter(|id| !id.is_empty())?,
+            id,
         })
+    }
+
+    /// The billed search `id` a rollout file of `thread_id` states, filed on whatever turn its
+    /// reader files it on.
+    pub(crate) fn new(thread_id: &str, id: &str) -> Self {
+        Self {
+            thread_id: thread_id.to_owned(),
+            turn_id: None,
+            id: id.to_owned(),
+        }
     }
 
     /// The thread the search ran on.
@@ -84,8 +104,12 @@ impl CodexWebSearch {
     }
 
     /// The search's charge: one row of one search and no tokens on its thread and turn, priced by
-    /// `request`'s model and tier, with the stream's sighting keyed by the search's id.
-    pub(crate) fn meter(self, request: UsageRequestFacts) -> MeteredUsageDelta {
+    /// `request`'s model and tier, with `source`'s sighting keyed by the search's id.
+    pub(crate) fn meter(
+        self,
+        source: UsageSightingSource,
+        request: UsageRequestFacts,
+    ) -> MeteredUsageDelta {
         let mut delta = meter_from_zero(
             DESCRIPTOR.provider_id(),
             self.thread_id,
@@ -96,8 +120,7 @@ impl CodexWebSearch {
             },
         );
         delta.attributed_turn_id = self.turn_id;
-        delta.sighting =
-            compose_codex_search_sighting(UsageSightingSource::Stream, &delta.thread_id, &self.id);
+        delta.sighting = compose_codex_search_sighting(source, &self.id);
         delta
     }
 }

@@ -32,15 +32,15 @@ pub(crate) fn compose_codex_sighting(
     compose_sighting(source, match_key, response_id)
 }
 
-/// The sighting by `source` of the hosted web search `search_id` on `thread_id`, its own id its
-/// source's too, so a search stated again is passed over; `None`, logged, for ids too long for the
-/// key, the search then charged on its own.
+/// The sighting by `source` of the hosted web search `search_id`, keyed by that id alone, which
+/// the stream, the rollout file and a fork's copy of the file's history all state alike, so a
+/// search stated again is passed over; `None`, logged, for an id too long for the key, the search
+/// then charged on its own.
 pub(crate) fn compose_codex_search_sighting(
     source: UsageSightingSource,
-    thread_id: &str,
     search_id: &str,
 ) -> Option<UsageSighting> {
-    compose_sighting(source, format!("{thread_id}:{search_id}"), Some(search_id))
+    compose_sighting(source, search_id.to_owned(), Some(search_id))
 }
 
 fn compose_sighting(

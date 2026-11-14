@@ -34,6 +34,7 @@ use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::account::usage_turns::usage_turn_projection_statements;
 use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::test_registry::new_run_id;
 use sidekicks_provider::port::usage_sink::{
@@ -44,7 +45,7 @@ use sidekicks_provider::usage_delta_accountant::{
 };
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::test_fixture::open_log;
+use sidekicks_store::events::log_service::test_fixture::open_projected_log;
 use tempfile::TempDir;
 
 use super::{USAGE_RECORD_STATEMENT_CAPACITY, UsageRecord, UsageRecordError};
@@ -96,6 +97,8 @@ struct Harness {
     engine: Arc<RunEngine>,
     interrupts: Arc<CountedInterrupts>,
     record: UsageRecord,
+    // The store writer's count of committed batches.
+    commits: tokio::sync::watch::Receiver<u64>,
 }
 
 impl Harness {
@@ -104,7 +107,16 @@ impl Harness {
     async fn new(token_limit: Option<u64>, is_cursor_open: bool) -> Self {
         let database = TestDatabase::new(schema_parts());
         let home = tempfile::tempdir().expect("the test makes a home folder");
-        let log = open_log(&database, None).await;
+        // The usage rows' projection runs in each append, so a sighting record is linked to the
+        // row that priced it, as on the daemon.
+        let daemon_started_at = WireInstant::now();
+        let log = open_projected_log(&database, move |envelope| {
+            Ok(usage_turn_projection_statements(
+                envelope,
+                &daemon_started_at,
+            )?)
+        })
+        .await;
         let engine = test_engine(&database, Arc::clone(&log.service), home.path());
         let interrupts = Arc::new(CountedInterrupts::default());
         let handed: Weak<CountedInterrupts> = Arc::downgrade(&interrupts);
@@ -173,6 +185,7 @@ impl Harness {
             log.service,
             test_choices(&database, &engine),
         ));
+        let commits = log.writer.follow_commits();
         let record = UsageRecord::new(
             Arc::new(DatabaseReadPool::new(
                 database.path(),
@@ -192,6 +205,7 @@ impl Harness {
             engine,
             interrupts,
             record,
+            commits,
         }
     }
 

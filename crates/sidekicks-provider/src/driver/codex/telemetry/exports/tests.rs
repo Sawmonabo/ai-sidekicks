@@ -34,6 +34,7 @@ use crate::driver::codex::telemetry::exported_response::{
     CodexExportedResponse, CodexOffStreamPlacement,
 };
 use crate::driver::diagnostics::RecordedEvents;
+use crate::driver::test_registry::new_session_id;
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader as _};
 use crate::usage_delta_accountant::UsageAxisCounts;
 
@@ -70,7 +71,12 @@ fn settle_turn(
     let settled = turns
         .observe(CODEX_TURN_COMPLETED_METHOD, &params, Instant::now())
         .expect("the live turn settles");
-    exports.turn_settled(service_id, THREAD, settled.made_request, settled.started_at);
+    exports.turn_settled(
+        service_id,
+        new_session_id(),
+        settled.made_request,
+        settled.started_at,
+    );
 }
 
 /// A log export whose one resource carries `tag`, as Codex's SDK reads it from the launch, and
@@ -205,7 +211,7 @@ impl TwoLaunches {
         let tag_b = exports.launched(&b_session.scripted.service);
         exports.turn_settled(
             b_session.scripted.service.id(),
-            THREAD,
+            b_session.task.record.session_id,
             true,
             Instant::now(),
         );
@@ -220,14 +226,16 @@ impl TwoLaunches {
         }
     }
 
-    // The next completed response B's session's queue takes, past every other item.
+    // The first completed response of the next hand-over B's session's queue takes, past every
+    // other item.
     async fn next_exported(&mut self) -> CodexExportedResponse {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                if let CodexSessionInbound::ExportedResponse(exported) =
+                if let CodexSessionInbound::ExportedResponses(exported) =
                     self.b_session.task.next_item().await
+                    && let Some(first) = exported.into_iter().next()
                 {
-                    return exported;
+                    return first;
                 }
             }
         })

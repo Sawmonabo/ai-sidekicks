@@ -297,14 +297,21 @@ CREATE TABLE usage_sightings (
   sighting_key TEXT,              -- the source's own id of the request, where it has one
   session_id   TEXT NOT NULL,     -- the session the record's first sighting was priced on
   account_id   TEXT NOT NULL,     -- the account it was charged to
+  -- On a record's first sighting, the event of the row it priced, whose tokens the record counts.
+  event_id     TEXT,
+  -- On a later sighting, the run its request's tokens count toward, set only where the record's
+  -- row was the session's own and no other sighting set one, so a request counts toward one run.
+  run_id       TEXT,
   UNIQUE (record_id, source)
 ) STRICT;
--- A key's records in their order, a source's own id once, and a session's sightings for its
--- purge, each found without a scan; an account's removal, which is rare, reads the whole table.
+-- A key's records in their order, a source's own id once, a session's sightings for its purge,
+-- and the sightings a run counts, each found without a scan; an account's removal, which is rare,
+-- reads the whole table.
 CREATE INDEX idx_usage_sightings_match ON usage_sightings(match_key, record_id);
 CREATE UNIQUE INDEX idx_usage_sightings_key ON usage_sightings(sighting_key)
   WHERE sighting_key IS NOT NULL;
 CREATE INDEX idx_usage_sightings_session ON usage_sightings(session_id);
+CREATE INDEX idx_usage_sightings_run ON usage_sightings(run_id) WHERE run_id IS NOT NULL;
 "
     )
 }

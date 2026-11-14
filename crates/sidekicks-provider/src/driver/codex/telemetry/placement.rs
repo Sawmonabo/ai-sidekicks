@@ -15,7 +15,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::telemetry::completed_response::{CodexCompletedResponse, SSE_EVENT_NAME};
 use crate::driver::codex::telemetry::copy_threads::CodexCopyThreads;
-use crate::driver::codex::telemetry::drain::push_exported_response;
+use crate::driver::codex::telemetry::drain::push_exported_responses;
 use crate::driver::codex::telemetry::exported_response::{
     CodexExportedResponse, CodexOffStreamPlacement,
 };
@@ -425,21 +425,22 @@ fn join_unlisted(
     push_bucket(service, session_id, timed, Some(&placed));
 }
 
-// Pushes each of `bucket` onto `session_id`'s queue, placed at `placed`.
+// Pushes `bucket` onto `session_id`'s queue as one hand-over, each placed at `placed`.
 fn push_bucket(
     service: &CodexService,
     session_id: SessionId,
     bucket: Vec<CodexKeptResponse>,
     placed: Option<&CodexOffStreamPlacement>,
 ) {
-    for kept in bucket {
-        let exported = CodexExportedResponse {
+    let exported = bucket
+        .into_iter()
+        .map(|kept| CodexExportedResponse {
             response: kept.response,
             placed: placed.cloned(),
             rollout: None,
-        };
-        push_exported_response(service, session_id, exported);
-    }
+        })
+        .collect();
+    push_exported_responses(service, session_id, exported);
 }
 
 /// Reports `response` refused under the account it ran on, naming its thread and `reason`.

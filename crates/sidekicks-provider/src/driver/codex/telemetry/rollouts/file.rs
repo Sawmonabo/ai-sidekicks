@@ -2,8 +2,10 @@
 //! response's `token_usage_record` of the file's own thread, with its `response_id`, which the
 //! usage record passes over where it was read before, at the model of the `turn_context` carrying
 //! the record's turn and the tier of the file's own last settings snapshot before it, a spawned
-//! helper's at its root thread's tier; running totals and `token_count` lines are never read. A
-//! turn that settled with no record names the file as one that cannot be read until the file
+//! helper's at its root thread's tier; running totals and `token_count` lines are never read.
+//! Each `web_search_call` response item with a `search` action is read as one billed search, by its
+//! own id, at the model and tier of the turn its line names, as a record is; opening a page or
+//! finding in one is no billed call. A turn that settled with no record names the file as one that cannot be read until the file
 //! yields a record, and the turn the file shows live is kept with its start. Only the payloads of
 //! the kinds read are parsed, and only a usage record that does not read is counted as refused.
 
@@ -24,6 +26,15 @@ mod tests;
 
 /// The record kind a completed response's usage is written under.
 const TOKEN_USAGE_RECORD_KIND: &str = "token_usage_record";
+
+/// The line kind a response item is written under.
+const RESPONSE_ITEM_KIND: &str = "response_item";
+
+/// The response item a hosted web search step is written as.
+const WEB_SEARCH_CALL_TYPE: &str = "web_search_call";
+
+/// The action of the one search step the API bills.
+const BILLED_SEARCH_ACTION: &str = "search";
 
 /// What a refused rollout record was read from, completing "a record in".
 const ROLLOUT_FILE: &str = "a Codex rollout file";
@@ -53,19 +64,36 @@ pub(crate) enum CodexRolloutTier {
     RootThread,
 }
 
-/// One completed response a rollout file states, to be priced as one request.
+/// One charge a rollout file states, to be priced as one request: a completed response's usage or
+/// a billed hosted web search.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexRolloutRequest {
-    /// Codex's id of the response, the request's key.
-    pub(crate) response_id: String,
+    /// What is charged.
+    pub(crate) charge: CodexRolloutCharge,
     /// The model the turn ran at.
     pub(crate) model: String,
     /// The tier it was sent at.
     pub(crate) tier: CodexRolloutTier,
-    /// Its own counts, input holding the cached and written share as Codex counts it.
-    pub(crate) counts: UsageAxisCounts,
-    /// When Codex wrote the record, in Unix milliseconds.
+    /// When Codex wrote the line, in Unix milliseconds.
     pub(crate) at_ms: u64,
+}
+
+/// What a rollout line charges.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum CodexRolloutCharge {
+    /// A completed response's own counts, input holding the cached and written share as Codex
+    /// counts it, under Codex's id of the response, the request's key.
+    Response {
+        /// Codex's id of the response.
+        response_id: String,
+        /// Its own counts.
+        counts: UsageAxisCounts,
+    },
+    /// One billed hosted web search, under the search item's own id.
+    Search {
+        /// The search item's id, the stream's item id too.
+        search_id: String,
+    },
 }
 
 /// What one rollout file's lines told so far: its thread, its turns' models, its own settings
@@ -105,6 +133,28 @@ struct SessionMetaPayload {
 struct TurnContextPayload {
     turn_id: Option<String>,
     model: Option<String>,
+}
+
+// The members of a response item a search's charge reads.
+#[derive(Deserialize)]
+struct ResponseItemPayload {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    id: Option<String>,
+    action: Option<SearchActionPayload>,
+    internal_chat_message_metadata_passthrough: Option<ItemMetadataPayload>,
+}
+
+#[derive(Deserialize)]
+struct SearchActionPayload {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+}
+
+// The turn Codex stamps on each response item at its history's write.
+#[derive(Deserialize)]
+struct ItemMetadataPayload {
+    turn_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -169,8 +219,8 @@ impl CodexRolloutFile {
     }
 
     /// Reads one line of the file, answering the request it states where it is a record of the
-    /// file's own thread stamped at or after `since_ms`. A record that cannot be read, or whose
-    /// turn no `turn_context` names, is refused and logged.
+    /// file's own thread, or a billed search, stamped at or after `since_ms`. A record or search
+    /// that cannot be read, or whose turn no `turn_context` names, is refused and logged.
     pub(crate) fn read_line(&mut self, line: &[u8], since_ms: u64) -> Option<CodexRolloutRequest> {
         // A line cut short as Codex writes it is read whole by the next pass.
         let line = serde_json::from_slice::<RolloutLine>(line).ok()?;
@@ -194,6 +244,7 @@ impl CodexRolloutFile {
                 None
             }
             TOKEN_USAGE_RECORD_KIND => self.read_record(&payload, at_ms, since_ms),
+            RESPONSE_ITEM_KIND => self.read_search(&payload, at_ms, since_ms),
             "event_msg" => {
                 if let Some(event) = read_payload::<EventPayload>(&payload) {
                     self.read_event(event, at_ms, since_ms);
@@ -257,20 +308,95 @@ impl CodexRolloutFile {
         if at_ms < since_ms {
             return None;
         }
+        self.price_on_turn(
+            CodexRolloutCharge::Response {
+                response_id,
+                counts,
+            },
+            &turn_id,
+            at_ms,
+        )
+    }
+
+    // A billed search a `web_search_call` item of the file states, stamped at or after
+    // `since_ms`; any other item, and a step that opens or finds in a page, charges nothing. A
+    // search with no id is logged and skipped; one with no time or turn is refused.
+    fn read_search(
+        &self,
+        payload: &RawValue,
+        at_ms: Option<u64>,
+        since_ms: u64,
+    ) -> Option<CodexRolloutRequest> {
+        let thread = self.thread.as_ref()?;
+        let item = read_payload::<ResponseItemPayload>(payload)?;
+        let is_billed = item.kind.as_deref() == Some(WEB_SEARCH_CALL_TYPE)
+            && item.action.and_then(|action| action.kind).as_deref() == Some(BILLED_SEARCH_ACTION);
+        if !is_billed {
+            return None;
+        }
+        let Some(search_id) = item.id.filter(|id| !id.is_empty()) else {
+            tracing::warn!(
+                conversation_id = thread.thread_id.as_str(),
+                "a codex rollout web search names no id; it is not charged"
+            );
+            return None;
+        };
+        let refusal = match (at_ms, item.internal_chat_message_metadata_passthrough) {
+            (None, _) => RecordRefusal {
+                field: "timestamp",
+                reason: "its line carries no time",
+            },
+            (
+                Some(at_ms),
+                Some(ItemMetadataPayload {
+                    turn_id: Some(turn_id),
+                }),
+            ) => {
+                if at_ms < since_ms {
+                    return None;
+                }
+                return self.price_on_turn(
+                    CodexRolloutCharge::Search { search_id },
+                    &turn_id,
+                    at_ms,
+                );
+            }
+            (Some(_at_ms), _) => RecordRefusal {
+                field: "turn_id",
+                reason: "its search names no turn",
+            },
+        };
+        refuse_record(&refusal, &thread.thread_id, Some(&search_id));
+        None
+    }
+
+    // `charge` priced at the model of the `turn_context` naming `turn_id` and the tier the file's
+    // thread runs at; refused where no turn context names the turn.
+    fn price_on_turn(
+        &self,
+        charge: CodexRolloutCharge,
+        turn_id: &str,
+        at_ms: u64,
+    ) -> Option<CodexRolloutRequest> {
+        let thread = self.thread.as_ref()?;
         let Some(model) = self
             .turn_models
             .iter()
             .rev()
-            .find(|(turn, _model)| *turn == turn_id)
+            .find(|(turn, _model)| turn == turn_id)
             .map(|(_turn, model)| model.clone())
         else {
+            let key = match &charge {
+                CodexRolloutCharge::Response { response_id, .. } => response_id,
+                CodexRolloutCharge::Search { search_id } => search_id,
+            };
             refuse_record(
                 &RecordRefusal {
                     field: "turn_id",
                     reason: "no turn context in its file names its turn",
                 },
-                &thread_id,
-                Some(&response_id),
+                &thread.thread_id,
+                Some(key),
             );
             return None;
         };
@@ -280,10 +406,9 @@ impl CodexRolloutFile {
             CodexRolloutTier::Snapshot(self.tier.clone())
         };
         Some(CodexRolloutRequest {
-            response_id,
+            charge,
             model,
             tier,
-            counts,
             at_ms,
         })
     }

@@ -3,8 +3,10 @@
 //! another source marks that record in a write of its own and is passed over, so the request is
 //! priced once in whatever order its sightings arrive, each sighting in one write. Which write a
 //! sighting takes is read first; each write's own statements decide again, so a write still queued
-//! when the store was read is never counted twice. The record is never cleared by a session's
-//! rebuild; it leaves with its session's purge or its account's removal.
+//! when the store was read is never counted twice. A record's first sighting is linked to the event
+//! of the row it priced, and a later sighting on a run counts that row's tokens toward the run where
+//! the row was the session's own and no sighting counted it yet. The record is never cleared by a
+//! session's rebuild; it leaves with its session's purge or its account's removal.
 
 use std::borrow::Cow;
 
@@ -12,6 +14,7 @@ use rusqlite::Connection;
 use rusqlite::types::Value;
 use sidekicks_contracts::event::usage::UsageSighting;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_store::database::statement::{
@@ -31,14 +34,30 @@ WHERE NOT EXISTS (SELECT 1 FROM usage_sightings WHERE sighting_key = @sighting_k
                   GROUP BY record_id HAVING SUM(source = @source) = 0)";
 
 // The mark of a sighting on the oldest record of its key that holds none from its source, on that
-// record's session and account, unless its source's own id is recorded already.
+// record's session and account, unless its source's own id is recorded already. It counts toward
+// `@run_id` where the record's row was the session's own, on no run, and no sighting of the record
+// counts toward one yet; it returns the run it counts toward and its record.
 const MARK_SIGHTING_SQL: &str = "INSERT INTO usage_sightings
-  (record_id, match_key, source, sighting_key, session_id, account_id)
-SELECT record_id, @match_key, @source, @sighting_key, session_id, account_id FROM usage_sightings
+  (record_id, match_key, source, sighting_key, session_id, account_id, run_id)
+SELECT record_id, @match_key, @source, @sighting_key, session_id, account_id,
+  CASE WHEN COUNT(run_id) = 0 AND EXISTS (
+    SELECT 1 FROM usage_sightings AS opener
+    JOIN session_events AS event ON event.id = opener.event_id
+    WHERE opener.record_id = usage_sightings.record_id AND event.run_id IS NULL)
+  THEN @run_id END
+FROM usage_sightings
 WHERE match_key = @match_key
   AND NOT EXISTS (SELECT 1 FROM usage_sightings WHERE sighting_key = @sighting_key)
 GROUP BY record_id HAVING SUM(source = @source) = 0
-ORDER BY record_id LIMIT 1";
+ORDER BY record_id LIMIT 1
+RETURNING run_id, record_id";
+
+// The link of a record its row's write just opened to that row's event: the newest sighting of its
+// key from its source, which no later write can have added, while it names no event.
+const LINK_SIGHTING_RECORD_SQL: &str = "UPDATE usage_sightings SET event_id = @event_id
+WHERE sighting_id = (SELECT MAX(sighting_id) FROM usage_sightings
+                     WHERE match_key = @match_key AND source = @source)
+  AND event_id IS NULL";
 
 // Whether a source's own id is recorded, as a record's first sighting or as a mark.
 const SIGHTING_KEY_RECORDED_SQL: &str =
@@ -87,16 +106,41 @@ pub fn open_sighting_record_statement(
     }
 }
 
-/// The two statements of the one write that passes `sighting` over: the first marks the oldest
-/// record of its key that holds no sighting from its source and changes one row where it did; the
-/// second returns a row where the source's own id is recorded already. Where neither did, the
-/// record moved since [`read_sighting_passed_over`] read it, and the sighting is read again; the
-/// write's results read through [`is_sighting_passed_over`].
-pub fn mark_sighting_statements(sighting: &UsageSighting) -> [WriteStatement; 2] {
+/// The statement a priced row's live write carries after its event, as `event_id`, for the record
+/// [`open_sighting_record_statement`] opened in that write for `sighting`: it links the record to
+/// the row, whose tokens a run the request is later seen on counts.
+pub fn link_sighting_record_statement(sighting: &UsageSighting, event_id: &str) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(LINK_SIGHTING_RECORD_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@event_id", event_id),
+            text_binding("@match_key", sighting.match_key.as_str()),
+            text_binding("@source", sighting.source.into()),
+        ]),
+        expected_row_count: None,
+    }
+}
+
+/// The two statements of the one write that passes `sighting` over, seen on `run_id` or on the
+/// session's own spend: the first marks the oldest record of its key that holds no sighting from
+/// its source and returns a row where it did, counting the record's row toward `run_id` where that
+/// row was the session's own and nothing counted it yet; the second returns a row where the
+/// source's own id is recorded already. Where neither did, the record moved since
+/// [`read_sighting_passed_over`] read it, and the sighting is read again; the write's results read
+/// through [`is_sighting_passed_over`] and [`counted_record`].
+pub fn mark_sighting_statements(
+    sighting: &UsageSighting,
+    run_id: Option<RunId>,
+) -> [WriteStatement; 2] {
+    let mut bindings = sighting_bindings(sighting);
+    bindings.push((
+        Cow::Borrowed("@run_id"),
+        Value::from(run_id.map(|run_id| run_id.text().as_str().to_owned())),
+    ));
     [
         WriteStatement {
             sql: Cow::Borrowed(MARK_SIGHTING_SQL),
-            bindings: StatementBindings::Named(sighting_bindings(sighting)),
+            bindings: StatementBindings::Named(bindings),
             expected_row_count: None,
         },
         WriteStatement {
@@ -114,6 +158,15 @@ pub fn mark_sighting_statements(sighting: &UsageSighting) -> [WriteStatement; 2]
 /// either, its record marked or its source's id recorded already; `false` where the record moved.
 pub fn is_sighting_passed_over(marked: &[StatementResult]) -> bool {
     marked.iter().any(|result| result.row_count > 0)
+}
+
+/// The record whose row the results of [`mark_sighting_statements`]' write counted toward the run
+/// it was given; `None` where the mark counted toward no run or marked nothing.
+pub fn counted_record(marked: &[StatementResult]) -> Option<i64> {
+    match marked.first()?.rows.first()?.as_slice() {
+        [Value::Text(_), Value::Integer(record_id)] => Some(*record_id),
+        _ => None,
+    }
 }
 
 fn sighting_bindings(sighting: &UsageSighting) -> Vec<(Cow<'static, str>, Value)> {

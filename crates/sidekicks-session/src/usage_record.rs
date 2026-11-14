@@ -7,29 +7,30 @@
 //! request becomes one `usage.cost.updated` per account its rows were charged to, on the session
 //! with no binding, so a request priced after its run ended is recorded all the same. Each run's
 //! reports are taken one at a time against a tally the engine keeps from the run's first report,
-//! seeded once from the log, so a restart never counts a run from zero and no report reads the
-//! run's rows again. A run past its token limit is stopped on a task of its own, so a report never
+//! seeded once from the log and the sightings that count toward it, so a restart never counts a
+//! run from zero and no report reads the run's rows again. A sighting passed over on a run counts
+//! its request's row toward the run where that row was the session's own, as its mark's own write
+//! decides, so the stored record is the one account of it. A hand-over's readings are read one by
+//! one and their writes queued together, so the store commits them as one where it can, each with
+//! its own refusal. A run past its token limit is stopped on a task of its own, so a report never
 //! waits on a driver.
 
+mod quota_windows;
 pub(crate) mod reads;
 #[cfg(test)]
 mod tests;
 
 use std::error::Error;
-use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use futures::FutureExt as _;
-use futures::future::BoxFuture;
-use lru::LruCache;
+use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::event::usage::{
-    UsageCostSource, UsageCostUpdatedPayload, UsagePricedEvent, UsageRateLimitUpdatedPayload,
-    UsageRateLimitWindowKey, UsageSighting, UsageTokenCountRecordedPayload,
+    UsageCostSource, UsageCostUpdatedPayload, UsagePricedEvent, UsageSighting,
+    UsageTokenCountRecordedPayload,
 };
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
-use sidekicks_contracts::provider::account::record::{
-    CredentialGeneration, PROVIDER_QUOTA_DEFAULT_LIMIT_ID, ProviderAccountId,
-};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
@@ -38,24 +39,21 @@ use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::integer::{SafeInt, SafeSignedInt};
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
-use sidekicks_contracts::wire::number::Number;
-use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::account::usage_turns::sightings::{
-    is_sighting_passed_over, mark_sighting_statements, read_sighting_passed_over,
+    counted_record, is_sighting_passed_over, mark_sighting_statements, read_sighting_passed_over,
 };
 use sidekicks_provider::driver::run_control::HelperStopParams;
 use sidekicks_provider::port::usage_sink::{
     MeteredUsage, MeteredUsageOwner, PricedRequest, PricedUsageRow, ProviderQuotaWindow,
-    RecordedUsage, UsageSink,
+    RecordedReading, RecordedUsage, UsageSink,
 };
 use sidekicks_provider::run::delivery::{
-    DeliveryBinding, InboundDelivery, InboundOutcome, LateAppendableRow, MachineScopedRow,
-    SessionScopedRow,
+    DeliveryBinding, InboundDelivery, InboundOutcome, LateAppendableRow, SessionScopedRow,
 };
 use sidekicks_provider::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
-use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -69,25 +67,16 @@ use crate::run::engine::usage_tallies::{RunUsageTally, RunUsageTallySlot, TokenL
 use crate::run::inbound::{InboundDispatchError, RunInboundDispatch, SIGHTING_GUARD_INDEX};
 use crate::transcript::turn_attribution::TurnAttributionError;
 use crate::usage_record::reads::{
-    MeteredTarget, StoredQuotaWindow, read_credential_generation, read_metered_target,
-    read_prior_emitted, read_run_at, read_stored_windows, read_tally_seed, read_thread_speed_at,
-    read_turn_opening,
+    MeteredTarget, read_counted_record_tokens, read_metered_target, read_prior_emitted,
+    read_run_at, read_tally_seed, read_thread_speed_at, read_turn_opening,
 };
 
 /// The statements the usage record prepares on the shared read pool: a binding, an account's
 /// credential generation and its stored quota windows, a helper's run, a run's state, its admitted
 /// token limit and its token count, the turn a provider's turn id opened with the run's rollbacks
 /// and turns before it, a thread's prior counts, a session's thread tier and run at an instant,
-/// and whether a sighting is passed over.
-pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 14;
-
-// How many keys of requests filed as a session's own spend are kept for a later sighting on a
-// run; past it the oldest is forgotten, and its request then never reaches a run's count.
-const SESSION_FILED_KEYS_KEPT: NonZeroUsize =
-    NonZeroUsize::new(1024).expect("the bound is not zero");
-
-// The windows of an account's whole set, as each window's row carries them.
-type UsageRateLimitWholeSet = BoundedVec<UsageRateLimitWindowKey, 1, { usize::MAX }>;
+/// whether a sighting is passed over, and the tokens of a record's row.
+pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 15;
 
 /// Why a usage reading or a quota window was not recorded.
 #[derive(Debug, thiserror::Error)]
@@ -140,10 +129,23 @@ pub(crate) enum UsageRecordError {
 enum SightingWrite {
     // The row's event was written, or absorbed.
     Appended(InboundOutcome),
-    // The sighting was its request's second or later, so its mark was written and no row.
-    PassedOver,
+    // The sighting was its request's second or later, so its mark was written and no row; the
+    // record whose row the mark counted toward the run, where it counted one.
+    PassedOver { counted_record: Option<i64> },
     // The request's record moved since the store was read, so the sighting is decided again.
     Moved,
+}
+
+// A reading read and placed, its row built, waiting for its write: where it goes, whose it is,
+// whether its sighting was passed over as the store was read, and the tally of the live run it
+// counts toward.
+struct PreparedReading {
+    binding_id: RuntimeBindingId,
+    target: MeteredTarget,
+    helper: Option<SubagentId>,
+    payload: UsageTokenCountRecordedPayload,
+    is_passed_over: bool,
+    tally: Option<RunUsageTallySlot>,
 }
 
 /// The usage record: the drivers' usage sink, which the daemon's start registers on their ports.
@@ -154,9 +156,6 @@ pub struct UsageRecord {
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     dispatch: Arc<RunInboundDispatch>,
     engine: Arc<RunEngine>,
-    // The keys of requests whose first sighting was filed as the session's own spend, each with
-    // how many such requests it opened, so a later sighting passed over on a run counts once.
-    session_filed: Mutex<LruCache<String, u32>>,
     // The token-limit stops under way, each on a task of its own.
     stops: TaskTracker,
 }
@@ -178,7 +177,6 @@ impl UsageRecord {
             read_damaged_from_sequence,
             dispatch,
             engine,
-            session_filed: Mutex::new(LruCache::new(SESSION_FILED_KEYS_KEPT)),
             stops: TaskTracker::new(),
         }
     }
@@ -190,12 +188,29 @@ impl UsageRecord {
         self.stops.wait().await;
     }
 
-    // Records one metered reading and holds its run to its token limit, answering the row written
-    // and where it was charged; `None` where the dispatch wrote nothing.
-    async fn record(
+    // Records each reading of one hand-over in order: each is read and placed first, then every
+    // write is queued before any is awaited, so the writer commits them together, each in its own
+    // write with its own refusal. Answers each reading's row, `None` where nothing was written.
+    async fn record_together(
         &self,
-        metered: MeteredUsage,
-    ) -> Result<Option<RecordedUsage>, UsageRecordError> {
+        batch: Vec<MeteredUsage>,
+    ) -> Vec<Result<Option<RecordedUsage>, UsageRecordError>> {
+        let mut prepared = Vec::with_capacity(batch.len());
+        for metered in batch {
+            prepared.push(self.prepare(metered).await);
+        }
+        join_all(
+            prepared
+                .into_iter()
+                .map(|prepared| async move { self.write_prepared(prepared?).await }),
+        )
+        .await
+    }
+
+    // Reads where `metered` goes and builds its row: its target, whether its sighting is passed
+    // over, and, on a live run, the run's tally seeded once and the turn its provider's turn id
+    // opened. The tally is let go before the write, so a hand-over's writes go out together.
+    async fn prepare(&self, metered: MeteredUsage) -> Result<PreparedReading, UsageRecordError> {
         let MeteredUsage {
             session_id,
             binding_id,
@@ -212,7 +227,7 @@ impl UsageRecord {
             }
             MeteredUsageOwner::Run | MeteredUsageOwner::Session => None,
         };
-        let (target, mut is_passed_over) = self
+        let (target, is_passed_over) = self
             .pool
             .read(ReadLength::Short, move |reader| {
                 let target = read_metered_target(
@@ -248,30 +263,14 @@ impl UsageRecord {
         let mut payload = usage_row(session_id, &target, helper.clone(), &delta)?;
         let Some(run_id) = target.run_id else {
             // The session's own spend, counted toward no run.
-            loop {
-                let written = self
-                    .write_sighted_row(payload.sighting.as_ref(), is_passed_over, || {
-                        InboundDelivery::SessionEvent {
-                            row: SessionScopedRow::UsageTokenCountRecorded(Box::new(
-                                payload.clone(),
-                            )),
-                        }
-                    })
-                    .await?;
-                match written {
-                    SightingWrite::Appended(outcome) => {
-                        if let Some(sighting) = &payload.sighting {
-                            *lock(&self.session_filed)
-                                .get_or_insert_mut_ref(sighting.match_key.as_str(), || 0) += 1;
-                        }
-                        return Ok(recorded_usage(&outcome, target, helper));
-                    }
-                    SightingWrite::PassedOver => return Ok(None),
-                    SightingWrite::Moved => {
-                        is_passed_over = self.read_sighting(payload.sighting.as_ref()).await?;
-                    }
-                }
-            }
+            return Ok(PreparedReading {
+                binding_id,
+                target,
+                helper,
+                payload,
+                is_passed_over,
+                tally: None,
+            });
         };
         let slot = self.engine.run_usage_tally(run_id);
         let mut tally = slot.lock().await;
@@ -295,76 +294,95 @@ impl UsageRecord {
                 payload.source_position = Some(opening.position);
             }
         }
-        let row_tokens = row_token_count(&payload);
-        let recorded = loop {
+        drop(tally);
+        Ok(PreparedReading {
+            binding_id,
+            target,
+            helper,
+            payload,
+            is_passed_over,
+            tally: Some(slot),
+        })
+    }
+
+    // Writes `prepared`'s row or its sighting's mark, deciding again where its request's record
+    // moved, then holds its run to its token limit with what it counted: its row's tokens, or the
+    // tokens of the session's row its mark counted toward the run.
+    async fn write_prepared(
+        &self,
+        prepared: PreparedReading,
+    ) -> Result<Option<RecordedUsage>, UsageRecordError> {
+        let PreparedReading {
+            binding_id,
+            target,
+            helper,
+            payload,
+            mut is_passed_over,
+            tally,
+        } = prepared;
+        let (recorded, counted_tokens) = loop {
+            let delivery = || match target.run_id {
+                None => InboundDelivery::SessionEvent {
+                    row: SessionScopedRow::UsageTokenCountRecorded(Box::new(payload.clone())),
+                },
+                Some(_) => InboundDelivery::SessionRow {
+                    binding: DeliveryBinding {
+                        binding_id: binding_id.clone(),
+                        operation: None,
+                    },
+                    row: LateAppendableRow::UsageTokenCountRecorded(Box::new(payload.clone())),
+                    content: None,
+                },
+            };
             let written = self
-                .write_sighted_row(payload.sighting.as_ref(), is_passed_over, || {
-                    InboundDelivery::SessionRow {
-                        binding: DeliveryBinding {
-                            binding_id: binding_id.clone(),
-                            operation: None,
-                        },
-                        row: LateAppendableRow::UsageTokenCountRecorded(Box::new(payload.clone())),
-                        content: None,
-                    }
-                })
+                .write_sighted_row(
+                    payload.sighting.as_ref(),
+                    is_passed_over,
+                    target.run_id,
+                    delivery,
+                )
                 .await?;
             match written {
                 SightingWrite::Appended(outcome) => {
-                    break recorded_usage(&outcome, target, helper.clone());
+                    break (
+                        recorded_usage(&outcome, target, helper.clone()),
+                        row_token_count(&payload),
+                    );
                 }
-                // A sighting passed over writes no row, and counts toward its run only where its
-                // request was filed as the session's spend, which it then takes off.
-                SightingWrite::PassedOver => {
-                    if !payload
-                        .sighting
-                        .as_ref()
-                        .is_some_and(|sighting| self.take_session_filed(sighting))
-                    {
-                        return Ok(None);
-                    }
-                    break None;
-                }
+                SightingWrite::PassedOver {
+                    counted_record: Some(record_id),
+                } => break (None, self.read_counted_tokens(record_id).await?),
+                SightingWrite::PassedOver {
+                    counted_record: None,
+                } => return Ok(None),
                 SightingWrite::Moved => {
                     is_passed_over = self.read_sighting(payload.sighting.as_ref()).await?;
                 }
             }
         };
-        // A run that has ended is stopped by no limit.
-        if let Some(tally) = tally.as_mut() {
-            tally.token_count = tally.token_count.saturating_add(row_tokens);
-            self.hold_to_token_limit(tally, &slot, session_id, run_id, helper);
+        // The session's own spend counts toward no run, and a run that has ended is stopped by no
+        // limit.
+        if let (Some(slot), Some(run_id)) = (tally, payload.run_id) {
+            let mut kept = slot.lock().await;
+            if let Some(kept) = kept.as_mut() {
+                kept.token_count = kept.token_count.saturating_add(counted_tokens);
+                self.hold_to_token_limit(kept, &slot, payload.session_id, run_id, helper);
+            }
         }
         Ok(recorded)
     }
 
-    // Whether `sighting`'s request was filed as a session's own spend and not yet counted toward a
-    // run, taking one such request of its key off.
-    fn take_session_filed(&self, sighting: &UsageSighting) -> bool {
-        let mut session_filed = lock(&self.session_filed);
-        let key = sighting.match_key.as_str();
-        match session_filed.get_mut(key) {
-            Some(requests) if *requests > 1 => {
-                *requests -= 1;
-                true
-            }
-            Some(_) => {
-                session_filed.pop(key);
-                true
-            }
-            None => false,
-        }
-    }
-
     // Writes a usage row's sighting in one write, as the store was read: one `is_passed_over`
-    // writes only its mark, passed over where it marked the request's record or its source's id
-    // was recorded already; any other writes the row `delivery` builds with its record opened in
-    // the row's own write, which the row's prelude refuses where the record holds the request by
-    // now. Either answers moved where the store changed since it was read.
+    // writes only its mark, seen on `run_id` where the row goes on one, passed over where it marked
+    // the request's record or its source's id was recorded already; any other writes the row
+    // `delivery` builds with its record opened in the row's own write, which the row's prelude
+    // refuses where the record holds the request by now. Either answers moved where the store
+    // changed since it was read.
     async fn write_sighted_row<'key>(
         &self,
         sighting: Option<&UsageSighting>,
         is_passed_over: bool,
+        run_id: Option<RunId>,
         delivery: impl FnOnce() -> InboundDelivery<'key>,
     ) -> Result<SightingWrite, UsageRecordError> {
         if let Some(sighting) = sighting
@@ -372,10 +390,12 @@ impl UsageRecord {
         {
             let marked = self
                 .writer
-                .write(Vec::from(mark_sighting_statements(sighting)))
+                .write(Vec::from(mark_sighting_statements(sighting, run_id)))
                 .await?;
             return Ok(if is_sighting_passed_over(&marked) {
-                SightingWrite::PassedOver
+                SightingWrite::PassedOver {
+                    counted_record: counted_record(&marked),
+                }
             } else {
                 SightingWrite::Moved
             });
@@ -402,6 +422,15 @@ impl UsageRecord {
         self.pool
             .read(ReadLength::Short, move |reader| {
                 Ok::<_, UsageRecordError>(read_sighting_passed_over(reader, &sighting)?)
+            })
+            .await
+    }
+
+    // The tokens of the row that opened `record_id`, which a mark just counted toward its run.
+    async fn read_counted_tokens(&self, record_id: i64) -> Result<u64, UsageRecordError> {
+        self.pool
+            .read(ReadLength::Short, move |reader| {
+                read_counted_record_tokens(reader, record_id)
             })
             .await
     }
@@ -533,65 +562,6 @@ impl UsageRecord {
             .instrument(tracing::Span::current()),
         );
     }
-
-    // Files each window as one row under the machine's sentinel session, stamped with the
-    // account's credential generation read now, each marked with every window of the set where
-    // the set is the account's whole one. A whole set that says nothing the stored windows do not
-    // files nothing, so a read every few minutes grows the log only when a figure moved.
-    async fn record_windows(
-        &self,
-        provider: ProviderId,
-        provider_account_id: ProviderAccountId,
-        windows: Vec<ProviderQuotaWindow>,
-        is_whole_set: bool,
-    ) -> Result<(), UsageRecordError> {
-        if windows.is_empty() {
-            return Ok(());
-        }
-        let whole_set = if is_whole_set {
-            Some(whole_set_keys(&windows)?)
-        } else {
-            None
-        };
-        let read_account_id = provider_account_id.clone();
-        let (credential_generation, stored) = self
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                let stored = if is_whole_set {
-                    Some(read_stored_windows(reader, &read_account_id)?)
-                } else {
-                    None
-                };
-                Ok::<_, UsageRecordError>((
-                    read_credential_generation(reader, read_account_id)?,
-                    stored,
-                ))
-            })
-            .await?;
-        let rows = windows
-            .into_iter()
-            .map(|window| {
-                quota_window_row(
-                    window,
-                    provider.clone(),
-                    provider_account_id.clone(),
-                    credential_generation,
-                    whole_set.clone(),
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        if stored.is_some_and(|stored| is_stored_set(&rows, &stored)) {
-            return Ok(());
-        }
-        for row in rows {
-            self.dispatch
-                .dispatch(InboundDelivery::MachineEvent {
-                    row: MachineScopedRow::UsageRateLimitUpdated(row),
-                })
-                .await?;
-        }
-        Ok(())
-    }
 }
 
 impl UsageSink for UsageRecord {
@@ -599,7 +569,25 @@ impl UsageSink for UsageRecord {
         &self,
         metered: MeteredUsage,
     ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>> {
-        async move { self.record(metered).await.map_err(Into::into) }.boxed()
+        async move {
+            let prepared = self.prepare(metered).await?;
+            Ok(self.write_prepared(prepared).await?)
+        }
+        .boxed()
+    }
+
+    fn record_metered_together(
+        &self,
+        batch: Vec<MeteredUsage>,
+    ) -> BoxFuture<'_, Vec<RecordedReading>> {
+        async move {
+            self.record_together(batch)
+                .await
+                .into_iter()
+                .map(|recorded| recorded.map_err(Into::into))
+                .collect()
+        }
+        .boxed()
     }
 
     fn record_cost(
@@ -795,76 +783,4 @@ fn cost_row(
 fn row_token_count(payload: &UsageTokenCountRecordedPayload) -> u64 {
     let figure = |figure: Option<SafeInt<0>>| figure.map_or(0, SafeInt::get);
     figure(payload.input_tokens).saturating_add(figure(payload.output_tokens))
-}
-
-// Every window of a non-empty set, by its limit and length, as each of its rows names the set.
-fn whole_set_keys(
-    windows: &[ProviderQuotaWindow],
-) -> Result<UsageRateLimitWholeSet, UsageRecordError> {
-    let keys = windows
-        .iter()
-        .map(|window| {
-            let unfit = || UsageRecordError::QuotaWindowUnfit {
-                limit_id: window.limit_id.clone(),
-            };
-            Ok(UsageRateLimitWindowKey {
-                limit_id: Some(BoundedText::new(window.limit_id.clone()).ok_or_else(unfit)?),
-                window_mins: SafeSignedInt::new(window.window_mins).ok_or_else(unfit)?,
-            })
-        })
-        .collect::<Result<Vec<_>, UsageRecordError>>()?;
-    Ok(BoundedVec::new(keys).expect("the caller hands a set of at least one window"))
-}
-
-// Whether `rows`, an account's whole set, are the stored windows as they stand: the same windows,
-// each with the same share used, reset and generation.
-fn is_stored_set(rows: &[UsageRateLimitUpdatedPayload], stored: &[StoredQuotaWindow]) -> bool {
-    rows.len() == stored.len()
-        && rows.iter().all(|row| {
-            let limit_id = row
-                .limit_id
-                .as_ref()
-                .map_or(PROVIDER_QUOTA_DEFAULT_LIMIT_ID, BoundedText::as_str);
-            stored.iter().any(|window| {
-                window.limit_id == limit_id
-                    && window.window_mins == row.window_mins.get()
-                    && window.used_percent.to_bits() == row.used_percent.get().to_bits()
-                    && window.resets_at.as_deref()
-                        == row.resets_at.as_ref().map(WireInstant::as_str)
-                    && window.credential_generation == row.credential_generation
-            })
-        })
-}
-
-// One window's `usage.rateLimit.updated` row.
-fn quota_window_row(
-    window: ProviderQuotaWindow,
-    provider: ProviderId,
-    provider_account_id: ProviderAccountId,
-    credential_generation: CredentialGeneration,
-    whole_set: Option<UsageRateLimitWholeSet>,
-) -> Result<UsageRateLimitUpdatedPayload, UsageRecordError> {
-    let ProviderQuotaWindow {
-        limit_id,
-        window_mins,
-        used_percent,
-        resets_at,
-    } = window;
-    let unfit = || UsageRecordError::QuotaWindowUnfit {
-        limit_id: limit_id.clone(),
-    };
-    let resets_at = match resets_at {
-        Some(resets_at) => Some(WireInstant::from_timestamp(resets_at).ok_or_else(unfit)?),
-        None => None,
-    };
-    Ok(UsageRateLimitUpdatedPayload {
-        provider,
-        provider_account_id,
-        credential_generation,
-        window_mins: SafeSignedInt::new(window_mins).ok_or_else(unfit)?,
-        used_percent: Number::new(used_percent).ok_or_else(unfit)?,
-        resets_at,
-        limit_id: Some(BoundedText::new(limit_id.clone()).ok_or_else(unfit)?),
-        whole_set,
-    })
 }

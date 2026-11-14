@@ -2,8 +2,10 @@
 //! windows go, a turn's push and an account read's whole set alike, and the sums the daemon already
 //! reported for a thread a resumed session meters on from. Recording a reading answers the event it
 //! became, so a priced request can name its rows, or nothing where the reading's sighting was
-//! passed over as a later sighting of a request already priced. The usage service registers it
-//! once it runs; until then a reading meters against a zero base and its delta goes nowhere.
+//! passed over as a later sighting of a request already priced. The readings one source hands over
+//! together are recorded together, so the store can commit them as one. The usage service
+//! registers it once it runs; until then a reading meters against a zero base and its delta goes
+//! nowhere.
 
 use std::error::Error;
 
@@ -106,6 +108,10 @@ pub struct PricedUsageRow {
     pub cost_usd_micros: UsdMicros,
 }
 
+/// What recording one reading answers: its row, `None` where nothing was written, or why it was
+/// not recorded.
+pub type RecordedReading = Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>;
+
 /// The daemon's usage record as the drivers reach it, registered through a `PortRegistration`.
 pub trait UsageSink: Send + Sync {
     /// Records one metered per-turn delta, stamped with its account's credential generation as
@@ -117,6 +123,24 @@ pub trait UsageSink: Send + Sync {
         &self,
         metered: MeteredUsage,
     ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>>;
+
+    /// Records each delta of `batch`, the readings one source handed over together, as
+    /// [`UsageSink::record_metered`] does, with every write queued before any is awaited, so the
+    /// store commits them together, each keeping its own refusal; answers each reading's row or its
+    /// failure, in the batch's order. A sink that writes one reading at a time records them in
+    /// turn.
+    fn record_metered_together(
+        &self,
+        batch: Vec<MeteredUsage>,
+    ) -> BoxFuture<'_, Vec<RecordedReading>> {
+        Box::pin(async move {
+            let mut recorded = Vec::with_capacity(batch.len());
+            for metered in batch {
+                recorded.push(self.record_metered(metered).await);
+            }
+            recorded
+        })
+    }
 
     /// Records one priced request: one `usage.cost.updated` per account its rows name, in the
     /// order the accounts first appear, each naming that account's rows and their sum, on the

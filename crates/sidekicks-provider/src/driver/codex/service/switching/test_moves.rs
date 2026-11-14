@@ -247,7 +247,7 @@ impl CodexSessionInboundHandler for SessionQueue {
         async move { binding_move.land(&*self.moves, &self.recorder).await }.boxed()
     }
 
-    fn exported_response(&mut self, _response: CodexExportedResponse) -> BoxFuture<'_, ()> {
+    fn exported_responses(&mut self, _responses: Vec<CodexExportedResponse>) -> BoxFuture<'_, ()> {
         async {}.boxed()
     }
 

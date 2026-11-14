@@ -81,8 +81,8 @@ impl CodexExports {
         };
         let arrived_at_ms = read_unix_time_ms();
         let current_account = service.provider_account_id();
-        for mut response in read_codex_completed_responses(resource_logs, current_account.as_ref())
-        {
+        let mut responses = read_codex_completed_responses(resource_logs, current_account.as_ref());
+        for response in &mut responses {
             // The account its turn ran on, read by the time Codex observed it; one carrying no
             // time is read at its export's arrival.
             let ran_at_ms = match response.observed_at_ms {
@@ -90,10 +90,13 @@ impl CodexExports {
                 observed_at_ms => observed_at_ms,
             };
             response.provider_account_id = service.account_at(ran_at_ms);
-            self.offer(CodexExportItem::Response {
+        }
+        // The export's responses go over together, so the session prices them in one commit.
+        if !responses.is_empty() {
+            self.offer(CodexExportItem::Responses {
                 service: read.service.clone(),
                 launch: read.placement.clone(),
-                response: Box::new(response),
+                responses,
                 export_number: read.export_number,
             });
         }

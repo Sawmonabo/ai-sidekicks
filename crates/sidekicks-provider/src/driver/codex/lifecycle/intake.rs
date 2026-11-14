@@ -610,8 +610,8 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
         self.move_account(account_move).boxed()
     }
 
-    fn exported_response(&mut self, exported: CodexExportedResponse) -> BoxFuture<'_, ()> {
-        self.price_exported_response(exported).boxed()
+    fn exported_responses(&mut self, exported: Vec<CodexExportedResponse>) -> BoxFuture<'_, ()> {
+        self.price_exported_responses(exported).boxed()
     }
 
     fn next_deadline(&self) -> Option<Instant> {
@@ -706,7 +706,7 @@ fn read_ended_turn_id(record: &CodexSessionRecord, params: &RawValue) -> Option<
 fn arm_export_check(record: &CodexSessionRecord, settled: &CodexSettledTurn) {
     record.service.dependencies().exports.turn_settled(
         record.service.id(),
-        &record.thread_id,
+        record.session_id,
         settled.made_request,
         settled.started_at,
     );

@@ -43,9 +43,9 @@ const SERVICE_TAG_KEY: &str = "sidekicks.codex.service";
 /// The resource attribute a one-shot exec's tag is carried under.
 const EXEC_TAG_KEY: &str = "sidekicks.codex.exec";
 
-/// How many completed responses the reader's hand-off, and each launch's work queue, holds; a
-/// response past it is refused and counted, as a full OpenTelemetry Collector exporter queue
-/// rejects new data.
+/// How many exports the reader's hand-off, and how many completed responses each launch's work
+/// queue, holds; what arrives past it is refused and counted, as a full OpenTelemetry Collector
+/// exporter queue rejects new data. One export's responses are bounded by the receiver's body cap.
 pub(super) const CODEX_EXPORT_HAND_OFF_DEPTH: usize = 1_024;
 
 /// What a tag names: a service's launch or a one-shot `codex exec`.
@@ -336,14 +336,14 @@ impl CodexExports {
         (tag, responses)
     }
 
-    /// A turn of the session thread `thread_id` on `service_id`'s service that began at
-    /// `started_at` settled, having made a model request or not: its newest launch's export status
-    /// takes it, and its rollout fallback reads the thread's files on. A service with no exporting
-    /// launch changes nothing.
+    /// A turn of `session_id`'s thread on `service_id`'s service that began at `started_at`
+    /// settled, having made a model request or not: its newest launch's export status takes it,
+    /// and its rollout fallback reads the files placed on the session on. A service with no
+    /// exporting launch changes nothing.
     pub(crate) fn turn_settled(
         &self,
         service_id: CodexServiceId,
-        thread_id: &str,
+        session_id: SessionId,
         made_request: bool,
         started_at: Instant,
     ) {
@@ -365,7 +365,7 @@ impl CodexExports {
             return;
         };
         if made_request {
-            rollouts.turn_settled(thread_id);
+            rollouts.turn_settled(session_id);
         }
         if let Err(error) = tracker.turn_settled(made_request, started_at) {
             // Only a stopped scheduler refuses, and the daemon is stopping with it.
@@ -517,19 +517,23 @@ impl CodexExports {
     pub(super) fn offer(&self, item: CodexExportItem) {
         match self.hand_off.try_send(item) {
             Ok(()) => {}
-            Err(TrySendError::Full(CodexExportItem::Response { response, .. })) => {
-                refuse_unplaced(
-                    &response.conversation_id,
-                    response.provider_account_id.clone(),
-                    "the daemon's hand-off of exported responses is full",
-                );
+            Err(TrySendError::Full(CodexExportItem::Responses { responses, .. })) => {
+                for response in responses {
+                    refuse_unplaced(
+                        &response.conversation_id,
+                        response.provider_account_id,
+                        "the daemon's hand-off of exported responses is full",
+                    );
+                }
             }
-            Err(TrySendError::Closed(CodexExportItem::Response { response, .. })) => {
-                refuse_unplaced(
-                    &response.conversation_id,
-                    response.provider_account_id.clone(),
-                    "the daemon's drain of exported responses has stopped",
-                );
+            Err(TrySendError::Closed(CodexExportItem::Responses { responses, .. })) => {
+                for response in responses {
+                    refuse_unplaced(
+                        &response.conversation_id,
+                        response.provider_account_id,
+                        "the daemon's drain of exported responses has stopped",
+                    );
+                }
             }
             Err(
                 TrySendError::Full(CodexExportItem::Retry { .. })

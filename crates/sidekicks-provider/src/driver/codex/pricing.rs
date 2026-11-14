@@ -19,7 +19,7 @@
 //! is recorded unpriced.
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use sidekicks_contracts::event::usage::UsageCostSource;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
@@ -53,6 +53,12 @@ const UNKNOWN_HOST_REGION: &str = "unknownHost";
 // OpenAI's published price of one call of the Responses API's hosted web search tool, in dollars:
 // $10.00 per 1,000 calls, whatever the model or context size.
 const OPENAI_WEB_SEARCH_CALL_RATE: &str = "0.01";
+
+// The published rate as the quote reads it, parsed once.
+static PUBLISHED_SEARCH_RATE: LazyLock<ExactDecimal> = LazyLock::new(|| {
+    ExactDecimal::parse_json_number(OPENAI_WEB_SEARCH_CALL_RATE)
+        .expect("the published rate is a decimal")
+});
 
 // The context size Codex's hosted search runs at: the API's default, which Codex sends unless the
 // person's config names a size; every row prices the three sizes alike.
@@ -202,10 +208,7 @@ fn quote_codex_request(
                 tokens,
                 web_searches,
                 search_context_size: CODEX_SEARCH_CONTEXT_SIZE,
-                published_search_rate: Some(
-                    ExactDecimal::parse_json_number(OPENAI_WEB_SEARCH_CALL_RATE)
-                        .expect("the published rate is a decimal"),
-                ),
+                published_search_rate: Some(*PUBLISHED_SEARCH_RATE),
             })
             .collect();
         quote_request_rows(table, &rows)
@@ -233,10 +236,10 @@ impl CodexRecorderPricing {
         Self { live, region: None }
     }
 
-    /// Records `batch`, metered on `service` for `folder`, through `sink` in order, each delta
-    /// stamped with the service's region, then prices what was recorded once per model. A region
-    /// that could not be read, which leaves the batch on the unknown host's region, and a delta
-    /// that was not recorded are each handed to `report`.
+    /// Records `batch`, metered on `service` for `folder`, through `sink` together, so the store
+    /// commits it as one, each delta stamped with the service's region, then prices what was
+    /// recorded once per model. A region that could not be read, which leaves the batch on the
+    /// unknown host's region, and a delta that was not recorded are each handed to `report`.
     pub(crate) async fn record(
         &mut self,
         sink: &dyn UsageSink,
@@ -251,16 +254,24 @@ impl CodexRecorderPricing {
             FreeFormText<EVENT_FIELD_MAX_LEN>,
             Vec<LiveUsageRow>,
         )> = Vec::new();
+        let mut priced = Vec::with_capacity(batch.len());
+        let mut stamped = Vec::with_capacity(batch.len());
         for mut metered in batch {
             metered.delta.request.processing_region.clone_from(&region);
-            let session_id = metered.session_id;
-            let priced = metered
-                .delta
-                .request
-                .model_id
-                .clone()
-                .map(|model_id| (model_id, metered.delta.clone()));
-            match sink.record_metered(metered).await {
+            priced.push((
+                metered.session_id,
+                metered
+                    .delta
+                    .request
+                    .model_id
+                    .clone()
+                    .map(|model_id| (model_id, metered.delta.clone())),
+            ));
+            stamped.push(metered);
+        }
+        let recorded = sink.record_metered_together(stamped).await;
+        for ((session_id, priced), recorded) in priced.into_iter().zip(recorded) {
+            match recorded {
                 Ok(Some(recorded)) => {
                     let Some((model_id, delta)) = priced else {
                         continue;

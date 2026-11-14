@@ -13,5 +13,5 @@ pub(crate) mod exported_response;
 pub(crate) mod exports;
 pub(crate) mod placement;
 mod reader;
-mod rollouts;
+pub(crate) mod rollouts;
 pub(crate) mod sighting;
