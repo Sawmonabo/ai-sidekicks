@@ -1,4 +1,4 @@
-// The MCP servers fixture body: the server list beside the selected server's readings, per-tool
+// The MCP servers page: the server list beside the selected server's readings, per-tool
 // settings and the outcome of each change, drawn from the reading and the calls it is handed.
 //
 // It authors none of what the MCP page must not: no aggregate status (the daemon's arrives on
@@ -14,7 +14,7 @@
 // during the render that first sees a new bridge, and a publisher captured under the retired
 // bridge writes nothing.
 
-import "./McpFixtureBody.css";
+import "./McpServersPage.css";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -26,7 +26,6 @@ import type {
 } from "@ai-sidekicks/contracts/mcp/server";
 import type { ProjectListEntry } from "@ai-sidekicks/contracts/project";
 import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
-import type { ProjectListState } from "#renderer/store/projects/list.js";
 import { structuralKey } from "#renderer/lib/structural-key.js";
 import { useRelativeTimesNow } from "#renderer/hooks/useRelativeTimesNow.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
@@ -46,12 +45,13 @@ import {
   type ListMcpInventory,
   type SubscribeMcpInventoryChanges,
 } from "./inventory-reading.js";
-import { mcpBindingKeyOf } from "../binding-key.js";
+import { mcpBindingKeyOf } from "./binding-key.js";
 import {
   IDLE_MCP_MUTATION,
   mintIdempotencyKey,
   type IdempotencyKeyMinter,
   SIGN_IN_PAGE_UNOPENED_CODE,
+  SIGN_IN_UNFINISHED_WORDS,
   settlementOfMutation,
   settlementOfToolOverride,
   type McpMutationOutcome,
@@ -63,6 +63,7 @@ import {
   type SendMcpSignIn,
   type SendMcpToolOverride,
 } from "./mutation.js";
+import type { ProjectListReading } from "./components/ProjectSwitches.js";
 import { ServerDetail } from "./components/ServerDetail.js";
 import { FailedProviderRow } from "./components/FailedProviderRow.js";
 import { ServerListEntry } from "./components/ServerListEntry.js";
@@ -73,7 +74,7 @@ const MCP_MUTATION_ORIGIN = "mcp-mutation";
 /** The code a rejected change that carried none of its own is reported under. */
 const MCP_MUTATION_FAILED = "mcp-mutation-failed";
 
-/** The daemon verbs the fixture body drives. */
+/** The daemon verbs the page drives. */
 export interface McpServerOperations {
   readonly listInventory: ListMcpInventory;
   readonly subscribeInventoryChanges: SubscribeMcpInventoryChanges;
@@ -88,7 +89,7 @@ export interface McpServerOperations {
  * The first server is selected when the list is first served; nothing is, once the selected one
  * leaves the list.
  */
-export function McpFixtureBody(props: {
+export function McpServersPage(props: {
   readonly bridge: PlatformBridge;
   /** Held stable by the caller: a new object restarts the inventory read. */
   readonly operations: McpServerOperations;
@@ -97,7 +98,7 @@ export function McpFixtureBody(props: {
   /** The service's sessions, which name each running session on the page. */
   readonly sessionDirectory: SessionDirectoryState;
   /** The service's projects, each a switch on a connector's or an organization's server. */
-  readonly projects: ProjectListState;
+  readonly projects: ProjectListReading;
 }): ReactNode {
   const { bridge, operations, sessionDirectory, projects } = props;
   const mintKey = props.mintKey ?? mintIdempotencyKey;
@@ -263,13 +264,13 @@ export function McpFixtureBody(props: {
   const observedStamps = observedStampsOf(servers);
   const nowMilliseconds = useRelativeTimesNow(clock, observedStamps);
   if (state.kind === "not-loaded") {
-    return <LoadingNotice clock={clock} placement="block" title="Loading the MCP servers…" />;
+    return <LoadingNotice clock={clock} placement="block" title="Loading MCP servers…" />;
   }
   if (state.kind === "failed") {
     return (
       <InlineRefusal
         code={state.refusal.code}
-        detail="Couldn't load the MCP servers"
+        detail="Couldn't load MCP servers"
         onTryAgain={() => {
           setOpeningOrdinal((held) => held + 1);
         }}
@@ -391,7 +392,7 @@ type SettledMcpMutationOutcome = Extract<
 const SIGN_IN_PAGE_UNOPENED = refuse(
   MCP_MUTATION_ORIGIN,
   SIGN_IN_PAGE_UNOPENED_CODE,
-  "The browser did not open the sign-in page.",
+  SIGN_IN_UNFINISHED_WORDS,
 );
 
 /** What the list holds before the inventory is served. */

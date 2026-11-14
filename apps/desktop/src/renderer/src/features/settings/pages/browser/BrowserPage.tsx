@@ -13,6 +13,8 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
 import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
+import type { SettingsControl } from "../../types.js";
+import { BROWSER_CONTROLS } from "./controls.js";
 
 /** The settings members this page writes. */
 type BrowserSettingsMember =
@@ -20,37 +22,41 @@ type BrowserSettingsMember =
   | "browserToolsForAgents"
   | "sandboxBackgroundBrowser";
 
-/** One switch: the member it writes and the words drawn for it. */
+/** One switch: the member it writes, the control search finds, and the lines under it. */
 interface BrowserSwitchRow {
   readonly member: BrowserSettingsMember;
-  readonly label: string;
-  readonly description: string;
+  readonly control: SettingsControl;
+  readonly descriptionLines: readonly string[];
 }
 
 /** The page's switches, in the order it draws them. */
 const BROWSER_SWITCH_ROWS: readonly BrowserSwitchRow[] = [
   {
     member: "rememberSiteData",
-    label: "Remember site data",
-    description:
+    control: BROWSER_CONTROLS.rememberSiteData,
+    descriptionLines: [
       "Logins survive a restart. The Preview pane, a sidekick's browser tools and a workflow's " +
-      "browser steps all share this one set.",
+        "browser steps all share this one set.",
+    ],
   },
   {
     member: "browserToolsForAgents",
-    label: "Browser tools for sidekicks",
-    description:
+    control: BROWSER_CONTROLS.browserToolsForAgents,
+    descriptionLines: [
       "Off leaves the browser tools out of what every sidekick is handed; the app's other tools " +
-      "stay. Every call a sidekick makes still goes through that session's own permission level. " +
-      "Nothing here loosens that.",
+        "stay.",
+      "Every call a sidekick makes still goes through that session's own permission level. " +
+        "Nothing here loosens that.",
+    ],
   },
   {
     member: "sandboxBackgroundBrowser",
-    label: "Sandbox the background browser",
-    description:
+    control: BROWSER_CONTROLS.sandboxBackgroundBrowser,
+    descriptionLines: [
       "On runs each page in Chromium's sandbox in the browser the background service opens when " +
-      "no desktop app is open, for every session, and for every workflow left on Settings " +
-      "default. Takes effect when that browser next starts.",
+        "no desktop app is open, for every session, and for every workflow left on Settings " +
+        "default. Takes effect when that browser next starts.",
+    ],
   },
 ];
 
@@ -76,12 +82,12 @@ export function BrowserPage(props: BrowserPageProps): React.JSX.Element {
   if (reading !== undefined) {
     content = BROWSER_SWITCH_ROWS.map((row) => renderSwitchRow(row, preferences));
   } else if (readRefusal === undefined) {
-    content = <LoadingNotice clock={clock} placement="inline" title="Loading your settings…" />;
+    content = <LoadingNotice clock={clock} placement="inline" title="Loading settings…" />;
   } else {
     content = (
       <InlineRefusal
         code={readRefusal.code}
-        detail="Couldn't load your settings"
+        detail="Couldn't load settings"
         onTryAgain={() => {
           setReadAgainCount((count) => count + 1);
           preferences.readAgain();
@@ -108,8 +114,8 @@ function renderSwitchRow(
   return (
     <Fragment key={row.member}>
       <PreferenceToggleRow
-        label={row.label}
-        description={row.description}
+        control={row.control}
+        descriptionLines={row.descriptionLines}
         checked={preferences.settings[row.member]}
         checkedByDefault={MACHINE_SETTINGS_DEFAULTS[row.member]}
         isPending={preferences.isPending(row.member)}

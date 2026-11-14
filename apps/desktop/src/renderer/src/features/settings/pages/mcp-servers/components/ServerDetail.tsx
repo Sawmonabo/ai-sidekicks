@@ -12,10 +12,9 @@ import type {
   McpToolOverrideFacet,
 } from "@ai-sidekicks/contracts/mcp/server";
 import type { ProjectListEntry } from "@ai-sidekicks/contracts/project";
-import type { ProjectListState } from "#renderer/store/projects/list.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { ConfigReadBack } from "./ConfigReadBack.js";
-import { ProjectSwitches } from "./ProjectSwitches.js";
+import { ProjectSwitches, type ProjectListReading } from "./ProjectSwitches.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
 import { ServerLegs } from "./ServerLegs.js";
 import { toneForServerStatus } from "../status-tone.js";
@@ -55,7 +54,7 @@ export function ServerDetail(props: {
   readonly toolOutcomeFor: (toolName: string, facet: McpToolOverrideFacet) => McpMutationOutcome;
   readonly onSetEnabled: (binding: McpSwitchableBindingRef, enabled: boolean) => void;
   /** The service's projects, one `On for runs` switch each on a project-scoped server. */
-  readonly projects: ProjectListState;
+  readonly projects: ProjectListReading;
   /** The outcome of one project's `On for runs` switch. */
   readonly projectSwitchOutcomeFor: (project: ProjectListEntry) => McpMutationOutcome;
   readonly onSetEnabledIn: (

@@ -1,9 +1,9 @@
-// The MCP fixture body over this window's bridge. Its inventory read and its changes go through
-// `callDaemon`, so each reply is parsed against the method's registered shape, and its live-status
-// signal is the governance stream, opened before the first read and opened again when it ends,
-// with a read after each re-open for what the gap hid. The running sessions are named from the
-// window's session list feed, which the sessions list shares, and the projects a server's switches
-// apply in come from the window's project feed.
+// The MCP servers page over this window's bridge. Its inventory read and its changes go
+// through `callDaemon`, so each reply is parsed against the method's registered shape, and its
+// live-status signal is the governance stream, opened before the first read and opened again when
+// it ends, with a read after each re-open for what the gap hid. The running sessions are named
+// from the window's session list feed, which the sessions list shares, and the projects a
+// server's switches apply in come from the window's project feed.
 
 import { useMemo, type ReactNode } from "react";
 
@@ -16,18 +16,25 @@ import { openReopeningSubscription } from "#renderer/services/transport/reopenin
 import { projectListFeedFor } from "#renderer/services/daemon/project-list.js";
 import { sessionDirectoryFeedFor } from "#renderer/services/daemon/session/list-feed.js";
 import { useProjectList } from "#renderer/store/projects/hooks/useProjectList.js";
+import { projectLists } from "#renderer/store/projects/list.js";
 import { useSessionDirectory } from "#renderer/store/session/directory/useSessionDirectory.js";
-import { McpFixtureBody, type McpServerOperations } from "./McpFixtureBody.js";
+import { McpServersPage, type McpServerOperations } from "./McpServersPage.js";
 
-/** The MCP fixture body, its verbs answered by the daemon this window's bridge reaches. */
-export function McpFixtureMount(): ReactNode {
+/** The MCP servers page, its verbs answered by the daemon this window's bridge reaches. */
+export function McpServersMount(): ReactNode {
   const bridge = usePlatformBridge();
-  // Held per bridge: the body restarts its inventory read when the operations change.
+  // Held per bridge: the page restarts its inventory read when the operations change.
   const operations = useMemo(() => mcpServerOperationsOver(bridge), [bridge]);
   const sessionDirectory = useSessionDirectory(sessionDirectoryFeedFor(bridge));
-  const projects = useProjectList(projectListFeedFor(bridge));
+  const projectListFeed = projectListFeedFor(bridge);
+  const projects = {
+    state: useProjectList(projectListFeed),
+    readAgain: () => {
+      projectLists.reread(projectListFeed);
+    },
+  };
   return (
-    <McpFixtureBody
+    <McpServersPage
       bridge={bridge}
       operations={operations}
       sessionDirectory={sessionDirectory}

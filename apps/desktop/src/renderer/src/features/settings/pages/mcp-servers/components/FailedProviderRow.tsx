@@ -7,7 +7,7 @@ import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhen
 import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 
 /** What a provider's row says where the service could not read its server list. */
-const PROVIDER_READ_FAILED_WORDS = "Couldn't load the servers";
+const PROVIDER_READ_FAILED_WORDS = "Couldn't load servers";
 
 /**
  * A provider whose server list the service could not read, as a row in the server list: its

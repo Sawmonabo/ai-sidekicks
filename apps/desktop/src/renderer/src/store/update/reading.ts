@@ -10,8 +10,16 @@
 // `close()` is not terminal: StrictMode runs an effect's cleanup between two setups and a changed
 // updater rebuilds the opening, so an opening is a generation that `close()` invalidates and a
 // later `open()` restarts. The holder takes the updater namespace, not the whole bridge.
+//
+// A failure the updater reports is recorded to the diagnostic log here, where the reading is
+// held, once per failure: a reopen or a second view reading the same failure records nothing.
 import type { PreloadApi, Unsubscribe, UpdateState } from "#shared/preload-api.js";
 
+import type { Clock } from "#renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "#renderer/lib/diagnostic-capture/capture.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { READ_FAILED } from "#renderer/lib/reads/failure-codes.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
@@ -51,6 +59,8 @@ const OPENING_KEY = "open";
  */
 export class UpdaterReadingHolder {
   readonly #updater: UpdaterCalls;
+  /** The window's clock, which stamps a recorded failure. */
+  readonly #clock: Clock;
   readonly #changes = new Emitter<void>("updater reading change");
   #snapshot: UpdaterReadingSnapshot = NOTHING_READ;
   #release: (() => void) | undefined = undefined;
@@ -59,8 +69,9 @@ export class UpdaterReadingHolder {
   /** Reset per opening, because each opening subscribes afresh. */
   #hasObservedPush = false;
 
-  public constructor(updater: UpdaterCalls) {
+  public constructor(updater: UpdaterCalls, clock: Clock) {
     this.#updater = updater;
+    this.#clock = clock;
   }
 
   public snapshot(): UpdaterReadingSnapshot {
@@ -124,7 +135,22 @@ export class UpdaterReadingHolder {
   }
 
   #install(reading: UpdateReading): void {
+    const held = this.#snapshot.reading;
     this.#snapshot = { reading };
+    if (
+      reading.kind === "state" &&
+      reading.state.status === "error" &&
+      !isSameFailure(held, reading.state)
+    ) {
+      // The updater's own words are for the log; the screen draws the fixed sentence.
+      windowDiagnosticCapture.record({
+        at: diagnosticStampAt(this.#clock),
+        severity: "error",
+        source: "store/update",
+        kind: "update-failed",
+        detail: reading.state.message,
+      });
+    }
     this.#changes.emit();
   }
 }
@@ -137,5 +163,18 @@ export function isUpdateStaged(reading: UpdateReading): boolean {
   return (
     reading.kind === "state" &&
     (reading.state.staged !== undefined || reading.state.status === "ready")
+  );
+}
+
+/** Whether `held` is already the failure `failure` reports, at the same step in the same words. */
+function isSameFailure(
+  held: UpdateReading,
+  failure: Extract<UpdateState, { readonly status: "error" }>,
+): boolean {
+  return (
+    held.kind === "state" &&
+    held.state.status === "error" &&
+    held.state.step === failure.step &&
+    held.state.message === failure.message
   );
 }

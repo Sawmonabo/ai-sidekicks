@@ -1,7 +1,7 @@
-/* The MCP fixture body's styles: the server list beside the selected server, and the lists
+/* The MCP servers page's styles: the server list beside the selected server, and the lists
  * inside it.
  *
- * Page-local, since a shared settings sheet would carry every page's rules; `McpFixtureBody.tsx`
+ * Page-local, since a shared settings sheet would carry every page's rules; `McpServersPage.tsx`
  * imports it. Nothing outside `meridian-mcp__` appears, so no rule outlives the body. Every
  * color is a Meridian custom property and every space a step on the scale. Nothing is sized in
  * absolute units: each list is a wrapping row of chips and wire strings, and a fixed width

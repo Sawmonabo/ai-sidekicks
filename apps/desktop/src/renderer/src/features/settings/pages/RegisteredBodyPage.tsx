@@ -1,7 +1,7 @@
 // A page whose body a composition supplies: the page frame, and the body registered for the page
-// mounted inside it. A fixture launch registers the Providers and MCP servers bodies, and the
-// Remote Control feature the Devices one; with nothing registered the frame stays empty, as the
-// pages not built yet draw it.
+// mounted inside it. A fixture launch registers the Providers body, and the Remote Control feature
+// the Devices one; with nothing registered the frame stays empty, as the pages not built yet draw
+// it.
 
 import type { ReactNode } from "react";
 

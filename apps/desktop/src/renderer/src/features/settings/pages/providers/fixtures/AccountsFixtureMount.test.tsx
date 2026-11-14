@@ -76,10 +76,10 @@ describe("AccountsFixtureMount", () => {
     const fixture = fixtureRefusingFirstRegistryRead();
     const container = renderProvidersPage(fixture);
     // The read is in flight, but its line waits out the short delay; the refusal lands inside it.
-    expect(container.textContent).not.toContain("Loading your accounts…");
+    expect(container.textContent).not.toContain("Loading accounts…");
 
     await settleScheduledRead(fixture.scenarioEngine.clock);
-    expect(container.textContent).toContain("Couldn't load your accounts");
+    expect(container.textContent).toContain("Couldn't load accounts");
     // The words are the page's, never the refusal's code or detail.
     expect(container.textContent).not.toContain("call-rejected");
     expect(container.textContent).not.toContain("not answering");

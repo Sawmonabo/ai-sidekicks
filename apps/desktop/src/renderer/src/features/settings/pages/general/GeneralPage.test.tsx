@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { useUpdateReading } from "#renderer/store/update/hooks/useUpdateReading.js";
 import type { UpdaterCalls } from "#renderer/store/update/reading.js";
@@ -52,7 +53,7 @@ describe("the General page — the update block", () => {
     });
 
     expect(block.querySelector(".meridian-refusal__message")?.textContent).toBe(
-      "Couldn't load the update status",
+      "Couldn't load update status",
     );
     expect(block.textContent).not.toContain("update.getState");
 
@@ -71,7 +72,7 @@ function GeneralPageOnUpdater(props: {
   readonly bridge: PlatformBridge;
   readonly updater: UpdaterCalls;
 }): React.JSX.Element {
-  const updateReading = useUpdateReading(props.updater);
+  const updateReading = useUpdateReading(props.updater, useClock());
   return (
     <GeneralPage context={settingsPageContextWith(props.bridge, undefined, { updateReading })} />
   );

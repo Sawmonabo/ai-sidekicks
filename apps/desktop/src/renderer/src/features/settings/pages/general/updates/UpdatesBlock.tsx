@@ -4,25 +4,23 @@
 // Nothing downloads or restarts without a press: the check control exists only before an update
 // is found, the download control only on the `available` arm and the restart control only on
 // `ready`, the updater's word that the download completed; the restart asks nothing, since the
-// service keeps every session, run and shell going through it. The console never derives readiness from a percent, and only
-// `downloading` carries one and renders a bar. A control whose call fails draws a fixed sentence
-// for that control under the controls, which stay drawn. Under the read-out sits the switch for
-// the machine setting `updatesAutomatic`, drawn only once the settings file has been read so it
-// never shows a value it does not hold: a refused write leaves the switch where it was and draws
-// the refusal's message, or the screen's fixed sentence for it, in the strip, with `Try again`
-// sending the same change again.
+// service keeps every session, run and shell going through it. The console never derives
+// readiness from a percent, and only `downloading` carries one and renders a bar. A failure the
+// updater reports offers `Try again`, which does the failed step again. A control whose call
+// fails draws a fixed sentence for that control under the controls, which stay drawn. Under the
+// read-out sits the switch for the machine setting `updatesAutomatic`, drawn only once the
+// settings file has been read so it never shows a value it does not hold: a refused write leaves
+// the switch where it was and draws the refusal's message, or the screen's fixed sentence for it,
+// in the strip, with `Try again` sending the same change again.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine/settings";
+import type { UpdateFailedStep } from "#shared/preload-api.js";
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import {
-  diagnosticStampAt,
-  windowDiagnosticCapture,
-} from "#renderer/lib/diagnostic-capture/capture.js";
 import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -31,6 +29,7 @@ import { PreferenceToggleRow } from "#renderer/features/settings/components/Pref
 import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
 import type { UpdaterCalls, UpdateReading } from "#renderer/store/update/reading.js";
 import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/store/update/unreachable.js";
+import { GENERAL_CONTROLS, UPDATES_HEADING } from "../controls.js";
 import { RESTART_TO_FINISH, updateStateLine } from "./state-words.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
 
@@ -69,23 +68,6 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
     { isReadSettlement: true },
   );
   const status = reading.kind === "state" ? reading.state.status : undefined;
-  const failureMessage =
-    reading.kind === "state" && reading.state.status === "error"
-      ? reading.state.message
-      : undefined;
-  // The updater's own words are for the log; the screen draws the fixed sentence.
-  useEffect(() => {
-    if (failureMessage === undefined) {
-      return;
-    }
-    windowDiagnosticCapture.record({
-      at: diagnosticStampAt(clock),
-      severity: "error",
-      source: "features/settings",
-      kind: "update-failed",
-      detail: failureMessage,
-    });
-  }, [failureMessage, clock]);
   const [controlRefusal, setControlRefusal] = useState<Refusal | undefined>(undefined);
   // A read's `Try again` clears the refusal and reopens in one act, so a reopen that throws at once
   // leaves the same line drawn; the press count says it again. The feed's own reopens after a
@@ -104,7 +86,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
 
   return (
     <section className="meridian-settings-page__block" aria-label="Application updates">
-      <h3 className="meridian-settings-page__section-head">Updates</h3>
+      <h3 className="meridian-settings-page__section-head">{UPDATES_HEADING}</h3>
 
       <UpdateReadOut
         reading={reading}
@@ -112,7 +94,10 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
         clock={clock}
         onReadAgain={props.onReadAgain}
         onTryAgain={() => {
-          press(() => updater.requestCheck(), UPDATER_UNREACHABLE_DETAIL.check);
+          if (reading.kind === "state" && reading.state.status === "error") {
+            const { request, failedDetail } = stepAgain(updater, reading.state.step);
+            press(request, failedDetail);
+          }
         }}
       />
 
@@ -164,6 +149,31 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
   );
 }
 
+/** The call that does a failed step again, and the sentence drawn when main does not answer it. */
+function stepAgain(
+  updater: UpdaterCalls,
+  step: UpdateFailedStep,
+): { readonly request: () => Promise<void>; readonly failedDetail: string } {
+  switch (step) {
+    case "check":
+      return {
+        request: () => updater.requestCheck(),
+        failedDetail: UPDATER_UNREACHABLE_DETAIL.check,
+      };
+    case "download":
+    case "verify":
+      return {
+        request: () => updater.requestDownload(),
+        failedDetail: UPDATER_UNREACHABLE_DETAIL.download,
+      };
+    case "restart":
+      return {
+        request: () => updater.requestRestart(),
+        failedDetail: UPDATER_UNREACHABLE_DETAIL.restart,
+      };
+  }
+}
+
 /**
  * The automatic-check switch once the settings file has been read; before that, the reading line
  * after the short delay, or the failed read with `Try again`.
@@ -176,11 +186,11 @@ function renderAutomaticCheck(
   const { reading, readRefusal } = preferences.snapshot;
   if (reading === undefined) {
     return readRefusal === undefined ? (
-      <LoadingNotice clock={clock} placement="inline" title="Loading your settings…" />
+      <LoadingNotice clock={clock} placement="inline" title="Loading settings…" />
     ) : (
       <InlineRefusal
         code={readRefusal.code}
-        detail="Couldn't load your settings"
+        detail="Couldn't load settings"
         onTryAgain={readAgainPress.readAgain}
         attempt={readAgainPress.readAgainCount}
       />
@@ -190,7 +200,7 @@ function renderAutomaticCheck(
   return (
     <>
       <PreferenceToggleRow
-        label="Check for updates automatically"
+        control={GENERAL_CONTROLS.checkForUpdatesAutomatically}
         checked={preferences.settings.updatesAutomatic}
         checkedByDefault={MACHINE_SETTINGS_DEFAULTS.updatesAutomatic}
         isPending={preferences.isPending("updatesAutomatic")}

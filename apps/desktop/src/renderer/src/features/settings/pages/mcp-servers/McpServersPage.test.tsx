@@ -1,7 +1,7 @@
-// The MCP fixture body, driven with the daemon verbs handed in as arguments. The three servers
-// are the arms the page must draw: a connected binding, one needing authorization while a leg is
-// fine, and one whose binding store could not be read; a plugin's server and a project's unused
-// copy of a name join them where a case reads where each binding applies. Every status and
+// The MCP servers page, driven with the daemon verbs handed in as arguments. The three
+// servers are the arms the page must draw: a connected binding, one needing authorization while a
+// leg is fine, and one whose binding store could not be read; a plugin's server and a project's
+// unused copy of a name join them where a case reads where each binding applies. Every status and
 // outcome is drawn as the daemon reported it, and a server's readings and controls are drawn only
 // while it is selected: the first server when the page opens, or the one picked from the list.
 
@@ -40,7 +40,7 @@ import { drawnText } from "#test/helpers/live-region.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { refuse, RefusalError } from "#renderer/lib/refusal/contract.js";
 import { MCP_SERVER_SIGN_IN_FAILED_CODE } from "@ai-sidekicks/contracts/mcp/governance";
-import { McpFixtureBody, type McpServerOperations } from "./McpFixtureBody.js";
+import { McpServersPage, type McpServerOperations } from "./McpServersPage.js";
 
 afterEach(() => {
   cleanup();
@@ -238,29 +238,29 @@ function operationsServing(
 }
 
 function fixtureBridge(): FixtureBridge {
-  return createFixtureBridge({ scenario: unscriptedScenario("mcp-fixture-body") });
+  return createFixtureBridge({ scenario: unscriptedScenario("mcp-servers-page") });
 }
 
-/** The fixture body as a composition mounts it: the bridge comes from the provider's resolution. */
+/** The page as its mount draws it: the bridge comes from the provider's resolution. */
 function MountedMcpPage(props: {
   readonly operations: McpServerOperations;
   readonly mintKey?: () => string;
 }): React.JSX.Element {
   const bridge = usePlatformBridge();
   return props.mintKey === undefined ? (
-    <McpFixtureBody
+    <McpServersPage
       bridge={bridge}
       operations={props.operations}
       sessionDirectory={SESSION_DIRECTORY}
-      projects={ATTACHED_PROJECTS}
+      projects={{ state: ATTACHED_PROJECTS, readAgain: () => undefined }}
     />
   ) : (
-    <McpFixtureBody
+    <McpServersPage
       bridge={bridge}
       operations={props.operations}
       mintKey={props.mintKey}
       sessionDirectory={SESSION_DIRECTORY}
-      projects={ATTACHED_PROJECTS}
+      projects={{ state: ATTACHED_PROJECTS, readAgain: () => undefined }}
     />
   );
 }
@@ -352,7 +352,7 @@ function chipLabelsIn(scope: Element | undefined, selector: string): readonly (s
   );
 }
 
-describe("McpFixtureBody", () => {
+describe("McpServersPage", () => {
   it("renders the daemon's aggregate status rather than folding the legs itself", async () => {
     const { container } = await renderSettledMcpPage(operationsServing([ISSUE_TRACKER]));
     // The two legs disagree and the row's chip carries the daemon's aggregate; folding the legs
@@ -561,7 +561,7 @@ describe("McpFixtureBody", () => {
   });
 });
 
-describe("McpFixtureBody — a server switched per project", () => {
+describe("McpServersPage — a server switched per project", () => {
   it("sends each project's switch with that project's root and distribution", async () => {
     const sendEnabled = vi.fn(async () => await Promise.resolve(PARTIAL_APPLICATION));
     const { container, clock } = await renderSettledMcpPage(
@@ -600,7 +600,7 @@ describe("McpFixtureBody — a server switched per project", () => {
   });
 });
 
-describe("McpFixtureBody — a provider whose list could not be read", () => {
+describe("McpServersPage — a provider whose list could not be read", () => {
   it("draws it as a row of the list under its provider, with no cause, and Try again reads the list again", async () => {
     const listInventory = vi.fn(
       async () =>
@@ -614,7 +614,7 @@ describe("McpFixtureBody — a provider whose list could not be read", () => {
     );
     const foot = container.querySelector(".meridian-mcp__list");
     const failedRow = foot?.querySelector(".meridian-mcp__entries > .meridian-mcp__failed-entry");
-    expect(failedRow?.textContent).toBe("CodexCouldn't load the serversTry again");
+    expect(failedRow?.textContent).toBe("CodexCouldn't load serversTry again");
     // The failed provider is not also said to have no servers.
     expect(foot?.textContent).not.toContain("No tool servers are set up for Codex.");
 
@@ -629,7 +629,7 @@ describe("McpFixtureBody — a provider whose list could not be read", () => {
   });
 });
 
-describe("McpFixtureBody — signing in to a server", () => {
+describe("McpServersPage — signing in to a server", () => {
   it("sends the binding with the press's key and settles once its page is handed to the browser", async () => {
     const sendSignIn = vi.fn(
       async () =>
@@ -696,7 +696,7 @@ describe("McpFixtureBody — signing in to a server", () => {
   });
 });
 
-describe("McpFixtureBody — the list and the selected server", () => {
+describe("McpServersPage — the list and the selected server", () => {
   it("opens on the first server, and selects nothing once the selected one leaves", async () => {
     let served: readonly McpServerInventoryEntry[] = [FILESYSTEM, ISSUE_TRACKER];
     let announceChange = (): void => undefined;
@@ -788,7 +788,7 @@ function operationsHoldingTheirMutation(): {
 // What the held mutation's answer prints.
 const HELD_MUTATION_OUTCOME_TEXT = "Saved to Claude Code's settings. New sessions use it.";
 
-describe("McpFixtureBody — a bridge replaced under a mounted fixture body", () => {
+describe("McpServersPage — a bridge replaced under a mounted page", () => {
   it("shows no outcome from a bridge the mount no longer holds", async () => {
     const superseded = operationsHoldingTheirMutation();
     const supersededBridge = fixtureBridge();

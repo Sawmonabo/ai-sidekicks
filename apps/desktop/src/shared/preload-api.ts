@@ -189,12 +189,20 @@ export type UpdateSelfBlock =
   | { readonly kind: "outsideApplications" };
 
 /**
+ * The step of the update path the updater failed on: the check, the download, the signature
+ * check, or the restart into the downloaded update.
+ */
+export type UpdateFailedStep = "check" | "download" | "verify" | "restart";
+
+/**
  * Auto-update state surfaced to the renderer: one arm, and the members every arm may carry.
  *
  * `idle` carries the instant of the last completed check so the settings read-out can say when
  * its answer was established; a build that has never completed a check has none. `available`
  * is an update found and not downloaded, with its version and release instant as the update
  * feed states them. `verifying` is the updater checking the downloaded update's signature.
+ * `ready` names the version it installs on restart. `error` names the step that failed and the
+ * updater's own message, which goes to the diagnostic log and never to the screen.
  */
 export type UpdateState = (
   | { readonly status: "idle"; readonly lastCheckedAt?: string }
@@ -202,8 +210,8 @@ export type UpdateState = (
   | { readonly status: "available"; readonly version: string; readonly releasedAt: string }
   | { readonly status: "downloading"; readonly percent: number }
   | { readonly status: "verifying" }
-  | { readonly status: "ready" }
-  | { readonly status: "error"; readonly message: string }
+  | { readonly status: "ready"; readonly version: string }
+  | { readonly status: "error"; readonly step: UpdateFailedStep; readonly message: string }
 ) & {
   /** The version the updater found, on an arm that names one. */
   readonly version?: string;

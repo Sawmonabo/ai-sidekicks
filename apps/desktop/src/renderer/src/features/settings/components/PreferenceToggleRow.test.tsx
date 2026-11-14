@@ -14,8 +14,8 @@ describe("preference toggle row", () => {
     const onCheckedChange = vi.fn();
     const { container } = render(
       <PreferenceToggleRow
-        label="Busy"
-        description="d"
+        control={{ id: "busy", label: "Busy" }}
+        descriptionLines={["d"]}
         checked={false}
         checkedByDefault={false}
         isPending={true}

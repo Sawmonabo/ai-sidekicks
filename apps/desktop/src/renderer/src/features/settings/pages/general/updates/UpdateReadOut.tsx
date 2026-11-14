@@ -8,9 +8,10 @@ import type { Clock } from "#renderer/lib/clock.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { UpdateReading } from "#renderer/store/update/reading.js";
 import {
+  lastCheckedLine,
   UPDATE_FAILED_DETAIL,
-  UPDATE_PATH_STEP_BY_STATUS,
   UPDATE_PATH_STEPS,
+  updatePathStepOf,
   updateStateLine,
 } from "./state-words.js";
 
@@ -27,7 +28,7 @@ export function UpdateReadOut(props: {
   readonly runningVersion: string;
   /** The window's clock, which the reading line's delay runs on. */
   readonly clock: Clock;
-  /** Starts the path again from a check, offered on the failure line. */
+  /** Does the failed step again, offered on the failure line. */
   readonly onTryAgain: () => void;
   /** Reads the updater's state again, offered on a failed read. */
   readonly onReadAgain: () => void;
@@ -38,7 +39,7 @@ export function UpdateReadOut(props: {
   // label to the other's bar.
   const progressId = useId();
   if (reading.kind === "not-read") {
-    return <LoadingNotice clock={clock} placement="inline" title="Loading the update status…" />;
+    return <LoadingNotice clock={clock} placement="inline" title="Loading update status…" />;
   }
   if (reading.kind === "failed") {
     return (
@@ -50,7 +51,7 @@ export function UpdateReadOut(props: {
     );
   }
   const { state } = reading;
-  const pathStep = UPDATE_PATH_STEP_BY_STATUS[state.status];
+  const pathStep = updatePathStepOf(state);
   const path = pathStep === undefined ? null : <UpdatePath currentStep={pathStep} />;
   if (state.status === "error") {
     // The fixed sentence and `Try again`; the updater's own message goes to the diagnostic log.
@@ -58,7 +59,7 @@ export function UpdateReadOut(props: {
       <>
         <InlineRefusal
           code={UPDATE_FAILED_CODE}
-          detail={UPDATE_FAILED_DETAIL}
+          detail={UPDATE_FAILED_DETAIL[state.step]}
           onTryAgain={props.onTryAgain}
         />
         {path}
@@ -88,6 +89,11 @@ export function UpdateReadOut(props: {
       <p className="meridian-settings-page__state" aria-busy={isBusy ? true : undefined}>
         {line}
       </p>
+      {state.status === "idle" && state.lastCheckedAt !== undefined ? (
+        <p className="meridian-settings-page__aside">
+          <FigureSentence parts={lastCheckedLine(state.lastCheckedAt, clockLocale)} />
+        </p>
+      ) : null}
       {path}
     </>
   );

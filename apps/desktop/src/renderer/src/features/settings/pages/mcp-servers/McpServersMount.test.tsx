@@ -1,7 +1,6 @@
-// The MCP servers page as a fixture launch mounts it: the fixture body registered into the page,
-// its inventory listed, its running sessions named from the scenario's session list, a picked
-// server's changes reaching the scenario's scripted replies
-// through `callDaemon`, and the re-read after a change answering with what was written: a
+// The MCP servers page over a scenario's bridge: its inventory listed, its running sessions named
+// from the scenario's session list, a picked server's changes reaching the scenario's scripted
+// replies through `callDaemon`, and the re-read after a change answering with what was written: a
 // switched-off binding stays off, and a tool's facet cleared back to the server's own leaves its
 // other set.
 
@@ -14,21 +13,19 @@ import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
 import { settle } from "#test/helpers/settle.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
-import { RegisteredBodyPage } from "../../RegisteredBodyPage.js";
-import { registerMcpFixtureBody } from "./register-body.js";
+import { McpServersMount } from "./McpServersMount.js";
 
 afterEach(() => {
   cleanup();
 });
 
-describe("McpFixtureMount", () => {
+describe("McpServersMount", () => {
   it("draws the scenario's scripted inventory and sends an enablement change to it", async () => {
-    registerMcpFixtureBody();
     const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
     const { container } = render(
       <FixtureBridgeProvider fixture={fixture}>
         <LiveAnnouncerProvider>
-          <RegisteredBodyPage pageId="mcp-servers" />
+          <McpServersMount />
         </LiveAnnouncerProvider>
       </FixtureBridgeProvider>,
     );
@@ -52,12 +49,11 @@ describe("McpFixtureMount", () => {
   });
 
   it("names each running session as the session list does, never by its id", async () => {
-    registerMcpFixtureBody();
     const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
     const { container } = render(
       <FixtureBridgeProvider fixture={fixture}>
         <LiveAnnouncerProvider>
-          <RegisteredBodyPage pageId="mcp-servers" />
+          <McpServersMount />
         </LiveAnnouncerProvider>
       </FixtureBridgeProvider>,
     );
@@ -71,12 +67,11 @@ describe("McpFixtureMount", () => {
   });
 
   it("keeps a switched-off binding switched off after the inventory is read again", async () => {
-    registerMcpFixtureBody();
     const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
     const { container } = render(
       <FixtureBridgeProvider fixture={fixture}>
         <LiveAnnouncerProvider>
-          <RegisteredBodyPage pageId="mcp-servers" />
+          <McpServersMount />
         </LiveAnnouncerProvider>
       </FixtureBridgeProvider>,
     );
@@ -104,12 +99,11 @@ describe("McpFixtureMount", () => {
   });
 
   it("clears one facet of a tool back to the server's own and leaves its other facet set", async () => {
-    registerMcpFixtureBody();
     const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
     const { container } = render(
       <FixtureBridgeProvider fixture={fixture}>
         <LiveAnnouncerProvider>
-          <RegisteredBodyPage pageId="mcp-servers" />
+          <McpServersMount />
         </LiveAnnouncerProvider>
       </FixtureBridgeProvider>,
     );

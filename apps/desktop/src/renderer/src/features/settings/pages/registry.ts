@@ -11,6 +11,7 @@ import { KeyedRegistry } from "#renderer/lib/keyed-registry.js";
 import { LoaderBackedBody, type LazyBodyLoader } from "#renderer/components/LazyBody/loader.js";
 import { AppearancePage } from "./appearance/AppearancePage.js";
 import { APPEARANCE_CONTROLS } from "./appearance/controls.js";
+import { BROWSER_CONTROLS } from "./browser/controls.js";
 import { GENERAL_CONTROLS } from "./general/controls.js";
 import { GeneralPage } from "./general/GeneralPage.js";
 import { KEYBOARD_CONTROLS } from "./keyboard/controls.js";
@@ -182,7 +183,7 @@ export function composeSettingsPages(): SettingsPageRegistry {
 export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   {
     pageId: "general",
-    keywords: ["version", "about", "build"],
+    keywords: ["version", "about", "build", "update", "upgrade"],
     note: "What this install is, how it updates itself, and what a new session starts from.",
     controls: Object.values(GENERAL_CONTROLS),
     render: (context) => createElement(GeneralPage, { context }),
@@ -219,7 +220,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     note:
       "The tool servers Claude Code and Codex connect to, and what each is allowed to do. " +
       "Read live from the background service.",
-    render: () => createElement(RegisteredBodyPage, { pageId: "mcp-servers" }),
+    body: () => import("./mcp-servers/body.js"),
   },
   {
     pageId: "projects",
@@ -234,10 +235,11 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     // keywords stay here because the pane and search read them before the page's chunk has
     // loaded.
     pageId: "browser",
-    keywords: ["web", "site data", "cookies", "storage", "file boundary", "page tools", "clear"],
+    keywords: ["web", "site data", "cookies", "storage", "clear"],
     note:
       "What the browser inside the app remembers, and whether sidekicks can drive it. One set " +
       "of site data for this computer.",
+    controls: Object.values(BROWSER_CONTROLS),
     body: () => import("./browser/body.js"),
   },
   {

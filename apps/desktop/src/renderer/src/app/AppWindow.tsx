@@ -17,6 +17,7 @@ import { OwnerWindowProvider } from "#renderer/components/OwnerWindow/OwnerWindo
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { useLocationHash } from "#renderer/routing/hooks/useLocationHash.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { WindowClockProvider } from "#renderer/services/platform/WindowClockProvider.js";
 import type { AppearanceClient } from "#renderer/services/window/appearance-client.js";
 import type { OpenWindow } from "#renderer/services/window/open-windows.js";
@@ -151,7 +152,7 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
 
   // The window's one reading of the updater, which the rail's Settings dot and Settings › General
   // read.
-  const updateReading = useUpdateReading(bridge.update);
+  const updateReading = useUpdateReading(bridge.update, useClock());
 
   // No session opens before the service has answered, since opening one reads it.
   const sessionStore = useActiveSessionStore(

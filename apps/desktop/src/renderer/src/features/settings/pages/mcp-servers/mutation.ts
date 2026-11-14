@@ -1,4 +1,4 @@
-// The governance mutations this fixture body sends, how each settles, and the idempotency key it
+// The governance mutations this page sends, how each settles, and the idempotency key it
 // mints.
 //
 // The key is minted once per press by the view: `clientIdempotencyKey` means "this is the same
@@ -34,7 +34,7 @@ export interface McpChangeSettlement {
 }
 
 /**
- * How a mutation this fixture body sent has settled. `signInPageOpened` is a sign-in whose page
+ * How a mutation this page sent has settled. `signInPageOpened` is a sign-in whose page
  * the system browser was handed; `refused` is a send that rejected, carrying the service's own
  * words.
  */
@@ -73,6 +73,12 @@ export type McpProjectScopedBindingRef = Extract<
 
 /** The code a sign-in reads under when the system browser would not open its page. */
 export const SIGN_IN_PAGE_UNOPENED_CODE = "mcp-sign-in-page-unopened";
+
+/**
+ * What a sign-in that did not finish reads: one the service could not start, or whose page the
+ * system browser would not open.
+ */
+export const SIGN_IN_UNFINISHED_WORDS = "Sign-in did not finish.";
 
 /** Mints the key one press carries. Injected so a test can drive a retry. */
 export type IdempotencyKeyMinter = () => string;

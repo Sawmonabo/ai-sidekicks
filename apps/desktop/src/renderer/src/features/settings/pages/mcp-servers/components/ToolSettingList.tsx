@@ -18,7 +18,7 @@ import {
   TOOL_SETTING_SOURCE_WORDS,
   type McpToolSetting,
   type McpToolSettingSource,
-} from "../../tool-setting-words.js";
+} from "../tool-setting-words.js";
 import type { McpMutationOutcome, McpToolFacetChange } from "../mutation.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
 

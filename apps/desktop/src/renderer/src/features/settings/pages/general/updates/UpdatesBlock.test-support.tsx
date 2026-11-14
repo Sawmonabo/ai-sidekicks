@@ -11,6 +11,7 @@ import type { Clock } from "#renderer/lib/clock.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { useMachineSettings } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
 import { MACHINE_SETTINGS_AT_DEFAULTS } from "#renderer/features/settings/machine/snapshot.js";
@@ -181,7 +182,7 @@ function UpdatesBlockOnReading(props: {
   readonly updater: UpdaterCalls;
   readonly preferences: UpdatesBlockProps["preferences"];
 }): React.JSX.Element {
-  const { reading, readAgain } = useUpdateReading(props.updater);
+  const { reading, readAgain } = useUpdateReading(props.updater, useClock());
   return (
     <UpdatesBlock
       reading={reading}

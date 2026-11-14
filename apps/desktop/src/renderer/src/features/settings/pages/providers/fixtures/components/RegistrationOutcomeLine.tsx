@@ -2,10 +2,10 @@ import type { KeychainRefusalCause } from "@ai-sidekicks/contracts/keychain";
 import { PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE } from "@ai-sidekicks/contracts/provider/account/sign-in";
 import type { ReactNode } from "react";
 
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { readKeychainRefusalCause } from "#renderer/services/provider-accounts/refusal-details.js";
 import type { TokenRegistrationOutcome } from "../sign-in/flow.js";
-import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** The title over every keychain refusal's line. */
 const KEYCHAIN_REFUSAL_TITLE = "Token not saved";

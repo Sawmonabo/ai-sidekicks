@@ -55,7 +55,7 @@ describe("the updates block — nothing restarts without a press", () => {
   it("restarts on a press, with no confirmation in between", async () => {
     const requestRestart = vi.fn(() => Promise.resolve());
     const { block: container } = await renderSettled(
-      updaterReporting({ status: "ready" }, { requestRestart }),
+      updaterReporting({ status: "ready", version: "1.4.0" }, { requestRestart }),
     );
     expect(requestRestart).not.toHaveBeenCalled();
     await pressControl(container, "Restart to finish");
@@ -86,12 +86,15 @@ describe("the updates block — the updater's failure is drawn in the block's wo
     const updaterWords = "ENOENT: /private/var/folders/xy/update.zip";
     const diagnostics = await collectSentDiagnostics();
     try {
-      const requestCheck = vi.fn(() => Promise.resolve());
+      const requestDownload = vi.fn(() => Promise.resolve());
       const { block } = await renderSettled(
-        updaterReporting({ status: "error", message: updaterWords }, { requestCheck }),
+        updaterReporting(
+          { status: "error", step: "verify", message: updaterWords },
+          { requestDownload },
+        ),
       );
       expect(block.querySelector(".meridian-refusal__message")?.textContent).toBe(
-        UPDATE_FAILED_DETAIL,
+        UPDATE_FAILED_DETAIL.verify,
       );
       expect(document.body.textContent).not.toContain(updaterWords);
       const logged = (await diagnostics.records()).filter(
@@ -101,7 +104,7 @@ describe("the updates block — the updater's failure is drawn in the block's wo
 
       await pressControl(block, "Try again");
 
-      expect(requestCheck).toHaveBeenCalledTimes(1);
+      expect(requestDownload).toHaveBeenCalledTimes(1);
     } finally {
       diagnostics.stop();
     }
@@ -183,7 +186,7 @@ describe("the updates block — the switch waits for the settings file", () => {
 
     expect(block.querySelector('[role="switch"]')).toBeNull();
     expect(block.querySelector("[data-refusal-code] .meridian-refusal__message")?.textContent).toBe(
-      "Couldn't load your settings",
+      "Couldn't load settings",
     );
 
     await pressControl(block, "Try again");
@@ -211,7 +214,7 @@ describe("the updates block — the switch waits for the settings file", () => {
     await pressControl(block, "Try again");
     said.push(liveRegionText(container, "assertive"));
 
-    const failure = "Couldn't load your settings";
+    const failure = "Couldn't load settings";
     expect(said).toStrictEqual([failure, "", failure]);
   });
 });

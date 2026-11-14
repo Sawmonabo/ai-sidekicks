@@ -70,7 +70,10 @@ describe("ProjectSwitches", () => {
     const { container } = render(
       <ProjectSwitches
         entry={CONNECTOR}
-        projects={{ status: "served", projects: [ATLAS, BEACON, ARCHIVED] }}
+        projects={{
+          state: { status: "served", projects: [ATLAS, BEACON, ARCHIVED] },
+          readAgain: () => undefined,
+        }}
         outcomeFor={() => IDLE_MCP_MUTATION}
         onSetEnabledIn={onSetEnabledIn}
         sessionDirectory={{ status: "reading" }}

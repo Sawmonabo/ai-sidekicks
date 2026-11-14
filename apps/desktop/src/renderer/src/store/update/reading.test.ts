@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import type { UpdateState, Unsubscribe } from "#shared/preload-api.js";
 
+import { ManualClock } from "#renderer/lib/clock.js";
 import { UpdaterReadingHolder, type UpdaterCalls } from "./reading.js";
 
 /**
@@ -62,19 +63,22 @@ async function drain(): Promise<void> {
 describe("the updater reading — which source wins", () => {
   it("keeps the push when the opening read resolves behind it", async () => {
     const updater = controllableUpdater();
-    const holder = new UpdaterReadingHolder(updater.updater);
+    const holder = new UpdaterReadingHolder(updater.updater, new ManualClock(0));
     holder.open();
 
-    updater.push({ status: "ready" });
+    updater.push({ status: "ready", version: "1.4.0" });
     updater.settleRead({ status: "checking" });
     await drain();
 
-    expect(holder.snapshot().reading).toStrictEqual({ kind: "state", state: { status: "ready" } });
+    expect(holder.snapshot().reading).toStrictEqual({
+      kind: "state",
+      state: { status: "ready", version: "1.4.0" },
+    });
   });
 
   it("installs the opening read when nothing has been pushed", async () => {
     const updater = controllableUpdater();
-    const holder = new UpdaterReadingHolder(updater.updater);
+    const holder = new UpdaterReadingHolder(updater.updater, new ManualClock(0));
     holder.open();
 
     updater.settleRead({ status: "downloading", percent: 42 });
@@ -90,39 +94,45 @@ describe("the updater reading — which source wins", () => {
     // Guards against a holder that installs whichever answer arrives last, which passes the
     // first case whenever the push happens to be delivered second.
     const updater = controllableUpdater();
-    const holder = new UpdaterReadingHolder(updater.updater);
+    const holder = new UpdaterReadingHolder(updater.updater, new ManualClock(0));
     holder.open();
 
-    updater.push({ status: "ready" });
+    updater.push({ status: "ready", version: "1.4.0" });
     await drain();
     updater.settleRead({ status: "idle" });
     await drain();
 
-    expect(holder.snapshot().reading).toStrictEqual({ kind: "state", state: { status: "ready" } });
+    expect(holder.snapshot().reading).toStrictEqual({
+      kind: "state",
+      state: { status: "ready", version: "1.4.0" },
+    });
   });
 
   it("negative control: a later push still installs over the opening read", async () => {
     // Guards against a holder that latches the first accepted answer and freezes on it.
     const updater = controllableUpdater();
-    const holder = new UpdaterReadingHolder(updater.updater);
+    const holder = new UpdaterReadingHolder(updater.updater, new ManualClock(0));
     holder.open();
 
     updater.settleRead({ status: "idle" });
     await drain();
-    updater.push({ status: "ready" });
+    updater.push({ status: "ready", version: "1.4.0" });
 
-    expect(holder.snapshot().reading).toStrictEqual({ kind: "state", state: { status: "ready" } });
+    expect(holder.snapshot().reading).toStrictEqual({
+      kind: "state",
+      state: { status: "ready", version: "1.4.0" },
+    });
   });
 });
 
 describe("the updater reading — an opening is released and re-opened", () => {
   it("writes nothing from a released opening's late reply", async () => {
     const updater = controllableUpdater();
-    const holder = new UpdaterReadingHolder(updater.updater);
+    const holder = new UpdaterReadingHolder(updater.updater, new ManualClock(0));
     holder.open();
     holder.close();
 
-    updater.push({ status: "ready" });
+    updater.push({ status: "ready", version: "1.4.0" });
     updater.settleRead({ status: "idle" });
     await drain();
 
@@ -134,15 +144,18 @@ describe("the updater reading — an opening is released and re-opened", () => {
     // The shape of a React effect cleanup between StrictMode's two invocations; a terminal
     // teardown would leave the block reading nothing.
     const updater = controllableUpdater();
-    const holder = new UpdaterReadingHolder(updater.updater);
+    const holder = new UpdaterReadingHolder(updater.updater, new ManualClock(0));
     holder.open();
     holder.close();
     holder.open();
 
-    updater.settleRead({ status: "ready" });
+    updater.settleRead({ status: "ready", version: "1.4.0" });
     await drain();
 
-    expect(holder.snapshot().reading).toStrictEqual({ kind: "state", state: { status: "ready" } });
+    expect(holder.snapshot().reading).toStrictEqual({
+      kind: "state",
+      state: { status: "ready", version: "1.4.0" },
+    });
     expect(updater.readCount()).toBe(2);
   });
 });

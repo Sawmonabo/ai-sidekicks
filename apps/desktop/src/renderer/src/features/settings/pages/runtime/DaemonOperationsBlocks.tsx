@@ -193,9 +193,7 @@ function renderStatusRegion(
 ): ReactNode {
   switch (reading.phase) {
     case "reading":
-      return (
-        <LoadingNotice clock={clock} placement="block" title="Loading the background service…" />
-      );
+      return <LoadingNotice clock={clock} placement="block" title="Loading background service…" />;
     case "read":
       return (
         <>

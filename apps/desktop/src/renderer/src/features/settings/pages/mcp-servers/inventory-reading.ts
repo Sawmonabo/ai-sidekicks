@@ -1,4 +1,4 @@
-// The inventory read the MCP fixture body is built on: one reply, three refresh signals.
+// The inventory read the MCP servers page is built on: one reply, three refresh signals.
 //
 // One unified read across both providers and every scope, as the daemon already decided that
 // `(claude, user, filesystem)` and `(codex, project, …, filesystem)` are two rows. It refreshes
@@ -23,7 +23,7 @@ export interface McpInventory {
   readonly failedProviders: readonly McpProviderReadFailure[];
 }
 
-/** The read the MCP fixture body is built on. */
+/** The read the MCP servers page is built on. */
 export type McpInventoryRead = PushDrivenRead<McpInventory>;
 
 /**
@@ -36,7 +36,7 @@ export type ListMcpInventory = (signal: AbortSignal) => Promise<McpInventory>;
 export type SubscribeMcpInventoryChanges = (onChange: () => void) => Unsubscribe;
 
 /**
- * Build the inventory read, constructed by whoever owns its lifetime (the fixture body's mount
+ * Build the inventory read, constructed by whoever owns its lifetime (the page's mount
  * effect, never a render body) and disposed with that owner.
  */
 export function createMcpInventoryRead(options: {
