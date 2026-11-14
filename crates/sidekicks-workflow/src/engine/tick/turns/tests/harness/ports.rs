@@ -96,6 +96,12 @@ impl RecordingAsks {
         self.is_refusing.store(true, Ordering::SeqCst);
     }
 
+    /// Forgets every call taken, so no question asked so far reads as open, as a stop that lost
+    /// its open questions leaves them.
+    pub(in crate::engine::tick::turns) fn forget_questions(&self) {
+        lock(&self.calls).clear();
+    }
+
     /// Every call taken, in order.
     pub(in crate::engine::tick::turns) fn calls(&self) -> Vec<RecordedAsk> {
         lock(&self.calls).clone()

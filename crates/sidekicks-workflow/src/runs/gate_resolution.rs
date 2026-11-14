@@ -62,10 +62,6 @@ pub struct ApprovalCardAnswer {
 
 /// The keys every run event names besides the run: its session, its definition and the version it
 /// pins.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the approval side's gate answers and Keep going")
-)]
 #[expect(
     clippy::struct_field_names,
     reason = "each field keeps the name the run event's member carries"

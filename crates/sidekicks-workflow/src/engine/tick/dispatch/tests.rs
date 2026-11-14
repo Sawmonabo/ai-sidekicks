@@ -271,7 +271,7 @@ pub(super) fn report_json(report: &StepReport, step: &WorkflowStepKey) -> Value 
             json!({ "started": started })
         }
         StepReportKind::Progressed => json!("progressed"),
-        StepReportKind::Canceling
+        StepReportKind::Canceling { .. }
         | StepReportKind::BranchesCanceled { .. }
         | StepReportKind::ResumeDue { .. }
         | StepReportKind::RunCapped { .. } => {

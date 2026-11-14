@@ -137,13 +137,14 @@ impl StepDispatch {
             .collect()
     }
 
-    /// The agent run `step` made before the daemon stopped, which a step waiting on its spent
-    /// account takes again at the restart. Fails when no such run is stored.
+    /// The agent run `step` made before the daemon stopped, which the restart takes again for a
+    /// step waiting on its spent account and stops for a step it crashes; `None` where the step
+    /// made none. Fails when the stored runs cannot be read.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn reattach_agent_run(
         &self,
         step: &WorkflowStepKey,
-    ) -> Result<Box<dyn AgentStepRun>, PortError> {
+    ) -> Result<Option<Box<dyn AgentStepRun>>, PortError> {
         self.ports.agent_steps.reattach(step).await
     }
 
@@ -660,6 +661,7 @@ fn test_ready_step(
             .collect(),
         input_ref: serde_json::from_value(json!({ "kind": "inline", "items": [] }))
             .expect("the test's input reference reads"),
+        is_taken_back: false,
     }
 }
 

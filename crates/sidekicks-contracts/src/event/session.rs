@@ -17,7 +17,6 @@ use crate::approval::events::{
     ApprovalResolvedPayload, ApprovalReviewerDeniedPayload, ApprovalRuleRememberedPayload,
     ApprovalRuleRevokedPayload,
 };
-use crate::approval::holder::ApprovalHolder;
 use crate::artifacts::publication::ArtifactPublicationPayload;
 use crate::cloud::CloudTaskUpdatedPayload;
 use crate::command::AgentCommandEndedPayload;
@@ -66,7 +65,6 @@ use crate::run::events::{
     AgentTurnFailedPayload, AgentTurnInterruptedPayload, AgentTurnStartedPayload,
     AgentTurnSteeredPayload,
 };
-use crate::run::id::RunId;
 use crate::run::provider_choice::{
     AgentRunRefusalChoiceRequestedPayload, AgentRunRefusalChoiceResolvedPayload,
     AgentRunUsageCreditsChoiceRequestedPayload, AgentRunUsageCreditsChoiceResolvedPayload,
@@ -79,8 +77,8 @@ use crate::run::queued::AgentRunQueuedPayload;
 use crate::run::subagent::SubagentLifecyclePayload;
 use crate::session::controls::events::{
     AgentRunStepLimitReachedPayload, AgentRunTokenLimitReachedPayload,
-    ApprovalReviewerFlaggedPayload, SessionNotice, SessionNoticePostedPayload,
-    SessionSideQuestionAnsweredPayload, SessionSpendLimitReachedPayload,
+    ApprovalReviewerFlaggedPayload, SessionNoticePostedPayload, SessionSideQuestionAnsweredPayload,
+    SessionSpendLimitReachedPayload,
 };
 use crate::session::convert::SessionConvertedPayload;
 use crate::session::events::{
@@ -93,23 +91,24 @@ use crate::session::recovery::SessionDamagedEventsSkippedPayload;
 use crate::session::restore::SessionRestoreCompletedPayload;
 use crate::terminal::control::TerminalControlChangedPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::integer::SafeInt;
 use crate::workflow::definition::events::{
     WorkflowTriggerArmedPayload, WorkflowTriggerFiredPayload, WorkflowVersionCreatedPayload,
 };
 use crate::workflow::run::events::{
     WorkflowChainRunJoinedPayload, WorkflowGateReachedPayload, WorkflowResultsPostedPayload,
-    WorkflowRunCanceledPayload, WorkflowRunCompletedPayload, WorkflowRunCrashedPayload,
-    WorkflowRunDeletedPayload, WorkflowRunFailedPayload, WorkflowRunKeepChangedPayload,
-    WorkflowRunResumedPayload, WorkflowRunStartedPayload, WorkflowRunWaitingPayload,
+    WorkflowRunCanceledPayload, WorkflowRunCancelingPayload, WorkflowRunCompletedPayload,
+    WorkflowRunCrashedPayload, WorkflowRunDeletedPayload, WorkflowRunFailedPayload,
+    WorkflowRunFailingPayload, WorkflowRunKeepChangedPayload, WorkflowRunResumedPayload,
+    WorkflowRunStartedPayload, WorkflowRunWaitingPayload,
 };
+use crate::workflow::run::step::events::suspended::WorkflowPhaseSuspendedPayload;
 use crate::workflow::run::step::events::{
     WorkflowGateResolvedPayload, WorkflowParallelJoinBranchesCanceledPayload,
     WorkflowPhaseAdmittedPayload, WorkflowPhaseCancelingPayload, WorkflowPhaseCompletedPayload,
     WorkflowPhaseFailedPayload, WorkflowPhaseProgressedPayload, WorkflowPhaseResumedPayload,
-    WorkflowPhaseRetriedPayload, WorkflowPhaseStartedPayload, WorkflowPhaseSuspendedPayload,
-    WorkflowPhaseWaitingOnMemoryPayload, WorkflowStepCanceledPayload, WorkflowStepCompletedPayload,
-    WorkflowStepFailedPayload, WorkflowStepSkippedPayload, WorkflowStepStartedPayload,
+    WorkflowPhaseRetriedPayload, WorkflowPhaseStartedPayload, WorkflowPhaseWaitingOnMemoryPayload,
+    WorkflowStepCanceledPayload, WorkflowStepCompletedPayload, WorkflowStepFailedPayload,
+    WorkflowStepSkippedPayload, WorkflowStepStartedPayload,
 };
 use crate::worktree::events::{
     SessionBranchChangedPayload, SessionSweptToCheckoutPayload, WorktreeCreatedPayload,
@@ -117,65 +116,13 @@ use crate::worktree::events::{
 };
 use crate::worktree::lifecycle::WorktreeLifecyclePayload;
 
-/// The run an event belongs to: its payload's `runId`, with its `runVersion` and `turnNumber`
-/// where it carries them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EventRun {
-    /// The run.
-    pub run_id: RunId,
-    /// The run's progression counter the event was written at.
-    pub run_version: Option<SafeInt<0>>,
-    /// The turn's number within its run, on a turn's start and its end.
-    pub turn_number: Option<SafeInt<1>>,
-}
+use self::run::{
+    EventRun, agent_output_run, approval_canceled_run, approval_requested_run,
+    approval_resolved_run, event_run, git_settled_run, question_asked_run, run_queued_run,
+    session_notice_run,
+};
 
-/// One arm of [`SessionEvent::run`]: the pattern that binds the payload where its run is read,
-/// then the run read from it, as the arm's rule in the registration table says: `versioned` for a
-/// `runId` and a `runVersion`, `turn` for those and a `turnNumber`, `required` for a `runId`
-/// alone, `optional` for an optional `runId`, `read(function)` for a payload union whose arms
-/// differ, and no rule for no run.
-macro_rules! event_run {
-    (@binding $payload:ident) => {
-        _
-    };
-    (@binding $payload:ident $rule:ident $(($read:ident))?) => {
-        $payload
-    };
-    ($payload:ident) => {
-        None
-    };
-    ($payload:ident versioned) => {
-        Some(EventRun {
-            run_id: $payload.run_id,
-            run_version: Some($payload.run_version),
-            turn_number: None,
-        })
-    };
-    ($payload:ident turn) => {
-        Some(EventRun {
-            run_id: $payload.run_id,
-            run_version: Some($payload.run_version),
-            turn_number: Some($payload.turn_number),
-        })
-    };
-    ($payload:ident required) => {
-        Some(EventRun {
-            run_id: $payload.run_id,
-            run_version: None,
-            turn_number: None,
-        })
-    };
-    ($payload:ident optional) => {
-        $payload.run_id.map(|run_id| EventRun {
-            run_id,
-            run_version: None,
-            turn_number: None,
-        })
-    };
-    ($payload:ident read($read:ident)) => {
-        $read($payload)
-    };
-}
+pub mod run;
 
 /// Asks whether a payload type is a [`MachineContentDescriptor`] for a payload named in a macro:
 /// the probe's own method applies only to such a payload, and method lookup falls back to its
@@ -535,6 +482,10 @@ session_events! {
     WorkflowRunStarted(#[garde(dive)] WorkflowRunStartedPayload) = "workflow.run.started",
     /// Emitted when a workflow run resumes.
     WorkflowRunResumed(#[garde(dive)] WorkflowRunResumedPayload) = "workflow.run.resumed",
+    /// Emitted when a person's cancel of a workflow run is taken and its steps wind down.
+    WorkflowRunCanceling(#[garde(dive)] WorkflowRunCancelingPayload) = "workflow.run.canceling",
+    /// Emitted when a failure decides a workflow run's end and its other steps wind down.
+    WorkflowRunFailing(#[garde(dive)] WorkflowRunFailingPayload) = "workflow.run.failing",
     /// Emitted when a workflow run is canceled.
     WorkflowRunCanceled(#[garde(dive)] WorkflowRunCanceledPayload) = "workflow.run.canceled",
     /// Emitted when the next start's sweep ends a run the daemon's stop left with nothing to go
@@ -666,96 +617,6 @@ session_events! {
     AgentInterventionExpired(AgentInterventionExpiredPayload) = "agent.intervention.expired",
     /// Emitted when an intervention's dispatch throws, so it ends without a driver verdict.
     AgentInterventionFailed(AgentInterventionFailedPayload) = "agent.intervention.failed",
-}
-
-/// The run of an agent row: a run's row names it, a voice call's answer names none.
-fn agent_output_run(payload: &AgentOutputPayload) -> Option<EventRun> {
-    match payload {
-        AgentOutputPayload::Run(output) => Some(EventRun {
-            run_id: output.run_id,
-            run_version: None,
-            turn_number: None,
-        }),
-        AgentOutputPayload::Voice(_) => None,
-    }
-}
-
-/// The run that holds an ask; a workflow wait's card names none.
-fn approval_holder_run(holder: &ApprovalHolder) -> Option<EventRun> {
-    holder.run_id().map(|run_id| EventRun {
-        run_id,
-        run_version: None,
-        turn_number: None,
-    })
-}
-
-/// The run that holds a raised ask.
-fn approval_requested_run(payload: &ApprovalRequestedPayload) -> Option<EventRun> {
-    approval_holder_run(&payload.holder)
-}
-
-/// The run that held an answered ask.
-fn approval_resolved_run(payload: &ApprovalResolvedPayload) -> Option<EventRun> {
-    approval_holder_run(&payload.holder)
-}
-
-/// The run that held a canceled ask.
-fn approval_canceled_run(payload: &ApprovalCanceledPayload) -> Option<EventRun> {
-    approval_holder_run(&payload.holder)
-}
-
-/// The run that holds a question; a workflow wait's question names none.
-fn question_asked_run(payload: &QuestionAskedPayload) -> Option<EventRun> {
-    match payload {
-        QuestionAskedPayload::Run(question) => Some(EventRun {
-            run_id: question.run_id,
-            run_version: None,
-            turn_number: None,
-        }),
-        QuestionAskedPayload::Wait(_) => None,
-    }
-}
-
-/// The run behind a commit or an opened pull request, where it names one.
-fn git_settled_run(payload: &GitSettledPayload) -> Option<EventRun> {
-    match payload {
-        GitSettledPayload::Committed { run_id, .. }
-        | GitSettledPayload::PullRequestOpened { run_id, .. } => run_id.map(|run_id| EventRun {
-            run_id,
-            run_version: None,
-            turn_number: None,
-        }),
-        GitSettledPayload::Pushed { .. }
-        | GitSettledPayload::Pulled { .. }
-        | GitSettledPayload::ReviewPosted { .. } => None,
-    }
-}
-
-/// The run queued, at the version it was queued at.
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "every run rule that reads its payload answers an Option"
-)]
-fn run_queued_run(payload: &AgentRunQueuedPayload) -> Option<EventRun> {
-    Some(EventRun {
-        run_id: payload.run_id(),
-        run_version: Some(payload.run_version()),
-        turn_number: None,
-    })
-}
-
-/// The run a notice is about: only the run that asked for fast output it lacks.
-fn session_notice_run(payload: &SessionNoticePostedPayload) -> Option<EventRun> {
-    let SessionNoticePostedPayload::Notice(SessionNotice::FastOutputUnavailable { run_id, .. }) =
-        payload
-    else {
-        return None;
-    };
-    Some(EventRun {
-        run_id: *run_id,
-        run_version: None,
-        turn_number: None,
-    })
 }
 
 /// Why a stored envelope does not read as a [`SessionEvent`]. The envelope itself stays valid

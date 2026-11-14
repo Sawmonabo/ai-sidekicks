@@ -526,7 +526,7 @@ mod tests {
             .reports
             .iter()
             .map(|report| {
-                let is_canceling = matches!(report.kind, StepReportKind::Canceling);
+                let is_canceling = matches!(report.kind, StepReportKind::Canceling { .. });
                 (report.step.node_id.as_str().to_owned(), is_canceling)
             })
             .collect();

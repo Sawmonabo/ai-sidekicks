@@ -29,11 +29,11 @@ interface WorkflowDefinitionCreateRequest {
   // one library, with no role check, told apart by `origin`; the name is the document's own, except
   // a Duplicate's, which the daemon names, and one another workflow holds is refused. A document
   // the daemon's re-check refuses answers `workflow.definition.refused`, carrying every finding
-  // with the rule it breaks and the nodes it names.
-  // The authored body is the NODE-GRAPH DOCUMENT in workflow-document-payloads.md: exactly one trigger node, the other
-  // nodes, and the edges between them. There is no second, compiled form: the agent and
-  // human kinds are node kinds like any other, and their executors call the existing
-  // run-admission, orchestration, approval and form paths at run time.
+  // with the rule it breaks and the nodes it names. The authored body is the NODE-GRAPH DOCUMENT in
+  // workflow-document-payloads.md: exactly one trigger node, the other nodes, and the edges between
+  // them. There is no second, compiled form: the agent and human kinds are node kinds like any
+  // other, and their executors call the existing run-admission, orchestration, approval and form
+  // paths at run time.
   document: WorkflowDocument;
   origin: WorkflowCreateOrigin;
 }
@@ -77,8 +77,8 @@ interface WorkflowDefinitionReadResponse {
   // exists. The token itself is never read back — only its hash is kept, and
   // workflow.webhookToken.rotate shows a new one once — so the trigger's Address section reads
   // `Created <date>` and `Last used <time>` from here. With no token, every call to the workflow's
-  // address is refused; `webhookTokenLastUsedAt` is absent until a call has presented the token, and
-  // never present without `webhookTokenCreatedAt`.
+  // address is refused; `webhookTokenLastUsedAt` is absent until a call has presented the token,
+  // and never present without `webhookTokenCreatedAt`.
   webhookTokenCreatedAt?: string;
   webhookTokenLastUsedAt?: string;
   // The last call to the webhook address and what became of it: it started a run, the trigger's
@@ -91,8 +91,8 @@ interface WorkflowDefinitionReadResponse {
   };
   // When the workflow was deleted, absent while it is not. A deleted workflow still reads, as its
   // versions do through workflow.version.read, so the run filter names it by its real name and the
-  // Builder opens the Workflows tab with `That workflow is not here.`; `workflow.definition.notFound`
-  // means the definition was never created.
+  // Builder opens the Workflows tab with `That workflow is not here.`;
+  // `workflow.definition.notFound` means the definition was never created.
   deletedAt?: string;
 }
 
@@ -121,18 +121,19 @@ interface WorkflowDefinitionSummary {
   // The facts a catalog row shows beside the name, so the table needs no second read per row.
   // The kind of the document's one trigger.
   triggerKind: WorkflowNodeKindId;
-  // `lastRun` is absent where the definition has never run — a different fact from a run that failed.
+  // `lastRun` is absent where the definition has never run — a different fact from a run that
+  // failed.
   lastRun?: { workflowRunId: WorkflowRunId; status: WorkflowRunStatus; startedAt: string };
-  // The armed schedule in words plus its next fire, absent where the definition declares no schedule.
-  // The next fire is computed in the trigger's own timezone, which is a param on the schedule trigger,
-  // and is absent while the workflow is off.
+  // The armed schedule in words plus its next fire, absent where the definition declares no
+  // schedule. The next fire is computed in the trigger's own timezone, which is a param on the
+  // schedule trigger, and is absent while the workflow is off.
   schedule?: { expression: string; timeZone: string; nextFireAt?: string };
-  // The last fire the trigger's overlap choice skipped because a run was still going, with that run's
-  // start, so the row reads "3:00 AM skipped · the 2:00 AM run was still going". A skipped fire is never
-  // a run.
+  // The last fire the trigger's overlap choice skipped because a run was still going, with that
+  // run's start, so the row reads "3:00 AM skipped · the 2:00 AM run was still going". A skipped
+  // fire is never a run.
   lastSkippedFire?: { scheduledAt: string; runningSince: string };
-  // Whether every trigger this definition declares is armed. It is the toggle's own truth, so the row
-  // reverts visibly when the daemon refuses rather than holding an optimistic value.
+  // Whether every trigger this definition declares is armed. It is the toggle's own truth, so the
+  // row reverts visibly when the daemon refuses rather than holding an optimistic value.
   enabled: boolean;
   // The tags the row writes on its second line, and the tag filter narrows on.
   tags: string[];
@@ -155,16 +156,18 @@ interface WorkflowVersionReadResponse {
   // note there.
   workflowVersionId: string;
   contentHash: string;
-  // The canonical body itself, without which nothing could reproduce the canonical bytes
-  // or their content hash; its schema-version marker is the document's own
-  // `schemaVersion` ([Spec-015 §Required Behavior](../../specs/015-workflow-authoring-and-execution.md#required-behavior)). The file form has exactly two top-level parts, the hashed
-  // definition body and the optional non-hashed `layout`
-  // ([Workflow Graph Model §Definition file form — export and import (C-17)](../../domain/workflow-graph-model.md#definition-file-form--export-and-import-c-17)), so the name, the
-  // trigger node and the node sequence all live INSIDE this document rather than beside
-  // it. How a run begins is the document's own trigger node — exactly one, of a kind in the
-  // trigger family, every one of which ships
-  // ([Workflow Graph Model §Entry node and the V1 trigger surface (SA-34)](../../domain/workflow-graph-model.md#entry-node-and-the-v1-trigger-surface-sa-34)). There is no
-  // second entry record beside it and no start mode the daemon materializes.
+  // The canonical body itself, without which nothing could reproduce the canonical bytes or their
+  // content hash; its schema-version marker is the document's own `schemaVersion` ([Spec-015
+  // §Required Behavior](../../specs/015-workflow-authoring-and-execution.md#required-behavior)).
+  // The file form has exactly two top-level parts, the hashed definition body and the optional
+  // non-hashed `layout` ([Workflow Graph Model §Definition file form — export and import
+  // (C-17)](../../domain/workflow-graph-model.md#definition-file-form--export-and-import-c-17)), so
+  // the name, the trigger node and the node sequence all live INSIDE this document rather than
+  // beside it. How a run begins is the document's own trigger node — exactly one, of a kind in the
+  // trigger family, every one of which ships ([Workflow Graph Model §Entry node and the V1 trigger
+  // surface
+  // (SA-34)](../../domain/workflow-graph-model.md#entry-node-and-the-v1-trigger-surface-sa-34)).
+  // There is no second entry record beside it and no start mode the daemon materializes.
   document: WorkflowDocument;
   createdAt: string;
 }
@@ -175,7 +178,9 @@ interface WorkflowVersionReadResponse {
 // trigger fires, is judged under the SA-36 named Cedar operation action `workflow::start` and
 // refused with `workflow.run.startDenied`; the person's own start passes no policy check.
 interface WorkflowRunStartRequest {
-  clientIdempotencyKey: string; // a UUID: a resend under the same key after a reconnect answers the first start's run, never a second (return-or-conflict on the call's own record)
+  // a UUID: a resend under the same key after a reconnect answers the first start's run, never a
+  // second (return-or-conflict on the call's own record)
+  clientIdempotencyKey: string;
   // The opaque server-minted version reference — the immutable version row's
   // primary key, returned verbatim by workflow.version.read,
   // workflow.definition.read, workflow.definition.list, and
@@ -187,8 +192,8 @@ interface WorkflowRunStartRequest {
   // only session its progress row and its results row ever reach; a session that does not exist is
   // refused `session.notFound`. A start from outside a chat — Run now from the Workflows screen or
   // the builder — omits it, and the run lives in the one session the workflow owns, created on its
-  // first such run and reused by every later one. A run started in a session works in that session's
-  // recorded folder, unless a chat's start names a project.
+  // first such run and reused by every later one. A run started in a session works in that
+  // session's recorded folder, unless a chat's start names a project.
   sessionId?: SessionId;
   // The project whose repository the run works in, in that project's own folder: the one the Run
   // now panel's `Repository` names, or, on a start in a chat, the one the chat's `Repository` panel
@@ -198,12 +203,12 @@ interface WorkflowRunStartRequest {
   // the daemon refuses a `projectId` sent beside a project session's `sessionId` with
   // `workflow.run.projectOnProjectSession`.
   projectId?: ProjectId;
-  // The items the run starts on. A workflow declares the inputs it asks for on its trigger, each one
-  // named, typed and carrying the value it starts on; the start affordance seeds a field per input and
-  // this member carries what was filled in, as one item whose `json` holds the values by input name.
-  // An optional input left out takes its starting value; a required one left unfilled, or any value
-  // that does not fit its input, is refused `workflow.run.inputRequired`. Absent where the workflow
-  // declares none.
+  // The items the run starts on. A workflow declares the inputs it asks for on its trigger, each
+  // one named, typed and carrying the value it starts on; the start affordance seeds a field per
+  // input and this member carries what was filled in, as one item whose `json` holds the values by
+  // input name. An optional input left out takes its starting value; a required one left unfilled,
+  // or any value that does not fit its input, is refused `workflow.run.inputRequired`. Absent where
+  // the workflow declares none.
   input?: WorkflowItem[];
   // How this start was made. It is an INPUT here and the recorded outcome on the run: a chat caller
   // mints no start mode of its own, and `retry` and `subWorkflow` are minted by the operations that
@@ -214,8 +219,9 @@ interface WorkflowRunStartResponse {
   workflowRunId: WorkflowRunId;
   // The session the run lives in: the chat the request named, or the workflow's own.
   sessionId: SessionId;
-  // Two of the run statuses are reachable from a start: the run is admitted and not yet dispatched, or
-  // it is already running. Narrowing here keeps callers from switching on statuses a start cannot produce.
+  // Two of the run statuses are reachable from a start: the run is admitted and not yet dispatched,
+  // or it is already running. Narrowing here keeps callers from switching on statuses a start
+  // cannot produce.
   status: "new" | "running";
 }
 
@@ -226,26 +232,26 @@ interface WorkflowRunReadRequest {
   workflowRunId: WorkflowRunId;
 }
 // One workflow run as its row records it; the run read and the runs table's row are built from it.
-// `status` is the status list, and nothing else is displayed: a run is new, running, waiting on a person
-// or a provider, succeeded, failed, canceled or crashed. A gated run is `waiting`, which is the one
-// status never swept on a daemon start and never pruned, so a run parked on a person survives a
-// restart. The stored status CHECK is in lockstep with this union. `finishedAt` is present exactly once
-// the run has ended. A `failed` run parked on its failed step has not ended and carries none, which is
-// how the header tells it from a failed run that ended: `Cancel` and `Resume` act on the first and
-// refuse on the second.
+// `status` is the status list, and nothing else is displayed: a run is new, running, waiting on a
+// person or a provider, succeeded, failed, canceled or crashed. A gated run is `waiting`, which is
+// the one status never swept on a daemon start and never pruned, so a run parked on a person
+// survives a restart. The stored status CHECK is in lockstep with this union. `finishedAt` is
+// present exactly once the run has ended. A `failed` run parked on its failed step has not ended
+// and carries none, which is how the header tells it from a failed run that ended: `Cancel` and
+// `Resume` act on the first and refuse on the second.
 type WorkflowRun = {
   workflowRunId: WorkflowRunId;
-  // The session the run lives in: the chat that started it, the one session the workflow owns for a run
-  // nobody started from a chat, or, for a sub-workflow child, its parent's.
+  // The session the run lives in: the chat that started it, the one session the workflow owns for a
+  // run nobody started from a chat, or, for a sub-workflow child, its parent's.
   sessionId: SessionId;
-  // The workflow the run came from, which the header links to. A run whose definition was deleted still
-  // opens, because it pins its version.
+  // The workflow the run came from, which the header links to. A run whose definition was deleted
+  // still opens, because it pins its version.
   definitionId: WorkflowDefinitionId;
   workflowVersionId: string;
-  // How the run was started and by whom, which the run row and the run header both read. `startedBy`
-  // carries the message anchor on a chat-borne start, which is how a run links back to the message that
-  // started it. `triggerKind` is the kind of trigger node that started it, which the header's trigger
-  // fact reads.
+  // How the run was started and by whom, which the run row and the run header both read.
+  // `startedBy` carries the message anchor on a chat-borne start, which is how a run links back to
+  // the message that started it. `triggerKind` is the kind of trigger node that started it, which
+  // the header's trigger fact reads.
   mode: WorkflowRunMode;
   triggerKind: WorkflowTriggerKind;
   startedBy: WorkflowStartedBy;
@@ -254,9 +260,9 @@ type WorkflowRun = {
   startedAt: string;
 } &
   // `error` says why a run that failed, was canceled or crashed did so: kept when the run cap
-  // (`max_duration`, SA-2) or the retry bound (`max_retries`) fails the run, and carrying a person's
-  // cancellation reason as its message, stored as `workflow_runs.error_json`. A going or succeeded
-  // run carries none.
+  // (`max_duration`, SA-2) or the retry bound (`max_retries`) fails the run, and carrying a
+  // person's cancellation reason as its message, stored as `workflow_runs.error_json`. A going or
+  // succeeded run carries none.
   (| { status: "new" | "running" | "waiting" }
     | { status: "failed"; finishedAt?: string; error?: WorkflowStepError }
     | { status: "succeeded"; finishedAt: string }
@@ -268,14 +274,16 @@ type WorkflowRunReadResponse = WorkflowRun & {
   // workflow's OWN canvas, read-only, every node in the place the builder put it and colored by
   // that node's step status, and the panel holds one step at a time. A waiting step says what it
   // waits on and when it resumes itself on its own record, so one workflow.run.read renders why the
-  // run waits, per branch, with no rebuild from the transcript (Spec-015 §Park surfacing on the read model).
-  // A `waiting` run always carries at least one `waiting` step: a run waits only while a step does.
+  // run waits, per branch, with no rebuild from the transcript (Spec-015 §Park surfacing on the
+  // read model). A `waiting` run always carries at least one `waiting` step: a run waits only while
+  // a step does.
   steps: WorkflowStep[];
-  // The first run of this run's chain; its own id for a first run. A run started by an Execute workflow
-  // step, by an error trigger, or by a session-event or file-watch trigger on something a run of a chain
-  // did joins that chain, and the header names the chain's first run only when `chainRoot.runId` is not
-  // this run's own id. `runCount` is how many runs the chain has started from that first run, the first
-  // run included, which the chain's question and a held step's live line both read.
+  // The first run of this run's chain; its own id for a first run. A run started by an Execute
+  // workflow step, by an error trigger, or by a session-event or file-watch trigger on something a
+  // run of a chain did joins that chain, and the header names the chain's first run only when
+  // `chainRoot.runId` is not this run's own id. `runCount` is how many runs the chain has started
+  // from that first run, the first run included, which the chain's question and a held step's live
+  // line both read.
   chainRoot: {
     runId: WorkflowRunId;
     definitionId: WorkflowDefinitionId;
@@ -283,14 +291,14 @@ type WorkflowRunReadResponse = WorkflowRun & {
     startedAt: string;
     runCount: number;
   };
-  // Whether the daemon captured this run's execution context and pins its snapshot points at the start,
-  // at each approval pause and at the end. True for a run that works in a project's repository, a
-  // chat's run naming a project among them; false for a chat's run in the chat's own folder or a
-  // `None` run, which has no Review. It decides whether `Open in Review` opens
-  // what the run changed.
+  // Whether the daemon captured this run's execution context and pins its snapshot points at the
+  // start, at each approval pause and at the end. True for a run that works in a project's
+  // repository, a chat's run naming a project among them; false for a chat's run in the chat's own
+  // folder or a `None` run, which has no Review. It decides whether `Open in Review` opens what the
+  // run changed.
   executionContextCaptured: boolean;
-  // The session a failed step's `Fix in a fresh session` opened, which the header links to for the life
-  // of the run.
+  // The session a failed step's `Fix in a fresh session` opened, which the header links to for the
+  // life of the run.
   fixSessionId?: SessionId;
   // Summed from the steps' stored amounts and rounded once; absent where no provider was billed.
   cost?: WorkflowCost;
@@ -301,8 +309,8 @@ type WorkflowRunReadResponse = WorkflowRun & {
   // edge items went through, which the graph's edge counts read.
   edgeItemCounts: Array<{ edgeId: string; itemCount: number }>;
   // Present only on a finished run whose execution context was captured. Pinned, it names the
-  // execution whose start and end snapshots `Open in Review` compares; missing, it carries why the end
-  // snapshot could not be taken, and the door stays in place saying so.
+  // execution whose start and end snapshots `Open in Review` compares; missing, it carries why the
+  // end snapshot could not be taken, and the door stays in place saying so.
   review?: { state: "pinned"; epoch: number } | { state: "missing"; reason: string };
   // Present only on the chain's first run, once the chain's question has been asked: open, or
   // answered with the decision and the run count it was taken at, which its receipt reads (`Kept
@@ -403,7 +411,8 @@ interface WorkflowStepOutputListResponse {
   }>;
 }
 // One saved output. An `artifactRef` output points at a Plan-011 manifest; Plan-014 stores the
-// reference, never the bytes, and adds no second upload path. An `inline` output carries no artifact.
+// reference, never the bytes, and adds no second upload path. An `inline` output carries no
+// artifact.
 type WorkflowStepOutput =
   | { valueKind: "inline"; summary: string; producedAt: string }
   | { valueKind: "artifactRef"; artifactId: ArtifactId; summary: string; producedAt: string };
@@ -429,12 +438,12 @@ interface WorkflowGateResolveResponse {
   // When the answer was recorded, which the step panel's past-tense receipt reads.
   decidedAt: string;
 }
-// What a gate is: a `human.approval` step's question, or the question a chain's first run asks once the
-// chain has started as many runs as the person allows.
+// What a gate is: a `human.approval` step's question, or the question a chain's first run asks once
+// the chain has started as many runs as the person allows.
 type WorkflowGateKind = "human.approval" | "chain";
-// One answer to a gate of a run, as its append-only workflow_gate_resolutions row holds it: answers are
-// never rewritten, and `sequence` counts the run's answers from 1. An approval step's answer names the
-// step's node; a chain's question belongs to the run and names none.
+// One answer to a gate of a run, as its append-only workflow_gate_resolutions row holds it: answers
+// are never rewritten, and `sequence` counts the run's answers from 1. An approval step's answer
+// names the step's node; a chain's question belongs to the run and names none.
 type WorkflowGateResolution = {
   gateResolutionId: string; // the id the workflow.gate.resolved event names
   workflowRunId: WorkflowRunId;
@@ -517,20 +526,28 @@ interface WorkflowRunEventPayload {
 // workflow.run.started — how the run was started and by whom, the trigger node that started it, its
 // place in its chain, the node a node run targets, the run a retry retries, the pins it honors for
 // its whole life, the earlier steps it replays as its start stored them in its session, and the
-// input its trigger step starts on, so the run row and its walk rebuild from events. A payload with none of `inputRef`,
-// `nodeRun` and `retriedWorkflowRunId` is refused, and so is one whose `retriedWorkflowRunId` is
-// present on a run whose mode is not `retry` or absent on one whose mode is.
+// input its trigger step starts on, so the run row and its walk rebuild from events. A payload with
+// none of `inputRef`, `nodeRun` and `retriedWorkflowRunId` is refused, and so is one whose
+// `retriedWorkflowRunId` is present on a run whose mode is not `retry` or absent on one whose mode
+// is.
 interface WorkflowRunStartedPayload extends WorkflowRunEventPayload {
   mode: WorkflowRunMode;
   startedBy: WorkflowStartedBy;
   trigger: WorkflowRunTrigger;
   chain: WorkflowRunChainPlace;
-  provider?: ProviderId; // the provider the run's command steps use; absent when the workflow names none
-  nodeRun?: WorkflowNodeRun; // the node a node run (workflow.node.execute) targets; absent on a whole run
-  retriedWorkflowRunId?: WorkflowRunId; // the run a retry (workflow.run.retry) retries; present exactly in `retry` mode
-  pinData?: Record<string, WorkflowPinnedItem[]>; // by node id, the pins as the run started; absent where it honors none
-  reusedSteps?: WorkflowStartedReusedStep[]; // the earlier steps a node run or a retry replays; absent where it replays none
-  inputRef?: WorkflowPayloadRef; // absent exactly on a node run or a retry that reuses its trigger's step, which writes no trigger row
+  // the provider the run's command steps use; absent when the workflow names none
+  provider?: ProviderId;
+  // the node a node run (workflow.node.execute) targets; absent on a whole run
+  nodeRun?: WorkflowNodeRun;
+  // the run a retry (workflow.run.retry) retries; present exactly in `retry` mode
+  retriedWorkflowRunId?: WorkflowRunId;
+  // by node id, the pins as the run started; absent where it honors none
+  pinData?: Record<string, WorkflowPinnedItem[]>;
+  // the earlier steps a node run or a retry replays; absent where it replays none
+  reusedSteps?: WorkflowStartedReusedStep[];
+  // absent exactly on a node run or a retry that reuses its trigger's step, which writes no trigger
+  // row
+  inputRef?: WorkflowPayloadRef;
 }
 // One earlier step a node run or a retry replays in its node's place, its payloads as stored in the
 // run's own session.
@@ -546,8 +563,8 @@ interface WorkflowStartedReusedStep {
 type WorkflowNodeRun = { nodeId: WorkflowNodeId; scope: "node" | "fromHere" };
 // The trigger node that started a run, as its row's trigger record keeps it.
 type WorkflowRunTrigger = { kind: WorkflowTriggerKind; nodeId: WorkflowNodeId };
-// A run starts a chain of its own, or joins the chain whose first run is `chainRootRunId`, through an
-// error trigger when `isFromError`.
+// A run starts a chain of its own, or joins the chain whose first run is `chainRootRunId`, through
+// an error trigger when `isFromError`.
 type WorkflowRunChainPlace =
   | { kind: "starts" }
   | { kind: "joins"; chainRootRunId: WorkflowRunId; isFromError: boolean };
@@ -606,15 +623,15 @@ interface WorkflowTriggerFiredPayload {
 
 // workflow.run.resumed — the structured resumption point Spec-015 §Cadence requires, so a reader
 // reconstructs where the run picked up without rebuilding from its whole history, plus the version
-// pair on an accepted frozen-definition repair and only then: the same pair WorkflowRunResumeResponse
-// carries, so the projected run row stays a function of the log (Spec-015 §Frozen-definition repair
-// (SA-38)). The event carries the run's execution from this resume on: the next epoch where the
-// resume runs steps again, the one under way otherwise, as a resume lifting an account wait runs
-// none; a restart's loader reads the run's newest epoch from it and counts that epoch's pauses for
-// the next pause number. On an
-// accepted re-pin the event's own workflowVersionId, and every event after it, names the version
-// joined, and the run row's workflow_version_id moves to it in the same write; `keptSteps` lists the
-// run's settled steps that version keeps, so a restart rebuilds the run's walk on it.
+// pair on an accepted frozen-definition repair and only then: the same pair
+// WorkflowRunResumeResponse carries, so the projected run row stays a function of the log (Spec-015
+// §Frozen-definition repair (SA-38)). The event carries the run's execution from this resume on:
+// the next epoch where the resume runs steps again, the one under way otherwise, as a resume
+// lifting an account wait runs none; a restart's loader reads the run's newest epoch from it and
+// counts that epoch's pauses for the next pause number. On an accepted re-pin the event's own
+// workflowVersionId, and every event after it, names the version joined, and the run row's
+// workflow_version_id moves to it in the same write; `keptSteps` lists the run's settled steps that
+// version keeps, so a restart rebuilds the run's walk on it.
 type WorkflowRunResumedPayload = WorkflowRunEventPayload & {
   epoch: number;
   resumptionPoint: {
@@ -622,13 +639,29 @@ type WorkflowRunResumedPayload = WorkflowRunEventPayload & {
     pendingGates: WorkflowNodeId[];
   };
   readied: WorkflowReadiedStep[];
-  keptSteps?: Array<{ nodeId: WorkflowNodeId; attempt: number; executionIndex: number }>; // only on an accepted re-pin
+  // only on an accepted re-pin
+  keptSteps?: Array<{ nodeId: WorkflowNodeId; attempt: number; executionIndex: number }>;
 } & WorkflowVersionRepin;
+// workflow.run.canceling — a person's cancel taken, written in the write that takes it, before any
+// step winds down, so a restart finishes the cancel instead of running the run on. `reason` and
+// `error` are what the run's `workflow.run.canceled` repeats once its steps have settled.
+interface WorkflowRunCancelingPayload extends WorkflowRunEventPayload {
+  reason?: string;
+  error?: WorkflowStepError;
+}
+// workflow.run.failing — a failure decided the run's end (a failure routed to End, a step that
+// ends the run, or the run cap) while its other steps wind down, written in the write that decides
+// it, so a restart ends the run on the same step and error, which its `workflow.run.failed`
+// repeats.
+interface WorkflowRunFailingPayload extends WorkflowRunEventPayload {
+  endingStep: { nodeId: string; attempt: number; executionIndex: number };
+  error: WorkflowStepError;
+}
 // workflow.run.canceled — appended in the same unit of work as the status write, so a projection
-// rebuild cannot apply the last suspension again and resurrect a canceled run. `reason` is the person's own,
-// present when one was given and bounded as the cancel request's is; a chain's `Stop them all`
-// cancels with none. `error` is the run's error the cancel stored, its message the reason, present
-// exactly where a reason was given.
+// rebuild cannot apply the last suspension again and resurrect a canceled run. `reason` is the
+// person's own, present when one was given and bounded as the cancel request's is; a chain's `Stop
+// them all` cancels with none. `error` is the run's error the cancel stored, its message the
+// reason, present exactly where a reason was given.
 interface WorkflowRunCanceledPayload extends WorkflowRunEventPayload {
   reason?: string;
   error?: WorkflowStepError;
@@ -669,6 +702,13 @@ interface WorkflowChainRunJoinedPayload {
   chainRootRunId: WorkflowRunId;
   workflowRunId: WorkflowRunId;
 }
+// workflow.phase.canceling — a phase asked to stop and winding down, one member of the wave its
+// deciding step's turn canceled: a merge's first to arrive, the failure that stopped the run, or the
+// earliest running step a person's cancel stopped. A restart settles the wave as it was decided.
+interface WorkflowPhaseCancelingPayload extends WorkflowStepEventPayload {
+  decidingStep: { nodeId: string; attempt: number; executionIndex: number };
+  cancellationReason: "siblingFailure" | "runCanceled" | "mergeFirstToArrive";
+}
 // workflow.phase.failed — non-null exactly where the phase was canceled rather than failing on its
 // own work: `siblingFailure` where a sibling branch's failure stopped the run, `runCanceled` where
 // a person's cancel of the run did.
@@ -680,8 +720,8 @@ interface WorkflowPhaseFailedPayload extends WorkflowStepEventPayload {
 // wait armed one; absent, only the person resumes it. A wait on a person carries `waitId`, the wait
 // the person's answer must name to settle it, and `waitDeadlineAt`, the instant it gives up, where
 // the node's `Timeout` armed one; the step's row keeps both as truth. It also carries `logRef`, the
-// log the step wrote before it waited, and `prompt`, what it asks, with a form's `inputSchema`, so a
-// restart that finds the ask gone asks again. An `account` wait carries the log and the run
+// log the step wrote before it waited, and `prompt`, what it asks, with a form's `inputSchema`, so
+// a restart that finds the ask gone asks again. An `account` wait carries the log and the run
 // variables its step recorded before it waited, so its settlement after a restart keeps them. A
 // `chain` wait names none of these.
 type WorkflowPhaseSuspendedPayload = WorkflowStepEventPayload &
@@ -699,7 +739,8 @@ type WorkflowPhaseSuspendedPayload = WorkflowStepEventPayload &
         waitDeadlineAt?: string; // RFC 3339 UTC
         logRef: WorkflowPayloadRef;
         prompt: string;
-        inputSchema?: Record<string, unknown>; // the JSON Schema of the answer's fields; present exactly on a form
+        // the JSON Schema of the answer's fields; present exactly on a form
+        inputSchema?: Record<string, unknown>;
       }
     | { waitCause: "chain" }
   );
@@ -714,15 +755,15 @@ interface WorkflowPhaseWaitingOnMemoryPayload extends WorkflowStepEventPayload {
 // The step boundaries. A started event names the input it ran on, on an agent step whose account
 // cannot run its run's level the level it runs at in its place, and on a step that gave its node's
 // pinned items in a manual run the content hash of that pin; a finished event the output, log and
-// run variables it produced, how many items each of its main outputs holds, plus its cost where a provider was
-// billed; a failed event the error, the item index that failed, the words typed with the `Decline`
-// that failed a command step, its log and, where its node's `onError` passed its input on, that
-// output and its counts; a canceled event the step alone; and a skipped event why it was skipped,
-// what fed it, its input, and the output it passed on with its counts. A skip a partial run reused
-// names the step of its node in an earlier run whose data it carries, with the version that run
-// executed, and the hash of the pin that step ran on where it recorded one; it never names a step
-// of its own run. Each finished, failed, canceled or skipped event lists the steps its write
-// readied. A step's started event precedes its finished, failed or canceled event.
+// run variables it produced, how many items each of its main outputs holds, plus its cost where a
+// provider was billed; a failed event the error, the item index that failed, the words typed with
+// the `Decline` that failed a command step, its log and, where its node's `onError` passed its
+// input on, that output and its counts; a canceled event the step alone; and a skipped event why it
+// was skipped, what fed it, its input, and the output it passed on with its counts. A skip a
+// partial run reused names the step of its node in an earlier run whose data it carries, with the
+// version that run executed, and the hash of the pin that step ran on where it recorded one; it
+// never names a step of its own run. Each finished, failed, canceled or skipped event lists the
+// steps its write readied. A step's started event precedes its finished, failed or canceled event.
 interface WorkflowStepStartedPayload extends WorkflowStepEventPayload {
   inputRef: WorkflowPayloadRef;
   permissionLevel?: PermissionLevel;
@@ -731,7 +772,8 @@ interface WorkflowStepStartedPayload extends WorkflowStepEventPayload {
 interface WorkflowStepCompletedPayload extends WorkflowStepEventPayload {
   outputRef: WorkflowPayloadRef;
   logRef: WorkflowPayloadRef;
-  runVariablesRef?: WorkflowPayloadRef; // the run variables the step set, one item each; absent for none
+  // the run variables the step set, one item each; absent for none
+  runVariablesRef?: WorkflowPayloadRef;
   cost?: WorkflowCost;
   outputItemCounts: number[]; // per main output in output order, the error output last: where each
   // list ends in the items outputRef stores joined

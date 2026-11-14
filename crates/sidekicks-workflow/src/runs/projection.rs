@@ -7,11 +7,15 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use rusqlite::types::Value;
 use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::event::envelope::EventEnvelope;
-use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::event::registry::{
+    SessionEventType, WORKFLOW_GATE_RESOLUTION_EVENT_TYPES, WORKFLOW_LIFECYCLE_EVENT_TYPES,
+    WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES, WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES,
+};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidTextForm;
@@ -22,9 +26,8 @@ use sidekicks_contracts::workflow::run::events::{
 };
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowWaitCause};
-use sidekicks_contracts::workflow::run::step::events::{
-    WorkflowPhaseSuspendedPayload, WorkflowReadiedStep,
-};
+use sidekicks_contracts::workflow::run::step::events::WorkflowReadiedStep;
+use sidekicks_contracts::workflow::run::step::events::suspended::WorkflowPhaseSuspendedPayload;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
 use sidekicks_store::events::projection::{
@@ -66,32 +69,17 @@ const CLEAR_RUNS_SQL: &str = "DELETE FROM workflow_runs WHERE session_id = ?
     AND NOT EXISTS (SELECT 1 FROM human_phase_form_state AS form
       WHERE form.workflow_run_id = workflow_runs.id)";
 
-// Every type that moves a row; the others (a phase started, progressed, canceling, completed or
-// failed, a join's branches canceled, a gate reached, results posted, a version, a trigger or a
-// schedule) write no run or step row.
-const WORKFLOW_RUN_EVENT_TYPES: [SessionEventType; 21] = [
-    SessionEventType::WorkflowRunStarted,
-    SessionEventType::WorkflowChainRunJoined,
-    SessionEventType::WorkflowRunKeepChanged,
-    SessionEventType::WorkflowRunDeleted,
-    SessionEventType::WorkflowRunWaiting,
-    SessionEventType::WorkflowRunResumed,
-    SessionEventType::WorkflowRunFailed,
-    SessionEventType::WorkflowRunCompleted,
-    SessionEventType::WorkflowRunCanceled,
-    SessionEventType::WorkflowRunCrashed,
-    SessionEventType::WorkflowGateResolved,
-    SessionEventType::WorkflowPhaseWaitingOnMemory,
-    SessionEventType::WorkflowPhaseAdmitted,
-    SessionEventType::WorkflowPhaseSuspended,
-    SessionEventType::WorkflowPhaseResumed,
-    SessionEventType::WorkflowPhaseRetried,
-    SessionEventType::WorkflowStepStarted,
-    SessionEventType::WorkflowStepCompleted,
-    SessionEventType::WorkflowStepFailed,
-    SessionEventType::WorkflowStepCanceled,
-    SessionEventType::WorkflowStepSkipped,
-];
+// Every event type of the four workflow categories, so a type added to one fails the rebuild until
+// the fold names it.
+static WORKFLOW_EVENT_TYPES: LazyLock<Vec<SessionEventType>> = LazyLock::new(|| {
+    [
+        WORKFLOW_LIFECYCLE_EVENT_TYPES,
+        WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES,
+        WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES,
+        WORKFLOW_GATE_RESOLUTION_EVENT_TYPES,
+    ]
+    .concat()
+});
 
 /// The `workflow_runs` and `workflow_steps` rows of a session as a rebuild replaces them.
 #[derive(Clone, Copy, Debug)]
@@ -103,7 +91,7 @@ impl SessionProjection for WorkflowRunsProjection {
     }
 
     fn event_types(&self) -> &[SessionEventType] {
-        &WORKFLOW_RUN_EVENT_TYPES
+        &WORKFLOW_EVENT_TYPES
     }
 
     fn clear_statements(&self, session_id: &SessionId) -> Vec<WriteStatement> {
@@ -171,7 +159,7 @@ pub(crate) use step_key;
 impl SessionProjectionFold for WorkflowRunsFold {
     #[expect(
         clippy::wildcard_enum_match_arm,
-        reason = "the fold reads only the types it names, and every other event moves no row"
+        reason = "the fold reads only the workflow categories' types, each named here"
     )]
     fn apply(
         &mut self,
@@ -363,7 +351,28 @@ impl SessionProjectionFold for WorkflowRunsFold {
                 ));
                 ready(step.workflow_run_id, &skipped.readied, &at, statements);
             }
-            _ => {}
+            // These move no run or step row.
+            SessionEvent::WorkflowVersionCreated(_)
+            | SessionEvent::WorkflowGateReached(_)
+            | SessionEvent::WorkflowRunCanceling(_)
+            | SessionEvent::WorkflowRunFailing(_)
+            | SessionEvent::WorkflowScheduleArmed(_)
+            | SessionEvent::WorkflowScheduleFired(_)
+            | SessionEvent::WorkflowTriggerArmed(_)
+            | SessionEvent::WorkflowTriggerFired(_)
+            | SessionEvent::WorkflowResultsPosted(_)
+            | SessionEvent::WorkflowPhaseStarted(_)
+            | SessionEvent::WorkflowPhaseProgressed(_)
+            | SessionEvent::WorkflowPhaseCanceling(_)
+            | SessionEvent::WorkflowPhaseFailed(_)
+            | SessionEvent::WorkflowPhaseCompleted(_)
+            | SessionEvent::WorkflowParallelJoinBranchesCanceled(_) => {}
+            _ => {
+                return Err(ProjectionContradiction(format!(
+                    "the workflow runs' fold names no arm for {}",
+                    envelope.event_type.as_str()
+                )));
+            }
         }
         Ok(())
     }

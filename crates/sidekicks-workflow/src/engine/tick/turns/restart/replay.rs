@@ -1,6 +1,7 @@
 //! The restart's replay of a reloaded run's events onto a fresh walk: every settlement, retry,
 //! park, cancel and Resume the log holds walked again in log order, each settled step's outputs
-//! read back, so the walk's rounds, loops and joins stand as they stood when the daemon stopped.
+//! read back, so the walk's rounds, loops and joins stand as they stood when the daemon stopped,
+//! with the ending a cancel or a failure decided and each wave of branches it canceled.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -16,13 +17,14 @@ use sidekicks_contracts::workflow::run::events::{
     WorkflowRunFailedOutcome, WorkflowRunResumedPayload,
 };
 use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
-use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseSuspendedPayload;
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
+use sidekicks_contracts::workflow::run::step::events::suspended::WorkflowPhaseSuspendedPayload;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 
 use super::super::resuming::{RepinTarget, move_run};
 use crate::engine::ports::StepPayloadArtifacts;
 use crate::engine::start::{ReloadedRepin, ReplayedEvent, StartedReusedStep};
-use crate::engine::tick::commit::StoredRunVariable;
+use crate::engine::tick::commit::{RunEnding, StoredRunVariable};
 use crate::engine::tick::live_runs::LiveRun;
 use crate::engine::tick::step_failure::RunStop;
 use crate::engine::tick::walk::{
@@ -34,17 +36,20 @@ use crate::kinds::step_context::{StepRecords, StepRunVariable};
 use crate::runs::projection::{step_key, suspended_step};
 use crate::runs::step_payload::{read_step_payload, split_step_outputs, stored_output_lengths};
 
-/// A reloaded run walked again: its live run, its failed parks and the steps a park canceled, both
+/// A reloaded run walked again: its live run, its kept failures and the steps a park canceled, both
 /// still in its walk, and what its log says of its steps still to settle.
 pub(super) struct ReplayedRun {
-    /// The run on its replayed walk, its outputs, epoch and approval pauses.
+    /// The run on its replayed walk, its outputs, epoch, approval pauses, stop and decided ending.
     pub(super) live: LiveRun,
-    /// The failed steps its park keeps, which its Resume runs again.
+    /// The failed steps the run keeps live, by a park or under its decided ending, which a Resume
+    /// of a park runs again.
     pub(super) failed_parks: Vec<WorkflowStepKey>,
     /// The steps its park canceled before they settled, in the order they were canceled.
     pub(super) park_canceled: Vec<WorkflowStepKey>,
-    /// The steps that were winding down, by execution index.
-    pub(super) winding_down: HashSet<u64>,
+    /// The waves of running steps still winding down, in the order they were decided.
+    pub(super) waves: Vec<ReplayedWave>,
+    /// The steps a first-to-arrive merge's win canceled before they settled, by execution index.
+    pub(super) merge_losers: HashSet<u64>,
     /// The instant of each held step's last hold report, by execution index.
     pub(super) last_hold_reports: HashMap<u64, WireInstant>,
     /// The instant each retry attempt not yet settled was readied at, by execution index.
@@ -52,10 +57,32 @@ pub(super) struct ReplayedRun {
     /// The log lines and run variables each step parked on a spent account had recorded, by
     /// execution index.
     pub(super) parked_records: HashMap<u64, StepRecords>,
-    /// What each step waiting on a person asks, and when it began waiting, by execution index.
-    pub(super) asks: HashMap<u64, (PersonAsk, WireInstant)>,
+    /// What each step waiting on a person asks, by execution index.
+    pub(super) asks: HashMap<u64, ReplayedAsk>,
     /// The sequence of the run's newest replayed event.
     pub(super) newest_sequence: SafeInt<0>,
+}
+
+/// A wave of running steps one turn canceled together, as its `workflow.phase.canceling` events
+/// name it: the step whose turn decided it, why, and its members still winding down, in order.
+pub(super) struct ReplayedWave {
+    /// The step whose turn decided the wave.
+    pub(super) deciding: WorkflowStepKey,
+    /// Why its members were canceled.
+    pub(super) reason: WorkflowPhaseCancellationReason,
+    /// Its members, none settled yet.
+    pub(super) members: Vec<WorkflowStepKey>,
+}
+
+/// What a step waiting on a person asks, when it began waiting, and for an approval the pause
+/// number its snapshot point takes.
+pub(super) struct ReplayedAsk {
+    /// What the person is asked.
+    pub(super) ask: PersonAsk,
+    /// When the step began waiting.
+    pub(super) started_at: WireInstant,
+    /// The pause number of an approval's snapshot point, `None` for a form or a reply.
+    pub(super) pause_number: Option<u64>,
 }
 
 /// The earlier steps a node run or a retry replays, every one its started event among `events`
@@ -115,7 +142,7 @@ pub(super) fn replayed_epoch(events: &[ReplayedEvent]) -> WorkflowRunEpoch {
 /// Walks `live`, a run before any step, through `events` in log order, each settled step's
 /// outputs read back through `payloads`, and each Resume that moved it to another version onto
 /// that version's entry in `repins`. Fails with the reason when the log names a step the walk
-/// does not hold, a failure whose route it never wrote, an ending that is not a park, a re-pin
+/// does not hold, a failure whose route it never wrote, an ending that ended the run, a re-pin
 /// whose version or kept step it cannot follow, or an output that does not read.
 pub(super) async fn replay_run(
     live: LiveRun,
@@ -128,7 +155,8 @@ pub(super) async fn replay_run(
             live,
             failed_parks: Vec::new(),
             park_canceled: Vec::new(),
-            winding_down: HashSet::new(),
+            waves: Vec::new(),
+            merge_losers: HashSet::new(),
             last_hold_reports: HashMap::new(),
             retried_at: HashMap::new(),
             parked_records: HashMap::new(),
@@ -168,11 +196,37 @@ impl Replay<'_> {
         reason = "the reload reads only the replayed event types, each handled here"
     )]
     async fn apply(&mut self, replayed: &ReplayedEvent) -> Result<(), String> {
-        let live = &mut self.run.live;
         match &replayed.event {
             SessionEvent::WorkflowRunStarted(_) => {
-                let started = live.walk.start();
+                let started = self.run.live.walk.start();
                 self.take(started);
+            }
+            SessionEvent::WorkflowRunCanceling(canceling) => {
+                let live = &mut self.run.live;
+                live.stop = Some(RunStop::End);
+                live.ending = Some(RunEnding::Canceled {
+                    reason: canceling.reason.clone(),
+                    error: canceling.error.clone(),
+                });
+            }
+            SessionEvent::WorkflowRunFailing(failing) => {
+                let ending_step = WorkflowStepKey {
+                    workflow_run_id: failing.workflow_run_id,
+                    node_id: failing.ending_step.node_id.clone(),
+                    attempt: failing.ending_step.attempt,
+                    execution_index: failing.ending_step.execution_index,
+                };
+                // The ending step keeps its failed row; a parked one is kept already.
+                if let Some(position) = self.failing.iter().position(|step| *step == ending_step) {
+                    let failed = self.failing.remove(position);
+                    self.run.failed_parks.push(failed);
+                }
+                let live = &mut self.run.live;
+                live.stop = Some(RunStop::End);
+                live.ending = Some(RunEnding::Failed {
+                    step: ending_step,
+                    error: failing.error.clone(),
+                });
             }
             SessionEvent::WorkflowStepCompleted(completed) => {
                 let step = step_key!(completed);
@@ -194,21 +248,27 @@ impl Replay<'_> {
                 } else {
                     self.unsettled(&step)?;
                     self.run.retried_at.remove(&step.execution_index.get());
-                    self.failing.push(step);
+                    // A stopped run keeps a failure live as it is, its route written with no event.
+                    if self.run.live.stop.is_some() {
+                        self.run.failed_parks.push(step);
+                    } else {
+                        self.failing.push(step);
+                    }
                 }
             }
             SessionEvent::WorkflowPhaseRetried(retried) => {
                 let next = step_key!(retried);
-                let position = self
-                    .failing
-                    .iter()
-                    .position(|failed| {
-                        failed.node_id == next.node_id
-                            && failed.attempt.get() + 1 == next.attempt.get()
-                    })
-                    .ok_or_else(|| "a retry follows no failed step".to_owned())?;
-                let failed = self.failing.remove(position);
-                if live.walk.retry(&failed).step != next {
+                let is_retried = |failed: &WorkflowStepKey| {
+                    failed.node_id == next.node_id && failed.attempt.get() + 1 == next.attempt.get()
+                };
+                let failed = if let Some(position) = self.failing.iter().position(is_retried) {
+                    self.failing.remove(position)
+                } else if let Some(position) = self.run.failed_parks.iter().position(is_retried) {
+                    self.run.failed_parks.remove(position)
+                } else {
+                    return Err("a retry follows no failed step".to_owned());
+                };
+                if self.run.live.walk.retry(&failed).step != next {
                     return Err("a retry's attempt is not the one the walk readies".to_owned());
                 }
                 self.run
@@ -218,7 +278,7 @@ impl Replay<'_> {
             SessionEvent::WorkflowRunFailed(failed) => match failed.outcome {
                 WorkflowRunFailedOutcome::Parked => {
                     self.run.failed_parks.append(&mut self.failing);
-                    live.stop = Some(RunStop::Park);
+                    self.run.live.stop = Some(RunStop::Park);
                 }
                 WorkflowRunFailedOutcome::Ended => {
                     return Err("an unfinished run's log holds its failed ending".to_owned());
@@ -226,15 +286,13 @@ impl Replay<'_> {
             },
             SessionEvent::WorkflowStepCanceled(canceled) => {
                 let step = step_key!(canceled);
-                let index = step.execution_index.get();
-                self.run.winding_down.remove(&index);
-                self.run.last_hold_reports.remove(&index);
-                self.run.retried_at.remove(&index);
-                self.run.parked_records.remove(&index);
-                self.run.asks.remove(&index);
+                self.forget(&step);
+                let is_parked = self.run.live.ending.is_none()
+                    && (self.run.live.stop == Some(RunStop::Park) || !self.failing.is_empty());
+                let live = &mut self.run.live;
                 // A step the walk canceled itself never stayed in it.
                 if live.walk.is_unsettled(&step) {
-                    if live.stop.is_some() || !self.failing.is_empty() {
+                    if is_parked {
                         self.run.park_canceled.push(step);
                     } else {
                         live.walk.drop_step(&step);
@@ -245,6 +303,11 @@ impl Replay<'_> {
                 if let Some(joined) = resumed.repinned_to_workflow_version_id {
                     return self.repin(resumed, joined);
                 }
+                // A run leaving a wait keeps its execution; only the person's Resume opens one.
+                if resumed.epoch == self.run.live.epoch {
+                    return Ok(());
+                }
+                let live = &mut self.run.live;
                 live.epoch = resumed.epoch;
                 live.approval_pauses = 0;
                 self.run
@@ -261,9 +324,13 @@ impl Replay<'_> {
                 live.stop = None;
             }
             SessionEvent::WorkflowPhaseSuspended(suspended) => {
-                if matches!(suspended, WorkflowPhaseSuspendedPayload::Approval { .. }) {
-                    live.approval_pauses += 1;
-                }
+                let pause_number =
+                    matches!(suspended, WorkflowPhaseSuspendedPayload::Approval { .. }).then(
+                        || {
+                            self.run.live.approval_pauses += 1;
+                            self.run.live.approval_pauses
+                        },
+                    );
                 let index = suspended_step(suspended).execution_index.get();
                 self.run.last_hold_reports.remove(&index);
                 if let WorkflowPhaseSuspendedPayload::Account {
@@ -280,7 +347,12 @@ impl Replay<'_> {
                     .await?;
                     self.run.parked_records.insert(index, records);
                 } else if let Some(ask) = suspended_ask(suspended) {
-                    self.run.asks.insert(index, (ask, replayed.at.clone()));
+                    let asked = ReplayedAsk {
+                        ask,
+                        started_at: replayed.at.clone(),
+                        pause_number,
+                    };
+                    self.run.asks.insert(index, asked);
                 }
             }
             SessionEvent::WorkflowPhaseWaitingOnMemory(held) => {
@@ -294,9 +366,26 @@ impl Replay<'_> {
                     .remove(&admitted.execution_index.get());
             }
             SessionEvent::WorkflowPhaseCanceling(canceling) => {
-                self.run
-                    .winding_down
-                    .insert(canceling.execution_index.get());
+                let deciding = WorkflowStepKey {
+                    workflow_run_id: canceling.workflow_run_id,
+                    node_id: canceling.deciding_step.node_id.clone(),
+                    attempt: canceling.deciding_step.attempt,
+                    execution_index: canceling.deciding_step.execution_index,
+                };
+                let reason = canceling.cancellation_reason;
+                let member = step_key!(canceling);
+                let waves = &mut self.run.waves;
+                match waves
+                    .iter_mut()
+                    .find(|wave| wave.deciding == deciding && wave.reason == reason)
+                {
+                    Some(wave) => wave.members.push(member),
+                    None => waves.push(ReplayedWave {
+                        deciding,
+                        reason,
+                        members: vec![member],
+                    }),
+                }
             }
             // The walk makes each skip itself; a reused one's outputs came with its seed.
             SessionEvent::WorkflowStepSkipped(skipped) => {
@@ -352,8 +441,10 @@ impl Replay<'_> {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
+        if resumed.epoch != live.epoch {
+            live.approval_pauses = 0;
+        }
         live.epoch = resumed.epoch;
-        live.approval_pauses = 0;
         let mut failed_parks = std::mem::take(&mut self.run.failed_parks);
         failed_parks.sort_by_key(|step| step.execution_index.get());
         let park_canceled = std::mem::take(&mut self.run.park_canceled);
@@ -423,22 +514,40 @@ impl Replay<'_> {
             },
             StepOutput { sources, outputs },
         );
-        let index = step.execution_index.get();
-        self.run.winding_down.remove(&index);
-        self.run.last_hold_reports.remove(&index);
-        self.run.retried_at.remove(&index);
-        self.run.parked_records.remove(&index);
-        self.run.asks.remove(&index);
+        self.forget(step);
         self.take(walked);
         Ok(())
     }
 
-    /// Keeps what the walk answered: each reused skip's outputs as its step's. A readied step
-    /// stays in the walk until the log settles it; the losers of a win and the steps the walk
-    /// canceled follow as their own cancels.
+    /// Forgets what the replay kept of `step`, which settled: its hold, its retry, its wait, its
+    /// merge loss and its place in a wave, the wave dropped once it has no member left.
+    fn forget(&mut self, step: &WorkflowStepKey) {
+        let index = step.execution_index.get();
+        self.run.last_hold_reports.remove(&index);
+        self.run.retried_at.remove(&index);
+        self.run.parked_records.remove(&index);
+        self.run.asks.remove(&index);
+        self.run.merge_losers.remove(&index);
+        for wave in &mut self.run.waves {
+            wave.members.retain(|member| member != step);
+        }
+        self.run.waves.retain(|wave| !wave.members.is_empty());
+    }
+
+    /// Keeps what the walk answered: each reused skip's outputs as its step's, and each loser of a
+    /// win the run followed, which a stopped run does not. A readied step stays in the walk until
+    /// the log settles it; the losers of a win and the steps the walk canceled follow as their own
+    /// cancels.
     fn take(&mut self, walked: WalkTurn) {
+        let WalkTurn { skipped, wins, .. } = walked;
+        if self.run.live.stop.is_none() {
+            for win in wins {
+                let losers = win.losers.iter().map(|loser| loser.execution_index.get());
+                self.run.merge_losers.extend(losers);
+            }
+        }
         let live = &mut self.run.live;
-        for mut skip in walked.skipped {
+        for mut skip in skipped {
             if let WalkSkipReason::Reused(reused) = &mut skip.reason {
                 let outputs = std::mem::take(&mut reused.outputs);
                 live.outputs.record(

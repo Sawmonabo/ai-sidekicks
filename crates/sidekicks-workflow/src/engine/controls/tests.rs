@@ -102,6 +102,7 @@ fn refusing_tick(
                 EngineTickInput::Started(_)
                 | EngineTickInput::Answer(_)
                 | EngineTickInput::KeepGoing(_)
+                | EngineTickInput::TakeBack(_)
                 | EngineTickInput::RunLimitChanged => panic!("the controls send only controls"),
             }
         }

@@ -14,7 +14,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::run::events::WorkflowRunFailedOutcome;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseSuspendedPayload;
+use sidekicks_contracts::workflow::run::step::events::suspended::WorkflowPhaseSuspendedPayload;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
 /// What one entry speaks for. Its id is the banner's tag and the push's collapse id, so a later
@@ -583,6 +583,8 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::WorkflowPhaseStarted(_)
         | SessionEvent::WorkflowPhaseProgressed(_)
         | SessionEvent::WorkflowPhaseCanceling(_)
+        | SessionEvent::WorkflowRunCanceling(_)
+        | SessionEvent::WorkflowRunFailing(_)
         | SessionEvent::WorkflowPhaseRetried(_)
         | SessionEvent::WorkflowPhaseCompleted(_)
         | SessionEvent::WorkflowParallelJoinBranchesCanceled(_)

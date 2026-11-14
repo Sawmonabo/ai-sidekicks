@@ -413,6 +413,8 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::WorkflowPhaseStarted
         | SessionEventType::WorkflowPhaseProgressed
         | SessionEventType::WorkflowPhaseCanceling
+        | SessionEventType::WorkflowRunCanceling
+        | SessionEventType::WorkflowRunFailing
         | SessionEventType::WorkflowPhaseFailed
         | SessionEventType::WorkflowPhaseRetried
         | SessionEventType::WorkflowPhaseSuspended

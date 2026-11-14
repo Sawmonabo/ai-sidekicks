@@ -97,11 +97,13 @@ const STRANDED_RUN_WORKSPACES_SQL: &str = "SELECT workflow_run_id FROM workspace
 
 const SESSION_RUN_IDS_SQL: &str = "SELECT id FROM workflow_runs WHERE session_id = ?1";
 
-// Of the artifacts a JSON list of their ids names, bound second, those that no event of the
-// session, bound first, and no row of its runs or their steps names anywhere in its text, so a
-// payload a reader could still reach is never among them.
+// Of the artifacts a JSON list of their ids names, bound second, those that no kept value, no
+// event of the session, bound first, and no row of its runs or their steps names, so a payload a
+// reader could still reach is never among them: a value a deleted run kept outlives the run.
 const UNNAMED_PAYLOADS_SQL: &str = "SELECT candidate.value FROM json_each(?2) AS candidate
-  WHERE NOT EXISTS (SELECT 1 FROM session_events AS event
+  WHERE NOT EXISTS (SELECT 1 FROM workflow_node_state AS kept
+                     WHERE kept.artifact_id = candidate.value)
+    AND NOT EXISTS (SELECT 1 FROM session_events AS event
                      WHERE event.session_id = ?1 AND instr(event.payload, candidate.value) > 0)
     AND NOT EXISTS (SELECT 1 FROM workflow_runs AS run
                      WHERE run.session_id = ?1
@@ -139,10 +141,12 @@ static KEPT_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
 static FIRST_MODE_OF_RUN_SQL: LazyLock<String> =
     LazyLock::new(|| format!("SELECT {}", *FIRST_NON_RETRY_MODE_SQL));
 
-/// The events the restart replays: a run's start, failed park and Resume, and each step's hold,
-/// admission, wait, wind-down, retry and settlement.
-const REPLAYED_EVENT_TYPES: [SessionEventType; 12] = [
+/// The events the restart replays: a run's start, decided cancel or failing end, failed park and
+/// Resume, and each step's hold, admission, wait, wind-down, retry and settlement.
+const REPLAYED_EVENT_TYPES: [SessionEventType; 14] = [
     SessionEventType::WorkflowRunStarted,
+    SessionEventType::WorkflowRunCanceling,
+    SessionEventType::WorkflowRunFailing,
     SessionEventType::WorkflowRunFailed,
     SessionEventType::WorkflowRunResumed,
     SessionEventType::WorkflowPhaseWaitingOnMemory,
@@ -316,17 +320,10 @@ struct RunRow {
 }
 
 impl RunReloader {
-    /// The unfinished runs of `session_id`, oldest first, each with its scope rebuilt: the
-    /// version and the provider its row pins, the pins its start event stores, the folder of the
-    /// context it holds, else the session's, else its own, the environment rows and project of
-    /// its repository, and its workflow's kept values. A run whose version, graph or pins no
-    /// longer read carries the error its crashed ending stores in place of a scope. First it
-    /// deletes what a start a stop cut before its run's row left: the workspace bound for that run
-    /// and every payload stored in the session under another run's step that nothing written
-    /// names. It runs for every recovered session, unfinished runs or not, before the session
-    /// takes a start, since a start under way holds such a workspace and such payloads. Fails as
-    /// [`RunReloadError`] when a read of the session's rows, kept values or log fails, or a
-    /// leftover cannot be deleted.
+    /// The unfinished runs of `session_id`, oldest first, each with its scope rebuilt from its
+    /// row and its start event, or the error its crashed ending stores, once what a start cut
+    /// before its run's row left is deleted. Fails as [`RunReloadError`] when a read of the
+    /// session's rows, kept values or log fails, or a leftover cannot be deleted.
     pub(crate) async fn reload_session(
         &self,
         session_id: SessionId,
@@ -681,6 +678,8 @@ fn replayed_event(
     let at = WireInstant::try_from(envelope.occurred_at.as_str().to_owned())?;
     let run_id = match &event {
         SessionEvent::WorkflowRunStarted(payload) => payload.workflow_run_id,
+        SessionEvent::WorkflowRunCanceling(payload) => payload.workflow_run_id,
+        SessionEvent::WorkflowRunFailing(payload) => payload.workflow_run_id,
         SessionEvent::WorkflowRunFailed(payload) => payload.workflow_run_id,
         SessionEvent::WorkflowRunResumed(payload) => payload.workflow_run_id,
         SessionEvent::WorkflowPhaseWaitingOnMemory(payload) => payload.workflow_run_id,

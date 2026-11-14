@@ -164,7 +164,16 @@ impl StepDispatch {
                 .await;
             return;
         };
-        let created = self.ports.agent_steps.run(request).await;
+        let created = if ready.is_taken_back {
+            // The queue's recovery starts again a run the step made before the stop.
+            match self.ports.agent_steps.reattach(&step).await {
+                Ok(Some(run)) => Ok(run),
+                Ok(None) => self.ports.agent_steps.run(request).await,
+                Err(error) => Err(error),
+            }
+        } else {
+            self.ports.agent_steps.run(request).await
+        };
         // The run holds its place in the gate's line now, so the turn behind this one may enter.
         drop(turn);
         let run = match created {

@@ -15,10 +15,11 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::events::WorkflowGateReachedPayload;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
+use sidekicks_contracts::workflow::run::step::events::suspended::WorkflowPhaseSuspendedPayload;
 use sidekicks_contracts::workflow::run::step::events::{
     WorkflowPassedOnOutput, WorkflowPhaseCancellationReason, WorkflowPhaseCompletedPayload,
-    WorkflowPhaseFailedPayload, WorkflowPhaseSuspendedPayload, WorkflowStepCanceledPayload,
-    WorkflowStepCompletedPayload, WorkflowStepFailedPayload,
+    WorkflowPhaseFailedPayload, WorkflowStepCanceledPayload, WorkflowStepCompletedPayload,
+    WorkflowStepFailedPayload,
 };
 use sidekicks_contracts::workflow::run::step::record::{
     WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP, WorkflowCost, WorkflowPayloadRef, WorkflowStepKey,

@@ -9,7 +9,9 @@ use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
+use sidekicks_contracts::workflow::definition::item::WorkflowPinnedItem;
 use sidekicks_contracts::workflow::run::control::{
     WorkflowRunStillRunningDetails, WorkflowRunStillRunningReason,
 };
@@ -27,7 +29,7 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 
 use super::{
     StartedNodeRun, StartedRun, WorkflowRunStart, WorkflowRunStartError, WorkflowRunStarter,
-    WorkflowStartArrival, WorkflowStartOutcome,
+    WorkflowStartArrival, WorkflowStartOutcome, hash_pin_data,
 };
 use crate::engine::partial_run::plan_retry;
 use crate::not_found::WorkflowNotFound;
@@ -35,15 +37,19 @@ use crate::runs::record::FIRST_NON_RETRY_MODE_SQL;
 use crate::runs::step_payload::read_step_payload;
 
 // The source run's version, session, status and trigger, how the first run of its retries that is
-// not a retry was started, followed through each retry's retried run, and the project of the
-// workspace of its own it worked in, if any.
+// not a retry was started, followed through each retry's retried run, the project of the
+// workspace of its own it worked in, if any, and the pins its start event stores.
 static SOURCE_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT run.workflow_version_id, run.session_id, run.status, run.trigger_json,
     {first_mode},
     (SELECT mount.project_id FROM workspaces AS workspace
        JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
-      WHERE workspace.workflow_run_id = run.id)
+      WHERE workspace.workflow_run_id = run.id),
+    (SELECT json_extract(event.payload, '$.pinData') FROM session_events AS event
+      WHERE event.session_id = run.session_id AND event.type = 'workflow.run.started'
+        AND json_extract(event.payload, '$.workflowRunId') = run.id
+      ORDER BY event.sequence LIMIT 1)
   FROM workflow_runs AS run WHERE run.id = @run_id",
         first_mode = FIRST_NON_RETRY_MODE_SQL.as_str(),
     )
@@ -113,13 +119,14 @@ struct SourceRun {
     trigger: WorkflowRunTrigger,
     first_mode: Option<WorkflowRunMode>,
     project_id: Option<ProjectId>,
+    pin_data: Option<Record<String, Vec<WorkflowPinnedItem>>>,
     latest_step_status: Option<WorkflowStepStatus>,
 }
 
 impl WorkflowRunStarter {
     /// Retries `retry`: a new run in `retry` mode of the source run's pinned version, in its
     /// session, its project's workspace or the project's folder it worked in, recording the source
-    /// run as the run it retries, and honoring the pins its first run that is not a retry honored.
+    /// run as the run it retries, and honoring the pins the source run's start event stores.
     /// Every node outside the named node and what it feeds whose steps in the source run settled
     /// is replayed from them, recorded as reused and never run again, its trigger's step among
     /// them, which then gets no row of its own, as is each pass of a loop holding the named node
@@ -151,7 +158,7 @@ impl WorkflowRunStarter {
                     .map_err(WorkflowRunStartError::SourceRun)
             })
             .await?;
-        let source = refuse_unretriable(source_run_id, &from_node_id, source)?;
+        let mut source = refuse_unretriable(source_run_id, &from_node_id, source)?;
         let start = WorkflowRunStart {
             workflow_version_id: source.workflow_version_id,
             session_id: source.session_id,
@@ -163,9 +170,10 @@ impl WorkflowRunStarter {
             chain: WorkflowRunChainPlace::Starts {},
             input: None,
         };
-        // A retry honors the pins of the run it retries, as that run's first mode did.
-        let pins_mode = source.first_mode.unwrap_or(WorkflowRunMode::Retry);
-        let mut checked = self.check(&start, None, pins_mode).await?;
+        // A retry honors the pins its source run's start event stores, whatever its workflow pins
+        // now, as the reload of a run does.
+        let mut checked = self.check(&start, None, WorkflowRunMode::Retry).await?;
+        checked.pins = hash_pin_data(source.pin_data.take().unwrap_or_default())?;
         let graph = Arc::clone(&checked.graph);
         let trigger_id = checked.trigger_node.node_id.clone();
         let (plan, trigger_input) = self
@@ -238,6 +246,7 @@ fn read_source_run(
                 trigger: text_column(row, 3, |text| serde_json::from_str(&text))?,
                 first_mode: optional_text_column(row, 4, closed_word)?,
                 project_id: optional_text_column(row, 5, |text| ProjectId::new(&text))?,
+                pin_data: optional_text_column(row, 6, |text| serde_json::from_str(&text))?,
                 latest_step_status: None,
             })
         })

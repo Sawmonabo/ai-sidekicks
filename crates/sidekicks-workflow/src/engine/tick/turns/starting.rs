@@ -68,6 +68,7 @@ impl EngineTick {
                 run_index: trigger_step.run_index,
                 inputs: inputs.clone(),
                 input_ref: input_ref.clone(),
+                is_taken_back: false,
             };
             live.counts.moved(None, (WorkflowStepStatus::Pending, None));
             live.steps.insert(

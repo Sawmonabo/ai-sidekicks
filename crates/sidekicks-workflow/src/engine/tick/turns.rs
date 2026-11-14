@@ -10,6 +10,7 @@ mod readying;
 mod reports;
 mod restart;
 mod resuming;
+mod retries;
 mod starting;
 
 #[cfg(test)]
@@ -41,8 +42,8 @@ use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBin
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::{Id, JoinError, JoinSet};
-use tokio_util::sync::CancellationToken;
 
+use self::retries::{arm_retry, retry_due};
 use super::commit::{ReportedStep, RunTurnCommit, RunTurnCommitFailure};
 use super::dispatch::{StepDispatch, fill_step_failure};
 use super::live_runs::{LiveRun, LiveStep, TurnAsk};
@@ -53,7 +54,7 @@ use crate::engine::chain::KeepGoingIntake;
 use crate::engine::deadlines::EngineDeadlines;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::ports::{PortError, RunSnapshotPoints, StepAdmission, StepPayloadArtifacts};
-use crate::engine::start::StartedRun;
+use crate::engine::start::{ReloadedRun, StartedRun};
 use crate::engine::waits::answers::PersonWaitIntake;
 use crate::engine::waits::{PersonWaitPorts, PersonWaitRefusal};
 use crate::kinds::{NodeKindTable, StepFailure, uncoded_step_error};
@@ -88,6 +89,9 @@ pub(crate) enum EngineTickInput {
     /// `Stop a run after` changed: every live run's cap follows it before the clock is read
     /// again.
     RunLimitChanged,
+    /// The unfinished runs recovery rebuilt for a session settled after the engine started, taken
+    /// back as the start's are, each run's sweep written in this turn.
+    TakeBack(Vec<ReloadedRun>),
 }
 
 /// What an [`EngineTick`] drives runs through, reads, writes and is woken by.
@@ -401,6 +405,14 @@ impl EngineTick {
                     }
                 }
                 EngineTickInput::RunLimitChanged => self.follow_run_limit().await,
+                EngineTickInput::TakeBack(runs) => {
+                    self.restart(runs).await;
+                    for run_id in std::mem::take(&mut self.batched) {
+                        if !order.contains(&run_id) {
+                            order.push(run_id);
+                        }
+                    }
+                }
             }
         }
         for intake in cancel_intakes {
@@ -629,6 +641,7 @@ impl EngineTick {
                             run_index: ready.run_index,
                             inputs: inputs.clone(),
                             input_ref: input_ref.clone(),
+                            is_taken_back: false,
                         }),
                         ReadiedNext::Retry(wait) => arm_retry(
                             &mut self.retries,
@@ -847,12 +860,14 @@ fn held_first<T>(held: &mut Vec<T>, own: Vec<T>) -> Vec<T> {
 /// dispatch a pause held or a step the restart takes back; `None` once it settled, was canceled or
 /// was dispatched.
 fn still_ready(live: &LiveRun, step: WorkflowStepKey) -> Option<ReadyStep> {
-    let live_step = live.steps.get(&step.execution_index.get())?;
+    let index = step.execution_index.get();
+    let live_step = live.steps.get(&index)?;
     is_undispatched(live_step).then(|| ReadyStep {
         step,
         run_index: live_step.run_index,
         inputs: live_step.inputs.clone(),
         input_ref: live_step.input_ref.clone(),
+        is_taken_back: live.taken_back.contains(&index),
     })
 }
 
@@ -863,29 +878,4 @@ fn is_undispatched(live_step: &LiveStep) -> bool {
         live_step.status,
         WorkflowStepStatus::Pending | WorkflowStepStatus::WaitingMemory
     ) && live_step.cancel.is_none()
-}
-
-/// Arms on `retries` the timer that answers `attempt` once `wait` has passed, or nothing once its
-/// run's `cancel` fires first.
-fn arm_retry(
-    retries: &mut JoinSet<Option<WorkflowStepKey>>,
-    attempt: WorkflowStepKey,
-    wait: Duration,
-    cancel: CancellationToken,
-) {
-    retries.spawn(async move {
-        tokio::select! {
-            () = tokio::time::sleep(wait) => Some(attempt),
-            () = cancel.cancelled() => None,
-        }
-    });
-}
-
-/// The attempt a retry's `timer` answers come due, `None` when its run was canceled first. A
-/// timer's panic is raised again here, since nothing aborts a timer while the tick lives.
-fn retry_due(timer: Result<Option<WorkflowStepKey>, JoinError>) -> Option<WorkflowStepKey> {
-    match timer {
-        Ok(due) => due,
-        Err(error) => std::panic::resume_unwind(error.into_panic()),
-    }
 }

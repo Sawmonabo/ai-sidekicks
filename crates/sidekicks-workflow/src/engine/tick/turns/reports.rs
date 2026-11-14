@@ -9,6 +9,7 @@ use std::sync::Arc;
 use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::question::QuestionWaitOutcome;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -23,7 +24,7 @@ use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, Workf
 
 use super::{EngineTick, PausePoint, ReadiedNext, RunTurn, TurnReadied, step_failure};
 use crate::definitions::kept_values::remove_dropped;
-use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome};
+use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome, RunEngineRecord};
 use crate::engine::ports::{AgentStepRun, WorkflowRunSnapshotPointRequest};
 use crate::engine::tick::branch_cancellation::WaveSettle;
 use crate::engine::tick::commit::{
@@ -127,7 +128,7 @@ impl EngineTick {
                 self.follow_settlement(live, turn, &step, at, answer).await;
                 return;
             }
-            StepReportKind::Canceling => {
+            StepReportKind::Canceling { .. } => {
                 if let Some(live_step) = live.steps.get_mut(&execution_index) {
                     live_step.is_winding_down = true;
                 }
@@ -314,10 +315,11 @@ impl EngineTick {
             }
             SettlementAnswer::Park => self.stop_run(live, turn, step, &at, RunStop::Park).await,
             SettlementAnswer::End { error } => {
-                live.ending.get_or_insert(RunEnding::Failed {
+                let ending = RunEnding::Failed {
                     step: step.clone(),
                     error,
-                });
+                };
+                live.decide_ending(ending, &mut turn.commit, &at);
                 self.stop_run(live, turn, step, &at, RunStop::End).await;
             }
             SettlementAnswer::PersonWait {
@@ -396,20 +398,9 @@ impl EngineTick {
     /// error, its report queued on the run's next batch, which routes it by the step's error
     /// setting.
     pub(super) async fn ask_people(&mut self, live: &mut LiveRun, asks: Vec<TurnAsk>) {
-        for (step, wait_id) in std::mem::take(&mut live.withdrawn_cards) {
-            let intent = EngineIntent::WithdrawingCard { wait_id };
-            let pending = live.record.intent(Some(&step), intent).await;
-            let outcome = match self
-                .person_waits
-                .cards
-                .withdraw(live.scope.session_id, wait_id)
-                .await
-            {
-                Ok(()) => EngineOutcome::Done,
-                Err(_failed) => EngineOutcome::Failed { code: None },
-            };
-            live.record.outcome(pending, outcome).await;
-        }
+        let cards = std::mem::take(&mut live.withdrawn_cards);
+        self.withdraw_cards(&live.record, live.scope.session_id, cards)
+            .await;
         for turn_ask in asks {
             let is_waiting = live
                 .steps
@@ -465,12 +456,45 @@ impl EngineTick {
         }
     }
 
+    /// Withdraws each of `cards`, an approval wait with its step, of the run `record` records in
+    /// `session_id`, each with its intent and outcome recorded; a failed one is left to the
+    /// restart's settle.
+    pub(super) async fn withdraw_cards(
+        &self,
+        record: &RunEngineRecord,
+        session_id: SessionId,
+        cards: Vec<(WorkflowStepKey, UuidTextForm)>,
+    ) {
+        for (step, wait_id) in cards {
+            let intent = EngineIntent::WithdrawingCard { wait_id };
+            let pending = record.intent(Some(&step), intent).await;
+            let outcome = match self.person_waits.cards.withdraw(session_id, wait_id).await {
+                Ok(()) => EngineOutcome::Done,
+                Err(_failed) => EngineOutcome::Failed { code: None },
+            };
+            record.outcome(pending, outcome).await;
+        }
+    }
+
     /// Starts the pause point of `turn_ask`, an approval of the run of `live`, on its own task as
     /// the run's next pause, and keeps the ask on the run until the point ends.
     fn take_pause_point(&mut self, live: &mut LiveRun, turn_ask: TurnAsk) {
         live.approval_pauses += 1;
+        let pause_number = live.approval_pauses;
+        self.spawn_pause_point(live, turn_ask, pause_number);
+    }
+
+    /// Starts the point `pause_number` of the current execution of the run of `live`, for
+    /// `turn_ask`, an approval, on its own task, and keeps the ask on the run until the point
+    /// ends; a point already taken stays as it was taken.
+    pub(super) fn spawn_pause_point(
+        &mut self,
+        live: &mut LiveRun,
+        turn_ask: TurnAsk,
+        pause_number: u64,
+    ) {
         let pause_number = WorkflowRunPauseNumber(
-            SafeInt::new(live.approval_pauses).expect("a run's pause count is a safe integer"),
+            SafeInt::new(pause_number).expect("a run's pause count is a safe integer"),
         );
         let request = WorkflowRunSnapshotPointRequest {
             session_id: live.scope.session_id,
@@ -714,7 +738,9 @@ fn ended_person_wait(live: &LiveRun, report: &StepReport) -> Option<EndedPersonW
     let outcome = if matches!(
         &report.kind,
         StepReportKind::Settled(StepSettlement::Failed {
-            failure: StepFailure::Failed(error) | StepFailure::EndsRun(error) | StepFailure::Crashed(error),
+            failure: StepFailure::Failed(error)
+                | StepFailure::EndsRun(error)
+                | StepFailure::Crashed(error),
             ..
         }) if is_step_timeout(error)
     ) {

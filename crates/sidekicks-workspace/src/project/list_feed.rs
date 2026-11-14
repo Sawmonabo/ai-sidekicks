@@ -538,6 +538,8 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
         | SessionEventType::WorkflowPhaseStarted
         | SessionEventType::WorkflowPhaseProgressed
         | SessionEventType::WorkflowPhaseCanceling
+        | SessionEventType::WorkflowRunCanceling
+        | SessionEventType::WorkflowRunFailing
         | SessionEventType::WorkflowPhaseFailed
         | SessionEventType::WorkflowPhaseRetried
         | SessionEventType::WorkflowPhaseSuspended

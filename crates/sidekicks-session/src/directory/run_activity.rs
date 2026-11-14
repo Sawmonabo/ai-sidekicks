@@ -195,6 +195,8 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::WorkflowPhaseStarted
         | SessionEventType::WorkflowPhaseProgressed
         | SessionEventType::WorkflowPhaseCanceling
+        | SessionEventType::WorkflowRunCanceling
+        | SessionEventType::WorkflowRunFailing
         | SessionEventType::WorkflowPhaseFailed
         | SessionEventType::WorkflowPhaseRetried
         | SessionEventType::WorkflowPhaseSuspended

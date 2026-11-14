@@ -11,7 +11,7 @@ use tokio::sync::watch;
 
 use super::{
     AgentStepOutcome, AgentStepRequest, AgentStepRun, AgentStepRunner, AgentStepStart, PortError,
-    REFUSED_PORT_CALL, StepAdmissionOutcome,
+    StepAdmissionOutcome,
 };
 
 /// What a [`ScriptedAgentRunner`] shares with every run it answers, which the test sets.
@@ -50,6 +50,8 @@ pub(crate) struct ScriptedAgentRunner {
     controls: Arc<ScriptedAgentRunControls>,
     /// The request each `run` was given, in order.
     requests: std::sync::Mutex<Vec<AgentStepRequest>>,
+    /// The steps whose runs an earlier daemon life made, which `reattach` takes again.
+    stored: std::sync::Mutex<Vec<WorkflowStepKey>>,
     /// Woken at each `run`; a wake with no waiter is kept for the next.
     requested: tokio::sync::Notify,
     /// Whether each creation waits for the test's release.
@@ -77,6 +79,7 @@ impl ScriptedAgentRunner {
                 read_at_resumes: std::sync::Mutex::new(Vec::new()),
             }),
             requests: std::sync::Mutex::new(Vec::new()),
+            stored: std::sync::Mutex::new(Vec::new()),
             requested: tokio::sync::Notify::new(),
             is_holding_creations,
             creation_released: tokio::sync::Notify::new(),
@@ -91,6 +94,18 @@ impl ScriptedAgentRunner {
     /// The requests made so far, in order.
     pub(crate) fn requests(&self) -> Vec<AgentStepRequest> {
         sidekicks_std::mutex_lock::lock(&self.requests).clone()
+    }
+
+    /// Keeps `steps` as steps whose runs an earlier daemon life made, so `reattach` takes them.
+    pub(crate) fn store_runs(&self, steps: impl IntoIterator<Item = WorkflowStepKey>) {
+        sidekicks_std::mutex_lock::lock(&self.stored).extend(steps);
+    }
+
+    /// The steps this runner holds runs for: those an earlier life made, then those it made.
+    pub(crate) fn runs_made(&self) -> Vec<WorkflowStepKey> {
+        let mut steps = sidekicks_std::mutex_lock::lock(&self.stored).clone();
+        steps.extend(self.requests().into_iter().map(|request| request.step));
+        steps
     }
 
     /// Returns once a run was asked for, at once when one was since the last return.
@@ -185,11 +200,13 @@ impl AgentStepRunner for ScriptedAgentRunner {
         })
     }
 
+    // A step an earlier life made a run for takes it again; any other made none.
     fn reattach<'call>(
         &'call self,
-        _step: &'call WorkflowStepKey,
-    ) -> BoxFuture<'call, Result<Box<dyn AgentStepRun>, PortError>> {
-        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+        step: &'call WorkflowStepKey,
+    ) -> BoxFuture<'call, Result<Option<Box<dyn AgentStepRun>>, PortError>> {
+        let is_stored = sidekicks_std::mutex_lock::lock(&self.stored).contains(step);
+        Box::pin(async move { Ok(is_stored.then(|| self.made_run())) })
     }
 }
 

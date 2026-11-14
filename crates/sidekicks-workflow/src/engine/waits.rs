@@ -27,7 +27,7 @@ use sidekicks_contracts::workflow::definition::item::{
 };
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowWaitCause;
-use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseSuspendedPayload;
+use sidekicks_contracts::workflow::run::step::events::suspended::WorkflowPhaseSuspendedPayload;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_store::database::stored_column::{closed_word, safe_int_column, text_column};
 

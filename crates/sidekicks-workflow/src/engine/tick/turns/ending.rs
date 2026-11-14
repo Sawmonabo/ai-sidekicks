@@ -89,9 +89,14 @@ impl EngineTick {
             let _unheard = reply.send(Err(RunCancelRefusal::Ending));
             return;
         }
-        live.ending = Some(RunEnding::Canceled { reason, error });
+        let now = WireInstant::now();
+        live.decide_ending(
+            RunEnding::Canceled { reason, error },
+            &mut turn.commit,
+            &now,
+        );
         live.cancel_replies.push(reply);
-        stop_steps(live, turn, None, &WireInstant::now(), RunStop::End).await;
+        stop_steps(live, turn, None, &now, RunStop::End).await;
     }
 
     /// Ends the run of `live` on its cap of `limit_ms` at `at`, which the clock reported on
@@ -122,10 +127,11 @@ impl EngineTick {
                 return;
             }
             let error = step_failure_error(&reported.node_id, &failure);
-            live.ending = Some(RunEnding::Failed {
+            let ending = RunEnding::Failed {
                 step: reported.clone(),
                 error,
-            });
+            };
+            live.decide_ending(ending, &mut turn.commit, &at);
             self.deadlines.skip_cap(live.scope.run_id);
             stop_steps(live, turn, None, &at, RunStop::End).await;
             return;
@@ -134,10 +140,11 @@ impl EngineTick {
         let step = capped.step.clone();
         if capped.status == WorkflowStepStatus::Failed {
             let error = step_failure_error(&step.node_id, &failure);
-            live.ending = Some(RunEnding::Failed {
+            let ending = RunEnding::Failed {
                 step: step.clone(),
                 error,
-            });
+            };
+            live.decide_ending(ending, &mut turn.commit, &at);
             self.stop_run(live, turn, &step, &at, RunStop::End).await;
             return;
         }

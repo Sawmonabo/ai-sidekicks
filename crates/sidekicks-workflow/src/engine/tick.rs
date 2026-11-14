@@ -185,6 +185,9 @@ pub(crate) struct ReadyStep {
     pub(crate) inputs: Vec<Vec<WorkflowItem>>,
     /// The input exactly as the pending row stored it, which `workflow.step.started` repeats.
     pub(crate) input_ref: WorkflowPayloadRef,
+    /// Whether the restart took the step back undispatched, so an agent step takes again the run
+    /// it made before the stop, where it made one, rather than making a second.
+    pub(crate) is_taken_back: bool,
 }
 
 /// What one step reported to the tick, which the commit turns into events and rows. The commit
@@ -228,8 +231,14 @@ pub(crate) enum StepReportKind {
     },
     /// The step passed a turn end or a tool call.
     Progressed,
-    /// The step was asked to stop and is winding down.
-    Canceling,
+    /// The step was asked to stop and is winding down, a member of the wave `deciding`'s turn
+    /// canceled for `reason`.
+    Canceling {
+        /// The step whose turn decided the wave.
+        deciding: WorkflowStepKey,
+        /// Why the wave was canceled.
+        reason: WorkflowPhaseCancellationReason,
+    },
     /// The step's turn canceled a wave of its run's other branches, and the last running one has
     /// settled; the report sits on the deciding step.
     BranchesCanceled {

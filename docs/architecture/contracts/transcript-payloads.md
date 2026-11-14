@@ -375,15 +375,16 @@ interface TranscriptChildRunExpandRequest {
 // than fit one frame — so the expansion needs the same continuation, on the same two arms, with the
 // same rule about which of them may carry a cursor — and the same advancing cursor on the
 // continuing arm, empty only past the same cap of stretches passed over, for the same reason: a
-// child run's expansion loops a client on a repeated cursor exactly as a session read does. Two further rules the schema enforces (Plan-010 Phase 1): every entry that
-// carries a run identity must carry THIS run's (the general arm is exempt, having none — a
-// session-scoped row inside a child's window is context, not misattribution), and runId !==
-// parentRunId, since a run that is its own parent makes the lineage graph cyclic and every walk of
-// it — nesting, one-layer-depth checking, cost attribution — non-terminating. The rows are the
-// run's own events, the interventions on it and its own children's creation rows, each of which
-// names its child's run and carries a summary naming this run as parent, which the schema admits.
-// A run the daemon does not hold is refused `agent.run.notFound`, a run with no parent
-// `agent.run.notChild`. joinedThrough is as on TranscriptReadResponse.
+// child run's expansion loops a client on a repeated cursor exactly as a session read does. Two
+// further rules the schema enforces (Plan-010 Phase 1): every entry that carries a run identity
+// must carry THIS run's (the general arm is exempt, having none — a session-scoped row inside a
+// child's window is context, not misattribution), and runId !== parentRunId, since a run that is
+// its own parent makes the lineage graph cyclic and every walk of it — nesting, one-layer-depth
+// checking, cost attribution — non-terminating. The rows are the run's own events, the
+// interventions on it and its own children's creation rows, each of which names its child's run and
+// carries a summary naming this run as parent, which the schema admits. A run the daemon does not
+// hold is refused `agent.run.notFound`, a run with no parent `agent.run.notChild`. joinedThrough is
+// as on TranscriptReadResponse.
 type TranscriptChildRunExpandResponse = {
   runId: RunId;
   parentRunId: RunId;
@@ -520,21 +521,21 @@ interface TurnTasksUpdate {
   tasks: Array<{ text: string; state: "notStarted" | "inProgress" | "done" }>;
 }
 
-// ---- An agent's question ----
-// Claude Code and Codex each stop a turn to ask by their own mechanism, with one record: the daemon
-// turns a held Claude Code question request or a Codex user-input request into ONE question record
-// the screen renders and ONE call answers. It holds either request open with NO timer, rebuilds the
-// card on a reload and on the person's other devices, and the first answer settles it everywhere. A
-// question is an attention entry exactly as an approval is. Codex's NON-WAITING question has a
-// question record too, which the daemon writes beside the message item the question arrived in,
-// with `isAgentWaiting: false`: the record stays unanswered until the ordinary message answering it
-// is taken, when the daemon marks it answered, so the working line's question count drops on every
-// device. It raises no card of its own and no bell entry; pressing the working line's question
-// count opens the card on it. The answered mark is the answering turn's `user.message.sent` row
-// whose `answersQuestionId?` names the question it answers: the message `question.resolve` writes
-// for a held question, and the taken message for a non-waiting one. A question no message names is
-// unanswered. Beside `answersQuestionId?` the same row carries `cloudTaskId?`, which marks a message
-// sent to the provider's cloud with `cloud.task.start`: the agent never received it.
+// ---- An agent's question ---- Claude Code and Codex each stop a turn to ask by their own
+// mechanism, with one record: the daemon turns a held Claude Code question request or a Codex
+// user-input request into ONE question record the screen renders and ONE call answers. It holds
+// either request open with NO timer, rebuilds the card on a reload and on the person's other
+// devices, and the first answer settles it everywhere. A question is an attention entry exactly as
+// an approval is. Codex's NON-WAITING question has a question record too, which the daemon writes
+// beside the message item the question arrived in, with `isAgentWaiting: false`: the record stays
+// unanswered until the ordinary message answering it is taken, when the daemon marks it answered,
+// so the working line's question count drops on every device. It raises no card of its own and no
+// bell entry; pressing the working line's question count opens the card on it. The answered mark is
+// the answering turn's `user.message.sent` row whose `answersQuestionId?` names the question it
+// answers: the message `question.resolve` writes for a held question, and the taken message for a
+// non-waiting one. A question no message names is unanswered. Beside `answersQuestionId?` the same
+// row carries `cloudTaskId?`, which marks a message sent to the provider's cloud with
+// `cloud.task.start`: the agent never received it.
 
 // question.asked — the record the screen renders, registered in Spec-005's `interactiveRequest`
 // category, which owns the name and the census. A tool server's question and a workflow step
@@ -648,12 +649,12 @@ interface QuestionWaitSettledPayload {
 }
 
 // question.resolve — one call answers every page. Per question the answer is exactly one of: the
-// picked labels, typed text, a secret, a picked folder's path, or a skip — which is why the arms are
-// a closed union rather than five optional members. A path page's answer leaves the page as the
+// picked labels, typed text, a secret, a picked folder's path, or a skip — which is why the arms
+// are a closed union rather than five optional members. A path page's answer leaves the page as the
 // folder chooser's file token, and the desktop's main process puts the path it stands for in its
 // place before the call reaches the daemon, so no typed path stands for one. A secret is delivered
-// to the provider and NEVER stored: it reaches no event payload, no artifact and no projection.
-// The person's turn is written as an ordinary message record with the secret masked.
+// to the provider and NEVER stored: it reaches no event payload, no artifact and no projection. The
+// person's turn is written as an ordinary message record with the secret masked.
 type QuestionAnswer =
   | { kind: "picked"; labels: string[] } // at least one
   | { kind: "typed"; text: string }
@@ -670,8 +671,8 @@ interface QuestionResolveResponse {
   questionId: QuestionId;
   // The record is the receipt: a question that has been answered cannot be answered again, and a
   // second call reads this state rather than re-applying. `kept` is a tool server's question whose
-  // answer the server kept for its next ask: the question stays open and its run keeps waiting until
-  // that ask settles it.
+  // answer the server kept for its next ask: the question stays open and its run keeps waiting
+  // until that ask settles it.
   state: "answered" | "canceled" | "kept";
 }
 ```

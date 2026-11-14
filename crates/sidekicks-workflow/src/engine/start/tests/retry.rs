@@ -131,15 +131,16 @@ enum SourceStart {
 /// reached, records `start` and `A` as reused from the source run's own steps, never from the later
 /// run that also settled them, covers every node, `D` among them, writes no trigger row, and
 /// records the source run as the run it retries, with the mode of the first run of its retries that
-/// is not a retry, and honors the workflow's pins on `C` only where that run was a manual one.
+/// is not a retry, and honors the pins on `C` its source run's start event stores, never the pins
+/// on `D` its workflow holds now.
 /// Mutations: leave a node the source run never reached out of the plan, which leaves `D`
 /// uncovered; read the nodes' newest settled steps across the workflow's runs
 /// (`read_settled_steps`) in place of the source run's, which names the later run; seed nothing
 /// (`plan.reused` dropped), which leaves `reused` empty; write the trigger's row though the trigger
 /// is reused; copy the source run's own mode as `first_mode`, which reads `retry` for a retry of a
 /// chat's run; leave `retried_run_id` off the creation, which the row's check refuses; leave it off
-/// the rebuild's start, which the same check refuses on a rebuild; hash the pins by the retry's own
-/// mode, which drops a manual run's pins.
+/// the rebuild's start, which the same check refuses on a rebuild; hash the workflow's pins in
+/// place of the start event's, which names `D`.
 #[rstest]
 #[case::of_a_manual_run(SourceStart::Manual, WorkflowRunMode::Manual)]
 #[case::of_a_retry_of_a_chat_run(SourceStart::RetryOfAChatRun, WorkflowRunMode::Chat)]
@@ -171,14 +172,34 @@ async fn a_retry_reuses_the_source_runs_steps_before_the_failed_one(
             ("B", 1, 2, WorkflowStepStatus::Failed, &[("A", 1)]),
         ],
     );
+    let mut started = json!({ "workflowRunId": SOURCE_RUN_ID });
+    if let SourceStart::Manual = source_start {
+        started["pinData"] = json!({ "C": [{ "json": {} }] });
+    }
+    fixture
+        .rows
+        .execute(
+            "INSERT INTO session_events
+               (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload)
+             SELECT ?1, ?2, coalesce(max(sequence), 0) + 1, ?3, 0, 'workflowLifecycle',
+                    'workflow.run.started', ?4
+               FROM session_events WHERE session_id = ?2",
+            params![
+                "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e90",
+                TEST_SESSION_ID,
+                ROOT_STARTED_AT,
+                started.to_string()
+            ],
+        )
+        .expect("the source run's start event is stored");
     store_run(&fixture, LATER_RUN_ID, WorkflowRunStatus::Failed);
     fixture
         .rows
         .execute(
             "UPDATE workflow_definitions SET pin_data_json = ?1 WHERE id = ?2",
-            params![json!({ "C": [{ "json": {} }] }).to_string(), DEFINITION_ID],
+            params![json!({ "D": [{ "json": {} }] }).to_string(), DEFINITION_ID],
         )
-        .expect("the test pins C");
+        .expect("the test pins D on the workflow");
     store_steps(
         &fixture,
         LATER_RUN_ID,
@@ -194,6 +215,15 @@ async fn a_retry_reuses_the_source_runs_steps_before_the_failed_one(
         .retry(retry_of(SOURCE_RUN_ID, "B"))
         .await
         .expect("the retry starts");
+    // The source's start event is a stand-in holding only what the retry reads, so it leaves
+    // before the log is counted and rebuilt.
+    fixture
+        .rows
+        .execute(
+            "DELETE FROM session_events WHERE id = '0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e90'",
+            [],
+        )
+        .expect("the stand-in start event is deleted");
 
     let node_run = retry
         .node_run

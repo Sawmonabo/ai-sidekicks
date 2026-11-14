@@ -74,21 +74,35 @@ pub(crate) fn cancel_branches(
             reports.push(StepReport {
                 step: loser.step.clone(),
                 at: canceled_at.clone(),
-                kind: StepReportKind::Canceling,
+                kind: StepReportKind::Canceling {
+                    deciding: deciding.clone(),
+                    reason,
+                },
             });
             members.push(loser.step);
         }
     }
-    let wave = (!members.is_empty()).then_some(BranchWave {
-        deciding,
-        reason,
-        unsettled: members.len(),
-        members,
-    });
+    let wave = (!members.is_empty()).then(|| BranchWave::new(deciding, reason, members));
     (reports, wave)
 }
 
 impl BranchWave {
+    /// The wave of `members`, the running losers `deciding`'s turn canceled for `reason` in loser
+    /// order, none of them settled yet: a cancel's own, or one the restart rebuilds from its log.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn new(
+        deciding: WorkflowStepKey,
+        reason: WorkflowPhaseCancellationReason,
+        members: Vec<WorkflowStepKey>,
+    ) -> Self {
+        Self {
+            deciding,
+            reason,
+            unsettled: members.len(),
+            members,
+        }
+    }
+
     /// Takes `report` into the wave. A member's settlement counts as canceled whatever it says, and
     /// its outputs are dropped, but an agent run kept on a spent account comes back to be stopped;
     /// every other report comes back as `Passed`.
@@ -167,7 +181,7 @@ mod tests {
     fn report_json(report: &StepReport) -> Value {
         let kind = match &report.kind {
             StepReportKind::Progressed => json!("progressed"),
-            StepReportKind::Canceling => json!("canceling"),
+            StepReportKind::Canceling { .. } => json!("canceling"),
             StepReportKind::BranchesCanceled { reason, count } => {
                 json!({ "branchesCanceled": { "reason": format!("{reason:?}"), "count": count } })
             }

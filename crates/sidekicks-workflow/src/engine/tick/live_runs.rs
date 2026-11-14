@@ -4,7 +4,7 @@
 //! waiting on their pause points, the approval cards to withdraw once its write commits, and what
 //! reached the run while it paused.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
@@ -22,7 +22,7 @@ use sidekicks_contracts::workflow::run::step::record::{
 use tokio_util::sync::CancellationToken;
 
 use super::branch_cancellation::BranchWave;
-use super::commit::{RunEnding, RunLiveStep};
+use super::commit::{RunEnding, RunLiveStep, RunTurnCommit};
 use super::run_status::{RunPersonWait, RunStepCounts};
 use super::step_failure::RunStop;
 use super::turns::{RunCancelIntake, RunCancelReply, RunResumeIntake};
@@ -100,6 +100,9 @@ pub(crate) struct LiveRun {
     pub(crate) withdrawn_cards: Vec<(WorkflowStepKey, UuidTextForm)>,
     /// What reached the run while it paused, taken by the turn its last pause point's end opens.
     pub(crate) held: HeldTurn,
+    /// The execution indexes of the steps the restart took back undispatched, whose dispatch takes
+    /// again the agent run each made before the stop.
+    pub(crate) taken_back: HashSet<u64>,
 }
 
 /// What reached a pausing run, kept for the turn its last pause point's end opens, each list in
@@ -218,6 +221,20 @@ impl LiveStep {
 }
 
 impl LiveRun {
+    /// Decides `ending` for the run where none is decided yet, recorded at `at` in `commit`, so a
+    /// restart finishes the run on it; an ending already decided stands.
+    pub(crate) fn decide_ending(
+        &mut self,
+        ending: RunEnding,
+        commit: &mut RunTurnCommit,
+        at: &WireInstant,
+    ) {
+        if self.ending.is_none() {
+            commit.stopping(&ending, at);
+            self.ending = Some(ending);
+        }
+    }
+
     /// Why the run's stop cancels its other steps: the person's cancel where the run's ending is
     /// one, else a sibling's failure.
     pub(crate) fn stop_cancellation_reason(&self) -> WorkflowPhaseCancellationReason {
@@ -266,6 +283,7 @@ impl LiveRun {
                 cancels: Vec::new(),
                 resumes: Vec::new(),
             },
+            taken_back: HashSet::new(),
         }
     }
 
@@ -410,6 +428,7 @@ impl LiveRun {
     /// step leaves any person wait it held, whose deadline is cleared.
     pub(crate) fn remove_step(&mut self, execution_index: u64) -> Option<LiveStep> {
         let mut removed = self.steps.remove(&execution_index)?;
+        self.taken_back.remove(&execution_index);
         let cleared = leave_wait(&mut removed);
         self.clear_deadline(cleared);
         Some(removed)

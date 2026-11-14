@@ -1,6 +1,6 @@
 //! The events a workflow run appends about the run as a whole: it started, joined a chain, was
-//! gated, waited, failed, completed, was canceled, resumed, kept or deleted, and its results were
-//! posted into a session.
+//! gated, waited, began winding down on a cancel or a failure, failed, completed, was canceled,
+//! resumed, kept or deleted, and its results were posted into a session.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -225,6 +225,35 @@ workflow_run_event! {
 }
 
 workflow_run_event! {
+    /// `workflow.run.canceling`: a person's cancel of the run was taken and its steps wind down,
+    /// written in the write that takes it, before any step has settled, so a restart finishes the
+    /// cancel; `reason` and `error` are the ones its `workflow.run.canceled` repeats.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
+    pub struct WorkflowRunCancelingPayload {
+        /// The person's reason.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowCancelReason")]
+        #[garde(dive)]
+        pub reason: Option<WorkflowCancelReason>,
+        /// The run's error, where the cancel stores one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowStepError")]
+        #[garde(dive)]
+        pub error: Option<WorkflowStepError>,
+    }
+}
+
+workflow_run_event! {
     /// `workflow.run.crashed`: the daemon stopped while the run went on, and its next start's sweep
     /// found nothing for it to go on with: a `new` run with no held step, a run whose only
     /// unsettled steps are `pending`, a run whose version holds a kind this daemon lacks, or a
@@ -305,6 +334,22 @@ workflow_step_key! {
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowRunEndingStep {}
+}
+
+workflow_run_event! {
+    /// `workflow.run.failing`: a failure decided the run's end, a step's failure routed to its end
+    /// or the run cap, and its other steps wind down; written in the write that decides it, so a
+    /// restart ends the run on the same step and error, which its `workflow.run.failed` repeats.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
+    pub struct WorkflowRunFailingPayload {
+        /// The step the run's ending sits on.
+        pub ending_step: WorkflowRunEndingStep,
+        /// The run's error.
+        #[garde(dive)]
+        pub error: WorkflowStepError,
+    }
 }
 
 workflow_run_event! {
@@ -464,12 +509,13 @@ pub struct WorkflowResultsPostedPayload {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/run/events",
     doc: "The events a workflow run appends about the run as a whole: it started, joined a chain, \
-          was gated, waited, failed, completed, was canceled, resumed, kept or deleted, and its \
-          results were posted into a session.",
+          was gated, waited, began winding down on a cancel or a failure, failed, completed, was \
+          canceled, resumed, kept or deleted, and its results were posted into a session.",
     definitions: &[
         Definition::read::<WorkflowNodeRun>(),
         Definition::read::<WorkflowStartedReusedStep>(),
         Definition::read::<WorkflowRunStartedPayload>().checked(),
+        Definition::read::<WorkflowRunCancelingPayload>().checked(),
         Definition::read::<WorkflowRunCanceledPayload>().checked(),
         Definition::read::<WorkflowRunCrashedPayload>().checked(),
         Definition::read::<WorkflowRunDeletedPayload>().checked(),
@@ -478,6 +524,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowGateReachedPayload>().checked(),
         Definition::read::<WorkflowRunFailedOutcome>(),
         Definition::read::<WorkflowRunEndingStep>(),
+        Definition::read::<WorkflowRunFailingPayload>().checked(),
         Definition::read::<WorkflowRunFailedPayload>().checked(),
         Definition::read::<WorkflowRunCompletedPayload>().checked(),
         Definition::read::<WorkflowRunWaitingPayload>().checked(),

@@ -25,7 +25,7 @@ use sidekicks_contracts::workflow::run::step::events::{
     WorkflowPhaseCancelingPayload, WorkflowPhaseCancellationReason, WorkflowPhaseProgressedPayload,
     WorkflowPhaseRetriedPayload, WorkflowPhaseStartedPayload, WorkflowPhaseWaitingOnMemoryPayload,
     WorkflowReadiedStep, WorkflowStepSkipReason, WorkflowStepSkippedPayload,
-    WorkflowStepStartedPayload,
+    WorkflowStepStartedPayload, WorkflowWaveDecidingStep,
 };
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_store::database::statement::WriteStatement;
@@ -489,13 +489,19 @@ impl RunTurnCommit {
                     step,
                 )),
             ),
-            StepReportKind::Canceling => {
+            StepReportKind::Canceling { deciding, reason } => {
                 self.push(
                     &at,
                     SessionEvent::WorkflowPhaseCanceling(step_payload!(
                         WorkflowPhaseCancelingPayload,
                         session_id,
                         step,
+                        deciding_step: WorkflowWaveDecidingStep {
+                            node_id: deciding.node_id,
+                            attempt: deciding.attempt,
+                            execution_index: deciding.execution_index,
+                        },
+                        cancellation_reason: reason,
                     )),
                 );
                 self.moves.push((step, StepMove::Canceling));

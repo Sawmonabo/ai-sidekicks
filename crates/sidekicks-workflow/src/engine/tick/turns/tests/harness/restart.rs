@@ -136,10 +136,10 @@ impl DaemonLife {
 
 impl Harness {
     /// Stops the running loop as the daemon's stop does, its steps cut off unsettled, then
-    /// reloads the scope's session's unfinished runs and starts a new life's loop on them.
+    /// starts a new life's loop and hands it the scope's session's reloaded unfinished runs.
     pub(in crate::engine::tick::turns) async fn restart(&mut self) {
         let DaemonLife {
-            mut tick,
+            tick,
             inbox,
             reports,
             deadlines,
@@ -156,10 +156,15 @@ impl Harness {
             clock: &self.clock,
             limits: &self.limits,
         });
-        // The old loop ends once its inbox closes.
+        // The queue's recovery starts again every agent run an earlier life made.
+        agents.store_runs(self.agents.runs_made());
+        // The old loop is cut off where it stands, any pause point it was taking with it.
         self.inbox = inbox;
         let old_task = std::mem::replace(&mut self.tick_task, tokio::spawn(async {}));
-        old_task.await.expect("the old loop ends");
+        old_task.abort();
+        if let Err(error) = old_task.await {
+            assert!(error.is_cancelled(), "the old loop ends without a panic");
+        }
         let session_id = self.scope.session_id;
         let is_stored: bool = self
             .rows
@@ -192,8 +197,12 @@ impl Harness {
             .reload_session(session_id)
             .await
             .expect("the session's runs reload");
-        tick.restart(runs).await;
         self.tick_task = tokio::spawn(tick.run());
+        // Taken back through the loop's inbox, as a session settled late is.
+        self.inbox
+            .send(EngineTickInput::TakeBack(runs))
+            .await
+            .expect("the new loop takes its inputs");
         self.reports = reports;
         self.deadlines = deadlines;
         self.agents = agents;

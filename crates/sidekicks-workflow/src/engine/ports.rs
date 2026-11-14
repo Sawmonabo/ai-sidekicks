@@ -220,11 +220,12 @@ pub trait AgentStepRunner: Send + Sync {
         request: AgentStepRequest,
     ) -> BoxFuture<'_, Result<Box<dyn AgentStepRun>, PortError>>;
 
-    /// The run `step` started before a restart. Fails when no such run is stored.
+    /// The run `step` made before a restart, which the queue's recovery starts again; `None` where
+    /// the step made none. Fails when the stored runs cannot be read.
     fn reattach<'call>(
         &'call self,
         step: &'call WorkflowStepKey,
-    ) -> BoxFuture<'call, Result<Box<dyn AgentStepRun>, PortError>>;
+    ) -> BoxFuture<'call, Result<Option<Box<dyn AgentStepRun>>, PortError>>;
 }
 
 /// One agent step's run.
@@ -519,7 +520,7 @@ impl AgentStepRunner for RefusingPorts {
     fn reattach<'call>(
         &'call self,
         _step: &'call WorkflowStepKey,
-    ) -> BoxFuture<'call, Result<Box<dyn AgentStepRun>, PortError>> {
+    ) -> BoxFuture<'call, Result<Option<Box<dyn AgentStepRun>>, PortError>> {
         Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
     }
 }

@@ -417,17 +417,19 @@ impl StepContext {
         self.recorded.notify_one();
     }
 
-    /// Sets the run variables `values`, which later runs keep too when `keep`; a name set again
-    /// takes the later value and keep, so the last item wins.
+    /// Sets the run variables `values`, each name and value scrubbed of the run's secrets, which
+    /// later runs keep too when `keep`; a name set again takes the later value and keep, so the
+    /// last item wins.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the tick's dispatch of each kind")
     )]
     pub(crate) fn set_run_variables(&self, values: Map<String, Value>, keep: bool) {
         let mut records = lock(&self.records);
-        for (name, value) in values {
+        for (name, mut value) in values {
+            self.redaction.scrub_json(&mut value);
             records.run_variables.insert(
-                name,
+                self.redaction.scrub(&name).into_owned(),
                 StepRunVariable {
                     value,
                     is_kept: keep,

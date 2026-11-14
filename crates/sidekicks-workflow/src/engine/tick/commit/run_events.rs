@@ -1,8 +1,9 @@
 //! The run's own share of a turn's write: the status its steps leave it in, stored with its
 //! person-wait columns and recorded by the run event the move implies, the write's last, or the
 //! run's ending in its place; the two moves that take a step out of a wait, a gate's answer with
-//! its approval card's, and the step's resume, which a person's answer and Keep going share; and
-//! the mark that settles a form or reply wait's question in the write that ends the wait.
+//! its approval card's, and the step's resume, which a person's answer and Keep going share; the
+//! ending a turn decides while the run's steps wind down; and the mark that settles a form or reply
+//! wait's question in the write that ends the wait.
 
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::question::{QuestionWaitOutcome, QuestionWaitSettledPayload};
@@ -11,9 +12,9 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
 use sidekicks_contracts::workflow::run::events::{
     WorkflowResumedStep, WorkflowResumptionPoint, WorkflowRunCanceledPayload,
-    WorkflowRunCompletedPayload, WorkflowRunCrashedPayload, WorkflowRunEndingStep,
-    WorkflowRunFailedOutcome, WorkflowRunFailedPayload, WorkflowRunResumedPayload,
-    WorkflowRunWaitingPayload,
+    WorkflowRunCancelingPayload, WorkflowRunCompletedPayload, WorkflowRunCrashedPayload,
+    WorkflowRunEndingStep, WorkflowRunFailedOutcome, WorkflowRunFailedPayload,
+    WorkflowRunFailingPayload, WorkflowRunResumedPayload, WorkflowRunWaitingPayload,
 };
 use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::{
@@ -95,6 +96,37 @@ impl RunTurnCommit {
             Some((WorkflowStepStatus::Waiting, Some(cause))),
             (WorkflowStepStatus::Running, None),
         );
+    }
+
+    /// Records at `at` the ending `ending` the turn decided while the run's steps still wind down:
+    /// `workflow.run.canceling` for a person's cancel, `workflow.run.failing` for a failure's end,
+    /// so a restart finishes the run as decided; a completion or a crash, written in the turn that
+    /// finds it, records none.
+    pub(crate) fn stopping(&mut self, ending: &RunEnding, at: &WireInstant) {
+        let event = match ending {
+            RunEnding::Canceled { reason, error } => {
+                SessionEvent::WorkflowRunCanceling(run_payload!(
+                    WorkflowRunCancelingPayload,
+                    self.keys,
+                    self.run_id,
+                    reason: reason.clone(),
+                    error: error.clone(),
+                ))
+            }
+            RunEnding::Failed { step, error } => SessionEvent::WorkflowRunFailing(run_payload!(
+                WorkflowRunFailingPayload,
+                self.keys,
+                self.run_id,
+                ending_step: WorkflowRunEndingStep {
+                    node_id: step.node_id.clone(),
+                    attempt: step.attempt,
+                    execution_index: step.execution_index,
+                },
+                error: error.clone(),
+            )),
+            RunEnding::Completed | RunEnding::Crashed { .. } => return,
+        };
+        self.push(at, event);
     }
 
     /// Writes `question.wait.settled` at `at` in the run's session: the question the form or reply
