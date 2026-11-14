@@ -28,14 +28,14 @@ use crate::driver::claude::session::transport::readings::{
 };
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::bring_up::ClaudeBringUpRequest;
-use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnRequest};
+use crate::driver::claude::spawn::launch::session_listing::ClaudeSessionListing;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::GetCapabilitiesResult;
-use crate::driver::session_control::NameSessionParams;
+use crate::driver::session_control::{NameSessionParams, SubagentDefinition};
 use crate::driver::test_registry::new_session_id;
 
 /// What a naming pass at rest never starts.
@@ -95,12 +95,13 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }
 
-    fn read_session_commands(
+    fn read_session_listing(
         &self,
         _environment: Vec<(String, String)>,
         _working_directory: PathBuf,
         _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'static, Result<Vec<ClaudeListedCommand>, ClaudeLaunchError>> {
+        _definitions: Vec<SubagentDefinition>,
+    ) -> BoxFuture<'static, Result<ClaudeSessionListing, ClaudeLaunchError>> {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }
 

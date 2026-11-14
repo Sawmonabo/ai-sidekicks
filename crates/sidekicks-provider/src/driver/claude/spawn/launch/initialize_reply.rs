@@ -1,7 +1,7 @@
-//! What an `initialize` reply declares about the process: the models it offers, their effort
-//! levels and which run in auto mode, its output styles and the one it runs with, its fast mode and
-//! the commands it lists. The reply is untrusted, so each member is read leniently and a row naming
-//! no value is skipped.
+//! What an `initialize` reply declares about the process: the models it offers, their effort levels
+//! and which run in auto mode, its output styles and the one it runs with, its fast mode, the
+//! commands it lists and the agents it offers. The reply is untrusted, so each member is read
+//! leniently and a row naming no value is skipped.
 
 use std::collections::HashSet;
 
@@ -11,6 +11,7 @@ use serde_json::value::RawValue;
 use crate::driver::claude::session::transport::declarations::{
     ClaudeFastModeDeclaration, ClaudeInitializeDeclaration, ClaudeOfferedModel,
 };
+use crate::driver::contract::known_names::ProviderAgent;
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
 use crate::record_readers::filter_non_empty;
 
@@ -28,6 +29,8 @@ struct InitializeReply {
     fast_mode_disabled_reason: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     commands: Option<LenientList<CommandRow>>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    agents: Option<LenientList<AgentRow>>,
 }
 
 #[derive(Deserialize)]
@@ -82,6 +85,14 @@ struct CommandRow {
     argument_hint: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct AgentRow {
+    #[serde(default, deserialize_with = "read_lenient")]
+    name: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    description: Option<String>,
+}
+
 /// One command an `initialize` reply lists: its name, and its description and argument hint where
 /// the reply gives non-empty ones.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,7 +105,7 @@ pub(crate) struct ClaudeListedCommand {
     pub(crate) argument_hint: Option<String>,
 }
 
-lenient_object!(ModelRow, CommandRow);
+lenient_object!(ModelRow, CommandRow, AgentRow);
 
 fn read_reply(reply: Option<&RawValue>) -> InitializeReply {
     reply
@@ -102,7 +113,7 @@ fn read_reply(reply: Option<&RawValue>) -> InitializeReply {
         .unwrap_or_default()
 }
 
-/// What `reply` declares about the process's models, styles, fast mode and commands.
+/// What `reply` declares about the process's models, styles, fast mode, commands and agents.
 pub(crate) fn read_claude_initialize_declaration(
     reply: Option<&RawValue>,
 ) -> ClaudeInitializeDeclaration {
@@ -141,7 +152,24 @@ pub(crate) fn read_claude_initialize_declaration(
             .into_iter()
             .map(|command| command.name)
             .collect(),
+        agents: read_listed_agents(reply.agents),
     }
+}
+
+// The agents a reply's `agents` member offers, in its order, a row naming no agent skipped and an
+// empty description read as none.
+fn read_listed_agents(agents: Option<LenientList<AgentRow>>) -> Vec<ProviderAgent> {
+    agents
+        .map(|agents| agents.0)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|agent| {
+            Some(ProviderAgent {
+                name: filter_non_empty(agent.name)?,
+                description: filter_non_empty(agent.description),
+            })
+        })
+        .collect()
 }
 
 /// The commands `reply` lists, in its order, a row naming no command skipped.

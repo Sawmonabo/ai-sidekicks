@@ -1,9 +1,12 @@
 //! A run on Claude Code: its start, the person's controls on it, the requests and choices it
-//! raises, the session goal, the context compaction, and the command list, a live session's as its
-//! process declared it and a resting one's read afresh.
+//! raises, the session goal, the context compaction, and the command list and the agents the
+//! session offers, a live session's as its process declared them and a resting one's read afresh.
 
-use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
+use sidekicks_contracts::provider::driver::commands::{
+    ProviderCommandBinding, ProviderCommandBindingGroup,
+};
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 
@@ -14,6 +17,7 @@ use crate::driver::claude::session::ultracode::{
     apply_claude_ultracode, requested_claude_ultracode,
 };
 use crate::driver::contract::error::DriverError;
+use crate::driver::contract::known_names::{KnownNamesParams, ProviderAgent, ProviderKnownNames};
 use crate::driver::contract::params_and_results::{
     CompactContextParams, ListProviderCommandsParams, RespondToRequestParams, RunOpeningItem,
     StartRunParams,
@@ -28,7 +32,7 @@ use crate::driver::run_control::{
     ResumeRunOutcome, ResumeRunParams, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
-    ClearSessionGoalParams, DriverGoalResult, SetSessionGoalParams,
+    ClearSessionGoalParams, DriverGoalResult, SetSessionGoalParams, SubagentDefinition,
 };
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
@@ -206,38 +210,75 @@ impl ClaudeDriver {
         &self,
         params: ListProviderCommandsParams,
     ) -> Result<ProviderCommandBindingGroup, DriverError> {
-        let parts = self.parts()?;
-        let handshakes = &parts.run_start.handshakes;
-        if let Some(live) = parts
-            .slots()
-            .live_after_transitions(params.session_id)
-            .await
-        {
-            return Ok(handshakes.enumerate_provider_commands(
+        let (group, _agents) = self
+            .read_listing(params.session_id, params.binding, params.run_id, &[])
+            .await?;
+        Ok(group)
+    }
+
+    /// Every name the session knows on Claude Code: the entries `list_provider_commands` lists and
+    /// the agents the process offers, a live session's as its `initialize` reply declared them and
+    /// a resting session's from the one process its command list starts, offered the params'
+    /// helpers. Fails as `list_provider_commands` fails.
+    pub(crate) async fn list_known_names(
+        &self,
+        params: KnownNamesParams,
+    ) -> Result<ProviderKnownNames, DriverError> {
+        let (group, agents) = self
+            .read_listing(
                 params.session_id,
                 params.binding,
-                params.run_id,
-                &live,
-            )?);
+                None,
+                &params.subagent_definitions,
+            )
+            .await?;
+        Ok(ProviderKnownNames {
+            entries: group.entries,
+            agents,
+        })
+    }
+
+    // The session's command group with `run_id` and `binding`, and the agents it offers: a live
+    // session's as its process declared them, once any restart in flight settles; a resting
+    // session's from one process that keeps nothing, offered `offered` as its agents, which
+    // concurrent reads offering the same helpers share and none keeps.
+    async fn read_listing(
+        &self,
+        session_id: SessionId,
+        binding: ProviderCommandBinding,
+        run_id: Option<RunId>,
+        offered: &[SubagentDefinition],
+    ) -> Result<(ProviderCommandBindingGroup, Vec<ProviderAgent>), DriverError> {
+        let parts = self.parts()?;
+        let handshakes = &parts.run_start.handshakes;
+        if let Some(live) = parts.slots().live_after_transitions(session_id).await {
+            let group =
+                handshakes.enumerate_provider_commands(session_id, binding, run_id, &live)?;
+            return Ok((group, live.initialize.agents.clone()));
         }
-        let provider_account_id = params.binding.provider_account_id.clone();
-        let run_folder =
-            resolve_run_folder(&self.sources.ports.spawn_contexts, params.session_id).await?;
+        let provider_account_id = binding.provider_account_id.clone();
+        let run_folder = resolve_run_folder(&self.sources.ports.spawn_contexts, session_id).await?;
         let environment = self
             .sources
             .account_environment(&provider_account_id)
             .await?;
-        let rows = handshakes
-            .join_resting_command_read(params.session_id, provider_account_id.clone(), || {
-                self.starts
-                    .read_session_commands(environment, run_folder, provider_account_id)
+        let helpers = offered.to_vec();
+        let listing = handshakes
+            .join_resting_listing_read(session_id, provider_account_id.clone(), offered, || {
+                self.starts.read_session_listing(
+                    environment,
+                    run_folder,
+                    provider_account_id,
+                    helpers,
+                )
             })
             .await?;
-        Ok(ProviderCommandBindingGroup {
-            run_id: params.run_id,
-            entries: compose_resting_command_entries(params.session_id, &params.binding, &rows),
-            binding: params.binding,
-        })
+        let group = ProviderCommandBindingGroup {
+            run_id,
+            entries: compose_resting_command_entries(session_id, &binding, &listing.commands),
+            binding,
+        };
+        Ok((group, listing.agents))
     }
 
     /// Sets the session goal with Claude Code's own `/goal`, at once even while the lead's run

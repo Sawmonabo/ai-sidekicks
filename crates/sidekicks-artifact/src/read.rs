@@ -1,7 +1,9 @@
 //! One artifact's read: the version in view, picked within its path's group when a chat wrote it,
 //! with how many versions the group has, a picture's size, and as much of its payload as the
-//! request picks. The id of any version names the group; a read with no version answers the
-//! newest. A plan or any artifact no chat wrote is version 1 of 1.
+//! request picks. A path's group is its chat folder's, whichever holding chat wrote each version,
+//! and each version's manifest names the chat that recorded it. The id of any version names the
+//! group; a read with no version answers the newest. A plan or any artifact no chat wrote is
+//! version 1 of 1.
 
 use std::fs::File;
 use std::io::{self, Read as _, Seek as _, SeekFrom};
@@ -31,29 +33,32 @@ use crate::refusals::{ArtifactError, artifact_not_found};
 // The one version of an artifact no chat wrote.
 const ONLY_VERSION: SafeInt<1> = SafeInt::new(1).expect("1 is a safe integer from 1");
 
-// The named manifest's session and path.
-const GROUP_OF_SQL: &str = "SELECT session_id, workspace_path
+// The named manifest's chat folder and path when a chat wrote it; the schema sets the folder
+// exactly when it sets the path.
+const GROUP_OF_SQL: &str = "SELECT repo_mount_id, workspace_path
   FROM artifact_manifests WHERE id = @artifactId";
 
 // How many versions a path's group holds.
 const VERSION_COUNT_SQL: &str = "SELECT MAX(version_number)
-  FROM artifact_manifests WHERE session_id = @sessionId AND workspace_path = @workspacePath";
+  FROM artifact_manifests WHERE repo_mount_id = @repoMountId AND workspace_path = @workspacePath";
 
-// One version of a path's group, with its payload reference.
+// One version of a path's group, with its payload reference and the chat that recorded it.
 static VERSION_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {MANIFEST_COLUMNS}, refs.storage_path, refs.pixel_width, refs.pixel_height
+        "SELECT {MANIFEST_COLUMNS}, refs.storage_path, refs.pixel_width, refs.pixel_height,
+       manifests.session_id
   FROM artifact_manifests AS manifests
   JOIN artifact_payload_refs AS refs ON refs.manifest_id = manifests.id
-  WHERE manifests.session_id = @sessionId AND manifests.workspace_path = @workspacePath
+  WHERE manifests.repo_mount_id = @repoMountId AND manifests.workspace_path = @workspacePath
     AND manifests.version_number = @versionNumber"
     )
 });
 
-// One artifact no chat wrote, with its payload reference.
+// One artifact no chat wrote, with its payload reference and its session.
 static ARTIFACT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {MANIFEST_COLUMNS}, refs.storage_path, refs.pixel_width, refs.pixel_height
+        "SELECT {MANIFEST_COLUMNS}, refs.storage_path, refs.pixel_width, refs.pixel_height,
+       manifests.session_id
   FROM artifact_manifests AS manifests
   JOIN artifact_payload_refs AS refs ON refs.manifest_id = manifests.id
   WHERE manifests.id = @artifactId"
@@ -142,22 +147,21 @@ fn read_version(
     artifact_id: ArtifactId,
     version: Option<SafeInt<1>>,
 ) -> Result<Option<StoredVersion>, ArtifactError> {
-    let Some((session_id, workspace_path)) = connection
+    let Some(group) = connection
         .prepare_cached(GROUP_OF_SQL)?
         .query_row(
             named_params! { "@artifactId": artifact_id.text().as_str() },
             |row| {
-                Ok((
-                    text_column(row, 0, |text| SessionId::new(&text))?,
-                    row.get::<_, Option<String>>(1)?,
-                ))
+                Ok(row
+                    .get::<_, Option<String>>(0)?
+                    .zip(row.get::<_, Option<String>>(1)?))
             },
         )
         .optional()?
     else {
         return Ok(None);
     };
-    let Some(workspace_path) = workspace_path else {
+    let Some((repo_mount_id, workspace_path)) = group else {
         if version.is_some_and(|version| version.get() != 1) {
             return Ok(None);
         }
@@ -165,13 +169,13 @@ fn read_version(
             .prepare_cached(&ARTIFACT_SQL)?
             .query_row(
                 named_params! { "@artifactId": artifact_id.text().as_str() },
-                |row| read_stored_version(row, session_id, ONLY_VERSION, ONLY_VERSION),
+                |row| read_stored_version(row, ONLY_VERSION, ONLY_VERSION),
             )
             .optional()?);
     };
     let version_count: SafeInt<1> = connection.prepare_cached(VERSION_COUNT_SQL)?.query_row(
         named_params! {
-            "@sessionId": session_id.text().as_str(),
+            "@repoMountId": repo_mount_id,
             "@workspacePath": workspace_path,
         },
         |row| safe_int_column(row, 0),
@@ -184,24 +188,25 @@ fn read_version(
         .prepare_cached(&VERSION_SQL)?
         .query_row(
             named_params! {
-                "@sessionId": session_id.text().as_str(),
+                "@repoMountId": repo_mount_id,
                 "@workspacePath": workspace_path,
                 "@versionNumber": i64::from(version_number),
             },
-            |row| read_stored_version(row, session_id, version_number, version_count),
+            |row| read_stored_version(row, version_number, version_count),
         )
         .optional()?)
 }
 
-// A version's manifest and payload reference, read from a row of one of the version reads.
+// A version's manifest, under the session that recorded it, and its payload reference, read from a
+// row of one of the version reads.
 fn read_stored_version(
     row: &rusqlite::Row<'_>,
-    session_id: SessionId,
     version_number: SafeInt<1>,
     version_count: SafeInt<1>,
 ) -> rusqlite::Result<StoredVersion> {
     let width = optional_safe_int(row, MANIFEST_COLUMN_COUNT + 1)?;
     let height = optional_safe_int(row, MANIFEST_COLUMN_COUNT + 2)?;
+    let session_id = text_column(row, MANIFEST_COLUMN_COUNT + 3, |text| SessionId::new(&text))?;
     Ok(StoredVersion {
         manifest: read_manifest(row, session_id)?,
         content_hash: text_column(row, MANIFEST_COLUMN_COUNT, ContentHash::from_stored)?,
