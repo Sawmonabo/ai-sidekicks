@@ -15,7 +15,8 @@ use tokio::time::Instant;
 use super::compose::NO_SWITCH_WORDS;
 use super::edit::{ClaudeEditTarget, edit_claude_mcp_entry, refused_by_daemon};
 use super::observe::observe_claude_mcp_server;
-use super::{ClaudePersonConfigFiles, SERVERS_FILE, claude_project_key};
+use super::project_key::resolve_claude_config_project_key;
+use super::{ClaudePersonConfigFiles, SERVERS_FILE};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
@@ -217,7 +218,7 @@ async fn edit_target(
         },
         McpWritableBindingRef::Local { scope_ref, .. } => ClaudeEditTarget::PersonConfig {
             path: person.person_config.clone(),
-            project_key: Some(claude_project_key(scope_ref.as_str()).await?),
+            project_key: Some(resolve_claude_config_project_key(scope_ref.as_str()).await?),
         },
         McpWritableBindingRef::Project { scope_ref, .. } => ClaudeEditTarget::ProjectServersFile {
             path: Path::new(scope_ref.as_str()).join(SERVERS_FILE),
@@ -296,7 +297,7 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
     use sidekicks_contracts::mcp::server::McpWritableBindingRef;
-    use sidekicks_platforms::make_folder_link;
+    use sidekicks_platforms::{make_folder_link, real_path};
     use sidekicks_std::file::atomic_write::write_file_atomically;
     use tempfile::TempDir;
 
@@ -377,7 +378,7 @@ mod tests {
         // The key Claude Code files the scratch project under: its folder with every link
         // resolved.
         fn project_key(&self) -> String {
-            std::fs::canonicalize(self.folder("project"))
+            real_path(&self.folder("project"))
                 .unwrap()
                 .display()
                 .to_string()
@@ -388,7 +389,7 @@ mod tests {
         fn command_line(&self, folder: &Path, arguments: &str) -> String {
             format!(
                 "{}|{}|--settings {} mcp {arguments}\n",
-                std::fs::canonicalize(folder).unwrap().display(),
+                real_path(folder).unwrap().display(),
                 self.folder("config").display(),
                 compose_claude_export_off_settings()
             )

@@ -7,9 +7,10 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 
+use super::project_key::resolve_claude_config_project_key;
 use super::{
     ClaudePersonConfigFiles, InstalledPluginRoot, MCP_SERVERS_MEMBER, PROJECTS_MEMBER,
-    SERVERS_FILE, claude_project_key, read_installed_plugin_roots, read_json_file, value_at,
+    SERVERS_FILE, read_installed_plugin_roots, read_json_file, value_at,
 };
 use crate::driver::claude::session::settings_file::ClaudeSettingsReadError;
 
@@ -81,7 +82,7 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
                 server_name,
                 ..
             } => {
-                let project_key = claude_project_key(scope_ref.as_str()).await?;
+                let project_key = resolve_claude_config_project_key(scope_ref.as_str()).await?;
                 Ok(declared(entry_at(
                     self.read_file(&person.person_config).await?,
                     &[

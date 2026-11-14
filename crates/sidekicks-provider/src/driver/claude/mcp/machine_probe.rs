@@ -34,7 +34,6 @@ use tokio::time::Instant;
 use self::plugin_load::PluginLoadReport;
 use self::sent_entry::{SentEntry, compose_sent_entry, compose_tool_server_entry};
 use self::variables::expand_entry_variables;
-use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::config::{
     ClaudeMcpRootConfig, ClaudePersonConfigFiles, ClaudePluginRoot, ClaudeServerEntryReader,
     is_kept_out_server,
@@ -42,6 +41,7 @@ use crate::driver::claude::mcp::config::{
 use crate::driver::claude::mcp::organization::read_managed_entry;
 use crate::driver::claude::mcp::precedence::claude_reported_server_name;
 use crate::driver::claude::session::errors::ClaudeSessionError;
+use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeMcpSetServersReply, ClaudeToolServerEntry,
 };
@@ -383,14 +383,14 @@ async fn run_probe_process(
         })
         .await?;
     let read = read_probe_statuses(
-        &probe,
+        &*probe,
         process.servers,
         process.plugin_servers,
         names,
         ceiling,
     )
     .await;
-    probe.channel.close().await;
+    probe.close().await;
     Ok(read?)
 }
 
@@ -505,7 +505,7 @@ fn target_root(binding: &McpServerBindingRef) -> Option<PlacedPath> {
 // text, and the rest are asked `mcp_status` until each is past `pending` or `ceiling` passes from
 // the send. A sent server no answer names by then reads `failed`. Fails as a request does.
 async fn read_probe_statuses(
-    probe: &ClaudeMcpProcess,
+    probe: &dyn ClaudeProcessChannel,
     mut servers: BTreeMap<String, ClaudeToolServerEntry>,
     plugin_servers: Vec<ProbePluginServer<'_>>,
     names: &[&str],
@@ -514,7 +514,6 @@ async fn read_probe_statuses(
     let mut statuses: BTreeMap<String, ProbeStatus> = BTreeMap::new();
     if !plugin_servers.is_empty() {
         let answer = probe
-            .channel
             .send_control_request(ClaudeControlRequest::ReloadPlugins {})
             .await?;
         let report = PluginLoadReport::read(answer.response.as_deref());
@@ -533,7 +532,6 @@ async fn read_probe_statuses(
     let deadline = Instant::now() + ceiling;
     if !servers.is_empty() {
         let answer = probe
-            .channel
             .send_control_request(ClaudeControlRequest::McpSetServers { servers })
             .await?;
         let reply = ClaudeMcpSetServersReply::read(answer.response.as_deref());
@@ -563,7 +561,6 @@ async fn read_probe_statuses(
     let mut has_listed = false;
     while !is_settled(&statuses) {
         let answer = probe
-            .channel
             .send_control_request(ClaudeControlRequest::McpStatus {})
             .await?;
         let reply = ClaudeMcpStatusReply::read(answer.response.as_deref());

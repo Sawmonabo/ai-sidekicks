@@ -660,7 +660,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
     fn start_mcp_probe(
         &self,
         request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
         let probe = {
             let mut tables = self.lock();
             tables.mcp_probe_starts.push(request);
@@ -670,10 +670,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
             let channel = probe.ok_or_else(|| spawn_failure("no probe scripted"))?;
             self.lock().started_channels.push(Arc::clone(&channel));
             let channel: Arc<dyn ClaudeProcessChannel> = channel;
-            Ok(ClaudeMcpProcess {
-                channel,
-                arrivals: scripted_arrivals(std::iter::empty()),
-            })
+            Ok(channel)
         }
         .boxed()
     }

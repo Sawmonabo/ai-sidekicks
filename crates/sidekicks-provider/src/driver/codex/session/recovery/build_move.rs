@@ -21,6 +21,7 @@ use sidekicks_platforms::CAN_LINK_A_SOCKET;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
+use super::in_place_resume::CodexReleasedConversations;
 use super::{CodexServiceRecovery, CodexWriterLeft, never_left};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnWait;
@@ -278,7 +279,7 @@ impl CodexServiceRecovery {
         self.dependencies.release.forget_service(service.id());
         for (claim, inbound) in held {
             let Some(outcome) = self
-                .resume_claimed(service, &inbound, never_left(), None)
+                .resume_claimed(service, &inbound, never_left(), None, None)
                 .await
             else {
                 continue;
@@ -357,9 +358,10 @@ impl CodexServiceRecovery {
     }
 
     // The move itself, the session's slot claimed: its conversations leave `from`, `thread_id`
-    // and its helpers unloading there first, since Codex reopens a helper on `to` only once `from`
-    // no longer holds it, then it resumes on `to`, tried again while `from` still writes it;
-    // answers the resume's outcome, `None` when the session closed or was established anew.
+    // unloading there first, then it resumes on `to`, tried again while `from` still writes it,
+    // and each helper is reopened on `to` once `from` no longer holds it, since Codex refuses the
+    // reopen meanwhile; answers the resume's outcome, `None` when the session closed or was
+    // established anew.
     async fn move_claimed(
         &self,
         inbound: &CodexSessionInboundSender,
@@ -369,30 +371,34 @@ impl CodexServiceRecovery {
     ) -> Option<CodexInPlaceOutcome> {
         let session_id = inbound.session_id();
         let deadline = Instant::now() + CODEX_UNLOAD_TIMEOUT;
-        let helpers = self
+        let released = self
             .dependencies
             .release
             .release_session_threads(from, &session_id, |released| released != thread_id)
             .await;
         to.attach_session(inbound.clone());
         let_go_codex_thread(from, &thread_id).await;
-        for unloading in std::iter::once(&thread_id).chain(&helpers) {
-            if !from.await_unloaded(unloading, deadline).await {
-                // Another client, such as a terminal the person joined, still holds it on the old
-                // service; the resume goes ahead and Codex decides.
-                CodexTransportDiagnostic::ConversationUnloadTimedOut {
-                    thread_id: unloading.clone(),
-                }
-                .report();
+        if !from.await_unloaded(&thread_id, deadline).await {
+            // Another client, such as a terminal the person joined, still holds it on the old
+            // service; the resume goes ahead and Codex decides.
+            CodexTransportDiagnostic::ConversationUnloadTimedOut {
+                thread_id: thread_id.clone(),
             }
+            .report();
         }
+        let released = CodexReleasedConversations {
+            service: Arc::clone(from),
+            thread_ids: released,
+            deadline,
+        };
         let leaving = Arc::clone(from);
         let writer_left: CodexWriterLeft = Box::new(move || {
             let leaving = Arc::clone(&leaving);
             let thread_id = thread_id.clone();
             async move { leaving.await_unloaded(&thread_id, deadline).await }.boxed()
         });
-        self.resume_claimed(to, inbound, writer_left, None).await
+        self.resume_claimed(to, inbound, writer_left, None, Some(released))
+            .await
     }
 
     // Tells a session it moved to `change`'s build once its conversation resumed there.

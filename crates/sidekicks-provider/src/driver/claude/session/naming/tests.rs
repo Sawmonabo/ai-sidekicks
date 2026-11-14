@@ -136,7 +136,7 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
     fn start_mcp_probe(
         &self,
         _request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }
 

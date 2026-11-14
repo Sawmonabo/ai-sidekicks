@@ -44,7 +44,7 @@ use crate::driver::mcp_server::read::{
 };
 use crate::driver::mcp_server::status::{FAILURE_TEXT_MAX_CODE_POINTS, McpServerReading};
 
-/// A process of the probe or of a sign-in once its `initialize` is answered: the process to send
+/// A process of a sign-in once its `initialize` is answered: the process to send
 /// requests on and close, and what it writes, in order, which its one reader takes.
 pub(crate) struct ClaudeMcpProcess {
     /// The process.

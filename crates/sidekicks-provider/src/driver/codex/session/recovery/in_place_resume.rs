@@ -2,13 +2,15 @@
 //! with the binding and function legs it resumes under, the turn ends the resume lists as over
 //! that the daemon still owed the session, the person's answers carried to the lead a restart
 //! held where the person's restart brought them, and the session's helpers reopened on the new
-//! connection, each registered on its service first.
+//! connection, each registered on its service first and, after a move, unloaded on the service the
+//! move left.
 
 use std::error::Error;
 use std::sync::Arc;
 
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use tokio::time::Instant;
 
 use super::CodexWriterLeft;
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
@@ -25,6 +27,7 @@ use crate::driver::codex::session::establishment::{
 use crate::driver::codex::session::owed_turn_ends::{
     end_owed_codex_helper_turn, end_owed_codex_turns,
 };
+use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::session_control::DriverResumeResult;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 
@@ -46,13 +49,29 @@ pub(crate) struct CodexInPlaceResumeCall {
     pub(crate) held_lead_continue: Option<CodexHeldLeadContinue>,
     /// Sends the answers' steer to a held lead whose continuation Codex still runs.
     pub(crate) answer_steers: Arc<CodexAnswerSteers>,
+    /// The conversations a move let go on the service it left, `None` for a resume on the service
+    /// the conversation already ran on.
+    pub(crate) released: Option<CodexReleasedConversations>,
+}
+
+/// The conversations a move let go on the service it left, each waited for there before its
+/// helper is reopened on the new service, since Codex refuses a helper's reopen while another
+/// service holds it loaded.
+pub(crate) struct CodexReleasedConversations {
+    /// The service the move left.
+    pub(crate) service: Arc<CodexService>,
+    /// The conversations let go there, its lead's aside.
+    pub(crate) thread_ids: Vec<String>,
+    /// When the wait gives up and the reopen goes ahead, Codex deciding.
+    pub(crate) deadline: Instant,
 }
 
 /// Resumes the session's conversation in place on the session's task, then ends each turn the
 /// session still owed an end that the resume lists as over: its `turn/completed` was sent while
 /// the daemon was not connected, and Codex sends none again. Once resumed, each helper whose child
 /// run is still bound is reopened, since Codex attaches a running helper only to the connections
-/// open as it started, and one whose newest turn is over has its owed end routed. The person's
+/// open as it started, and one whose newest turn is over has its owed end routed; one a move let go
+/// is reopened once the service the move left unloaded it, or its wait ran out. The person's
 /// answers the call carries go to the held lead as an adoption carries them, its answer in the
 /// outcome set still running where they reached it. Answers the resume's outcome and the frames
 /// its routing released.
@@ -69,6 +88,7 @@ pub(crate) async fn resume_codex_session_in_place(
         writer_left,
         held_lead_continue,
         answer_steers,
+        released,
     } = resume;
     let mut resumed = establishment
         .resume_in_place(task, service, binding_id, function_legs, writer_left)
@@ -97,7 +117,7 @@ pub(crate) async fn resume_codex_session_in_place(
         {
             answer_steers.send(answer_steer, task.record.inbound.clone());
         }
-        routed.extend(reopen_bound_codex_helpers(task, dependencies).await);
+        routed.extend(reopen_bound_codex_helpers(task, dependencies, released.as_ref()).await);
     }
     (resumed.outcome, routed)
 }
@@ -115,12 +135,13 @@ struct BoundHelper {
 }
 
 // Reopens, parents first, each helper whose child run the record still binds on the session's
-// connection, registered on its service, and routes the owed end of each whose newest turn the
-// reopen shows over. A refused reopen is logged and the rest go on. Answers the frames the ends
-// produced.
+// connection, registered on its service, each `released` names first waited for on the service it
+// was let go on, and routes the owed end of each whose newest turn the reopen shows over. A refused
+// reopen is logged and the rest go on. Answers the frames the ends produced.
 async fn reopen_bound_codex_helpers(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexSessionCallDependencies,
+    released: Option<&CodexReleasedConversations>,
 ) -> CodexRoutedFrames {
     let mut routed = CodexRoutedFrames::default();
     let record = &*task.record;
@@ -157,6 +178,20 @@ async fn reopen_bound_codex_helpers(
         |helper| Some(helper.parent_run_id),
     );
     for helper in ordered {
+        if let Some(released) = released
+            && released.thread_ids.contains(&helper.thread_id)
+            && !released
+                .service
+                .await_unloaded(&helper.thread_id, released.deadline)
+                .await
+        {
+            // Another client, such as a terminal the person joined, still holds it on the old
+            // service; the reopen goes ahead and Codex decides.
+            CodexTransportDiagnostic::ConversationUnloadTimedOut {
+                thread_id: helper.thread_id.clone(),
+            }
+            .report();
+        }
         match reopen_registered_codex_helper(
             &service,
             &connection,

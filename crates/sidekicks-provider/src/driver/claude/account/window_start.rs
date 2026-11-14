@@ -1,6 +1,6 @@
-//! Claude Code's smallest turn on an account: one short line to its smallest model with no tool,
-//! no command and thinking off, in a throwaway process on the account's own credential store that
-//! keeps no conversation. It starts the account's closed usage windows, and on a pasted token,
+//! Claude Code's smallest turn on an account: one short line to its smallest model at its lowest
+//! effort with no tool and no command, in a throwaway process on the account's own credential store
+//! that keeps no conversation. It starts the account's closed usage windows, and on a pasted token,
 //! whose scope has no limits read, its `rate_limit_event` is the account's reading.
 
 use futures::FutureExt;
@@ -61,9 +61,6 @@ pub(super) const CLAUDE_WINDOW_TURN_ARGUMENTS: [&str; 16] = [
 
 /// The one line the smallest turn sends, given on the command line.
 pub(super) const CLAUDE_WINDOW_TURN_LINE: &str = "ok";
-
-/// The variable that turns the turn's thinking off, and its value.
-pub(super) const CLAUDE_THINKING_OFF: (&str, &str) = ("MAX_THINKING_TOKENS", "0");
 
 /// The data folder's folder of the smallest turns' own configuration folders, one per turn.
 const CLAUDE_WINDOW_TURN_FOLDER: [&str; 2] = ["claude", "window-start"];
@@ -188,7 +185,7 @@ async fn run_claude_smallest_turn(
         &CLAUDE_WINDOW_TURN_FOLDER,
         async |folder| {
             let folders = ClaudeAccountFolders::from(folders);
-            let mut executable = legs
+            let executable = legs
                 .sources
                 .resolve_build_on(
                     ClaudeProcessHome::AccountStore {
@@ -198,13 +195,6 @@ async fn run_claude_smallest_turn(
                     &[],
                 )
                 .await?;
-            executable
-                .environment
-                .retain(|(name, _)| name != CLAUDE_THINKING_OFF.0);
-            executable.environment.push((
-                CLAUDE_THINKING_OFF.0.to_owned(),
-                CLAUDE_THINKING_OFF.1.to_owned(),
-            ));
             let working_folder = legs.launcher.control_only_folder().await?;
             let mut arguments: Vec<String> = CLAUDE_WINDOW_TURN_ARGUMENTS
                 .into_iter()

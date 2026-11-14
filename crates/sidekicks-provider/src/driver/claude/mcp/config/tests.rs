@@ -7,7 +7,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::place::PlacedPath;
-use sidekicks_platforms::make_folder_link;
+use sidekicks_platforms::{make_folder_link, real_path};
 
 use super::{
     ClaudeMcpConfigReading, ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles,
@@ -103,7 +103,7 @@ async fn a_kept_out_name_reaches_only_the_roots_its_file_covers(
             project_entry["disabledMcpjsonServers"] = json!(["kept"]);
         }
     }
-    let project_key = fs::canonicalize(&roots[0].folder)
+    let project_key = real_path(&roots[0].folder)
         .expect("the root resolves")
         .to_string_lossy()
         .into_owned();

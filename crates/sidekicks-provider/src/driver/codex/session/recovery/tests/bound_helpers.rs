@@ -84,6 +84,7 @@ async fn a_reconnect_reopens_bound_helpers_and_ends_the_finished_one() {
         writer_left: never_left(),
         held_lead_continue: None,
         answer_steers: session.answer_steers(),
+        released: None,
     };
     let settings = session.task.record.thread_settings.clone();
     let mut helper_resumes: Vec<Value> = Vec::new();
