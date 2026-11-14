@@ -442,8 +442,8 @@ impl CodexDriver {
 
     /// The messages of a continue Codex holds in the session's conversation. A continue sends its
     /// messages in one turn under the first one's id, so that id found on a listed turn means
-    /// every message was taken. Fails with `CodexError::Transport` with no live record, and as
-    /// the read fails.
+    /// every message was taken; a conversation Codex lists no turn of took none. Fails with
+    /// `CodexError::Transport` with no live record, and as the read fails.
     pub(crate) async fn find_taken_messages(
         &self,
         params: FindTakenMessagesParams,
@@ -469,7 +469,7 @@ impl CodexDriver {
         .await?;
         let taken: Vec<QueueItemId> = match listing {
             CodexTurnListing::Listed { .. } => params.message_ids,
-            CodexTurnListing::Unlisted | CodexTurnListing::Unmaterialized => Vec::new(),
+            CodexTurnListing::Unlisted | CodexTurnListing::Indeterminate => Vec::new(),
         };
         Ok(TakenMessages { taken })
     }

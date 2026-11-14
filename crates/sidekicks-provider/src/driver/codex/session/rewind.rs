@@ -129,13 +129,14 @@ impl CodexConversationRewind {
     }
 
     /// Whether the conversation still holds one of the person's messages, by Codex's own record:
-    /// a message a cut of this session took reads cut away; one whose turn the session recorded,
-    /// or the daemon's log named, reads cut away once `thread/turns/list` no longer lists that
-    /// turn, and one with no turn known, as after a restart, once no turn listed since its send
-    /// holds the message's id, the list read newest first with no items and stopped at the first
-    /// turn started before the send ([`find_codex_turn`]). A conversation no message reached
-    /// reads held. Fails with `CodexError::Transport` when the session is not live, and as a
-    /// request fails.
+    /// a message a cut of this session took reads cut away; any other reads cut away only once
+    /// Codex lists turns and none since the message's send, the list read newest first with no
+    /// items and stopped at the first turn started before the send, is the turn the session
+    /// recorded or the daemon's log named for it or holds the message's id
+    /// ([`find_codex_turn`]). A known turn is where the search looks first, never the proof of a
+    /// cut, since a retry's fork drops it and sends the message again on a new turn. Wherever
+    /// the listing cannot show it gone the message reads held. Fails with `CodexError::Transport`
+    /// when the session is not live, and as a request fails.
     pub(crate) async fn read_target(
         &self,
         params: &RewindConversationParams,
@@ -167,7 +168,7 @@ impl CodexConversationRewind {
                 RewindTargetPresence::Held
             }
             CodexTurnListing::Unlisted => RewindTargetPresence::CutAway,
-            CodexTurnListing::Unmaterialized => RewindTargetPresence::Held,
+            CodexTurnListing::Indeterminate => RewindTargetPresence::Held,
         })
     }
 
@@ -230,7 +231,7 @@ impl CodexConversationRewind {
 
     // The conversation and the turn one of the person's messages started: the session's own
     // record, else the conversation's history, which also serves a conversation this daemon did
-    // not start or has forked. `None` for a message the conversation does not hold.
+    // not start or has forked. `None` where Codex lists no turn holding the message.
     async fn read_message_turn(
         &self,
         inbound: &CodexSessionInboundSender,
@@ -422,6 +423,7 @@ fn degraded(fallback_action: &str) -> RewindConversationResult {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -463,27 +465,33 @@ mod tests {
 
     // A record started fresh holds no message's turn, as after a restart. The ask pages the turns
     // newest first with no items and stops at the first turn started before the message's send
-    // second: a turn id the daemon's log names is found among them, and a message with none is
-    // found by its id in the items of the turns passed, oldest first. Killed by answering held for
-    // a message whose turn is no longer listed, which cuts a cut Codex already made again, by a
-    // page read past the send, by a turn's items asked in full or for a known turn, and by the
+    // second: a turn id the daemon's log names is found among them, and a message whose known
+    // turn is not listed, or with none, is found by its id in the items of the turns passed,
+    // oldest first. Killed by answering held for a message no turn since its send holds, which
+    // cuts a cut Codex already made again, by answering cut away for a retried message whose
+    // logged turn the retry's fork dropped or for a conversation Codex lists no turn of, by a page
+    // read past the send, by a turn's items asked in full or for a listed known turn, and by the
     // adopt reading items.
     #[tokio::test(start_paused = true)]
     async fn a_cut_codex_made_before_a_restart_reads_cut_away_and_is_adopted() {
-        // Three messages sent in one second, 1,700,000,000, as their UUIDv7 ids date them.
+        // Messages sent in one second, 1,700,000,000, as their UUIDv7 ids date them.
         const SENT: i64 = 1_700_000_000;
         const OPENED: &str = "018bcfe5-6800-7000-8000-000000000001";
         const STEERED: &str = "018bcfe5-6800-7000-8000-000000000002";
+        const RETRIED: &str = "018bcfe5-6800-7000-8000-000000000003";
+        const UNPROJECTED: &str = "018bcfe5-6800-7000-8000-000000000004";
         const CUT: &str = "018bcfe5-6800-7000-8000-000000000009";
         let mut session = TestCodexSession::start().await;
         let session_id = session.task.record.session_id;
         let binding_id = session.record_binding().await;
         let rewind = rewind_on(&session);
         let asked = Arc::new(Mutex::new(Vec::new()));
+        let is_listing_empty = Arc::new(AtomicBool::new(false));
         let turn = |id: &str, started: i64| json!({"id": id, "items": [], "startedAt": started});
         let mut script = session.scripted.script;
         let service_side = tokio::spawn({
             let asked = Arc::clone(&asked);
+            let is_listing_empty = Arc::clone(&is_listing_empty);
             async move {
                 loop {
                     let sent = script.next_sent().await;
@@ -491,7 +499,9 @@ mod tests {
                     let reply = match sent["method"].as_str() {
                         Some("thread/turns/list") => {
                             lock(&asked).push(json!([params["itemsView"], params["cursor"]]));
-                            if params["cursor"].is_null() {
+                            if is_listing_empty.load(Ordering::SeqCst) {
+                                json!({"data": [], "nextCursor": null})
+                            } else if params["cursor"].is_null() {
                                 json!({"data": [
                                     turn("turn-3", SENT + 20),
                                     turn("turn-2", SENT + 10),
@@ -517,6 +527,11 @@ mod tests {
                                 }
                                 (Some("turn-0"), None) => {
                                     json!({"data": [message(STEERED)], "nextCursor": null})
+                                }
+                                // The faster-model retry's turn, on which its fork sent the
+                                // message again after dropping the turn the log names.
+                                (Some("turn-2"), None) => {
+                                    json!({"data": [message(RETRIED)], "nextCursor": null})
                                 }
                                 _ => json!({"data": [], "nextCursor": null}),
                             }
@@ -566,6 +581,29 @@ mod tests {
             task.record.turn_id_by_client_message_id.get(STEERED),
             Some(&"turn-0".to_owned())
         );
+        let turn_items = |turn_id: &str| json!(["items", turn_id, null]);
+        let retried = task
+            .drive(rewind.read_target(&params(RETRIED, Some("turn-8"))))
+            .await;
+        task.handle_next().await;
+        assert_eq!(
+            retried.expect("the ask is answered"),
+            RewindTargetPresence::Held
+        );
+        assert_eq!(
+            take_asked(),
+            [
+                first_page.clone(),
+                turn_items("turn-1"),
+                json!(["items", "turn-1", "rest"]),
+                turn_items("turn-0"),
+                turn_items("turn-2"),
+            ]
+        );
+        assert_eq!(
+            task.record.turn_id_by_client_message_id.get(RETRIED),
+            Some(&"turn-2".to_owned())
+        );
         let cut = task
             .drive(rewind.read_target(&params(CUT, Some("turn-9"))))
             .await;
@@ -573,12 +611,25 @@ mod tests {
             cut.expect("the ask is answered"),
             RewindTargetPresence::CutAway
         );
-        assert_eq!(take_asked(), std::slice::from_ref(&first_page));
+        assert_eq!(
+            take_asked(),
+            [
+                first_page.clone(),
+                turn_items("turn-1"),
+                json!(["items", "turn-1", "rest"]),
+                turn_items("turn-0"),
+                turn_items("turn-2"),
+                turn_items("turn-3"),
+            ]
+        );
         task.drive(rewind.adopt(&params(CUT, Some("turn-9"))))
             .await
             .expect("the cut is adopted");
         task.handle_next().await;
-        assert_eq!(take_asked(), [first_page, json!(["notLoaded", "older"])]);
+        assert_eq!(
+            take_asked(),
+            [first_page.clone(), json!(["notLoaded", "older"])]
+        );
         assert_eq!(
             task.record.turn_boundaries,
             ["turn-old", "turn-0", "turn-1", "turn-2", "turn-3"]
@@ -590,6 +641,16 @@ mod tests {
             again.expect("the ask is answered"),
             RewindTargetPresence::CutAway
         );
+        // A conversation whose history Codex has not projected lists no turn, which shows no cut.
+        is_listing_empty.store(true, Ordering::SeqCst);
+        let unprojected = task
+            .drive(rewind.read_target(&params(UNPROJECTED, Some("turn-1"))))
+            .await;
+        assert_eq!(
+            unprojected.expect("the ask is answered"),
+            RewindTargetPresence::Held
+        );
+        assert_eq!(take_asked(), [first_page]);
         service_side.abort();
     }
 

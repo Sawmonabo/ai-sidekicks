@@ -17,6 +17,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::port_registration::PortRegistration;
 
 use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::codex::app_server_protocol::TurnItemsView;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
@@ -375,7 +376,12 @@ pub(crate) async fn read_codex_fork_or_let_go(
             read_thread_reasoning_effort(&forked.reply).as_deref(),
         )
         .await?;
-        let turns = read_codex_turns(connection, &forked.thread_id, None).await?;
+        let turns = read_codex_turns(
+            connection,
+            &forked.thread_id,
+            Some(TurnItemsView::NotLoaded),
+        )
+        .await?;
         Ok(turns.into_iter().map(|listed| listed.id).collect())
     };
     let turn_ids = read.await;
@@ -397,8 +403,9 @@ fn record_fork_source(record: &CodexSessionRecord) -> CodexForkSource<'_> {
 // Moves the record onto its fork: the binding first, durable before anything lets go of the
 // conversation the session leaves, then the record's own view of the fork, the routing band and
 // the service bound to it, the left conversation's helpers released, and that conversation let go
-// once no command of it runs. The message-to-turn map is dropped, since a fork's turns carry ids
-// of their own; an undo rebuilds it from the fork's history. A fork onto another binding ends the
+// once no command of it runs. The message-to-turn map is dropped: the fork keeps the source's ids
+// for the turns it copies and none past its point, and a retry sends its messages again on a new
+// turn, so an undo rebuilds the map from the fork's history. A fork onto another binding ends the
 // leg the record holds and takes legs of its own, opened before the binding's write under a
 // binding minted for them, so they never share the pair of a leg that is still open. A failed
 // opening or binding write lets the fork go, the record unchanged.

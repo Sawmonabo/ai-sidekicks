@@ -1,8 +1,11 @@
 //! A conversation's turns, and the turn one of the person's messages started, read back from
 //! Codex page by page, since a resume asks only for the newest turn.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 
 use crate::driver::codex::app_server_protocol::{
     SortDirection, ThreadItemsListParams, ThreadResumeInitialTurnsPageParams,
@@ -53,7 +56,14 @@ struct ListedTurnId {
 #[serde(rename_all = "camelCase")]
 struct ListedTurnStart {
     id: Option<String>,
-    started_at: Option<u64>,
+    started_at: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct ListedTurnSummary {
+    id: Option<String>,
+    #[serde(default)]
+    items: Vec<Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
@@ -87,10 +97,13 @@ pub(crate) enum CodexTurnListing {
         /// The turn's id.
         turn_id: String,
     },
-    /// No turn Codex lists is the one sought.
+    /// Codex lists turns and none since the message's send, nor the one running at it, is the turn
+    /// sought or holds the message's id.
     Unlisted,
-    /// The conversation no message has reached yet, which holds no turn.
-    Unmaterialized,
+    /// What Codex lists shows neither the message nor that it is gone: Codex lists no turn, as for
+    /// a conversation no message has reached or one whose history it has not projected, or it
+    /// serves a legacy thread's items only as each turn's first message, which a steer is not.
+    Indeterminate,
 }
 
 /// Every turn of `thread_id`, oldest first, each turn's items as `items_view` asks, Codex's
@@ -128,19 +141,23 @@ pub(crate) async fn read_codex_turns(
 
 /// Where `thread_id` lists the turn of the message `sought` names. Its turns are read newest
 /// first with no items, and the paging stops at the first turn that started before the second
-/// the message was sent in, which no turn of the message can follow. A turn id is found among
-/// them; with none, the message's `clientId` is looked for in the items of the turns that paging
-/// passed, one turn at a time through `thread/items/list`, which Codex serves only for a
-/// paginated thread. Fails as [`read_codex_turns`] does.
+/// the message was sent in, which no turn of the message can follow. A known turn id found among
+/// them answers at once; otherwise the message's `clientId` is looked for in the items of the
+/// turns that paging passed, one turn at a time through `thread/items/list`, or, on a legacy
+/// thread that list does not serve, in each turn's first message. Fails as [`read_codex_turns`]
+/// does.
 pub(crate) async fn find_codex_turn(
     connection: &CodexAppServerConnection,
     thread_id: &str,
     sought: CodexSoughtMessage<'_>,
 ) -> Result<CodexTurnListing, CodexError> {
     let sent_second = sent_second_of(sought.message_id);
-    // The turns started since the send, newest first, and the one running when it was sent.
+    // The turns started since the send and those with no start time, each newest first, and the
+    // one running when it was sent.
     let mut since_send = Vec::new();
+    let mut undated = Vec::new();
     let mut before_send = None;
+    let mut is_any_turn_listed = false;
     let mut cursor = None;
     'pages: loop {
         let Some(page) = read_turns_page(
@@ -152,7 +169,7 @@ pub(crate) async fn find_codex_turn(
         )
         .await?
         else {
-            return Ok(CodexTurnListing::Unmaterialized);
+            return Ok(CodexTurnListing::Indeterminate);
         };
         for turn in &page.data {
             let Some(listed) = read_codex_object::<ListedTurnStart>(turn.get()) else {
@@ -161,40 +178,67 @@ pub(crate) async fn find_codex_turn(
             let Some(turn_id) = listed.id.filter(|id| !id.is_empty()) else {
                 continue;
             };
+            is_any_turn_listed = true;
             if sought.turn_id == Some(turn_id.as_str()) {
                 return Ok(CodexTurnListing::Listed { turn_id });
             }
             // A steered message joined the turn running when it was sent, so the first turn
-            // started before the send is still searched.
-            let is_before_send = sent_second
-                .zip(listed.started_at)
-                .is_some_and(|(sent, started)| started < sent);
-            if is_before_send {
-                before_send = Some(turn_id);
-                break 'pages;
+            // started before the send is still searched. Codex dates every turn it opens; a turn
+            // with no start time cannot be placed before the send, so the paging goes past it.
+            match sent_second.zip(listed.started_at.filter(|started| *started > 0)) {
+                Some((sent, started)) if started < sent => {
+                    before_send = Some(turn_id);
+                    break 'pages;
+                }
+                Some(_) => since_send.push(turn_id),
+                None => undated.push(turn_id),
             }
-            since_send.push(turn_id);
         }
         cursor = page.next_cursor.filter(|next| !next.is_empty());
         if cursor.is_none() {
             break;
         }
     }
-    if sought.turn_id.is_some() {
-        return Ok(CodexTurnListing::Unlisted);
+    if !is_any_turn_listed {
+        return Ok(CodexTurnListing::Indeterminate);
     }
     // The message most often opened the oldest turn started since its send, or steered the one
-    // running then, so those two are read first and any later turn after them, oldest first.
+    // running then, so those two are read first, then any later turn oldest first; with no turn
+    // dated before the send, the newest undated turn stands for the running one and the rest
+    // follow newest first, nearest the send.
     since_send.reverse();
     let mut since_send = since_send.into_iter();
-    let candidates = since_send
+    let mut undated = undated.into_iter();
+    let running_at_send = before_send.or_else(|| undated.next());
+    let candidates: Vec<String> = since_send
         .next()
         .into_iter()
-        .chain(before_send)
-        .chain(since_send);
-    for turn_id in candidates {
-        if holds_message(connection, thread_id, &turn_id, sought.message_id).await? {
-            return Ok(CodexTurnListing::Listed { turn_id });
+        .chain(running_at_send)
+        .chain(since_send)
+        .chain(undated)
+        .collect();
+    for (index, turn_id) in candidates.iter().enumerate() {
+        match holds_message(connection, thread_id, turn_id, sought.message_id).await {
+            Ok(true) => {
+                return Ok(CodexTurnListing::Listed {
+                    turn_id: turn_id.clone(),
+                });
+            }
+            Ok(false) => {}
+            Err(error) if is_items_list_unserved(&error) => {
+                let opened = find_opening_turn(
+                    connection,
+                    thread_id,
+                    &candidates[index..],
+                    sought.message_id,
+                )
+                .await?;
+                return Ok(match opened {
+                    Some(turn_id) => CodexTurnListing::Listed { turn_id },
+                    None => CodexTurnListing::Indeterminate,
+                });
+            }
+            Err(error) => return Err(error),
         }
     }
     Ok(CodexTurnListing::Unlisted)
@@ -202,12 +246,79 @@ pub(crate) async fn find_codex_turn(
 
 // The second a message whose id is a UUIDv7 was sent in, from the id's time; `None` for an id of
 // another form, whose search then reads every page.
-fn sent_second_of(message_id: &str) -> Option<u64> {
+fn sent_second_of(message_id: &str) -> Option<i64> {
     let (seconds, _) = uuid::Uuid::parse_str(message_id)
         .ok()?
         .get_timestamp()?
         .to_unix();
-    Some(seconds)
+    i64::try_from(seconds).ok()
+}
+
+// Whether `error` is Codex's method-not-found answer to `thread/items/list`, which it gives for a
+// thread with legacy history.
+fn is_items_list_unserved(error: &CodexError) -> bool {
+    matches!(
+        error,
+        CodexError::ProviderRequest { code, .. }
+            if *code == i64::from(JsonRpcErrorCode::MethodNotFound.code())
+    )
+}
+
+// The turn among `candidates` whose first user message, as Codex's summary of each turn shows it,
+// is `message_id`, the turns of `thread_id` paged newest first until every candidate was read;
+// `None` where none opened with it.
+async fn find_opening_turn(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+    candidates: &[String],
+    message_id: &str,
+) -> Result<Option<String>, CodexError> {
+    let mut unread: HashSet<&str> = candidates.iter().map(String::as_str).collect();
+    let mut cursor = None;
+    while !unread.is_empty() {
+        let Some(page) = read_turns_page(
+            connection,
+            thread_id,
+            cursor,
+            CODEX_TURNS_PAGE_LIMIT,
+            Some(TurnItemsView::Summary),
+        )
+        .await?
+        else {
+            return Ok(None);
+        };
+        for turn in &page.data {
+            let Some(ListedTurnSummary {
+                id: Some(turn_id),
+                items,
+            }) = read_codex_object::<ListedTurnSummary>(turn.get())
+            else {
+                continue;
+            };
+            if !unread.remove(turn_id.as_str()) {
+                continue;
+            }
+            if items
+                .iter()
+                .any(|item| is_user_message_of(item, message_id))
+            {
+                return Ok(Some(turn_id));
+            }
+        }
+        cursor = page.next_cursor.filter(|next| !next.is_empty());
+        if cursor.is_none() {
+            break;
+        }
+    }
+    Ok(None)
+}
+
+// Whether a listed item is the person's message `message_id`.
+fn is_user_message_of(item: &RawValue, message_id: &str) -> bool {
+    read_codex_object::<ListedUserMessage>(item.get()).is_some_and(|message| {
+        message.item_type.as_deref() == Some("userMessage")
+            && message.client_id.as_deref() == Some(message_id)
+    })
 }
 
 // Whether turn `turn_id` of `thread_id` holds the person's message `message_id`, its items read
@@ -234,11 +345,7 @@ async fn holds_message(
         let is_held = page.data.iter().any(|entry| {
             read_codex_object::<ListedItemEntry>(entry.get())
                 .and_then(|entry| entry.item)
-                .and_then(|item| read_codex_object::<ListedUserMessage>(item.get()))
-                .is_some_and(|message| {
-                    message.item_type.as_deref() == Some("userMessage")
-                        && message.client_id.as_deref() == Some(message_id)
-                })
+                .is_some_and(|item| is_user_message_of(&item, message_id))
         });
         if is_held {
             return Ok(true);
