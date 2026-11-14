@@ -107,11 +107,13 @@ describe("reflow — the console at 320 CSS px", () => {
             firstMessagePreview: undefined,
             shape: undefined,
             state: "active",
+            listedActivity: undefined,
             touchedAtIso: undefined,
             userIds: [],
           }}
           onOpen={() => undefined}
-          nowMilliseconds={0}
+          age={undefined}
+          activity={undefined}
         />
       </BridgeHost>,
     );

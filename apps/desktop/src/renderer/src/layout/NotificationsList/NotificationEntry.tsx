@@ -1,4 +1,5 @@
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
+import { StatusDot } from "#renderer/components/StatusDot/StatusDot.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatAge, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import type { AppRoute } from "#renderer/routing/routes.js";
@@ -22,10 +23,7 @@ export function NotificationEntry(props: {
   const clockLocale = useClockLocale();
   const body = (
     <>
-      <span
-        className={`meridian-attention__dot meridian-attention__dot--${entryState(item)}`}
-        aria-hidden="true"
-      />
+      <StatusDot state={entryState(item)} />
       <span className="meridian-attention__name">{item.displayName}</span>
       <span className="meridian-attention__state">{item.stateWord}</span>
       <WireFigure

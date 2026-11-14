@@ -1,15 +1,16 @@
 // The all-sessions list: one row per session, pinned rows first. Every row handed in is
-// mounted; rows are memoized, so one row's change re-renders one row, and every row's age
-// advances together on the list's one beat.
+// mounted; rows are memoized and handed what they draw, so a row re-renders only when its own
+// drawing changes. Every row's age and activity advance on the list's one beat, one timer at most,
+// armed for the next moment any row would draw differently and armed again when the rows change.
 
 import "./SessionList.css";
 
 import { useMemo } from "react";
 
-import { useAgesNow } from "#renderer/hooks/useAgesNow.js";
+import { useDrawnInstant } from "#renderer/hooks/useDrawnInstant.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 
-import { orderSessionRows, type SessionListRow } from "../rows/list-row.js";
+import { orderSessionRows, sessionRowsChangeAt, type SessionListRow } from "../rows/list-row.js";
 import type { SessionPins } from "../rows/pins.js";
 import { SessionRowGroup } from "./SessionRowGroup.js";
 
@@ -26,9 +27,8 @@ export function SessionList(props: SessionListProps): React.JSX.Element {
   const { rows, pinned } = props;
   // Memoized so a render with the same rows and pins hands the group the same array.
   const ordered = useMemo(() => orderSessionRows(rows, pinned), [rows, pinned]);
-  const nowMilliseconds = useAgesNow(
-    useClock(),
-    ordered.flatMap((row) => (row.touchedAtIso === undefined ? [] : [row.touchedAtIso])),
+  const nowMilliseconds = useDrawnInstant(useClock(), ordered, (instant) =>
+    sessionRowsChangeAt(ordered, instant),
   );
   return (
     <div className="meridian-session-list">

@@ -23,6 +23,7 @@ function projectedRow(overrides: Partial<SessionListRow> & { sessionId: string }
     firstMessagePreview: undefined,
     shape: undefined,
     state: "active",
+    listedActivity: undefined,
     touchedAtIso: "2026-01-01T10:00:00.000Z",
     userIds: [],
     ...overrides,

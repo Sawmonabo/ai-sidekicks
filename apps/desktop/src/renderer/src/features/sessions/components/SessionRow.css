@@ -22,11 +22,25 @@
    the 320 px floor. The rule sits on the column so every figure inherits it.
    It wraps rather than ellipsizes because sessions differ by the tail of their id. */
 .meridian-session-row__identity {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-2);
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* The dot leads the first line; the name and the facts share the second column, so the facts sit
+   under the title and not under the dot. */
+.meridian-session-row__dot {
+  display: flex;
+  align-items: center;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.meridian-session-row__identity > .meridian-session-row__name,
+.meridian-session-row__identity > .meridian-session-row__facts {
+  grid-column: 2;
 }
 
 .meridian-session-row__name {

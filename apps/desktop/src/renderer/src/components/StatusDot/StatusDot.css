@@ -1,0 +1,29 @@
+/* A status dot, sized from its line's own text and never animated. */
+
+.meridian-status-dot {
+  flex: none;
+  box-sizing: border-box;
+  inline-size: 0.5em;
+  block-size: 0.5em;
+  border-radius: 50%;
+}
+
+.meridian-status-dot--running {
+  background: var(--meridian-accent);
+}
+
+.meridian-status-dot--waiting {
+  background: var(--meridian-amber-mark);
+}
+
+.meridian-status-dot--failed {
+  background: var(--meridian-red-mark);
+}
+
+.meridian-status-dot--done {
+  border: 1px solid var(--meridian-text-faint);
+}
+
+.meridian-status-dot--idle {
+  background: var(--meridian-text-faint);
+}

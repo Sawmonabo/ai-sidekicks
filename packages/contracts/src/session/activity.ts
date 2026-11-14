@@ -16,10 +16,22 @@ export function sessionActivityAsOf(
   activityRenewedAt: string,
   nowMs: number,
 ): SessionActivity {
-  if (activity !== "running" && activity !== "waiting") {
-    return activity;
+  return nowMs >= sessionActivityLapsesAt(activity, activityRenewedAt) ? "idle" : activity;
+}
+
+/**
+ * The first instant, in milliseconds since the Unix epoch, at which {@link sessionActivityAsOf}
+ * reads this word as `idle`, so a view can wake once then instead of polling. `Infinity` for a
+ * word that never ages and for a renewal instant that does not parse.
+ */
+export function sessionActivityLapsesAt(
+  activity: SessionActivity,
+  activityRenewedAt: string,
+): number {
+  const renewedAtMs = Date.parse(activityRenewedAt);
+  if ((activity !== "running" && activity !== "waiting") || Number.isNaN(renewedAtMs)) {
+    return Number.POSITIVE_INFINITY;
   }
-  return nowMs - Date.parse(activityRenewedAt) > SESSION_ACTIVITY_STALE_AFTER_MS
-    ? "idle"
-    : activity;
+  // The reading stands at exactly the stale bound and lapses the millisecond after it.
+  return renewedAtMs + SESSION_ACTIVITY_STALE_AFTER_MS + 1;
 }
