@@ -129,11 +129,13 @@ pub(crate) async fn schedule_jobs(
         })),
     )?;
     // At once, since the start's pass packs what the last run left before any idle comes.
-    scheduler.schedule_repeating(
+    scheduler.schedule_job(
         "checkpoint sweep",
         JobCondition::Always,
-        CHECKPOINT_SWEEP_INTERVAL,
-        Duration::ZERO,
+        JobCadence::Repeating {
+            first_delay: Duration::ZERO,
+            interval: CHECKPOINT_SWEEP_INTERVAL,
+        },
         checkpoint_sweep_job(checkpoint_sweep),
     )?;
     backups

@@ -424,11 +424,7 @@ async fn a_purge_removes_a_sessions_other_volume_folders_and_owes_an_absent_one(
     let outcome = only_outcome(
         fixture
             .purge
-            .purge(
-                &[session_id],
-                PurgeCaller::Retention,
-                &ProcessorMeter::default(),
-            )
+            .purge(&[session_id], PurgeCaller::Retention)
             .await,
     );
 
@@ -687,13 +683,8 @@ async fn a_purge_waits_for_a_hold_on_its_capture_folders() {
     let handles = packing
         .folder_lock()
         .queue_handle_count(capture_folder.clone());
-    let meter = ProcessorMeter::default();
     let sessions = [session_id];
-    let mut purge = std::pin::pin!(
-        fixture
-            .purge
-            .purge(&sessions, PurgeCaller::Retention, &meter)
-    );
+    let mut purge = std::pin::pin!(fixture.purge.purge(&sessions, PurgeCaller::Retention));
 
     tokio::select! {
         report = &mut purge => panic!("the purge waits for the hold, got {report:?}"),

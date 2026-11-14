@@ -25,8 +25,8 @@ use sidekicks_platforms::WallClock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::ScheduledJobOutcome;
 use sidekicks_std::scheduler::budget::{
-    BudgetTerm, FailedAfterWork, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter,
-    metered_job,
+    BudgetTerm, FailedAfterWork, JobBudget, JobWorkload, MeteredJobOutcome, metered_job,
+    run_blocking,
 };
 use sidekicks_store::data_folder::{session_storage_folder, workflow_run_folder};
 use sidekicks_store::database::connection::read_pool::{
@@ -240,9 +240,9 @@ pub fn checkpoint_sweep_job(
 ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static {
     metered_job(
         CHECKPOINT_SWEEP_BUDGET,
-        Box::new(move |stop, meter| {
+        Box::new(move |stop| {
             let sweep = Arc::clone(&sweep);
-            async move { run_metered_pass(&sweep, &stop, &meter).await }.boxed()
+            async move { run_metered_pass(&sweep, &stop).await }.boxed()
         }),
     )
 }
@@ -251,9 +251,8 @@ pub fn checkpoint_sweep_job(
 async fn run_metered_pass(
     sweep: &CheckpointSweep,
     stop: &CancellationToken,
-    meter: &ProcessorMeter,
 ) -> MeteredJobOutcome<CheckpointSweepWorkUnit> {
-    let (counts, failure) = sweep.run_pass(stop, meter).await;
+    let (counts, failure) = sweep.run_pass(stop).await;
     if counts.pairs_examined == 0
         && counts.owed_folders_examined == 0
         && counts.sessions_reclaimed == 0
@@ -300,20 +299,19 @@ impl CheckpointSweep {
     }
 
     /// One pass: the owed folders, the unused shadows, then every owner's capture folders, each
-    /// part run whatever the one before it answered, its blocking work and reads charged to
-    /// `meter`. A pass `stop` cuts answers its counts so far; a pair under way when it fires is
-    /// cut, and the next pass clears what the cut left. Answers its counts beside the first
+    /// part run whatever the one before it answered, its blocking work and reads charged to the
+    /// meter of the metered run whose task calls, if any. A pass `stop` cuts answers its counts so
+    /// far; a pair under way when it fires is cut, and the next pass clears what the cut left. Answers its counts beside the first
     /// part's read or write failure, once every part ran; a pair whose pass failed is logged and
     /// the pass goes on.
     pub async fn run_pass(
         &self,
         stop: &CancellationToken,
-        meter: &ProcessorMeter,
     ) -> (CheckpointSweepCounts, Option<CheckpointSweepError>) {
         let mut counts = CheckpointSweepCounts::default();
-        let owed = self.remove_owed_folders(stop, meter, &mut counts).await;
-        let shadows = self.reclaim_unused_shadows(stop, meter, &mut counts).await;
-        let pairs = self.sweep_pairs(stop, meter, &mut counts).await;
+        let owed = self.remove_owed_folders(stop, &mut counts).await;
+        let shadows = self.reclaim_unused_shadows(stop, &mut counts).await;
+        let pairs = self.sweep_pairs(stop, &mut counts).await;
         (counts, owed.and(shadows).and(pairs).err())
     }
 
@@ -322,17 +320,13 @@ impl CheckpointSweep {
     async fn remove_owed_folders(
         &self,
         stop: &CancellationToken,
-        meter: &ProcessorMeter,
         counts: &mut CheckpointSweepCounts,
     ) -> Result<(), CheckpointSweepError> {
-        let read_meter = meter.clone();
         let folders = self
             .deps
             .reads
             .read(ReadLength::Short, move |reader| {
-                read_meter
-                    .measure(|| owed_folders(reader))
-                    .map_err(CheckpointSweepError::from)
+                owed_folders(reader).map_err(CheckpointSweepError::from)
             })
             .await?;
         counts.owed_folders_examined = u64::try_from(folders.len()).unwrap_or(u64::MAX);
@@ -342,10 +336,7 @@ impl CheckpointSweep {
                 break;
             }
             let removed_folder = folder.clone();
-            match meter
-                .run_blocking(move || remove_volume_folder(&removed_folder))
-                .await
-            {
+            match run_blocking(move || remove_volume_folder(&removed_folder)).await {
                 Ok(Ok(VolumeFolderRemoval::Removed)) => {
                     deletes.push(delete_owed_folder_statement(&folder.folder));
                 }
@@ -373,17 +364,13 @@ impl CheckpointSweep {
     async fn reclaim_unused_shadows(
         &self,
         stop: &CancellationToken,
-        meter: &ProcessorMeter,
         counts: &mut CheckpointSweepCounts,
     ) -> Result<(), CheckpointSweepError> {
-        let read_meter = meter.clone();
         let sessions = self
             .deps
             .reads
             .read(ReadLength::Short, move |reader| {
-                read_meter
-                    .measure(|| sessions_with_unused_shadows(reader))
-                    .map_err(CheckpointSweepError::from)
+                sessions_with_unused_shadows(reader).map_err(CheckpointSweepError::from)
             })
             .await?;
         for session_id in sessions {
@@ -402,10 +389,9 @@ impl CheckpointSweep {
     async fn sweep_pairs(
         &self,
         stop: &CancellationToken,
-        meter: &ProcessorMeter,
         counts: &mut CheckpointSweepCounts,
     ) -> Result<(), CheckpointSweepError> {
-        let pairs = self.read_pairs(meter).await?;
+        let pairs = self.read_pairs().await?;
         let listed: HashSet<PairKey> = pairs.iter().map(|pair| pair.key.clone()).collect();
         let mut session_windows = HashMap::new();
         let mut failure = None;
@@ -414,18 +400,16 @@ impl CheckpointSweep {
                 break;
             }
             counts.pairs_examined += 1;
-            let (points, kept_commits) = match self
-                .read_window_points(&pair, &mut session_windows, meter)
-                .await
-            {
-                Ok(read) => read,
-                // Without its windows' points a pass could drop their captures, so none runs.
-                Err(error) => {
-                    lock(&self.passes).remove(&pair.key);
-                    failure.get_or_insert(error);
-                    continue;
-                }
-            };
+            let (points, kept_commits) =
+                match self.read_window_points(&pair, &mut session_windows).await {
+                    Ok(read) => read,
+                    // Without its windows' points a pass could drop their captures, so none runs.
+                    Err(error) => {
+                        lock(&self.passes).remove(&pair.key);
+                        failure.get_or_insert(error);
+                        continue;
+                    }
+                };
             let last = lock(&self.passes).get(&pair.key).cloned();
             let swept = tokio::select! {
                 biased;
@@ -438,7 +422,6 @@ impl CheckpointSweep {
                     &points,
                     &kept_commits,
                     self.deps.clock.now(),
-                    meter,
                 ) => swept,
             };
             let mut passes = lock(&self.passes);
@@ -470,15 +453,12 @@ impl CheckpointSweep {
 
     // Every owner's repository, one pair per owner and repository by its canonical common git
     // folder; a row whose folder does not resolve is logged and left out.
-    async fn read_pairs(&self, meter: &ProcessorMeter) -> Result<Vec<Pair>, CheckpointSweepError> {
-        let read_meter = meter.clone();
+    async fn read_pairs(&self) -> Result<Vec<Pair>, CheckpointSweepError> {
         let rows = self
             .deps
             .reads
             .read(ReadLength::Long, move |reader| {
-                read_meter
-                    .measure(|| read_pair_rows(reader))
-                    .map_err(CheckpointSweepError::from)
+                read_pair_rows(reader).map_err(CheckpointSweepError::from)
             })
             .await?;
         let mut canonical: HashMap<String, Option<PathBuf>> = HashMap::new();
@@ -542,7 +522,6 @@ impl CheckpointSweep {
         &self,
         pair: &Pair,
         session_windows: &mut HashMap<SessionId, Vec<WindowPointRow>>,
-        meter: &ProcessorMeter,
     ) -> Result<(Vec<SnapshotPoint>, Vec<GitObjectId>), CheckpointSweepError> {
         let Some(session_id) = pair.session_id else {
             return Ok((Vec::new(), Vec::new()));
@@ -550,13 +529,11 @@ impl CheckpointSweep {
         let rows = match session_windows.entry(session_id) {
             Entry::Occupied(read) => read.into_mut(),
             Entry::Vacant(unread) => {
-                let read_meter = meter.clone();
                 let rows = self
                     .deps
                     .reads
                     .read(ReadLength::Long, move |reader| {
-                        read_meter
-                            .measure(|| read_window_point_rows(reader, session_id))
+                        read_window_point_rows(reader, session_id)
                             .map_err(CheckpointSweepError::from)
                     })
                     .await?;

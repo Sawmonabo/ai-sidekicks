@@ -62,7 +62,6 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_mcp::client::McpClient;
-use sidekicks_platforms::remove_tree_awaited;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::damaged_history::{
     SessionDeletePurge, SessionDeletePurgeError, SessionDeletion,
@@ -83,7 +82,9 @@ use sidekicks_session::readings::turn::TurnReadings;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::service::SessionService;
 use sidekicks_shell::table::ShellTable;
+use sidekicks_std::file::remove_tree_awaited;
 use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::scheduler::budget::run_blocking;
 use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -355,7 +356,7 @@ impl SessionPurge {
         remove_tree_awaited(&restored_clones_folder(&deps.data_folder, &session_id))
             .await
             .map_err(SessionPurgeError::VolumeFolder)?;
-        let owed_folders = remove_volume_folders(targets.volume_folders, meter)
+        let owed_folders = remove_volume_folders(targets.volume_folders)
             .await
             .map_err(SessionPurgeError::VolumeFolder)?;
         let withdrawn = deps
@@ -588,21 +589,17 @@ fn stored_sequence(sequence: i64) -> SafeInt<0> {
 
 // Removes each of `folders` whose volume is mounted, in one task charged to `meter`, and answers
 // those whose volume is absent; fails at the first folder whose removal or volume read fails.
-async fn remove_volume_folders(
-    folders: Vec<VolumeFolder>,
-    meter: &ProcessorMeter,
-) -> io::Result<Vec<VolumeFolder>> {
-    meter
-        .run_blocking(move || -> io::Result<Vec<VolumeFolder>> {
-            let mut absent = Vec::new();
-            for folder in folders {
-                match remove_volume_folder(&folder)? {
-                    VolumeFolderRemoval::Removed => {}
-                    VolumeFolderRemoval::VolumeAbsent => absent.push(folder),
-                }
+async fn remove_volume_folders(folders: Vec<VolumeFolder>) -> io::Result<Vec<VolumeFolder>> {
+    run_blocking(move || -> io::Result<Vec<VolumeFolder>> {
+        let mut absent = Vec::new();
+        for folder in folders {
+            match remove_volume_folder(&folder)? {
+                VolumeFolderRemoval::Removed => {}
+                VolumeFolderRemoval::VolumeAbsent => absent.push(folder),
             }
-            Ok(absent)
-        })
-        .await
-        .map_err(io::Error::other)?
+        }
+        Ok(absent)
+    })
+    .await
+    .map_err(io::Error::other)?
 }

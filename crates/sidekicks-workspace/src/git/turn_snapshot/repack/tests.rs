@@ -10,7 +10,6 @@ use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_platforms::{is_superuser, make_unwritable};
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::{CaptureFolderSweep, CapturePacking, CapturedCommit, is_fold_due};
@@ -350,16 +349,7 @@ async fn a_sweep_pass_clears_what_a_cut_git_or_a_crash_left_and_keeps_the_rest()
     let folder = capture_folder.folder();
     let settled = SystemTime::now() + SETTLED_READ_DELAY;
     let first = packing
-        .sweep_capture_folder(
-            None,
-            &owner,
-            &common,
-            None,
-            &[],
-            &[],
-            settled,
-            &ProcessorMeter::default(),
-        )
+        .sweep_capture_folder(None, &owner, &common, None, &[], &[], settled)
         .await;
     let Ok(CaptureFolderSweep::Swept(pass)) = first else {
         panic!("the folder is swept, got {first:?}");
@@ -416,16 +406,7 @@ async fn a_sweep_pass_clears_what_a_cut_git_or_a_crash_left_and_keeps_the_rest()
     }
 
     let second = packing
-        .sweep_capture_folder(
-            None,
-            &owner,
-            &common,
-            Some(&pass),
-            &[],
-            &[],
-            settled,
-            &ProcessorMeter::default(),
-        )
+        .sweep_capture_folder(None, &owner, &common, Some(&pass), &[], &[], settled)
         .await;
 
     assert!(
@@ -473,16 +454,7 @@ async fn a_sweep_packs_the_captures_whose_base_no_ref_reaches_and_skips_an_idle_
     let folder = capture_folder.folder();
     let packs_before = counted(&git, folder, "packs").await;
     let reached_sweep = packing
-        .sweep_capture_folder(
-            None,
-            &owner,
-            &common,
-            None,
-            &[],
-            &[],
-            SystemTime::now(),
-            &ProcessorMeter::default(),
-        )
+        .sweep_capture_folder(None, &owner, &common, None, &[], &[], SystemTime::now())
         .await;
     assert!(
         matches!(reached_sweep, Ok(CaptureFolderSweep::Swept(_))),
@@ -527,31 +499,13 @@ async fn a_sweep_packs_the_captures_whose_base_no_ref_reaches_and_skips_an_idle_
 
     let settled = SystemTime::now() + SETTLED_READ_DELAY;
     let first = packing
-        .sweep_capture_folder(
-            None,
-            &owner,
-            &common,
-            None,
-            &[],
-            &[],
-            settled,
-            &ProcessorMeter::default(),
-        )
+        .sweep_capture_folder(None, &owner, &common, None, &[], &[], settled)
         .await;
     let Ok(CaptureFolderSweep::Swept(pass)) = first else {
         panic!("the folder is swept, got {first:?}");
     };
     let second = packing
-        .sweep_capture_folder(
-            None,
-            &owner,
-            &common,
-            Some(&pass),
-            &[],
-            &[],
-            settled,
-            &ProcessorMeter::default(),
-        )
+        .sweep_capture_folder(None, &owner, &common, Some(&pass), &[], &[], settled)
         .await;
     let Ok(CaptureFolderSweep::Skipped(idle)) = second else {
         panic!("the idle folder is skipped, got {second:?}");
@@ -561,16 +515,7 @@ async fn a_sweep_packs_the_captures_whose_base_no_ref_reaches_and_skips_an_idle_
     let kept_config = std::fs::read(&config).expect("the folder's config is read");
     std::fs::write(&config, "[broken\n").expect("the folder's config is written");
     let third = packing
-        .sweep_capture_folder(
-            None,
-            &owner,
-            &common,
-            Some(&idle),
-            &[],
-            &[],
-            settled,
-            &ProcessorMeter::default(),
-        )
+        .sweep_capture_folder(None, &owner, &common, Some(&idle), &[], &[], settled)
         .await;
     assert!(
         matches!(third, Ok(CaptureFolderSweep::Skipped(_))),
@@ -618,16 +563,7 @@ async fn a_sweep_of_a_deleted_repository_answers_its_absence_and_keeps_its_folde
     .expect("the partial folder is aged");
 
     let swept = packing
-        .sweep_capture_folder(
-            None,
-            &owner,
-            &common,
-            None,
-            &[],
-            &[],
-            SystemTime::now(),
-            &ProcessorMeter::default(),
-        )
+        .sweep_capture_folder(None, &owner, &common, None, &[], &[], SystemTime::now())
         .await;
 
     assert!(
@@ -728,16 +664,7 @@ async fn a_sweep_packs_again_a_capture_whose_own_pack_failed(#[case] is_restarte
     };
 
     let swept = sweeping
-        .sweep_capture_folder(
-            None,
-            &owner,
-            &common,
-            None,
-            &[],
-            &[],
-            SystemTime::now(),
-            &ProcessorMeter::default(),
-        )
+        .sweep_capture_folder(None, &owner, &common, None, &[], &[], SystemTime::now())
         .await;
     write_in(&git, &repository, &["reset", "--quiet"]).await;
     collect_garbage(&git, &repository).await;
@@ -811,23 +738,13 @@ async fn a_sweep_or_a_pack_queued_behind_the_owners_hold_finds_its_folder_gone(
         .await
         .expect("the owner's folders are held");
     let handles = packing.folder_lock.queue_handle_count(folder.clone());
-    let meter = ProcessorMeter::default();
     let commit = GitObjectId::new(commit).expect("the commit is an object id");
     let captured = CapturedCommit::new(capture_folder, commit.clone(), commit, None);
     let mut waiting = std::pin::pin!(async {
         match held_back {
             HeldBack::Sweep => Some(
                 packing
-                    .sweep_capture_folder(
-                        None,
-                        &owner,
-                        &common,
-                        None,
-                        &[],
-                        &[],
-                        SystemTime::now(),
-                        &meter,
-                    )
+                    .sweep_capture_folder(None, &owner, &common, None, &[], &[], SystemTime::now())
                     .await,
             ),
             HeldBack::Pack => {

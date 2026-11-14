@@ -29,7 +29,7 @@ use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::missing_entry::{MissingEntry as _, is_gone};
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_std::scheduler::budget::run_blocking;
 use tokio::time::Instant;
 
 use crate::git::process::version::GitFeature;
@@ -357,7 +357,8 @@ impl CapturePacking {
 
     /// One sweep pass over the capture folder of the owner whose folder is `owner_folder`, for the
     /// repository whose common git folder is `common_folder`, running git for the project at
-    /// `place`, its blocking work charged to `meter`. A repository whose common git folder is gone
+    /// `place`, its blocking work charged to the meter of the metered run whose task calls, if any.
+    /// A repository whose common git folder is gone
     /// answers `RepositoryGone` and keeps its capture folder; a capture folder a purge removed
     /// before the pass's turn answers `Absent`. Every pass first removes the owner's capture
     /// folders still being made and, once git has counted the folder's objects, git's temporaries
@@ -376,7 +377,7 @@ impl CapturePacking {
     /// failure, so no pass is kept and the next sweep runs it all.
     #[expect(
         clippy::too_many_arguments,
-        reason = "each is one fact of the pass the caller holds, the meter its job's own"
+        reason = "each is one fact of the pass the caller holds"
     )]
     pub async fn sweep_capture_folder(
         &self,
@@ -387,17 +388,12 @@ impl CapturePacking {
         extra_points: &[SnapshotPoint],
         kept_commits: &[GitObjectId],
         read_at: SystemTime,
-        meter: &ProcessorMeter,
     ) -> Result<CaptureFolderSweep, PackingError> {
         // Owner-wide and before the repository is resolved, so a half-made folder of a repository
         // since deleted is cleared too.
         let owner = owner_folder.to_path_buf();
-        joined(
-            meter
-                .run_blocking(move || clear_partial_capture_folders(&owner))
-                .await,
-        )
-        .map_err(PackingError::Folder)?;
+        joined(run_blocking(move || clear_partial_capture_folders(&owner)).await)
+            .map_err(PackingError::Folder)?;
         let Some(capture_folder) = CaptureFolder::open_existing(owner_folder, common_folder)
             .await
             .map_err(PackingError::Folder)?
@@ -413,7 +409,7 @@ impl CapturePacking {
         }
         // Read before any work, so a change made during the pass is seen by the next one.
         let common = common_folder.to_path_buf();
-        let ref_state = joined(meter.run_blocking(move || read_ref_state(&common)).await)
+        let ref_state = joined(run_blocking(move || read_ref_state(&common)).await)
             .map_err(PackingError::Folder)?;
         let folder = capture_folder.folder().to_path_buf();
         let hold = self.folder_lock.acquire(folder.clone()).await;
@@ -421,13 +417,9 @@ impl CapturePacking {
             return Ok(CaptureFolderSweep::Absent);
         }
         let objects = folder.join(OBJECTS_SEGMENT);
-        let object_folders = joined(
-            meter
-                .run_blocking(move || read_object_folder_state(&objects))
-                .await,
-        )
-        .map_err(PackingError::Folder)?;
-        let due_marks = self.read_due_marks(place, &folder, &hold, meter).await?;
+        let object_folders = joined(run_blocking(move || read_object_folder_state(&objects)).await)
+            .map_err(PackingError::Folder)?;
+        let due_marks = self.read_due_marks(place, &folder, &hold).await?;
         let is_unchanged = last_pass.is_some_and(|last| last.is_unchanged_by(&ref_state));
         let is_held_back = !due_marks.is_empty() || lock(&self.failed_packs).contains_key(&folder);
         // An idle folder starts no git process: its refs and its object folders read as the last
@@ -437,7 +429,7 @@ impl CapturePacking {
             && !is_held_back
             && !self.is_fold_due(&folder, packs)
         {
-            self.clear_leftovers(&folder, false, meter).await?;
+            self.clear_leftovers(&folder, false).await?;
             return Ok(CaptureFolderSweep::Skipped(CaptureFolderPass {
                 ref_state,
                 object_folders,
@@ -450,7 +442,7 @@ impl CapturePacking {
         // folders are listed only then.
         let is_object_folder_walked = counts.garbage > 0 || counts.loose > 0;
         let stale_objects = self
-            .clear_leftovers(&folder, is_object_folder_walked, meter)
+            .clear_leftovers(&folder, is_object_folder_walked)
             .await?;
         let mut pass = CaptureFolderPass {
             ref_state,
@@ -515,7 +507,7 @@ impl CapturePacking {
                 points: extra_points,
                 commits: kept_commits,
             };
-            self.reclaim(place, &folder, &reclaim, &due_marks, &hold, meter)
+            self.reclaim(place, &folder, &reclaim, &due_marks, &hold)
                 .await?;
         }
         self.fold_held(place, &folder, &hold).await?;
@@ -528,15 +520,13 @@ impl CapturePacking {
         &self,
         folder: &Path,
         is_object_folder_walked: bool,
-        meter: &ProcessorMeter,
     ) -> Result<Vec<GitObjectId>, PackingError> {
         let (cleared, run_began_at) = (folder.to_path_buf(), self.began_at);
         joined(
-            meter
-                .run_blocking(move || {
-                    clear_capture_folder_leftovers(&cleared, is_object_folder_walked, run_began_at)
-                })
-                .await,
+            run_blocking(move || {
+                clear_capture_folder_leftovers(&cleared, is_object_folder_walked, run_began_at)
+            })
+            .await,
         )
         .map_err(PackingError::Folder)
     }

@@ -631,7 +631,7 @@ async fn read_list(table: Weak<TableShared>, session_id: SessionId) -> TerminalL
             status: shell.status(),
             holder,
             lease_version,
-            last_command_end: shell.last_command_end(),
+            last_command_end: shell.marks.last_command_end(),
         });
     }
     TerminalListUpdate {

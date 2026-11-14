@@ -16,7 +16,6 @@ use sidekicks_platforms::{file_facts, read_volume, real_path};
 use sidekicks_provider::port::command_capture::{
     CommandCapture as _, CommandWindowEnd, CommandWindowId as PortWindowId,
 };
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::data_folder::{session_storage_folder, workflow_run_folder};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -72,9 +71,7 @@ fn sweep_over(fixture: &Fixture) -> (CheckpointSweep, Arc<TestWallClock>) {
 // One whole pass, its clock set past the test's writes.
 async fn pass(sweep: &CheckpointSweep, clock: &TestWallClock) -> CheckpointSweepCounts {
     clock.set_now(SystemTime::now() + SETTLED_READ_DELAY);
-    let (counts, failure) = sweep
-        .run_pass(&CancellationToken::new(), &ProcessorMeter::default())
-        .await;
+    let (counts, failure) = sweep.run_pass(&CancellationToken::new()).await;
     if let Some(failure) = failure {
         panic!("the pass runs, got {failure:?}");
     }

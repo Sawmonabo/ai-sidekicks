@@ -17,7 +17,7 @@ use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_platforms::create_private_folder;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::missing_entry::MissingEntry as _;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_std::scheduler::budget::run_blocking;
 use tokio::time::Instant;
 
 use super::answers::read_object_ids;
@@ -94,10 +94,9 @@ impl CapturePacking {
         place: Option<&Place>,
         folder: &Path,
         _hold: &KeyHold<'_, PathBuf>,
-        meter: &ProcessorMeter,
     ) -> Result<Vec<PathBuf>, PackingError> {
         let reclaims = folder.join(RECLAIMS_SEGMENT);
-        let marks = joined(meter.run_blocking(move || list_marks(&reclaims)).await)
+        let marks = joined(run_blocking(move || list_marks(&reclaims)).await)
             .map_err(PackingError::Folder)?;
         let mut due = Vec::new();
         for (mark, name) in marks {
@@ -141,15 +140,12 @@ impl CapturePacking {
         kept: &ReclaimKept<'_>,
         due_marks: &[PathBuf],
         _hold: &KeyHold<'_, PathBuf>,
-        meter: &ProcessorMeter,
     ) -> Result<(), PackingError> {
         let started = Instant::now();
-        let kept = self
-            .read_kept_objects(place, folder, kept, started, meter)
-            .await?;
+        let kept = self.read_kept_objects(place, folder, kept, started).await?;
         let pack_folder = folder.join(OBJECTS_SEGMENT).join(PACK_SEGMENT);
         let listed_folder = pack_folder.clone();
-        let packs = joined(meter.run_blocking(move || list_packs(&listed_folder)).await)
+        let packs = joined(run_blocking(move || list_packs(&listed_folder)).await)
             .map_err(PackingError::Folder)?;
         let cutoff = SystemTime::now()
             .checked_sub(STALE_LEFTOVER_AGE)
@@ -163,7 +159,7 @@ impl CapturePacking {
         let mut is_dropping = false;
         for pack in &older {
             let index = pack.data_file.with_extension(PACK_INDEX_EXTENSION);
-            let index_bytes = joined(meter.run_blocking(move || fs::read(index)).await)
+            let index_bytes = joined(run_blocking(move || fs::read(index)).await)
                 .map_err(PackingError::Folder)?;
             let arguments = in_git_folder(folder, &[], &["show-index"]);
             let output = self
@@ -192,12 +188,8 @@ impl CapturePacking {
             let call = GitCall::read(arguments).with_input(object_lines(&kept));
             let output = self.git.run_within(place, call, remaining(started)).await?;
             let new_pack = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            joined(
-                meter
-                    .run_blocking(move || remove_old_packs(&pack_folder, older, &new_pack))
-                    .await,
-            )
-            .map_err(PackingError::Folder)?;
+            joined(run_blocking(move || remove_old_packs(&pack_folder, older, &new_pack)).await)
+                .map_err(PackingError::Folder)?;
             self.prune_packed(place, folder).await?;
         }
         let arguments = in_git_folder(
@@ -221,7 +213,7 @@ impl CapturePacking {
             .all(|object| kept.contains(object));
         if is_reclaimed {
             let marks = due_marks.to_vec();
-            joined(meter.run_blocking(move || remove_marks(&marks)).await)
+            joined(run_blocking(move || remove_marks(&marks)).await)
                 .map_err(PackingError::Folder)?;
         }
         Ok(())
@@ -236,7 +228,6 @@ impl CapturePacking {
         folder: &Path,
         kept: &ReclaimKept<'_>,
         started: Instant,
-        meter: &ProcessorMeter,
     ) -> Result<HashSet<GitObjectId>, PackingError> {
         const LISTING: [&str; 5] = [
             "rev-list",
@@ -259,12 +250,8 @@ impl CapturePacking {
             .into_iter()
             .collect();
         let indexes = folder.join(INDEXES_SEGMENT);
-        let kept_indexes = joined(
-            meter
-                .run_blocking(move || list_kept_indexes(&indexes))
-                .await,
-        )
-        .map_err(PackingError::Folder)?;
+        let kept_indexes = joined(run_blocking(move || list_kept_indexes(&indexes)).await)
+            .map_err(PackingError::Folder)?;
         // A command capture under way reuses its kept index's entries without writing them again.
         let mut arguments = LISTING.to_vec();
         arguments.extend(["--indexed-objects", "--stdin"]);

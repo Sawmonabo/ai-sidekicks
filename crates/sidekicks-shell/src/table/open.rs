@@ -143,18 +143,19 @@ impl TableShared {
         };
         let terminal_id =
             TerminalId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a terminal id");
-        let record = {
+        let (record, list) = {
             let mut sessions = self.lock_sessions();
             let list = self.session_of(&mut sessions, session_id).list.clone();
-            ShellRecord::new(
+            let record = ShellRecord::new(
                 *session_id,
                 terminal_id.clone(),
                 request.client_idempotency_key.clone(),
                 start.program_name,
                 folder,
                 Arc::clone(&self.record_deps),
-                list,
-            )
+                list.clone(),
+            );
+            (record, list)
         };
         let listening = Arc::clone(&record);
         let spawned = self
@@ -163,7 +164,7 @@ impl TableShared {
             .spawn(
                 start.request,
                 move |answers| listening.listen(answers),
-                record.marks.mark_filter(&mark_nonce.nonce),
+                record.marks.mark_filter(&mark_nonce.nonce, list),
             )
             .await;
         match spawned {

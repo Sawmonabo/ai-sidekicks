@@ -133,37 +133,30 @@ async fn read_mirror_roots(
                 .map_err(|source| refused(place, source))
         })
         .collect::<io::Result<Vec<_>>>()?;
-    let read_meter = meter.clone();
     let volume_folders = reads
-        .read(ReadLength::Short, move |connection| {
-            read_meter
-                .measure(|| every_volume_folder(connection))
-                .map_err(VolumeCloneFoldersReadError::from)
+        .read(ReadLength::Short, |connection| {
+            every_volume_folder(connection).map_err(VolumeCloneFoldersReadError::from)
         })
         .await
         .map_err(io::Error::other)?;
     let read_data_folder = data_folder.clone();
-    let volume_folders = meter
-        .run_blocking(move || {
-            volume_folders
-                .into_iter()
-                .map(|(session_id, volume_folder)| {
-                    let restored = restored_clone_folder(
-                        &read_data_folder,
-                        &session_id,
-                        &volume_folder.volume_id,
-                    );
-                    let state = read_volume_folder_state(&volume_folder).and_then(|state| {
-                        let is_restored_present =
-                            fs::symlink_metadata(&restored).none_if_missing()?.is_some();
-                        Ok((state, is_restored_present))
-                    });
-                    (session_id, volume_folder, restored, state)
-                })
-                .collect::<Vec<_>>()
-        })
-        .await
-        .map_err(io::Error::other)?;
+    let volume_folders = run_blocking(move || {
+        volume_folders
+            .into_iter()
+            .map(|(session_id, volume_folder)| {
+                let restored =
+                    restored_clone_folder(&read_data_folder, &session_id, &volume_folder.volume_id);
+                let state = read_volume_folder_state(&volume_folder).and_then(|state| {
+                    let is_restored_present =
+                        fs::symlink_metadata(&restored).none_if_missing()?.is_some();
+                    Ok((state, is_restored_present))
+                });
+                (session_id, volume_folder, restored, state)
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(io::Error::other)?;
     for (session_id, volume_folder, restored, state) in volume_folders {
         let (state, is_restored_present) = match state {
             Ok((state, is_restored_present)) => (Some(state), is_restored_present),
@@ -189,10 +182,10 @@ async fn read_mirror_roots(
     }
     let workflows_home = home_folder.to_path_buf();
     let workflows_data_folder = data_folder.clone();
-    let workflow_roots = meter
-        .run_blocking(move || workflow_capture_roots(&workflows_home, &workflows_data_folder))
-        .await
-        .map_err(io::Error::other)??;
+    let workflow_roots =
+        run_blocking(move || workflow_capture_roots(&workflows_home, &workflows_data_folder))
+            .await
+            .map_err(io::Error::other)??;
     roots.extend(workflow_roots);
     Ok(roots)
 }

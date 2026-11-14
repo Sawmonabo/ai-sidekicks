@@ -344,6 +344,7 @@ mod tests {
     };
     use crate::control_lease::tests::{LeaseUnderTest, run};
     use crate::control_lease::{ShellConnection, ShellLeaseCaller};
+    use crate::list::ShellListFollowers;
     use crate::output::stream::ShellOutputEnd;
     use crate::record::{ShellMarkFilter, ShellMarkState};
     use crate::write::{ShellInput, ShellInputHooks, ShellWriteInput};
@@ -397,8 +398,10 @@ mod tests {
                 },
                 Handle::current(),
             );
+            // No one follows this shell's list, so its read is never awaited to an end.
+            let list = ShellListFollowers::new(Arc::new(|| std::future::pending().boxed()));
             Self {
-                filter: marks.mark_filter(NONCE),
+                filter: marks.mark_filter(NONCE, list),
                 lease,
                 marks,
                 input,

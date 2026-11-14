@@ -8,7 +8,6 @@ use std::time::SystemTime;
 use sidekicks_platforms::real_path;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::backup_mirror::{
     CopiedIndex, CopiedIndexCheck, LiveGitFolders, MirrorError, MirrorReport, MirrorRoot,
     mirror_roots,
@@ -219,16 +218,7 @@ impl LiveGitFolders for SweepDuringCopy {
         );
         let mut sweep = runtime.spawn(async move {
             let swept = packing
-                .sweep_capture_folder(
-                    None,
-                    &owner,
-                    &common,
-                    None,
-                    &[],
-                    &[],
-                    SystemTime::now(),
-                    &ProcessorMeter::default(),
-                )
+                .sweep_capture_folder(None, &owner, &common, None, &[], &[], SystemTime::now())
                 .await;
             is_swept.store(true, Ordering::SeqCst);
             swept

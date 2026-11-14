@@ -337,13 +337,16 @@ async fn a_command_s_end_mark_reaches_the_list_and_a_printed_or_empty_end_does_n
             .expect("the list is followed");
     let gate = CreditGate::with_credit(1);
     assert_eq!(next_command_end(&mut feed, &gate).await, None);
-    let mut filter = record.mark_filter(NONCE);
+    let list = fixture.table.shared.lock_sessions()[&session()]
+        .list
+        .clone();
+    let mut filter = record.marks.mark_filter(NONCE, list);
     let mut kept = Vec::new();
 
     let printed_and_empty =
         format!("\x1b]133;D;3;nonce=1111111111\x07\x1b]133;D;3\x07\x1b]133;D;nonce={NONCE}\x07");
     filter.filter(printed_and_empty.as_bytes(), &mut kept);
-    assert_eq!(record.last_command_end(), None);
+    assert_eq!(record.marks.last_command_end(), None);
     filter.filter(
         format!("done\r\n\x1b]133;D;3;nonce={NONCE}\x07").as_bytes(),
         &mut kept,
@@ -357,5 +360,5 @@ async fn a_command_s_end_mark_reaches_the_list_and_a_printed_or_empty_end_does_n
     };
     assert_eq!(end.exit_code.get(), 3);
     assert!(end.ended_at.timestamp().is_some(), "{end:?}");
-    assert_eq!(record.last_command_end(), Some(end));
+    assert_eq!(record.marks.last_command_end(), Some(end));
 }
