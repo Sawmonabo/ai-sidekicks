@@ -13,8 +13,8 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::streaming::STREAM_FRAME_MAX_CHANGES;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{
-    MessageText, QueueItemId, QueueItemNotDeliveredReason, QueueItemSummary, QueueMessageSummary,
-    UserMessageSentPayload,
+    MessageContent, MessageText, QueueItemId, QueueItemNotDeliveredReason, QueueItemSummary,
+    QueueMessageSummary, UserMessageSentPayload,
 };
 use sidekicks_contracts::run::queued::AgentRunQueuedPayload;
 use sidekicks_contracts::run::state::RunState;
@@ -118,6 +118,7 @@ fn live_send(item: NewQueueItem, retries: Option<QueueItemRecord>) -> RecordedSe
         item,
         route: SendRoute::LiveRun,
         retries,
+        attachment_kinds: Vec::new(),
     }
 }
 
@@ -401,6 +402,7 @@ async fn each_write_raises_its_queue_once_and_moves_the_order_only_when_no_event
                 actor: FreeFormText::new("test-device".to_owned()).expect("a test actor"),
                 device_id: Some(device_id()),
                 message: MessageText::new("Look again".to_owned()).expect("a test message"),
+                first_words: MessageContent::new("Look again".to_owned()).expect("test words"),
                 origin: None,
                 answers_question_id: None,
                 plan_message: None,

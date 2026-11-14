@@ -1,7 +1,8 @@
 //! `session.snapshot.list`: the inspector's list of a project session's snapshots, one per prompt a
 //! run took, a turn's opening or a steer, each the checkpoint standing before that prompt and named
-//! `Before` and the prompt's first words; a turn's start that no new prompt opened has no row. The
-//! session's row, its checkpoints and their prompts come from one database read; a chat has none.
+//! `Before` and the first words the prompt's row records, a message of files alone's in lower
+//! case; a turn's start that no new prompt opened has no row. The session's row, its checkpoints
+//! and their prompts come from one database read; a chat has none.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,7 +22,7 @@ use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use sidekicks_session::auto_title::first_words_of;
+use sidekicks_session::auto_title::first_words_after_before;
 use sidekicks_session::checkpoints::store::kept::list_checkpoints;
 use sidekicks_session::run::superseded::SupersededTurnsReadError;
 use sidekicks_store::database::connection::read_pool::{
@@ -171,7 +172,7 @@ fn read_snapshots(
         };
         let name = NonEmptyText::new(format!(
             "Before {}",
-            first_words_of(prompt.message.as_str())
+            first_words_after_before(prompt.message.as_str(), &prompt.first_words)
         ))
         .expect("a name that starts with `Before` is never empty");
         snapshots.push(SessionSnapshotSummary {
@@ -203,6 +204,7 @@ mod tests {
     use sidekicks_ipc::registry::{
         Dispatch as _, DispatchError, MethodRegistry, MethodRegistryBuilder, Reply,
     };
+    use sidekicks_session::auto_title::{AttachmentKind, message_first_words};
     use sidekicks_session::checkpoints::schema::schema_parts;
     use sidekicks_session::checkpoints::store::{Checkpoint, insert_checkpoint_statement};
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -262,13 +264,24 @@ mod tests {
                 .expect("the test sets the session's shape");
         }
 
-        /// Appends the person's `message` to `session_id`'s log and answers its sequence.
-        async fn send(&self, session_id: SessionId, message: &str) -> SafeInt<0> {
+        /// Appends the person's `message`, carrying files of `attachment_kinds`, to `session_id`'s
+        /// log and answers its sequence.
+        async fn send(
+            &self,
+            session_id: SessionId,
+            message: &str,
+            attachment_kinds: &[AttachmentKind],
+        ) -> SafeInt<0> {
             self.append(
                 session_id,
                 json!({
                     "type": "user.message.sent",
-                    "payload": { "sessionId": session_id, "actor": "person", "message": message },
+                    "payload": {
+                        "sessionId": session_id,
+                        "actor": "person",
+                        "message": message,
+                        "firstWords": message_first_words(message, attachment_kinds),
+                    },
                 }),
             )
             .await
@@ -367,7 +380,7 @@ mod tests {
         let fixture = Fixture::new().await;
         let session_id = test_session_id();
         fixture.hold_session(session_id, SessionShape::Chat);
-        let prompt = fixture.send(session_id, "Tidy the notes").await;
+        let prompt = fixture.send(session_id, "Tidy the notes", &[]).await;
         fixture
             .record(session_id, prompt, "2026-10-20T09:00:00.000Z")
             .await;
@@ -378,14 +391,17 @@ mod tests {
     // Killed by a name taken from another prompt (the steer between the two prompts, or the
     // other checkpoint's), by an id that is not the checkpoint's, by a time that is not the
     // checkpoint's own, by rows out of prompt order (the later checkpoint is written first), and
-    // by the checkpoint of a turn's start that no prompt opened failing the list or listed.
+    // by the checkpoint of a turn's start that no prompt opened failing the list or listed, and by
+    // a prompt of one image alone named `Before ` with nothing after it or in the words' own case.
     #[tokio::test]
     async fn a_project_lists_each_checkpoint_named_for_its_own_prompt_oldest_first() {
         let fixture = Fixture::new().await;
         let session_id = test_session_id();
         fixture.hold_session(session_id, SessionShape::Project);
-        let first_prompt = fixture.send(session_id, "Rename\tthe  config loader").await;
-        fixture.send(session_id, "Also check the docs").await;
+        let first_prompt = fixture
+            .send(session_id, "Rename\tthe  config loader", &[])
+            .await;
+        fixture.send(session_id, "Also check the docs", &[]).await;
         let answer_turn = fixture
             .append(
                 session_id,
@@ -407,6 +423,7 @@ mod tests {
             .send(
                 session_id,
                 "Add a retry to the upload client so a dropped connection resumes",
+                &[],
             )
             .await;
         let second = fixture
@@ -414,6 +431,10 @@ mod tests {
             .await;
         let first = fixture
             .record(session_id, first_prompt, "2026-10-20T09:00:00.000Z")
+            .await;
+        let image_prompt = fixture.send(session_id, "", &[AttachmentKind::Image]).await;
+        let image = fixture
+            .record(session_id, image_prompt, "2026-10-20T09:07:00.000Z")
             .await;
 
         assert_eq!(
@@ -428,6 +449,11 @@ mod tests {
                     "snapshotId": second.as_str(),
                     "name": "Before Add a retry to the upload client so a",
                     "createdAt": "2026-10-20T09:05:00.000Z",
+                },
+                {
+                    "snapshotId": image.as_str(),
+                    "name": "Before attached image",
+                    "createdAt": "2026-10-20T09:07:00.000Z",
                 },
             ])
         );

@@ -102,6 +102,7 @@ impl QueueAdmission {
                     execution_posture,
                     true,
                 ),
+                // None for a message of files alone, whose row already recorded what it carries.
                 opening_words: read_message_words(
                     &opening
                         .body

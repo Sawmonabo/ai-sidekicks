@@ -67,6 +67,7 @@ fn a_turn_whose_body_cannot_be_read_keeps_its_place_and_another_run_stays_out() 
             "runId": run_id,
             "actor": "person",
             "message": "Fix the build",
+            "firstWords": "Fix the build",
         },
     });
     let turn_ended = json!({
@@ -106,6 +107,7 @@ fn a_turn_whose_body_cannot_be_read_keeps_its_place_and_another_run_stays_out() 
             "runId": other_run_id,
             "actor": "person",
             "message": "Another run",
+            "firstWords": "Another run",
         },
     });
     append(&writer, &session_id, other_run_message, None);

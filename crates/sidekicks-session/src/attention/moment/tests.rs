@@ -289,7 +289,7 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
 )]
 #[case::user_message(
     json!({"type": "user.message.sent", "payload": {
-        "sessionId": SESSION, "actor": "person", "message": "hi",
+        "sessionId": SESSION, "actor": "person", "message": "hi", "firstWords": "hi",
     }}),
     AttentionChange::Nothing
 )]

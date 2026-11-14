@@ -381,6 +381,7 @@ pub async fn write_queued_answers(fixture: &Fixture) -> QueuedAnswers {
             "actor": "device-1",
             "deviceId": "device-1",
             "message": "Which one?\nAlpha",
+            "firstWords": "Which one? Alpha",
             "answersQuestionId": unwaited,
         })
     };

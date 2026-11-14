@@ -8,6 +8,7 @@ fn sent_row(plan_message: Option<Value>) -> Value {
         "sessionId": "0190f5a4-1c2b-7d3e-8f40-5a6b7c8d9e0f",
         "actor": "device-1",
         "message": "Build this plan.",
+        "firstWords": "Build this plan.",
     });
     if let Some(plan_message) = plan_message {
         row["planMessage"] = plan_message;

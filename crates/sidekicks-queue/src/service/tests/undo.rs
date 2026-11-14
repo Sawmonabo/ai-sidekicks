@@ -28,6 +28,7 @@ use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::rewind::RewindConversationResult;
 use sidekicks_provider::driver::session_control::SessionCloseCause;
 use sidekicks_provider::port::run_host::RunHost;
+use sidekicks_session::auto_title::message_first_words;
 use sidekicks_session::checkpoints::schema::{CheckpointVersionContent, CheckpointVersionLeg};
 use sidekicks_session::checkpoints::store::{
     Checkpoint, CheckpointVersion, insert_checkpoint_statement, insert_version_statement,
@@ -396,6 +397,7 @@ impl Fixture {
                 "queueItemId": queue_item_id,
                 "runId": run_id,
                 "actor": "device-1",
+                "firstWords": message_first_words(&words, &[]),
                 "message": words,
             }),
         );

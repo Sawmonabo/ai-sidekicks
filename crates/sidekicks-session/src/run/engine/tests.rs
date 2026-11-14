@@ -232,6 +232,7 @@ pub(crate) async fn send(
             "actor": "device-1",
             "deviceId": "device-1",
             "message": "Go on",
+            "firstWords": "Go on",
         },
     }))
     .expect("the test writes a sent message");

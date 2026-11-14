@@ -126,7 +126,7 @@ pub struct RunQueueDeps {
     /// Marks a run whose continue after an orphaned answer failed on the daemon's side as halted.
     pub halted_runs: Arc<dyn HaltedRunRecord>,
     /// Binds a kept message's files to their stored copies, for the words a continued helper's
-    /// messages make in its lead's continue.
+    /// messages make in its lead's continue, and reads what a message of files alone carries.
     pub attachments: Arc<dyn AttachmentResolver>,
 }
 
@@ -194,6 +194,7 @@ impl RunQueue {
             }));
             let session_lock = Arc::new(QueueSessionLock::new());
             let openings = Arc::new(RunOpenings::default());
+            let send_attachments = Arc::clone(&attachments);
             let undo_reads = (
                 Arc::clone(&providers),
                 Arc::clone(&provider_sessions),
@@ -250,6 +251,7 @@ impl RunQueue {
                 delivery: delivery.clone(),
                 admission: Arc::clone(&admission),
                 lifecycle: Arc::clone(&lifecycle),
+                attachments: send_attachments,
             });
             let following = {
                 let lifecycle = Arc::clone(&lifecycle);

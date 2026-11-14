@@ -659,6 +659,7 @@ mod tests {
                     "runId": log.run_id,
                     "actor": "person",
                     "message": "Plan the change",
+                    "firstWords": "Plan the change",
                 },
             }),
             None,

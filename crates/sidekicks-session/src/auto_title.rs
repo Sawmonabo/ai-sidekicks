@@ -6,7 +6,8 @@
 //! whose name the person clears is named again the same way, a pass under way finishing as that
 //! naming, and the fresh name is told to its providers, since no provider takes an empty name. A
 //! session left unnamed while the daemon was not following it is named at the next start, one
-//! session at a time. The same name, or those first words, give a worktree's name its title.
+//! session at a time. The same name, or those first words, give a worktree's name its title. A
+//! message of files alone reads what it carries wherever its first words stand, worded here once.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -19,10 +20,11 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::MessageContent;
 use sidekicks_contracts::session::events::SessionRenamedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
+use sidekicks_contracts::wire::text::{is_blank, is_ecmascript_whitespace};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{
     NAME_SESSION_REPLY_MAX_BYTES, NameSessionParams,
@@ -501,10 +503,11 @@ pub async fn read_session_title_words(
         .await
 }
 
-/// The one rule for a name taken from a message's words, which names both a session with no name
-/// of its own and the snapshot standing before a prompt. It keeps the message's whole words, split
-/// at ECMAScript whitespace and joined by single spaces, up to [`DERIVED_NAME_MAX_CODE_POINTS`]
-/// (a first word longer than that cut at it), and is empty when the message has no words.
+/// The one rule for a name taken from a message's words, which names a session with no name of
+/// its own and, through [`message_first_words`], every place a message's first words stand. It
+/// keeps the message's whole words, split at ECMAScript whitespace and joined by single spaces, up
+/// to [`DERIVED_NAME_MAX_CODE_POINTS`] (a first word longer than that cut at it), and is empty
+/// when the message has no words.
 pub fn first_words_of(message: &str) -> String {
     let mut words = message
         .split(is_ecmascript_whitespace)
@@ -527,6 +530,54 @@ pub fn first_words_of(message: &str) -> String {
         code_points = extended;
     }
     name
+}
+
+/// What one file a message carries is, told by its stored media type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttachmentKind {
+    /// A file whose stored media type is `image/…`.
+    Image,
+    /// Any other file, and one whose stored copy no longer reads.
+    File,
+}
+
+impl AttachmentKind {
+    /// The kind a stored media type names: an `image/…` type, in any case, is an image.
+    pub fn of_media_type(media_type: &str) -> Self {
+        let is_image = media_type
+            .split_once('/')
+            .is_some_and(|(kind, _)| kind.eq_ignore_ascii_case("image"));
+        if is_image { Self::Image } else { Self::File }
+    }
+}
+
+/// What a message reads as wherever its first words stand: [`first_words_of`] its words, or for a
+/// message of files alone what `attachment_kinds` holds and how many, `Attached image`,
+/// `2 attached images`, `Attached file` or `3 attached files`, the last for images with other
+/// files. Panics on a message with neither words nor a file, which no send holds.
+pub fn message_first_words(message: &str, attachment_kinds: &[AttachmentKind]) -> MessageContent {
+    let words = first_words_of(message);
+    let is_every_image = attachment_kinds
+        .iter()
+        .all(|kind| *kind == AttachmentKind::Image);
+    let first_words = match (words.is_empty(), attachment_kinds.len(), is_every_image) {
+        (false, _, _) | (true, 0, _) => words,
+        (true, 1, true) => "Attached image".to_owned(),
+        (true, 1, false) => "Attached file".to_owned(),
+        (true, count, true) => format!("{count} attached images"),
+        (true, count, false) => format!("{count} attached files"),
+    };
+    MessageContent::new(first_words).expect("a message holds words or at least one file")
+}
+
+/// `first_words` of a message whose words are `message` as they read after `Before`: a message's
+/// own words as written, and what a message of files alone carries in lower case.
+pub fn first_words_after_before(message: &str, first_words: &MessageContent) -> String {
+    if is_blank(message) {
+        first_words.as_str().to_lowercase()
+    } else {
+        first_words.as_str().to_owned()
+    }
 }
 
 // What `session_id`'s naming reads, in one snapshot; `None` when no lead run completed, when the

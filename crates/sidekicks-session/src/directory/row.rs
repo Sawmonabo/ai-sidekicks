@@ -268,13 +268,13 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         }
         SessionEventType::UserMessageSent => {
             let sent: UserMessageSentPayload = payload_as(event_type, event.payload)?;
-            // A message of files alone has no words to preview, so a later one's words do.
-            if is_blank(sent.message.as_str()) {
-                return Ok(None);
-            }
-            keep_first_column(ColumnValue::FirstMessagePreview(Some(
-                first_message_preview_of(sent.message.as_str()),
-            )))
+            // A message of files alone previews as what it carries.
+            let preview = if is_blank(sent.message.as_str()) {
+                sent.first_words.into_string()
+            } else {
+                first_message_preview_of(sent.message.as_str())
+            };
+            keep_first_column(ColumnValue::FirstMessagePreview(Some(preview)))
         }
         SessionEventType::AgentRunCompleted
         | SessionEventType::AgentRunFailed
@@ -441,8 +441,8 @@ fn mark_time_of(
         .map_err(DirectoryRowError::MarkTime)
 }
 
-// The row's preview of a message: its opening, leading whitespace dropped, cut to the session
-// name's bound in code points. A message is never blank, so the preview is never empty.
+// The row's preview of a message with words: its opening, leading whitespace dropped, cut to the
+// session name's bound in code points, so the preview is never empty.
 fn first_message_preview_of(message: &str) -> String {
     let opening = message.trim_start_matches(is_ecmascript_whitespace);
     cut_to_code_points(opening, SESSION_NAME_MAX_LEN).to_owned()

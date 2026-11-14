@@ -25,6 +25,13 @@ interface AgentQueueItemCreateRequest {
   clientIdempotencyKey: string; // a UUID; a retried send returns the saved result
   // The words; blank only where `attachments` holds a file, so a message holds words or at least
   // one file and never neither. A message of files alone reaches the provider with no words block.
+  // The `user.message.sent` row the daemon writes for the send carries `firstWords: string`, what
+  // the message reads as wherever its first words stand: its first words, or for a message of
+  // files alone what it carries and how many (`Attached image`, `2 attached images`,
+  // `Attached file`, `3 attached files`), worded once by the daemon from each file's stored media
+  // type, an `image/…` type being an image; a screen reads it and never words a message itself.
+  // After `Before` and `Restored to before` the words of a message whose `message` is blank read
+  // in lower case, and a message's own words as written.
   content: string;
   // in staging order; how many a message carries is what the daemon and the provider accept
   attachments?: ArtifactId[];

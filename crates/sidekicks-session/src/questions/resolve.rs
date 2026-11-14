@@ -39,6 +39,7 @@ use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::events::session::appender::SessionEventDraft;
 
+use crate::auto_title::message_first_words;
 use crate::driver_resolution::read_run_driver;
 use crate::questions::QuestionSettledState;
 use crate::questions::answer_text::compose_answer_text;
@@ -268,6 +269,7 @@ impl QuestionsService {
                 actor: FreeFormText::new(device_id.as_str().to_owned())
                     .expect("a device id is a short, printable actor"),
                 device_id: Some(device_id),
+                first_words: message_first_words(message.as_str(), &[]),
                 message: message.into(),
                 origin: None,
                 answers_question_id: Some(question_id),

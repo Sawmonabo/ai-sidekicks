@@ -7,8 +7,10 @@ use rstest::rstest;
 use rusqlite::params;
 use serde_json::Value;
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::{MessageText, UserMessageSentPayload};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionRenameRequest;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -21,7 +23,8 @@ use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_provider::driver::{DriverServices, PROVIDER_REGISTRATIONS, ProviderRegistration};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
-use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::database::statement::run_statement;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use sidekicks_store::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
@@ -31,7 +34,10 @@ use sidekicks_store::events::session::followers::SessionEventFollowers;
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
-use super::{SESSION_AUTO_TITLE_STATEMENT_CAPACITY, SessionAutoTitle, session_title_words};
+use super::{
+    AttachmentKind, SESSION_AUTO_TITLE_STATEMENT_CAPACITY, SessionAutoTitle, message_first_words,
+    session_title_words,
+};
 use crate::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 use crate::directory::row::{DirectoryEvent, directory_statements_for};
 use crate::questions::schema::schema_parts;
@@ -107,9 +113,10 @@ async fn harness(build: fn(&DriverServices) -> Arc<dyn ProviderDriver>) -> Harne
     }
 }
 
-/// Stores an unnamed session whose first message was `first_message` and whose lead run,
-/// bound to the table's first provider, completed while nothing followed the log, after a
-/// subagent run beneath it, bound to no provider, completed first; answers the lead run's binding.
+/// Stores an unnamed session whose first message was `first_message`, a blank one carrying one
+/// image, its row's first message written as its send's row writes it, and whose lead run, bound
+/// to the table's first provider, completed while nothing followed the log, after a subagent run
+/// beneath it, bound to no provider, completed first; answers the lead run's binding.
 fn insert_completed_session(
     database: &TestDatabase,
     session_id: SessionId,
@@ -131,12 +138,24 @@ fn insert_completed_session(
         )
         .expect("the test makes the subagent's run a child of the lead's");
     let completed = SessionEventType::AgentRunCompleted;
-    connection
-        .execute(
-            "UPDATE sessions SET first_message_preview = ?2 WHERE id = ?1",
-            params![session.as_str(), first_message],
-        )
-        .expect("the test stores the first message");
+    let sent = SessionEvent::UserMessageSent(UserMessageSentPayload {
+        session_id,
+        queue_item_id: None,
+        run_id: None,
+        actor: FreeFormText::new("person".to_owned()).expect("a test actor"),
+        device_id: None,
+        message: MessageText::new(first_message.to_owned()).expect("a test message"),
+        first_words: message_first_words(first_message, &[AttachmentKind::Image]),
+        origin: None,
+        answers_question_id: None,
+        plan_message: None,
+    });
+    for statement in
+        directory_statements_for(&DirectoryEvent::from(&test_envelope(session_id, &sent)))
+            .expect("the first message's row change is drafted")
+    {
+        run_statement(&connection, &statement).expect("the test records the first message");
+    }
     for (sequence, completed_run) in [(1, subagent_run.as_str()), (2, run.as_str())] {
         connection
             .execute(
@@ -179,8 +198,9 @@ fn stored_renames(database: &TestDatabase, session_id: SessionId) -> Vec<(Value,
 }
 
 // Killed by the fallback not being written after a pass that returned nothing, by the naming
-// writing over a name the person gave while the pass ran, and by a subagent's completion
-// naming the session, which runs no pass on the lead run's driver.
+// writing over a name the person gave while the pass ran, by a subagent's completion naming the
+// session, which runs no pass on the lead run's driver, and by a session opened with one image
+// alone listed or named other than `Attached image`, or named from no first message at all.
 #[tokio::test]
 async fn auto_title_writes_the_first_words_after_an_empty_pass_and_never_over_a_rename() {
     static PASS_STARTED: Notify = Notify::const_new();
@@ -202,7 +222,7 @@ async fn auto_title_writes_the_first_words_after_an_empty_pass_and_never_over_a_
             });
         driver
             .expect_name_session()
-            .times(1)
+            .times(2)
             .in_sequence(&mut sequence)
             .returning(|_| async { Ok(None) }.boxed());
         driver
@@ -212,16 +232,18 @@ async fn auto_title_writes_the_first_words_after_an_empty_pass_and_never_over_a_
     }
     let harness = harness(build).await;
     // The start names the sessions in id order, so the first is renamed during its pass.
-    let mut session_ids = [test_session_id(), test_session_id()];
+    let mut session_ids = [test_session_id(), test_session_id(), test_session_id()];
     session_ids.sort_by_key(|session_id| session_id.text().as_str().to_owned());
-    let [renamed_first, unnamed] = session_ids;
+    let [renamed_first, unnamed, image_alone] = session_ids;
     insert_completed_session(&harness.database, renamed_first, "rename this one please");
     insert_completed_session(
         &harness.database,
         unnamed,
         "  tidy up\u{FEFF}the settings page spacing before lunch",
     );
+    insert_completed_session(&harness.database, image_alone, "");
     let mut unnamed_changes = harness.followers.change_count(&unnamed);
+    let mut image_alone_changes = harness.followers.change_count(&image_alone);
 
     let titling = harness.auto_title.start(&harness.followers);
     tokio::time::timeout(WAIT, PASS_STARTED.notified())
@@ -240,6 +262,10 @@ async fn auto_title_writes_the_first_words_after_an_empty_pass_and_never_over_a_
         .await
         .expect("the second session is named in time")
         .expect("the log is still followed");
+    tokio::time::timeout(WAIT, image_alone_changes.changed())
+        .await
+        .expect("the third session is named in time")
+        .expect("the log is still followed");
     titling.stop().await;
 
     assert_eq!(stored_renames(&harness.database, renamed_first), []);
@@ -249,6 +275,20 @@ async fn auto_title_writes_the_first_words_after_an_empty_pass_and_never_over_a_
             Value::from("tidy up the settings page spacing before"),
             Value::from("auto")
         )]
+    );
+    let listed: String = harness
+        .database
+        .reader()
+        .query_row(
+            "SELECT first_message_preview FROM sessions WHERE id = ?1",
+            [image_alone.text().as_str()],
+            |row| row.get(0),
+        )
+        .expect("the test reads the listed first message");
+    assert_eq!(listed, "Attached image");
+    assert_eq!(
+        stored_renames(&harness.database, image_alone),
+        [(Value::from("Attached image"), Value::from("auto"))]
     );
 }
 

@@ -760,8 +760,10 @@ fn provider_work(
     })
 }
 
-// The words an opening carries, which stand in for a first message the session has not yet
-// recorded: a message's or a plan message's; a review and a message of files alone have none.
+// The words an opening carries, which stand in for a first message the session has not recorded:
+// a message's or a plan message's. A review has none, and a message of files alone needs none:
+// its own row, written with its item, already gave the session a first message reading what it
+// carries.
 fn opening_words(body: &QueueItemBody) -> Option<MessageContent> {
     match body {
         QueueItemBody::Message(message) => read_message_words(&message.content),

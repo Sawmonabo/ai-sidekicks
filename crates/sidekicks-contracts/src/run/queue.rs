@@ -338,6 +338,9 @@ pub struct UserMessageSentPayload {
     pub device_id: Option<DeviceId>,
     /// The words; blank on a message of files alone.
     pub message: MessageText,
+    /// What the message reads as wherever its first words stand: its first words, or for a
+    /// message of files alone what it carries and how many, such as `Attached image`.
+    pub first_words: MessageContent,
     /// Where the words came from when no one typed them.
     #[serde(
         default,

@@ -6,6 +6,7 @@
 //! send never exists without its transcript row and a refused one leaves nothing.
 
 use std::collections::HashSet;
+use std::error::Error;
 use std::sync::Arc;
 
 use sidekicks_contracts::agent::definition::AgentId;
@@ -19,8 +20,8 @@ use sidekicks_contracts::run::queue::{
     AgentQueueItemAdmittedPayload, AgentQueueItemAdmittedState, AgentQueueItemCanceledPayload,
     AgentQueueItemCanceledState, AgentQueueItemCreatedPayload, AgentQueueItemNotDeliveredPayload,
     AgentQueueItemNotDeliveredState, AgentQueueItemSupersededPayload,
-    AgentQueueItemSupersededState, MessageText, PlanMessage, QueueItemId, QueueItemQueuedState,
-    UserMessageSentPayload,
+    AgentQueueItemSupersededState, MessageContent, MessageText, PlanMessage, QueueItemId,
+    QueueItemQueuedState, UserMessageSentPayload,
 };
 use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, RunQueuedSessionAgentPayload,
@@ -30,6 +31,7 @@ use sidekicks_contracts::trust_statement::DEVICE_ID_MAX_LEN;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_session::auto_title::{AttachmentKind, message_first_words};
 use sidekicks_session::queue_store::send_now::clear_sent_now_statement;
 use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemExit, QueueItemOutcome, QueueItemReader, QueueItemRecord,
@@ -92,9 +94,10 @@ pub(crate) enum SendRoute {
     },
 }
 
-/// One send as it is recorded: the new row, where it goes and, for a retry, the not-delivered
-/// message it sends again, which then reads superseded. A message's row names the device that sent
-/// it, and a plan message's the device whose verdict it carries out, the message's actor.
+/// One send as it is recorded: the new row, where it goes, for a retry the not-delivered message
+/// it sends again, which then reads superseded, and for a message of files alone what its files
+/// are. A message's row names the device that sent it, and a plan message's the device whose
+/// verdict it carries out, the message's actor.
 pub(crate) struct RecordedSend {
     /// The row to insert.
     pub(crate) item: NewQueueItem,
@@ -102,6 +105,9 @@ pub(crate) struct RecordedSend {
     pub(crate) route: SendRoute,
     /// The not-delivered message a retry sends again.
     pub(crate) retries: Option<QueueItemRecord>,
+    /// What each file of a message of files alone is, in staging order; empty for any other send,
+    /// whose first words are its own.
+    pub(crate) attachment_kinds: Vec<AttachmentKind>,
 }
 
 /// Which guard refused a send; nothing of it was written.
@@ -145,6 +151,9 @@ pub enum QueueRecordError {
     /// The write of a change no event records was refused or not kept.
     #[error("a queue change's write was not kept")]
     Write(#[from] WriteError),
+    /// The stored types of a message of files alone's files could not be read.
+    #[error("the stored types of a message's files could not be read")]
+    Attachments(#[source] Box<dyn Error + Send + Sync>),
     /// SQLite refused the read back, or a stored value does not read as its type.
     #[error("a queue item could not be read back")]
     Read(#[from] rusqlite::Error),
@@ -166,7 +175,11 @@ impl QueueRecordError {
         match self {
             Self::Append(error) => error.refused_statement_index().is_some(),
             Self::Write(error) => error.refused_statement_index().is_some(),
-            Self::Draft(_) | Self::Read(_) | Self::Pool(_) | Self::Unreadable { .. } => false,
+            Self::Draft(_)
+            | Self::Attachments(_)
+            | Self::Read(_)
+            | Self::Pool(_)
+            | Self::Unreadable { .. } => false,
         }
     }
 }
@@ -230,6 +243,7 @@ impl QueueRecorder {
             item,
             route,
             retries,
+            attachment_kinds,
         } = send;
         let mut statements = vec![
             insert_queue_item_statement(&item),
@@ -301,12 +315,25 @@ impl QueueRecorder {
         let (draft, correlation_id) = match &item.body {
             QueueItemBody::Message(body) => {
                 preceding_events.extend(item_events);
-                sent_message_draft(&item, body.content.clone(), body.answers_question_id, None)?
+                let first_words = message_first_words(body.content.as_str(), &attachment_kinds);
+                sent_message_draft(
+                    &item,
+                    body.content.clone(),
+                    first_words,
+                    body.answers_question_id,
+                    None,
+                )?
             }
             // A plan message is recorded as the message it opens its run with, carrying its plan.
             QueueItemBody::PlanMessage { plan_message, text } => {
                 preceding_events.extend(item_events);
-                sent_message_draft(&item, text.clone().into(), None, Some(plan_message.clone()))?
+                sent_message_draft(
+                    &item,
+                    text.clone().into(),
+                    message_first_words(text.as_str(), &[]),
+                    None,
+                    Some(plan_message.clone()),
+                )?
             }
             // A review has no words, so its own events carry the write, the last of them last.
             QueueItemBody::Review { .. } => {
@@ -605,11 +632,13 @@ pub(crate) fn lead_run_queued(
     })
 }
 
-// The `user.message.sent` of the words `message` that `item` sends, under its device, answering
-// `answers_question_id` or carrying out `plan_message`, and the id the provider echoes it under.
+// The `user.message.sent` of the words `message` that `item` sends, read as `first_words`, under
+// its device, answering `answers_question_id` or carrying out `plan_message`, and the id the
+// provider echoes it under.
 fn sent_message_draft(
     item: &NewQueueItem,
     message: MessageText,
+    first_words: MessageContent,
     answers_question_id: Option<QuestionId>,
     plan_message: Option<PlanMessage>,
 ) -> Result<(SessionEventDraft, Option<FreeFormText<EVENT_FIELD_MAX_LEN>>), QueueRecordError> {
@@ -625,6 +654,7 @@ fn sent_message_draft(
             .expect("a device id is non-blank, NUL-free text within an event field's cap"),
         device_id: Some(device_id),
         message,
+        first_words,
         origin: None,
         answers_question_id,
         plan_message,

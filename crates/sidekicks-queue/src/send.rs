@@ -25,8 +25,13 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::text::is_blank;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::session::session_not_found;
+use sidekicks_provider::driver::attachments::{
+    AttachmentResolver, ProviderAttachment, resolve_message_attachments,
+};
+use sidekicks_session::auto_title::AttachmentKind;
 use sidekicks_session::changes::refuse_unchangeable_session;
 use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, QueueMessageBody,
@@ -133,6 +138,8 @@ pub(crate) struct QueueSendsDeps {
     pub(crate) admission: Arc<QueueAdmission>,
     /// Continues the interrupted run a send goes to.
     pub(crate) lifecycle: Arc<QueueRunLifecycle>,
+    /// Reads the stored types of a message of files alone's files, which its row reads as.
+    pub(crate) attachments: Arc<dyn AttachmentResolver>,
 }
 
 /// Writes a person's sends, edits and retries; the caller holds the queue's session lock.
@@ -171,6 +178,7 @@ impl QueueSends {
             QueueSendItem::Message { .. } => false,
             QueueSendItem::Review { .. } | QueueSendItem::PlanMessage { .. } => true,
         };
+        let attachment_kinds = self.read_attachment_kinds(session_id, &item).await?;
         let mut attempt = 1;
         loop {
             let (live_run_id, interrupted_run_id) = self.read_lead_runs(session_id).await?;
@@ -198,6 +206,7 @@ impl QueueSends {
                 item: new_item(session_id, &item, run_id, None),
                 route,
                 retries: retries.clone(),
+                attachment_kinds: attachment_kinds.clone(),
             };
             #[cfg(test)]
             self.route_write_pause.pass().await;
@@ -384,6 +393,8 @@ impl QueueSends {
         message: QueueSendMessage,
         device_id: DeviceId,
     ) -> Result<QueueItemRecord, QueueError> {
+        let item = QueueSendItem::Message { message, device_id };
+        let attachment_kinds = self.read_attachment_kinds(*hold.key(), &item).await?;
         let mut taken_back = vec![replaces.clone()];
         taken_back.extend(
             self.read_waiting(run_id)
@@ -402,13 +413,13 @@ impl QueueSends {
         if let QueueWithdrawal::Unreturned(reason) = withdrawal {
             return Err(unreturned_refusal(replaces.id, reason).into());
         }
-        let item = QueueSendItem::Message { message, device_id };
         let send = RecordedSend {
             item: new_item(*hold.key(), &item, run_id, Some(replaces.id)),
             route: SendRoute::Edit {
                 replaces: Box::new(replaces.clone()),
             },
             retries: None,
+            attachment_kinds,
         };
         match self.record(send).await {
             Ok(recorded) => Ok(recorded),
@@ -499,6 +510,38 @@ impl QueueSends {
                 Ok((None, interrupted))
             })
             .await
+    }
+
+    // What each file of `item` is when it is a message of files alone, read from the files' stored
+    // types in one read; empty, reading nothing, for any other send. A file whose stored copy no
+    // longer reads counts as a file.
+    async fn read_attachment_kinds(
+        &self,
+        session_id: SessionId,
+        item: &QueueSendItem,
+    ) -> Result<Vec<AttachmentKind>, QueueRecordError> {
+        let QueueSendItem::Message { message, .. } = item else {
+            return Ok(Vec::new());
+        };
+        if !is_blank(message.body.content.as_str()) {
+            return Ok(Vec::new());
+        }
+        let files = resolve_message_attachments(
+            self.deps.attachments.as_ref(),
+            &session_id,
+            &message.body.attachment_ids(),
+        )
+        .await
+        .map_err(QueueRecordError::Attachments)?;
+        Ok(files
+            .iter()
+            .map(|file| match file {
+                ProviderAttachment::Resolved(resolved) => {
+                    AttachmentKind::of_media_type(&resolved.media_type)
+                }
+                ProviderAttachment::Unresolved(_) => AttachmentKind::File,
+            })
+            .collect())
     }
 
     async fn read_item(&self, item_id: QueueItemId) -> Result<Option<QueueItemRecord>, QueueError> {

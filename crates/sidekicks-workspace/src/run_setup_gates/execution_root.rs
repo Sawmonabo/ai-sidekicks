@@ -345,8 +345,9 @@ impl<W: Watcher + Send + 'static> ExecutionRootSetupGate<W> {
         Ok((Some(binding), hold))
     }
 
-    // The tail the session's title, or before it has one its first message or the run's opening
-    // words, gives the tree; `run-<run short id>` when no usable words remain.
+    // The tail the session's title, or before it has one its first message (what a message of
+    // files alone carries, `attached-image`) or the run's opening words, gives the tree;
+    // `run-<run short id>` when no usable words remain.
     async fn derive_tail(&self, run: &RunToBind<'_>) -> Result<String, RunSetupGateError> {
         let session_id = run.session_id;
         let title = self
