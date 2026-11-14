@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 use crate::driver::codex::service::command_line::write_config_override;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
+use crate::driver::codex::thread::settings::memories::CODEX_MEMORIES_FEATURE_KEY;
 
 /// The switches a throwaway conversation turns off.
 const SWITCHES_OFF: [&str; 26] = [
@@ -23,7 +24,7 @@ const SWITCHES_OFF: [&str; 26] = [
     "features.goals",
     "features.hooks",
     "features.image_generation",
-    "features.memories",
+    CODEX_MEMORIES_FEATURE_KEY,
     "features.multi_agent",
     "features.multi_agent_v2",
     "features.plugins",

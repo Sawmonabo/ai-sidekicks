@@ -1,10 +1,14 @@
-//! The two keys that carry a session's `Auto memory` switch into a Codex conversation's `config`,
-//! and the bare resume that carries them.
+//! The keys that carry a session's `Auto memory` switch into a Codex conversation's `config`, and
+//! the bare resume that carries them.
 
 use serde_json::{Map, Value};
 
 use super::compose_codex_bare_thread_resume_params;
 use crate::driver::codex::app_server_protocol::ThreadResumeParams;
+
+/// Codex's config path of its memories feature, off by default, without which a conversation
+/// neither reads nor generates memories whatever its two memory keys say.
+pub(crate) const CODEX_MEMORIES_FEATURE_KEY: &str = "features.memories";
 
 /// Codex's config path of whether a conversation is given the memories it holds.
 const CODEX_USE_MEMORIES_KEY: &str = "memories.use_memories";
@@ -13,12 +17,16 @@ const CODEX_USE_MEMORIES_KEY: &str = "memories.use_memories";
 const CODEX_GENERATE_MEMORIES_KEY: &str = "memories.generate_memories";
 
 /// The memory keys a conversation's `config` carries for the switch `auto_memory`: both false for
-/// Off, both true for On, none where the switch was never set.
+/// Off; both true for On, with the memories feature turned on for that conversation alone; none
+/// where the switch was never set.
 pub(super) fn compose_codex_memory_config(auto_memory: Option<bool>) -> Map<String, Value> {
     let mut config = Map::new();
     if let Some(switch) = auto_memory {
         config.insert(CODEX_USE_MEMORIES_KEY.to_owned(), Value::Bool(switch));
         config.insert(CODEX_GENERATE_MEMORIES_KEY.to_owned(), Value::Bool(switch));
+    }
+    if auto_memory == Some(true) {
+        config.insert(CODEX_MEMORIES_FEATURE_KEY.to_owned(), Value::Bool(true));
     }
     config
 }
@@ -58,8 +66,8 @@ mod tests {
     }
 
     // Killed by the keys left out of a start, resume or fork; by a switch never set sending them,
-    // or defaulting to On; by `use_memories` sent alone; and by the bare resume carrying a
-    // `config` with the switch unset.
+    // or defaulting to On; by `use_memories` sent alone; by On without the memories feature, or
+    // Off or unset with it; and by the bare resume carrying a `config` with the switch unset.
     #[rstest]
     fn a_set_switch_rides_every_start_resume_and_fork(
         #[values(
@@ -102,12 +110,19 @@ mod tests {
         let memory_keys: Map<String, Value> = config
             .into_iter()
             .flatten()
-            .filter(|(key, _)| key.starts_with("memories."))
+            .filter(|(key, _)| key.starts_with("memories.") || key == "features.memories")
             .collect();
-        let expected = auto_memory.map_or_else(
-            || json!({}),
-            |switch| json!({"memories.use_memories": switch, "memories.generate_memories": switch}),
-        );
+        let expected = match auto_memory {
+            None => json!({}),
+            Some(false) => {
+                json!({"memories.use_memories": false, "memories.generate_memories": false})
+            }
+            Some(true) => json!({
+                "memories.use_memories": true,
+                "memories.generate_memories": true,
+                "features.memories": true,
+            }),
+        };
         assert_eq!(Value::Object(memory_keys), expected);
     }
 }
