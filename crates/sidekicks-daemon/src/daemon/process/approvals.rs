@@ -253,8 +253,9 @@ mod tests {
 
     use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
     use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+    use sidekicks_policy::ask_rule::ProviderAskRule;
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::contract::error::DriverError;
     use sidekicks_provider::driver::session_control::RevokeRuleParams;
@@ -288,7 +289,7 @@ mod tests {
             rule: ProviderAskRule {
                 kind: RememberedScopeKind::Project,
                 sense: RememberedRuleSense::Allow,
-                action: ProviderAskActionKind::Command,
+                action: ToolCallActionKind::Command,
                 subject: "git status".to_owned(),
             },
             project_folder: None,

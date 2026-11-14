@@ -5,8 +5,9 @@ use std::error::Error;
 use std::sync::LazyLock;
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_provider::port::permission_ask::ProviderAskAction;
 use sidekicks_provider::port::session_rules::SessionRulePort;
 
@@ -50,7 +51,7 @@ impl SessionRulePort for ApprovalRules {
         action: ProviderAskAction,
     ) -> BoxFuture<'_, Result<Option<ProviderAskRule>, Box<dyn Error + Send + Sync>>> {
         Box::pin(async move {
-            let kind = ProviderAskActionKind::from(&action);
+            let kind = ToolCallActionKind::from(&action);
             let read_action = action.clone();
             let subject = read_command_line(&self.shell_lines, &action, move |_, reading| {
                 derive_rule_subject(reading, &read_action)

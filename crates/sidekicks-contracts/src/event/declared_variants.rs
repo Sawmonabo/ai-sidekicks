@@ -14,7 +14,7 @@ use crate::event::envelope::{
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::machine::id::MachineId;
-use crate::provider::tool_call::ToolCallId;
+use crate::provider::tool_call::{ToolCallAction, ToolCallId};
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::transcript::row::TranscriptOmittedPatch;
@@ -387,7 +387,17 @@ macro_rules! tool_activity_payload {
 tool_activity_payload! {
     /// The payload of `agent.toolCall.invoked` and `agent.toolCall.completed`; the call's
     /// arguments or result body is kept apart from it. It takes the epoch stamp.
-    pub struct ToolActivityPayload {}
+    pub struct ToolActivityPayload {
+        /// What the call does and to what, read by its driver from the call's own input; set on
+        /// its start, absent on its end.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ToolCallAction")]
+        pub action: Option<ToolCallAction>,
+    }
 }
 
 tool_activity_payload! {

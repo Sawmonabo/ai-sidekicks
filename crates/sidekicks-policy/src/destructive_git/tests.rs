@@ -366,45 +366,40 @@ fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool
 }
 
 #[rstest]
-#[case::git_alone(
-    RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
-    "git",
-    true
-)]
+#[case::git_alone(RememberedRuleSense::Allow, ToolCallActionKind::Command, "git", true)]
 #[case::git_push(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "git push",
     true
 )]
 #[case::git_branch(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "git branch",
     true
 )]
 #[case::push_with_remote(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "git push origin",
     false
 )]
 #[case::other_subcommand(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "git status",
     false
 )]
 #[case::block(
     RememberedRuleSense::Block,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "git push",
     false
 )]
 #[case::not_a_command(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::FileChange,
+    ToolCallActionKind::FileChange,
     "git",
     false
 )]
@@ -413,25 +408,25 @@ fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool
 // ending.
 #[case::git_by_a_relative_path(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "./git push",
     true
 )]
 #[case::git_by_an_absolute_path(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "/usr/bin/git branch",
     true
 )]
 #[case::git_by_its_zsh_path(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "=git push",
     true
 )]
 #[case::program_ending_in_git(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "git-lfs push",
     false
 )]
@@ -439,7 +434,7 @@ fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool
 // subject split on a space alone.
 #[case::program_and_subcommand_split_by_a_tab(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "git\tpush",
     true
 )]
@@ -448,31 +443,31 @@ fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool
 // a trailing `.exe` left on the name, and by any name that begins with `git` read as git.
 #[case::git_in_capitals(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "GIT push",
     true
 )]
 #[case::git_capitalized(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "Git branch",
     true
 )]
 #[case::git_with_its_windows_extension(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "git.exe push",
     true
 )]
 #[case::program_beginning_with_git(
     RememberedRuleSense::Allow,
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     "gitx push",
     false
 )]
 fn a_rule_covers_destructive_git(
     #[case] sense: RememberedRuleSense,
-    #[case] action: ProviderAskActionKind,
+    #[case] action: ToolCallActionKind,
     #[case] subject: &str,
     #[case] covers: bool,
 ) {

@@ -461,10 +461,11 @@ mod tests {
     use futures::future::BoxFuture;
     use serde_json::{Map, Value, json};
     use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
+    use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+    use sidekicks_policy::ask_rule::ProviderAskRule;
     use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
     use tokio_util::sync::CancellationToken;
     use tokio_util::task::TaskTracker;
@@ -525,7 +526,7 @@ mod tests {
             .then(|| ProviderAskRule {
                 kind: RememberedScopeKind::Session,
                 sense: RememberedRuleSense::Allow,
-                action: ProviderAskActionKind::Command,
+                action: ToolCallActionKind::Command,
                 subject: "git push".to_owned(),
             });
             async move { Ok(revoked) }.boxed()

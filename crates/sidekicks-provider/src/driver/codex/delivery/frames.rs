@@ -13,6 +13,7 @@ mod notices;
 mod reviews;
 pub(crate) mod turns;
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -110,6 +111,9 @@ pub(crate) struct CodexFrameDeliveryDependencies {
     pub(crate) pricing: Arc<LivePricing>,
     /// Where each finished tool call's trace goes once registered.
     pub(crate) tool_traces: Arc<PortRegistration<Arc<dyn ToolTraces>>>,
+    /// The shells Codex may start a command's line with, whose `-lc` wrapper a command's line is
+    /// read without, on its start's row and on its ask.
+    pub(crate) line_shells: Arc<[PathBuf]>,
 }
 
 /// A steer Codex took into a turn and echoed, landed where its turn has a number, for the queue to

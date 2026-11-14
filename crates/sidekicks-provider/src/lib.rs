@@ -48,6 +48,7 @@ pub(crate) mod spawned_version;
 pub(crate) mod standing_rule_id;
 pub(crate) mod terminal_emission_gate;
 pub(crate) mod thread_frame_router;
+pub(crate) mod tool_call_action;
 pub mod tool_call_arguments;
 pub mod tool_server_name;
 pub(crate) mod turn_evidence;

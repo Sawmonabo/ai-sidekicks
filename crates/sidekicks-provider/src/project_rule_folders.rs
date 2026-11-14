@@ -108,7 +108,8 @@ mod tests {
     use futures::FutureExt;
     use futures::future::BoxFuture;
     use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
-    use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+    use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
+    use sidekicks_policy::ask_rule::ProviderAskRule;
 
     use super::write_into_project_folders;
 
@@ -134,7 +135,7 @@ mod tests {
         let rule = ProviderAskRule {
             kind: RememberedScopeKind::Project,
             sense: RememberedRuleSense::Allow,
-            action: ProviderAskActionKind::Command,
+            action: ToolCallActionKind::Command,
             subject: "git status".to_owned(),
         };
         let removals_tried = Mutex::new(Vec::new());

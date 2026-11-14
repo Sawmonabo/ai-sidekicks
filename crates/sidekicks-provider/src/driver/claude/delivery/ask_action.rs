@@ -49,7 +49,9 @@ pub(crate) fn read_claude_ask_action(
     }
 }
 
-fn read_action(tool_name: &str, input: &Map<String, Value>) -> ProviderAskAction {
+/// What a call to `tool_name` with `input` would do, as its ask names it: a command, a changed or
+/// read file, a fetched host, else the tool itself.
+pub(super) fn read_action(tool_name: &str, input: &Map<String, Value>) -> ProviderAskAction {
     if tool_name == CLAUDE_SHELL_TOOL_NAME
         && let Some(command) = read_non_empty_string(input, "command")
     {

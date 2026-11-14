@@ -116,7 +116,12 @@ impl CodexFrameDelivery {
                 .delivery
                 .tool_row_run_by_item_id
                 .insert(item_id.clone(), run.row.clone());
-            let row = read_codex_tool_start_row(&item, &run.row, "item/started");
+            let row = read_codex_tool_start_row(
+                &item,
+                &run.row,
+                &self.dependencies.line_shells,
+                "item/started",
+            );
             self.admit_row(record, row).await;
         }
     }

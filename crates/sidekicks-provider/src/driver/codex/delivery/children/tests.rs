@@ -294,7 +294,7 @@ async fn a_v2_spawn_starts_its_helpers_child_run_as_codex_names_it() {
             name: handle("Scout"),
             role: handle("explorer"),
             provider_path: handle("/root/scout"),
-            ask: None,
+            ask: Some(MessageContent::new("Scout".to_owned()).expect("a task name is an ask")),
             model_id: Some(test_token(HELPER_MODEL)),
             effort: Some(test_token("low")),
             start_call_id: None,

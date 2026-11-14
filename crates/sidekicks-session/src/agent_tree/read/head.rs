@@ -1,5 +1,5 @@
-//! What a child's head reads from its own run's log: the tool calls it made and the newest of
-//! them, when it ended, why it failed, its final message, and the ask a run of its own was
+//! What a child's head reads from its own run's log: the tool calls it made and what the newest of
+//! them does, when it ended, why it failed, its final message, and the ask a run of its own was
 //! admitted with.
 
 use std::collections::HashMap;
@@ -7,9 +7,8 @@ use std::sync::LazyLock;
 
 use rusqlite::{Connection, named_params};
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::orchestration::{
-    CHILD_RUN_RESULT_MAX_LEN, ChildRunActivity, ChildRunFailureReason,
-};
+use sidekicks_contracts::orchestration::{CHILD_RUN_RESULT_MAX_LEN, ChildRunFailureReason};
+use sidekicks_contracts::provider::tool_call::ToolCallAction;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, MessageText, read_message_words};
@@ -39,12 +38,12 @@ static SELECT_TOOL_COUNTS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// Each listed run's newest readable tool call's tool; the bare column reads from the row `MAX`
-// picks.
+// Each listed run's newest readable tool call's action, as its driver recorded it at the call's
+// start; the bare column reads from the row `MAX` picks.
 static SELECT_NEWEST_TOOLS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT invoked.run_id, MAX(invoked.sequence),
-       json_extract(invoked.payload, '$.toolName')
+       json_extract(invoked.payload, '$.action')
   FROM session_events AS invoked
   WHERE invoked.session_id = @session_id
     AND invoked.type = '{invoked}'
@@ -133,7 +132,7 @@ pub(super) struct RunEnd {
 #[derive(Default)]
 pub(super) struct HeadLog {
     tool_counts: HashMap<RunId, SafeInt<0>>,
-    activities: HashMap<RunId, ChildRunActivity>,
+    activities: HashMap<RunId, ToolCallAction>,
     ends: HashMap<RunId, RunEnd>,
     results: HashMap<RunId, FreeFormText<CHILD_RUN_RESULT_MAX_LEN>>,
     admitted_asks: HashMap<RunId, MessageContent>,
@@ -171,13 +170,18 @@ impl HeadLog {
                 |row| {
                     Ok((
                         run_id_column(row, 0)?,
-                        ChildRunActivity {
-                            tool_name: text_column(row, 2, FreeFormText::new)?,
-                        },
+                        optional_text_column(row, 2, |text| {
+                            serde_json::from_str::<ToolCallAction>(&text)
+                                .map_err(StoredJsonFault::from)
+                        })?,
                     ))
                 },
             )?
-            .collect::<rusqlite::Result<_>>()?;
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            // A call whose start recorded no action leaves its run with none.
+            .filter_map(|(run_id, action)| Some((run_id, action?)))
+            .collect();
         let ends = reader
             .prepare_cached(&SELECT_ENDS_SQL)?
             .query_map(
@@ -287,8 +291,8 @@ impl HeadLog {
             .unwrap_or(SafeInt::ZERO)
     }
 
-    /// The newest tool call `run_id` made, `None` before its first.
-    pub(super) fn activity(&self, run_id: RunId) -> Option<ChildRunActivity> {
+    /// What the newest tool call `run_id` made does, kept once it ends; `None` before its first.
+    pub(super) fn activity(&self, run_id: RunId) -> Option<ToolCallAction> {
         self.activities.get(&run_id).cloned()
     }
 

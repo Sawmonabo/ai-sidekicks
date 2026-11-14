@@ -411,6 +411,7 @@ impl CodexDriver {
             provider_accounts: Arc::clone(&ports.provider_accounts),
             pricing: Arc::clone(&self.pricing),
             tool_traces: Arc::clone(&ports.tool_traces),
+            line_shells: Arc::clone(&self.line_shells),
         }));
         let hand_off = Arc::new(CodexAskHandOff::new(CodexAskHandOffDependencies {
             delivery: Arc::clone(&delivery),
@@ -420,7 +421,6 @@ impl CodexDriver {
             },
             shell_lines: Arc::clone(&self.shell_lines),
             background_work: Arc::clone(&self.background_work),
-            line_shells: Arc::clone(&self.line_shells),
             project_rules: Arc::clone(&self.project_rules) as _,
             tasks: self.tasks.clone(),
         }));

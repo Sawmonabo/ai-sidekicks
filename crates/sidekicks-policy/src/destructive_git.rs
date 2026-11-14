@@ -7,9 +7,10 @@
 use std::sync::Arc;
 
 use sidekicks_contracts::approval::RememberedRuleSense;
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 
-use crate::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use crate::ask_rule::ProviderAskRule;
 use crate::shell_commands::{
     PositionedByte, ShellCommand, ShellLineReader, ShellLineReading, ShellWord, WordText,
     folded_program_name, is_option,
@@ -97,7 +98,7 @@ pub fn read_git_subcommand<W: WordText>(
 /// words are split as the providers split them, on any whitespace. Such a rule is the daemon's
 /// alone, which answers each ask it covers and sends a destructive one to the card.
 pub fn covers_destructive_git(rule: &ProviderAskRule) -> bool {
-    if rule.action != ProviderAskActionKind::Command || rule.sense != RememberedRuleSense::Allow {
+    if rule.action != ToolCallActionKind::Command || rule.sense != RememberedRuleSense::Allow {
         return false;
     }
     let mut words = rule

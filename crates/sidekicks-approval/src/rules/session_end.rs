@@ -157,11 +157,11 @@ mod tests {
         ApprovalCategory, ApprovalRequestId, ApprovalScope, ApprovalState, InvalidationTrigger,
         RememberedRuleId, RememberedRuleSense, RememberedScope, RememberedScopeKind,
     };
+    use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
-    use sidekicks_policy::ask_rule::ProviderAskActionKind;
 
     use super::{RuleRow, revoked_payload, session_end_revocations};
     use crate::request_create::ApprovalResourceDescriptor;
@@ -178,7 +178,7 @@ mod tests {
                 pattern: NonEmptyText::new("npm run".to_owned()).expect("a subject"),
                 sense: RememberedRuleSense::Allow,
             },
-            action: ProviderAskActionKind::Command,
+            action: ToolCallActionKind::Command,
             category: ApprovalCategory::ToolExecution,
             scope: ApprovalScope::new("npm run build".to_owned()).expect("a scope"),
             granted_at: WireInstant::try_from("2026-10-18T09:00:00.000Z".to_owned())

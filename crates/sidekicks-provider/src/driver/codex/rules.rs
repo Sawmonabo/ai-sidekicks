@@ -26,10 +26,11 @@ use std::time::{Duration, Instant};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::approval::RememberedRuleSense;
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 use sidekicks_contracts::wire::text::{TextError, is_ecmascript_whitespace};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_platforms::PathRules;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_policy::destructive_git::covers_destructive_git;
 use sidekicks_std::bounded_wait::wait_within;
 use sidekicks_std::file::atomic_write::{AtomicWriteError, rewrite_file_in_place};
@@ -663,19 +664,20 @@ async fn resolve_lock_key(file_path: &Path) -> Result<PathBuf, CodexRulesError> 
 // host as Codex keeps it.
 fn normalize_rule_subject(rule: &ProviderAskRule) -> Result<ProviderAskRule, CodexRulesError> {
     let subject = match rule.action {
-        ProviderAskActionKind::Command => rule
+        ToolCallActionKind::Command => rule
             .subject
             .split(is_ecmascript_whitespace)
             .filter(|word| !word.is_empty())
             .collect::<Vec<_>>()
             .join(" "),
-        ProviderAskActionKind::Network => {
+        ToolCallActionKind::Network => {
             normalize_network_rule_host(&rule.subject).map_err(CodexRulesError::RefusedHost)?
         }
-        ProviderAskActionKind::CommandInput
-        | ProviderAskActionKind::FileChange
-        | ProviderAskActionKind::FileRead
-        | ProviderAskActionKind::Tool => {
+        ToolCallActionKind::CommandInput
+        | ToolCallActionKind::FileChange
+        | ToolCallActionKind::FileRead
+        | ToolCallActionKind::Search
+        | ToolCallActionKind::Tool => {
             return Err(CodexRulesError::UnkeptKind(rule.action.into()));
         }
     };
@@ -744,7 +746,7 @@ fn opposite_sense(sense: RememberedRuleSense) -> RememberedRuleSense {
 // would also cover a destructive git command, and a host's for each protocol.
 fn compose_rule_lines(rule: &ProviderAskRule) -> Result<Vec<String>, CodexRulesError> {
     match rule.action {
-        ProviderAskActionKind::Command => {
+        ToolCallActionKind::Command => {
             if covers_destructive_git(rule) {
                 return Ok(Vec::new());
             }
@@ -766,7 +768,7 @@ fn compose_rule_lines(rule: &ProviderAskRule) -> Result<Vec<String>, CodexRulesE
                 words.join(", ")
             )])
         }
-        ProviderAskActionKind::Network => {
+        ToolCallActionKind::Network => {
             normalize_network_rule_host(&rule.subject).map_err(CodexRulesError::RefusedHost)?;
             let decision = match rule.sense {
                 RememberedRuleSense::Allow => "allow",
@@ -783,10 +785,11 @@ fn compose_rule_lines(rule: &ProviderAskRule) -> Result<Vec<String>, CodexRulesE
                 })
                 .collect())
         }
-        ProviderAskActionKind::CommandInput
-        | ProviderAskActionKind::FileChange
-        | ProviderAskActionKind::FileRead
-        | ProviderAskActionKind::Tool => Err(CodexRulesError::UnkeptKind(rule.action.into())),
+        ToolCallActionKind::CommandInput
+        | ToolCallActionKind::FileChange
+        | ToolCallActionKind::FileRead
+        | ToolCallActionKind::Search
+        | ToolCallActionKind::Tool => Err(CodexRulesError::UnkeptKind(rule.action.into())),
     }
 }
 

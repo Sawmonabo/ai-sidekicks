@@ -24,9 +24,10 @@ use jsonc_parser::cst::{CstInputValue, CstNode, CstObject};
 use serde::Serialize;
 use serde_json::Value;
 use sidekicks_contracts::approval::RememberedRuleSense;
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_platforms::PathRules;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_policy::destructive_git::covers_destructive_git;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::keyed_lock::KeyHold;
@@ -520,31 +521,31 @@ fn compose_rule_values(
         rule_content,
     };
     Ok(match rule.action {
-        ProviderAskActionKind::Command => {
+        ToolCallActionKind::Command => {
             if covers_destructive_git(rule) || rule.subject.contains('*') {
                 Vec::new()
             } else {
                 vec![value("Bash", Some(format!("{} *", rule.subject)))]
             }
         }
-        ProviderAskActionKind::FileChange | ProviderAskActionKind::FileRead
+        ToolCallActionKind::FileChange | ToolCallActionKind::FileRead
             if is_windows_network_path(&rule.subject, path_rules) =>
         {
             Vec::new()
         }
-        ProviderAskActionKind::FileChange => vec![value(
+        ToolCallActionKind::FileChange => vec![value(
             "Edit",
             Some(compose_path_content(&rule.subject, path_rules)),
         )],
-        ProviderAskActionKind::FileRead => vec![value(
+        ToolCallActionKind::FileRead => vec![value(
             "Read",
             Some(compose_path_content(&rule.subject, path_rules)),
         )],
-        ProviderAskActionKind::Network => {
+        ToolCallActionKind::Network => {
             vec![value("WebFetch", Some(format!("domain:{}", rule.subject)))]
         }
-        ProviderAskActionKind::Tool => vec![value(&rule.subject, None)],
-        ProviderAskActionKind::CommandInput => {
+        ToolCallActionKind::Tool => vec![value(&rule.subject, None)],
+        ToolCallActionKind::CommandInput | ToolCallActionKind::Search => {
             return Err(ClaudeRulesError::UnkeptKind(rule.action.into()));
         }
     })

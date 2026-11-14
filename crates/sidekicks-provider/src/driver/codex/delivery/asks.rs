@@ -117,9 +117,6 @@ pub(crate) struct CodexAskHandOffDependencies {
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
     /// Every provider's background work, which no command ask may start.
     pub(crate) background_work: Arc<BackgroundWorkForms>,
-    /// The shells Codex may start a command's line with, whose `-lc` wrapper an ask's line is
-    /// read without.
-    pub(crate) line_shells: Arc<[PathBuf]>,
     /// How a project rule is written into one working folder.
     pub(crate) project_rules: Arc<dyn CodexProjectRules>,
     /// The driver's tasks, which its shutdown waits for; each card is raised and taken back on
@@ -406,7 +403,7 @@ impl CodexAskHandOff {
         let method = request.method.method();
         let read_params = params.clone();
         let background_work = Arc::clone(&self.dependencies.background_work);
-        let line_shells = Arc::clone(&self.dependencies.line_shells);
+        let line_shells = Arc::clone(&self.dependencies.delivery.dependencies.line_shells);
         // The tool server's call in flight is not tracked, so its approval names the server.
         let reading = self
             .dependencies

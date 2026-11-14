@@ -12,9 +12,10 @@ use sidekicks_contracts::approval::{
     ApprovalResolveRequest, RememberedRuleSense, RememberedScopeKind,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
@@ -538,7 +539,7 @@ async fn a_resend_that_finds_its_ask_waiting_hands_the_stored_answer() {
                 rule: ProviderAskRule {
                     kind: RememberedScopeKind::Project,
                     sense: RememberedRuleSense::Allow,
-                    action: ProviderAskActionKind::Command,
+                    action: ToolCallActionKind::Command,
                     subject,
                 },
                 project_folders: Vec::new(),
@@ -640,7 +641,7 @@ async fn a_resend_records_the_rule_a_daemon_card_failed_to_record() {
     let find_rule = |subject| {
         fixture.check.rules.find_rule(
             approvals.session_id,
-            ProviderAskActionKind::Tool,
+            ToolCallActionKind::Tool,
             subject,
             None,
             true,

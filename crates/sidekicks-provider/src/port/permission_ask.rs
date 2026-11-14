@@ -11,14 +11,15 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sidekicks_contracts::approval::{ApprovalRequestId, RememberedScopeKind};
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 
 /// What the held call would do, read by the driver from its provider's own ask: run a command,
 /// send input to the running command the ask's tool call names, change files, read one file or
 /// folder, reach a host, or call a tool none of those covers. Its kind without the subject, as a
-/// standing rule names it, is [`ProviderAskActionKind`], spelled as the approval store writes it;
+/// standing rule names it, is [`ToolCallActionKind`], spelled as the approval store writes it;
 /// the store keeps the whole action as JSON tagged by its `kind`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
@@ -60,7 +61,7 @@ pub enum ProviderAskAction {
     },
 }
 
-impl From<&ProviderAskAction> for ProviderAskActionKind {
+impl From<&ProviderAskAction> for ToolCallActionKind {
     /// The kind of action `action` would take, as a standing rule names it.
     fn from(action: &ProviderAskAction) -> Self {
         match action {

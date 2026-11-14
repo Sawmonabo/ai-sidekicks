@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::{AgentDefinitionId, AgentId};
 use crate::agent::tree::{AgentTreeMember, ChildHandle};
-use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::method::{KeyedRequest, methods};
 use crate::provider::driver::length_limits::{
     PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_TOOL_NAME_MAX_LEN,
@@ -20,6 +19,7 @@ use crate::provider::driver::length_limits::{
 use crate::provider::driver::methods::{
     PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_REASON_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN,
 };
+use crate::provider::tool_call::ToolCallAction;
 use crate::run::failure_cause::RunFailureCause;
 use crate::run::id::RunId;
 use crate::run::queue::MessageContent;
@@ -208,14 +208,6 @@ pub struct AgentChildRunLinkListRequest {
 /// The most code points a child's result carries; a longer final message is cut to it.
 pub const CHILD_RUN_RESULT_MAX_LEN: usize = 4096;
 
-/// What a child is doing now, as the log records it: the newest tool call it made.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ChildRunActivity {
-    /// The tool it called, as the call's row names it.
-    pub tool_name: FreeFormText<EVENT_FIELD_MAX_LEN>,
-}
-
 /// Why a child failed, as its `agent.run.failed` recorded it: the typed cause a reader words, and
 /// the provider's own words, each where the failure carried one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -291,10 +283,11 @@ pub struct ChildRunHead {
     #[schemars(with = "crate::wire::NullableSchema<WireInstant>")]
     #[garde(dive)]
     pub ended_at: Option<WireInstant>,
-    /// What it is doing, kept once it ends; `null` before its first tool call.
+    /// What it is doing, its newest tool call's action, kept once it ends; `null` before its
+    /// first tool call.
     #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<ChildRunActivity>")]
-    pub activity: Option<ChildRunActivity>,
+    #[schemars(with = "crate::wire::NullableSchema<ToolCallAction>")]
+    pub activity: Option<ToolCallAction>,
     /// Its final message once it ended, cut to [`CHILD_RUN_RESULT_MAX_LEN`] code points; `null`
     /// while it is live or where it sent none.
     #[serde(deserialize_with = "crate::wire::nullable")]
@@ -501,7 +494,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AgentRunCreateResponse>(),
         Definition::read::<AgentRunRejectedPayload>().checked(),
         Definition::read::<AgentChildRunLinkListRequest>(),
-        Definition::read::<ChildRunActivity>(),
         Definition::read::<ChildRunFailureReason>(),
         Definition::read::<ChildRunHead>(),
         Definition::read::<ChildRunLink>().checked(),

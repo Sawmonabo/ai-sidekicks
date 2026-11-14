@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::compose_sentence_case_words;
 use sidekicks_platforms::ProcessRecord;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
@@ -166,7 +167,8 @@ pub(crate) struct CodexSpawnedHelper {
     pub(crate) call_id: Option<String>,
     /// Its path in Codex's tree of helpers, v2's `agentPath`.
     pub(crate) provider_path: Option<String>,
-    /// The ask it was spawned with, v1's `prompt`; v2's item carries none.
+    /// The ask it was spawned with: v1's `prompt`, or for v2, whose ask Codex hands on encrypted,
+    /// the task name its `agentPath` ends in, in words (`fix_parser` reads `Fix parser`).
     pub(crate) ask: Option<String>,
     /// The model it runs on, the item's `model`.
     pub(crate) model: Option<String>,
@@ -271,13 +273,18 @@ fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawned
             item.agent_thread_id
                 .as_deref()
                 .and_then(read_codex_given_text)
-                .map(|thread_id| CodexSpawnedHelper {
-                    thread_id,
-                    call_id,
-                    provider_path: item.agent_path.as_deref().and_then(read_codex_given_text),
-                    ask: None,
-                    model,
-                    reasoning_effort,
+                .map(|thread_id| {
+                    let provider_path = item.agent_path.as_deref().and_then(read_codex_given_text);
+                    // The item hands the ask on encrypted, so the head reads the task name instead.
+                    let ask = provider_path.as_deref().map(word_task_name);
+                    CodexSpawnedHelper {
+                        thread_id,
+                        call_id,
+                        provider_path,
+                        ask,
+                        model,
+                        reasoning_effort,
+                    }
                 })
                 .into_iter()
                 .collect()
@@ -311,6 +318,15 @@ fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawned
         }
         Some(_) | None => Vec::new(),
     }
+}
+
+// The task name a helper's path ends in, as words: `/root/fix_parser` reads `Fix parser`.
+fn word_task_name(provider_path: &str) -> String {
+    let task_name = provider_path
+        .rsplit('/')
+        .find(|segment| !segment.trim().is_empty())
+        .unwrap_or(provider_path);
+    compose_sentence_case_words(task_name)
 }
 
 /// Whether a frame belongs to one session or every session on the service.

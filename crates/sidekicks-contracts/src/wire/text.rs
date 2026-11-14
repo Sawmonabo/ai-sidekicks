@@ -31,6 +31,17 @@ pub fn is_blank(text: &str) -> bool {
     text.chars().all(is_ecmascript_whitespace)
 }
 
+/// A snake-case identifier as words in sentence case, its underscores as spaces and its first
+/// letter a capital: `edu_max` reads `Edu max`.
+pub fn compose_sentence_case_words(identifier: &str) -> String {
+    let words = identifier.replace('_', " ");
+    let mut characters = words.chars();
+    match characters.next() {
+        Some(first) => first.to_uppercase().chain(characters).collect(),
+        None => words,
+    }
+}
+
 /// The body of a regex class holding ECMAScript's `\s` set, spelled out so Rust's `regex` and
 /// ECMAScript read it alike; it goes inside `concat!` in a pattern.
 macro_rules! ecmascript_whitespace {

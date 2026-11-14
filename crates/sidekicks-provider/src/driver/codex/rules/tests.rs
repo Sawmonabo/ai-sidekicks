@@ -6,8 +6,9 @@ use std::time::Duration;
 use futures::FutureExt;
 use rstest::rstest;
 use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 use sidekicks_platforms::PathRules;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::Notify;
 
@@ -20,11 +21,7 @@ use super::{
 use crate::driver::codex::delivery::asks::CodexProjectRules;
 use crate::project_rule_folders::write_into_project_folders;
 
-fn rule(
-    sense: RememberedRuleSense,
-    action: ProviderAskActionKind,
-    subject: &str,
-) -> ProviderAskRule {
+fn rule(sense: RememberedRuleSense, action: ToolCallActionKind, subject: &str) -> ProviderAskRule {
     ProviderAskRule {
         kind: RememberedScopeKind::Project,
         sense,
@@ -36,7 +33,7 @@ fn rule(
 fn allow_command(subject: &str) -> ProviderAskRule {
     rule(
         RememberedRuleSense::Allow,
-        ProviderAskActionKind::Command,
+        ToolCallActionKind::Command,
         subject,
     )
 }
@@ -146,12 +143,12 @@ async fn a_block_replaces_the_allow_and_a_revoke_of_the_last_rule_deletes_the_fi
     let git_folder = tempfile::tempdir().expect("a git folder");
     let allow = rule(
         RememberedRuleSense::Allow,
-        ProviderAskActionKind::Network,
+        ToolCallActionKind::Network,
         "example.com",
     );
     let block = rule(
         RememberedRuleSense::Block,
-        ProviderAskActionKind::Network,
+        ToolCallActionKind::Network,
         "example.com",
     );
     let command = allow_command("npm  test");
@@ -284,7 +281,7 @@ async fn a_failed_writes_rollback_brings_back_the_rule_it_replaced_before_anothe
     let places = Places::new();
     let block = rule(
         RememberedRuleSense::Block,
-        ProviderAskActionKind::Command,
+        ToolCallActionKind::Command,
         "rm",
     );
     places
@@ -382,16 +379,16 @@ async fn a_failed_writes_rollback_brings_back_the_rule_it_replaced_before_anothe
 }
 
 #[rstest]
-#[case::the_whole_of_git(ProviderAskActionKind::Command, "git", None)]
-#[case::a_push(ProviderAskActionKind::Command, "git push", None)]
-#[case::a_branch_change(ProviderAskActionKind::Command, "git branch", None)]
+#[case::the_whole_of_git(ToolCallActionKind::Command, "git", None)]
+#[case::a_push(ToolCallActionKind::Command, "git push", None)]
+#[case::a_branch_change(ToolCallActionKind::Command, "git branch", None)]
 #[case::no_word(
-    ProviderAskActionKind::Command,
+    ToolCallActionKind::Command,
     " \u{3000}",
     Some("a command rule names no word")
 )]
 #[case::a_url(
-    ProviderAskActionKind::Network,
+    ToolCallActionKind::Network,
     "https://x",
     Some(
         "Codex refuses this network rule's host: network_rule host must be a hostname or IP \
@@ -399,7 +396,7 @@ async fn a_failed_writes_rollback_brings_back_the_rule_it_replaced_before_anothe
     )
 )]
 #[case::a_wildcard(
-    ProviderAskActionKind::Network,
+    ToolCallActionKind::Network,
     "*.example.com",
     Some(
         "Codex refuses this network rule's host: network_rule host must be a specific host; \
@@ -407,13 +404,13 @@ async fn a_failed_writes_rollback_brings_back_the_rule_it_replaced_before_anothe
     )
 )]
 #[case::a_file(
-    ProviderAskActionKind::FileChange,
+    ToolCallActionKind::FileChange,
     "src/a.rs",
     Some("Codex keeps no project rule on a fileChange ask")
 )]
 #[tokio::test]
 async fn an_allow_codex_would_stretch_or_refuse_leaves_the_file_untouched(
-    #[case] action: ProviderAskActionKind,
+    #[case] action: ToolCallActionKind,
     #[case] subject: &str,
     #[case] refusal: Option<&str>,
 ) {
@@ -470,7 +467,7 @@ async fn the_rules_a_file_computes_are_read_as_codex_evaluates_them() {
     let block = |subject| {
         rule(
             RememberedRuleSense::Block,
-            ProviderAskActionKind::Command,
+            ToolCallActionKind::Command,
             subject,
         )
     };
@@ -483,7 +480,7 @@ async fn the_rules_a_file_computes_are_read_as_codex_evaluates_them() {
             allow_command("git status"),
             rule(
                 RememberedRuleSense::Block,
-                ProviderAskActionKind::Network,
+                ToolCallActionKind::Network,
                 "example.com"
             ),
             block("cargo test"),

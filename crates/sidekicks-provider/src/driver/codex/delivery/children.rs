@@ -43,7 +43,8 @@ pub(crate) struct CodexHelperStart {
     pub(crate) role: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// Its path in Codex's tree of helpers, `agentPath` on the spawn item; a v1 spawn names none.
     pub(crate) provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
-    /// The ask it was spawned with, `prompt` on a v1 spawn item, whole; a v2 spawn names none.
+    /// The ask it was spawned with, `prompt` on a v1 spawn item, whole; on a v2 one, whose ask
+    /// Codex hands on encrypted, the task name its path ends in, in words.
     pub(crate) ask: Option<MessageContent>,
     /// The model it runs on, the spawn item's `model`, else its conversation's.
     pub(crate) model_id: Option<ProviderToken>,

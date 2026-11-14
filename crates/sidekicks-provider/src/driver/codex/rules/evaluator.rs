@@ -12,8 +12,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 use sidekicks_platforms::PathRules;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use starlark::ErrorKind;
 use starlark::any::ProvidesStaticType;
 use starlark::environment::{GlobalsBuilder, Module};
@@ -728,7 +729,7 @@ fn rule_builtins(builder: &mut GlobalsBuilder) {
                         ProviderAskRule {
                             kind: RememberedScopeKind::Project,
                             sense,
-                            action: ProviderAskActionKind::Command,
+                            action: ToolCallActionKind::Command,
                             subject,
                         },
                     );
@@ -776,7 +777,7 @@ fn rule_builtins(builder: &mut GlobalsBuilder) {
                 ProviderAskRule {
                     kind: RememberedScopeKind::Project,
                     sense,
-                    action: ProviderAskActionKind::Network,
+                    action: ToolCallActionKind::Network,
                     subject: host,
                 },
             );

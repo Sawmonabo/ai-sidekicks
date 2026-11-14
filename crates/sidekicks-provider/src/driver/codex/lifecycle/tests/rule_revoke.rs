@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::super::CodexDriver;
@@ -71,7 +72,7 @@ async fn a_revoke_reads_the_rules_of_the_sessions_own_account_home() {
             rule: ProviderAskRule {
                 kind: RememberedScopeKind::Project,
                 sense: RememberedRuleSense::Allow,
-                action: ProviderAskActionKind::Command,
+                action: ToolCallActionKind::Command,
                 subject: "cargo build".to_owned(),
             },
             project_folder: Some(project_folder),

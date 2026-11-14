@@ -13,11 +13,12 @@ use sidekicks_contracts::approval::{
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::id::MachineId;
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::port::permission_ask::ProviderAnswerRule;
@@ -119,7 +120,7 @@ async fn a_rule_remembered_in_a_skipped_range_is_not_in_force() {
     let in_force = query_rule_rows(&reader, &SELECT_RULES_IN_FORCE_SQL, session_id)
         .expect("the rules in force read");
 
-    assert!(rule_over(&in_force, ProviderAskActionKind::Command, "npm run", None).is_none());
+    assert!(rule_over(&in_force, ToolCallActionKind::Command, "npm run", None).is_none());
     assert_eq!(
         in_force
             .iter()
@@ -214,7 +215,7 @@ async fn a_revoke_answers_not_kept_only_while_the_rule_file_keeps_it(
         rule: ProviderAskRule {
             kind: RememberedScopeKind::Project,
             sense: RememberedRuleSense::Allow,
-            action: ProviderAskActionKind::Command,
+            action: ToolCallActionKind::Command,
             subject: "npm test".to_owned(),
         },
         project_folders: Vec::new(),

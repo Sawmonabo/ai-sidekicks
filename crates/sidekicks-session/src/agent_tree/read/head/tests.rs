@@ -38,7 +38,11 @@ fn message(session: &mut SessionLog, run_id: RunId, message_id: &str, body: &str
 fn tool_call(session: &mut SessionLog, run_id: RunId, tool_name: &str, at: &str) {
     session.event(
         SessionEventType::AgentToolCallInvoked,
-        &json!({ "runId": run_id, "toolName": tool_name }),
+        &json!({
+            "runId": run_id,
+            "toolName": tool_name,
+            "action": {"kind": "tool", "subject": tool_name},
+        }),
         Some(run_id),
         at,
     );
@@ -159,7 +163,7 @@ fn a_run_head_reads_its_tool_calls_activity_result_ask_and_end_from_its_own_log(
         ended_head
             .activity
             .as_ref()
-            .map(|activity| activity.tool_name.as_str()),
+            .map(|activity| activity.subject.as_str()),
         Some("bash")
     );
     let cut: String = final_words.chars().take(CHILD_RUN_RESULT_MAX_LEN).collect();
@@ -180,7 +184,7 @@ fn a_run_head_reads_its_tool_calls_activity_result_ask_and_end_from_its_own_log(
         live_head
             .activity
             .as_ref()
-            .map(|activity| activity.tool_name.as_str()),
+            .map(|activity| activity.subject.as_str()),
         Some("edit")
     );
     assert_eq!(live_head.result, None, "a live run has no result yet");
@@ -287,7 +291,7 @@ fn a_provider_helpers_head_carries_its_name_ask_and_end() {
         named_head
             .activity
             .as_ref()
-            .map(|activity| activity.tool_name.as_str()),
+            .map(|activity| activity.subject.as_str()),
         Some("read")
     );
     assert_eq!(

@@ -41,6 +41,7 @@ use sidekicks_contracts::approval::{
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::machine::id::MachineId;
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 use sidekicks_contracts::repo::mount::WorkspaceState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -49,7 +50,7 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::session_control::RevokeRuleParams;
@@ -156,7 +157,7 @@ struct RuleRow {
     session_id: SessionId,
     rule_id: RememberedRuleId,
     remembered_scope: RememberedScope,
-    action: ProviderAskActionKind,
+    action: ToolCallActionKind,
     category: ApprovalCategory,
     scope: ApprovalScope,
     granted_at: WireInstant,
@@ -336,7 +337,7 @@ impl ApprovalRules {
     pub(crate) async fn find_rule(
         &self,
         session_id: SessionId,
-        action: ProviderAskActionKind,
+        action: ToolCallActionKind,
         subject: &str,
         tool_server_tool: Option<&ToolServerTool>,
         is_daemon_kept: bool,
@@ -759,7 +760,7 @@ fn revoked_payload(
 // block outranks an allow.
 fn rule_over(
     rules: &[RuleRow],
-    action: ProviderAskActionKind,
+    action: ToolCallActionKind,
     subject: &str,
     tool_server_tool: Option<&ToolServerTool>,
 ) -> Option<ProviderAskRule> {
@@ -838,7 +839,7 @@ fn rule_row_of(row: &Row<'_>) -> rusqlite::Result<RuleRow> {
         session_id: session_id_of(row)?,
         rule_id: text_column(row, 1, |text| RememberedRuleId::new(&text))?,
         remembered_scope: text_column(row, 2, |text| serde_json::from_str(&text))?,
-        action: ProviderAskActionKind::from(&action),
+        action: ToolCallActionKind::from(&action),
         category: text_column(row, 4, closed_word)?,
         scope: text_column(row, 5, ApprovalScope::new)?,
         granted_at: text_column(row, 6, WireInstant::try_from)?,

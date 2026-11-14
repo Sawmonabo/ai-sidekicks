@@ -3,6 +3,8 @@
 //! tool is named by its item type, a tool server's or a daemon tool's by the provider's own tool
 //! name.
 
+use std::path::PathBuf;
+
 use serde_json::value::to_raw_value;
 use serde_json::{Map, Value};
 use sidekicks_contracts::agent::definition::AgentId;
@@ -24,6 +26,7 @@ use sidekicks_store::transcript::whole_patch::{omitted_patches_of, stored_patch_
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::patches::read_codex_patch_files;
+use crate::driver::codex::delivery::tool_call_action::read_codex_tool_call_action;
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
 use crate::port::tool_traces::ToolTrace;
 use crate::record_readers::{read_count, read_non_empty_string};
@@ -190,15 +193,22 @@ pub(crate) fn read_codex_frame_item(params: &Map<String, Value>) -> Option<&Map<
     params.get("item").and_then(Value::as_object)
 }
 
-/// The row a tool item's start becomes, opening the call's operation; `None` for an item with no
-/// id the transcript can hold.
+/// The row a tool item's start becomes, opening the call's operation and recording what the call
+/// does, a command read without the `-lc` wrapper of any of `line_shells`; `None` for an item with
+/// no id the transcript can hold.
 pub(crate) fn read_codex_tool_start_row(
     item: &Map<String, Value>,
     run: &CodexRowRun,
+    line_shells: &[PathBuf],
     method: &'static str,
 ) -> Option<CodexItemRow> {
     let tool_call_id = read_non_empty_string(item, "id")?;
-    let payload = tool_activity(item, run, tool_call_id, None, None)?;
+    let mut payload = tool_activity(item, run, tool_call_id, None, None)?;
+    payload.action = Some(read_codex_tool_call_action(
+        item,
+        &payload.tool_name,
+        line_shells,
+    ));
     Some(ReorderBufferedEvent {
         tool_call_id: Some(tool_call_id.to_owned()),
         pairing_role: ReorderPairingRole::Initiation,
@@ -346,6 +356,7 @@ fn tool_activity(
         ),
         duration_ms: duration_ms.and_then(SafeInt::new),
         omitted_patches: omitted_patches.and_then(BoundedVec::new),
+        action: None,
         content_length: None,
         content_encoding: None,
         source_epoch: None,

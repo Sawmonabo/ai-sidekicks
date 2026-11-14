@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 
 use rstest::rstest;
 use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 use sidekicks_platforms::PathRules;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 
 use super::{
     CLAUDE_SHARED_SETTINGS_FILE, CLAUDE_USER_SETTINGS_FILE, ClaudeProjectFolder, ClaudeRepository,
@@ -14,11 +15,7 @@ use super::{
 };
 use crate::driver::claude::session::settings_file::ClaudeSettingsFileError;
 
-fn rule(
-    sense: RememberedRuleSense,
-    action: ProviderAskActionKind,
-    subject: &str,
-) -> ProviderAskRule {
+fn rule(sense: RememberedRuleSense, action: ToolCallActionKind, subject: &str) -> ProviderAskRule {
     ProviderAskRule {
         kind: RememberedScopeKind::Project,
         sense,
@@ -30,7 +27,7 @@ fn rule(
 fn allow_command(subject: &str) -> ProviderAskRule {
     rule(
         RememberedRuleSense::Allow,
-        ProviderAskActionKind::Command,
+        ToolCallActionKind::Command,
         subject,
     )
 }
@@ -216,7 +213,7 @@ async fn an_edit_keeps_every_other_byte_and_a_block_moves_the_allow_out() {
         PathRules::Posix,
         &rule(
             RememberedRuleSense::Block,
-            ProviderAskActionKind::Network,
+            ToolCallActionKind::Network,
             "example.com",
         ),
         None,
@@ -553,7 +550,7 @@ fn a_path_rule_matches_only_the_path_in_claude_codes_words(
     let lists = compose_claude_session_rule_lists(
         &[rule(
             RememberedRuleSense::Allow,
-            ProviderAskActionKind::FileChange,
+            ToolCallActionKind::FileChange,
             path,
         )],
         path_rules,

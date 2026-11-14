@@ -207,6 +207,7 @@ impl TestCodexSession {
             provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
             pricing: Arc::clone(&pricing),
             tool_traces: Arc::new(PortRegistration::new("tool traces")),
+            line_shells: Arc::from(Vec::new()),
         }));
         let session_id = new_session_id();
         let lead_agent_id = new_agent_id();

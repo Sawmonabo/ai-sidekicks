@@ -1,26 +1,8 @@
-//! A standing rule a provider keeps on its asks, and the kind of action it covers, as the approval
-//! store writes both.
+//! A standing rule a provider keeps on its asks, over the kind of action it covers, as the
+//! approval store writes it.
 
 use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
-use strum::IntoStaticStr;
-
-/// The kind of action a held call would take, without its subject, as a standing rule names it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, IntoStaticStr)]
-#[strum(serialize_all = "camelCase")]
-pub enum ProviderAskActionKind {
-    /// Run a command.
-    Command,
-    /// Send input to the running command the ask's tool call names.
-    CommandInput,
-    /// Change files.
-    FileChange,
-    /// Read one file or folder.
-    FileRead,
-    /// Reach a host.
-    Network,
-    /// Call a tool none of the others covers.
-    Tool,
-}
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 
 /// A standing rule the provider keeps: an allow made on an approval or a host's block made on a
 /// network decline, for the session or in the project's own rule file. `subject` is the words the
@@ -33,7 +15,7 @@ pub struct ProviderAskRule {
     /// Whether it allows or blocks.
     pub sense: RememberedRuleSense,
     /// The kind of action it covers.
-    pub action: ProviderAskActionKind,
+    pub action: ToolCallActionKind,
     /// The words the card named.
     pub subject: String,
 }

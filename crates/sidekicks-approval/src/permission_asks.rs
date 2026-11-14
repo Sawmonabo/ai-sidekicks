@@ -36,6 +36,7 @@ use sidekicks_contracts::approval::{
     ApprovalDecision, ApprovalRequestId, ApprovalResolveRequest, ApprovalResolveResponse,
     RememberedScope, RememberedScopeKind,
 };
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -44,7 +45,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::{
     ProviderRequestAnswer, RespondToRequestParams,
@@ -580,7 +581,7 @@ impl PermissionAsks {
         };
         let made_rule = match stored.asked_scope() {
             Some(scope) => Some(ProviderAnswerRule {
-                rule: rule_of(scope, ProviderAskActionKind::from(&action)),
+                rule: rule_of(scope, ToolCallActionKind::from(&action)),
                 project_folders: match scope.kind {
                     RememberedScopeKind::Project => {
                         self.deps
@@ -639,7 +640,7 @@ impl PermissionAsks {
             });
         };
         let made_rule = ProviderAnswerRule {
-            rule: rule_of(scope, ProviderAskActionKind::from(action)),
+            rule: rule_of(scope, ToolCallActionKind::from(action)),
             project_folders: Vec::new(),
         };
         Ok(self.deps.rules.record(stored, &made_rule).await?)
@@ -806,7 +807,7 @@ fn allow(answered_by_rule: Option<ProviderAskRule>) -> ProviderPermissionAnswer 
 }
 
 // The rule `scope` names over an action of kind `action`.
-fn rule_of(scope: &RememberedScope, action: ProviderAskActionKind) -> ProviderAskRule {
+fn rule_of(scope: &RememberedScope, action: ToolCallActionKind) -> ProviderAskRule {
     ProviderAskRule {
         kind: scope.kind,
         sense: scope.sense,

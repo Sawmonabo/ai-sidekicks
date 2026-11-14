@@ -18,7 +18,7 @@ use sidekicks_contracts::event::declared_variants::{
     ProviderBlock, RunAgentOutputPayload, ToolActivityPayload, ToolCallEndCause,
 };
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
-use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::provider::tool_call::{ToolCallAction, ToolCallId};
 use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -34,6 +34,7 @@ use crate::driver::claude::delivery::file_tool_writes::{ClaudeFileTool, ClaudeFi
 use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
 use crate::driver::claude::delivery::patches::read_claude_patch_file;
 use crate::driver::claude::delivery::peer_arrival::{ClaudeMessageOrigin, read_boxed_origin};
+use crate::driver::claude::delivery::tool_call_action::read_claude_tool_call_action;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::contract::error::read_provider_words;
 use crate::driver::reorder_buffer::ReorderPairingRole;
@@ -567,6 +568,7 @@ pub(crate) fn read_claude_assistant_rows(
             .as_deref()
             .map_or("{}", RawValue::get)
             .to_owned();
+        let action = read_claude_tool_call_action(&tool_name, block.input.as_deref());
         let mut opened = ClaudeOpenToolCall::new(tool_name.clone(), run.clone(), now);
         opened.arguments = Some(arguments.keep(take_raw_value(&mut block.input)));
         open_tool_calls.insert(call_id.clone(), opened);
@@ -580,6 +582,7 @@ pub(crate) fn read_claude_assistant_rows(
                     tool_name,
                     tool_call_id,
                     None,
+                    Some(action),
                 )),
                 body: ClaudeMessageBody::Text(input),
             },
@@ -737,6 +740,7 @@ pub(crate) fn close_opened_call(
         opened.tool_name,
         tool_call_id,
         duration_ms,
+        None,
     );
     Some(match outcome {
         ClaudeToolCallOutcome::Completed => LateAppendableRow::AgentToolCallCompleted(activity),
@@ -765,6 +769,7 @@ fn tool_activity(
     tool_name: EventText,
     tool_call_id: ToolCallId,
     duration_ms: Option<SafeInt<0>>,
+    action: Option<ToolCallAction>,
 ) -> ToolActivityPayload {
     ToolActivityPayload {
         session_id,
@@ -773,6 +778,7 @@ fn tool_activity(
         tool_call_id: Some(tool_call_id),
         duration_ms,
         omitted_patches: None,
+        action,
         source_epoch: None,
         source_position: None,
         content_length: None,

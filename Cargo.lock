@@ -8887,7 +8887,6 @@ dependencies = [
  "serde_json",
  "shlex",
  "sidekicks-contracts",
- "strum 0.28.0",
  "thiserror 2.0.21",
  "tokio",
  "tree-sitter",

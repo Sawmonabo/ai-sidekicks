@@ -29,14 +29,14 @@ use sidekicks_contracts::approval::{
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
-use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::provider::tool_call::{ToolCallActionKind, ToolCallId};
 use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_policy::authorizer::{Authorizer, PolicyDecision};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_policy::workflow_start::{WorkflowStart, check_workflow_start};
@@ -266,7 +266,7 @@ impl PermissionCheck {
                     .rules
                     .find_rule(
                         ask.session_id,
-                        ProviderAskActionKind::from(&ask.action),
+                        ToolCallActionKind::from(&ask.action),
                         subject,
                         None,
                         false,
@@ -457,7 +457,7 @@ impl PermissionCheck {
                     .rules
                     .find_rule(
                         ask.session_id,
-                        ProviderAskActionKind::from(&ask.action),
+                        ToolCallActionKind::from(&ask.action),
                         rule_subject,
                         ask.tool_server_tool.as_ref(),
                         true,

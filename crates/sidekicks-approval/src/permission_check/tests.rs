@@ -10,10 +10,11 @@ use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalRequestId, ApprovalResolveRequest,
     RememberedRuleSense, RememberedScopeKind,
 };
+use sidekicks_contracts::provider::tool_call::ToolCallActionKind;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::callback_tools::host::CallbackToolApprovalOutcome;
@@ -173,7 +174,7 @@ impl CheckFixture {
             rule: ProviderAskRule {
                 kind: RememberedScopeKind::Session,
                 sense,
-                action: ProviderAskActionKind::from(&action),
+                action: ToolCallActionKind::from(&action),
                 subject: subject.to_owned(),
             },
             project_folders: Vec::new(),

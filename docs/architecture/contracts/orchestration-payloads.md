@@ -70,7 +70,7 @@ type AgentTreeMember =
 // (a helper's newest own run's). Whether it waits on an approval is its link's state.
 interface ChildRunHead {
   agentName: string | null; // a run's agent's name; a helper's provider-given name, else the role it started in
-  ask: string | null; // the ask it was dispatched with, whole: a run's first admitted send, a helper's start's prompt
+  ask: string | null; // the ask it was dispatched with, whole: a run's first admitted send, a helper's start's prompt, or for a Codex helper whose ask Codex hands on encrypted, the task name it was spawned under in words (`fix_parser` reads `Fix parser`)
   modelId: string;
   effort?: string; // one word from the one effort ladder
   viaAgentName?: string; // present where the child was a peer call: the agent that was asked
@@ -79,7 +79,7 @@ interface ChildRunHead {
   spendUsdMicros: number; // integer micro-dollars, the same fold as the per-agent spend on session.budget.read
   startedAt: string;
   endedAt: string | null; // its terminal record's time, null while it is live; the duration runs from startedAt
-  activity: { toolName: string } | null; // its newest tool call, null before its first
+  activity: ToolCallAction | null; // its newest tool call's action, kept once it ends; null before its first
   result: string | null; // its newest message's opening, at most 4,096 code points, once it ended
   failureReason: {
     failureCause?: object; // the cause agent.run.failed recorded, tagged by `cause`
@@ -87,6 +87,12 @@ interface ChildRunHead {
   } | null; // null unless it failed
   ancestry: AgentTreeMember[]; // from the lead down to this child's parent
 }
+// What one tool call does and to what, which its driver reads from the call's own input when it
+// starts and records on its `agent.toolCall.invoked` row; a standing rule names the same kinds.
+type ToolCallAction = {
+  kind: "command" | "commandInput" | "fileChange" | "fileRead" | "search" | "network" | "tool";
+  subject: string; // the command line, the input, a file's path, the pattern or query, the host, or the tool's own name for `tool`; at most 256 code points
+};
 type ChildRunLink =
   | {
       kind: "run";

@@ -4,6 +4,7 @@
 
 use crate::provider::account::record::{AccountLabelFields, ProviderAuthMode};
 use crate::provider::settings::ProviderPlanWord;
+use crate::wire::text::compose_sentence_case_words;
 
 /// The plan id a provider sends when it cannot say which plan the account is on.
 const UNKNOWN_PLAN: &str = "unknown";
@@ -18,12 +19,7 @@ fn plan_word(plan_words: &[ProviderPlanWord], plan: &str) -> Option<String> {
     if let Some(named) = plan_words.iter().find(|named| named.plan.as_str() == plan) {
         return Some(named.word.as_str().to_owned());
     }
-    let words = plan.replace('_', " ");
-    let mut characters = words.chars();
-    Some(match characters.next() {
-        Some(first) => first.to_uppercase().chain(characters).collect(),
-        None => words,
-    })
+    Some(compose_sentence_case_words(plan))
 }
 
 /// The kind of credential a token or API-key account holds, drawn beside its typed name after the
