@@ -4,19 +4,16 @@
 //! under an id of its own and turns the executor's messages naming it back to its owner's id.
 
 use std::collections::{HashMap, VecDeque};
-use std::time::Duration;
 
 use tokio::time::Instant;
 
 use super::RelayConnectionId;
+use super::detached::DETACHED_CONNECTION_HOLD;
 use crate::driver::codex::exec_relay::methods::RelayIdKind;
 
 /// The id a connection's request reaches the executor under when it names no id the connection
 /// minted; it names nothing there, so the executor answers it as unknown.
 pub(super) const UNKNOWN_ID: &str = "sidekicks-unknown";
-
-/// How long the executor keeps a closed process for its late reads, and the relay its ids.
-const CLOSED_PROCESS_RETENTION: Duration = Duration::from_secs(30);
 
 /// The connection a relay id belongs to and the id that connection gave it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,8 +36,8 @@ pub(super) enum IdMint {
     Pending,
 }
 
-// Where one relay id stands: minted and not yet answered, answered as begun, or closed and kept
-// for its kind's retention.
+// Where one relay id stands: minted and not yet answered, answered as begun, or a process closed
+// and kept for its late reads.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum IdState {
     Pending,
@@ -155,9 +152,10 @@ impl ConnectionIds {
         }
     }
 
-    /// Marks `relay_id` closed: a process's ids last as long as the executor keeps it, and a new
-    /// start under its own id gets a new relay id; a file handle or an http request is forgotten
-    /// at once.
+    /// Marks `relay_id` closed: a process's ids last for [`DETACHED_CONNECTION_HOLD`], as long as
+    /// the executor keeps a closed process for its late reads and as long as a hold that began
+    /// before the close can still read it back, and a new start under its own id gets a new relay
+    /// id; a file handle or an http request is forgotten at once.
     pub(super) fn close(&mut self, relay_id: &str) {
         if self.kind != RelayIdKind::Process {
             self.forget(relay_id);
@@ -169,7 +167,7 @@ impl ConnectionIds {
         if owned.state != IdState::Closed {
             owned.state = IdState::Closed;
             self.closing.push_back((
-                Instant::now() + CLOSED_PROCESS_RETENTION,
+                Instant::now() + DETACHED_CONNECTION_HOLD,
                 relay_id.to_owned(),
             ));
         }
@@ -177,7 +175,7 @@ impl ConnectionIds {
     }
 
     /// Forgets every id of `connection`, which went away, and answers the relay ids of those its
-    /// mint's answer had made live; one still pending is left to that answer.
+    /// mint's answer had made live; a mint's answer that comes later finds its id owned by no one.
     pub(super) fn forget_connection(&mut self, connection: RelayConnectionId) -> Vec<String> {
         let Some(ids) = self.relay_ids.remove(&connection) else {
             return Vec::new();

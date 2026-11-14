@@ -14,7 +14,8 @@
 //! A command whose service was restarted while it ran is ended by the relay at its process's end,
 //! since the new service never reports the old one's items. A dropped connection's hold ends at
 //! its window, or once its environment opens afresh, ending every process it kept but a command
-//! the relay started under a call, which runs to its end. Once the executor ends, the relay
+//! the relay started under a call, which runs to its end; a process whose start is answered once
+//! its connection or its hold is gone is ended the same way. Once the executor ends, the relay
 //! answers its connections itself, as `executor_end` says, and asks its service to start again.
 
 mod command_acts;
@@ -47,7 +48,8 @@ use tokio_util::task::TaskTracker;
 
 use self::endpoint::RelayEndpoint;
 use self::executor::{
-    CodexExecutor, ConnectionHold, DETACHED_CONNECTION_HOLD, ProcessEnd, RelayConnectionId,
+    CodexExecutor, ConnectionHold, DETACHED_CONNECTION_HOLD, DetachedClient, ProcessEnd,
+    RelayConnectionId,
 };
 use self::message::{MessageHead, RoutedMessage, text_of};
 use self::methods::{ClientMethod, INITIALIZED_METHOD};
@@ -471,10 +473,14 @@ impl CodexExecRelay {
     }
 
     /// Lets the connection `connection`, whose socket closed, go from `executor`, holding a
-    /// session it opened for its resume until [`DETACHED_CONNECTION_HOLD`] has passed.
-    fn let_go(&self, executor: &Arc<CodexExecutor>, connection: RelayConnectionId) {
-        if let Some(hold) = executor.detach_client(connection) {
-            self.end_hold_at_its_window(executor, hold);
+    /// session it opened for its resume until [`DETACHED_CONNECTION_HOLD`] has passed; a
+    /// connection that opened none has its live processes ended at once, as a hold's end does.
+    async fn let_go(&self, executor: &Arc<CodexExecutor>, connection: RelayConnectionId) {
+        match executor.detach_client(connection) {
+            DetachedClient::Held(hold) => self.end_hold_at_its_window(executor, hold),
+            DetachedClient::Released(processes) => {
+                self.end_unowned_processes(executor, processes).await;
+            }
         }
     }
 
@@ -490,14 +496,15 @@ impl CodexExecRelay {
                 return;
             };
             if let Some(processes) = executor.end_hold(&hold) {
-                relay.end_held_processes(&executor, processes).await;
+                relay.end_unowned_processes(&executor, processes).await;
             }
         });
     }
 
-    // Ends each of `processes`, by their relay ids, that an ended hold kept: every one is
-    // terminated but a command the relay started under a call, which runs to its end.
-    async fn end_held_processes(&self, executor: &CodexExecutor, processes: Vec<String>) {
+    // Ends each of `processes`, by their relay ids, that no connection owns any more, an ended
+    // hold's or a sessionless connection's: every one is terminated but a command the relay
+    // started under a call, which runs to its end.
+    async fn end_unowned_processes(&self, executor: &CodexExecutor, processes: Vec<String>) {
         let ended: Vec<String> = {
             let commands = lock(&self.commands);
             processes
@@ -582,7 +589,7 @@ impl CodexExecRelay {
             let answer = match executor.initialize_connection(connection, resume_session_id) {
                 Ok(initialized) => {
                     relay
-                        .end_held_processes(executor, initialized.released_processes)
+                        .end_unowned_processes(executor, initialized.released_processes)
                         .await;
                     json!({ "id": id, "result": initialized.result })
                 }

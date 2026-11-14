@@ -13,10 +13,10 @@ use sidekicks_std::random_hex::random_hex;
 use tokio::time::Instant;
 
 use super::{CodexExecutor, RelayConnectionId};
-use crate::driver::codex::exec_relay::methods::ClientMethod;
 
 /// How long a dropped connection's processes are held for its resume: the longer of the windows
-/// the executors Codex ships keep a detached session.
+/// the executors Codex ships keep a detached session, which is also how long they keep a closed
+/// process's output for its late reads.
 pub(in crate::driver::codex::exec_relay) const DETACHED_CONNECTION_HOLD: Duration =
     Duration::from_secs(80);
 
@@ -256,9 +256,7 @@ impl CodexExecutor {
 
     // Forgets the held connection `held`'s ids and requests, answering its live processes.
     fn forget_held(&self, held: RelayConnectionId) -> Vec<String> {
-        lock(&self.client_requests).retain(|_relay_id, request| {
-            request.connection != held || request.method == ClientMethod::FileOpen
-        });
+        self.forget_requests_of(held);
         lock(&self.process_ids).forget_connection(held)
     }
 }

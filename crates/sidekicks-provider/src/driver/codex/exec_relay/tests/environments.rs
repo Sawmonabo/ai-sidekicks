@@ -193,7 +193,7 @@ async fn a_hold_ends_all_but_its_commands_at_its_window_or_a_fresh_start(#[case]
     )
     .await;
 
-    relay.let_go(&executor, connection);
+    relay.let_go(&executor, connection).await;
     assert_executor_quiet(&mut fake).await;
     match end {
         HoldEnd::Window => {

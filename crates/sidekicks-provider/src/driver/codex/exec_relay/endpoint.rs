@@ -234,7 +234,7 @@ async fn serve_connection(
         relay.take_client_message(&executor, connection, text).await;
     }
     match relay.upgrade() {
-        Some(relay) => relay.let_go(&executor, connection),
+        Some(relay) => relay.let_go(&executor, connection).await,
         None => {
             executor.detach_client(connection);
         }

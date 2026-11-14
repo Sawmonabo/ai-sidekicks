@@ -5,7 +5,9 @@
 //! relay ids, and every message naming one, a policy ask and a streamed body among them, reaches
 //! its connection alone under its own id. Each connection opens a session of its own at its
 //! `initialize`; a dropped connection's processes are held under that session for its resume, and
-//! its open files are closed. Every connection's missing-path watch joins one on the executor. An
+//! its open files are closed. A process started once no connection owns it is ended at its start's
+//! answer, as a file opened then is closed, unless it is a command the relay records, which runs
+//! to its end. Every connection's missing-path watch joins one on the executor. An
 //! executor request no connection owns is refused and an unrouted notification dropped, so
 //! nothing reaches every connection. Each process's end is watched so a held terminate or a stop
 //! can wait on it, the answer to a client's request where the relay keeps something for it, and
@@ -107,6 +109,29 @@ struct ClientRequest {
     method: ClientMethod,
     relay_id: Option<String>,
     streams: bool,
+}
+
+impl ClientRequest {
+    // Whether the request is kept past its connection's forget: a file open, whose answer closes
+    // the handle no one holds, and a process start, whose answer ends the process no one owns.
+    // Nothing joins them once the connection is forgotten, and each goes at its answer or at the
+    // executor's end, so what is kept is at most the starts and opens in flight at the forget.
+    fn outlives_its_connection(&self) -> bool {
+        matches!(
+            self.method,
+            ClientMethod::FileOpen | ClientMethod::ProcessStart
+        )
+    }
+}
+
+/// What a connection's detach leaves: the hold of the session it opened, for its resume, or, for
+/// a connection that opened none, the live processes it started, by their relay ids, which no one
+/// owns any more.
+pub(super) enum DetachedClient {
+    /// The connection's session, held for its resume.
+    Held(ConnectionHold),
+    /// The live processes of a connection with no session, for the relay to end.
+    Released(Vec<String>),
 }
 
 /// One executor and the daemon's connection to it.
@@ -284,19 +309,17 @@ impl CodexExecutor {
 
     /// Lets the connection `connection` go, closing its queue, denying every policy ask it had
     /// not answered and closing its open files on the executor; a file still opening is closed at
-    /// its open's answer. A connection that opened a session keeps its processes and their starts
-    /// in flight under the hold this answers, for its resume; any other's requests in flight but
-    /// its opens and its ids are forgotten, their answers and messages then reaching no one.
-    pub(super) fn detach_client(&self, connection: RelayConnectionId) -> Option<ConnectionHold> {
+    /// its open's answer. A connection that opened a session keeps its processes under the hold
+    /// this answers, for its resume; any other's process ids are forgotten and its live processes
+    /// answered for the relay to end, a process still starting ended at its start's answer. Its
+    /// other requests in flight are forgotten, their answers and messages then reaching no one.
+    pub(super) fn detach_client(&self, connection: RelayConnectionId) -> DetachedClient {
         let hold = lock(&self.sessions).hold(connection);
-        lock(&self.client_requests).retain(|_relay_id, request| {
-            request.connection != connection
-                || request.method == ClientMethod::FileOpen
-                || (hold.is_some() && request.method == ClientMethod::ProcessStart)
-        });
-        if hold.is_none() {
-            lock(&self.process_ids).forget_connection(connection);
-        }
+        let detached = match hold {
+            Some(hold) => DetachedClient::Held(hold),
+            None => DetachedClient::Released(lock(&self.process_ids).forget_connection(connection)),
+        };
+        self.forget_requests_of(connection);
         let open_files = lock(&self.file_handles).forget_connection(connection);
         // A streamed body runs on to its last delta, since no method cancels it, and reaches no
         // one.
@@ -311,7 +334,14 @@ impl CodexExecutor {
             .into_iter()
             .map(|handle| self.compose_file_close(&handle));
         self.send_own_lines(denies.chain(closes).collect());
-        hold
+        detached
+    }
+
+    // Forgets the requests in flight of `connection`, which went away, but those that outlive it.
+    fn forget_requests_of(&self, connection: RelayConnectionId) {
+        lock(&self.client_requests).retain(|_relay_id, request| {
+            request.connection != connection || request.outlives_its_connection()
+        });
     }
 
     /// Whether the connection `connection`'s answer under `id` to one of the executor's requests

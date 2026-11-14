@@ -52,6 +52,7 @@ impl CodexExecutor {
             && let Some(id) = message.id
         {
             let watching = lock(&self.client_replies).remove(id.get());
+            let is_watched = watching.is_some();
             if let Some(watching) = watching {
                 // The relay's watch may have stopped waiting; the client still gets the answer.
                 let _unheard = watching.send(message.error.is_some());
@@ -64,10 +65,11 @@ impl CodexExecutor {
                 );
                 return;
             };
-            let (answer, unowned_file) = self.client_answer(line, &message, id, &request);
+            let (answer, unowned_end) =
+                self.client_answer(line, &message, id, &request, is_watched);
             self.answer_connection(request.connection, answer);
-            if let Some(handle) = unowned_file {
-                self.send_own_lines(vec![self.compose_file_close(&handle)]);
+            if let Some(unowned_end) = unowned_end {
+                self.send_own_lines(vec![unowned_end]);
             }
             return;
         }
@@ -119,19 +121,21 @@ impl CodexExecutor {
     }
 
     // The executor's answer `line` to the client's `request` under the client's own id, the table
-    // its method names kept in step, and the handle of a file opened after its connection went,
-    // for the caller to close.
+    // its method names kept in step, and the relay's own request that ends what the answer began
+    // for no one: the close of a file opened after its connection went, and the terminate of a
+    // process started once its connection or its hold was gone. A start the relay watches
+    // (`is_watched`) is a command it records, which runs to its end as a held one does.
     fn client_answer(
         &self,
         line: &str,
         message: &RoutedMessage<'_>,
         id: &RawValue,
         request: &ClientRequest,
+        is_watched: bool,
     ) -> (String, Option<String>) {
         match request.method {
-            // A process started after its connection went runs on; only a file is closed.
             ClientMethod::ProcessStart => {
-                let (answer, _unowned) =
+                let (answer, unowned) =
                     self.mint_answer(RelayIdKind::Process, line, message, id, request);
                 if let Some(minted) = &request.relay_id {
                     let mut ledger = lock(&self.ledger);
@@ -141,10 +145,18 @@ impl CodexExecutor {
                         ledger.forget_process(minted);
                     }
                 }
-                (answer, None)
+                let terminate = unowned
+                    .filter(|_unowned| !is_watched)
+                    .map(|process| self.compose_process_terminate(&process));
+                (answer, terminate)
             }
             ClientMethod::FileOpen => {
-                self.mint_answer(RelayIdKind::FileHandle, line, message, id, request)
+                let (answer, unowned) =
+                    self.mint_answer(RelayIdKind::FileHandle, line, message, id, request);
+                (
+                    answer,
+                    unowned.map(|handle| self.compose_file_close(&handle)),
+                )
             }
             ClientMethod::FileClose => {
                 if let Some(handle) = &request.relay_id {
