@@ -602,6 +602,6 @@ mod tests {
             serde_json::from_value(json!({ "kind": "typed", "text": typed }))
                 .expect("typed text reads");
 
-        assert_eq!(refused_answer(&prompt, &answer), refused);
+        assert_eq!(refused_answer(&prompt, &answer, false), refused);
     }
 }

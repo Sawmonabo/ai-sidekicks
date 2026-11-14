@@ -198,6 +198,7 @@ fn expect_declarations_read(
             server_policy: McpServerPolicy::default(),
             account_servers: Vec::new(),
             probe_readings: Vec::new(),
+            failed_roots: Vec::new(),
         })))
     });
 }

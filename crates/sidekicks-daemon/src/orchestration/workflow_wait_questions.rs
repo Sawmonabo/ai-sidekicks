@@ -10,7 +10,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::question::{
-    QuestionAnswer, QuestionAnswerInvalidReason, QuestionId, QuestionPrompt,
+    QuestionAnswer, QuestionAnswerInvalidReason, QuestionId, QuestionKind, QuestionPrompt,
     WaitQuestionAskedPayload,
 };
 use sidekicks_contracts::session::id::SessionId;
@@ -234,6 +234,7 @@ fn reply_question(workflow_name: &WorkflowName, prompt: &ComposedText) -> Questi
     let page = QuestionPrompt {
         header: Some(workflow_header(workflow_name)),
         text: NonEmptyText::new(prompt.as_str().to_owned()).expect("a prompt is never empty"),
+        kind: QuestionKind::Text,
         heading: None,
         description: None,
         options: Vec::new(),

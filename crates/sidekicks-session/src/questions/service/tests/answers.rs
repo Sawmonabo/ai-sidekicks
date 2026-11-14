@@ -270,6 +270,7 @@ async fn an_answer_its_record_cannot_take_is_refused_with_nothing_sent(
         RefusedRecord::WaitHeld => {
             let path_page = json!({
                 "text": "Which folder?",
+                "kind": "text",
                 "options": [],
                 "severalAnswers": false,
                 "secret": false,

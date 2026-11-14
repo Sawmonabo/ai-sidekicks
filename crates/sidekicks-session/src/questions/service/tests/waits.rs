@@ -38,6 +38,7 @@ fn fresh_wait_id() -> UuidTextForm {
 fn reply_page() -> Value {
     json!({
         "text": "What should the summary say?",
+        "kind": "text",
         "options": [],
         "severalAnswers": false,
         "secret": false,

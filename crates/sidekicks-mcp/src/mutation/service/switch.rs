@@ -387,6 +387,7 @@ mod tests {
                 server_policy: McpServerPolicy::default(),
                 account_servers: Vec::new(),
                 probe_readings: Vec::new(),
+                failed_roots: Vec::new(),
             })))
         });
         let fixture = Fixture::new(vec![Arc::new(driver)], None).await;
