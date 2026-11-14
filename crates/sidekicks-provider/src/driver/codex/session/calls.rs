@@ -33,7 +33,7 @@ use crate::driver::codex::session::inbound::{
 };
 use crate::driver::codex::session::recovery::drop_codex_turns;
 use crate::driver::codex::session::recovery::in_place_resume::{
-    reopen_released_codex_helper, resume_codex_session_in_place,
+    reopen_released_codex_helper, resume_codex_session_in_place, take_codex_helper_reopen_waits,
 };
 use crate::driver::codex::session::rewind::{
     read_codex_message_turn, record_codex_message_turns, revert_codex_turns,
@@ -227,8 +227,20 @@ pub(crate) async fn run_codex_session_call(
             routed = released;
             let _unheard = reply.send(result);
         }
-        CodexSessionCall::ReopenHelper { thread_id } => {
-            routed = Box::pin(reopen_released_codex_helper(task, dependencies, &thread_id)).await;
+        CodexSessionCall::TakeHelperReopenWaits { reply } => {
+            let _unheard = reply.send(take_codex_helper_reopen_waits(task.record));
+        }
+        CodexSessionCall::ReopenHelper {
+            thread_id,
+            service_id,
+        } => {
+            routed = Box::pin(reopen_released_codex_helper(
+                task,
+                dependencies,
+                &thread_id,
+                service_id,
+            ))
+            .await;
         }
         CodexSessionCall::RevertBefore {
             thread_id,
