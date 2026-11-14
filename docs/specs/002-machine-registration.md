@@ -105,7 +105,7 @@ This spec covers the machine's registration with the control plane, its reachabi
 ## Example Flows
 
 - `Example: The person installs the app on a Mac mini. Its service starts, mints the machine's id and key, and reads "Mac mini" as its name. The person presses Sign in on Settings › Devices, and the service runs the sign-in, which enrolls the key. The service then registers at its first connection to the control plane, and the control plane accepts the enrolled key. On the phone, the machine's card reads Reachable.`
-- `Example: The phone holds the shell in "Fix the token refresh". At the Mac, the person presses Take the terminal and confirms; the phone loses its half-typed line and its pane now says the Mac holds the shell, while the build running in that shell carries on.`
+- `Example: The phone holds the shell in "Fix the token refresh". At the Mac, the person presses Take the terminal and confirms; the phone loses its half-typed line and its pane now says the Mac holds the terminal, while the build running in that shell carries on.`
 - `Example: An agent's running command holds a shell. A forced take from the laptop is refused; the person pauses the run, the hold is released, and the laptop takes the shell.`
 
 ## Implementation Notes
