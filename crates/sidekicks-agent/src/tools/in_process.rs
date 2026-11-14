@@ -34,7 +34,7 @@ use sidekicks_std::mutex_lock::lock;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::tools::entries::{
-    StandingStreamEvent, StandingStreamMarks, ToolServerClient, ToolServerEntries,
+    SentListingMark, StandingStreamEvent, StandingStreamMarks, ToolServerClient, ToolServerEntries,
     ToolServerEntryGuard,
 };
 use crate::tools::server::{AgentToolServer, ToolServerPath};
@@ -276,7 +276,7 @@ fn open_connection(
     let pending = Arc::new(PendingCalls::default());
     // Taken before the client can list, so no change its listing missed goes untold.
     let watch = client.map(|client| {
-        let marks = client.open_standing_stream(Some(client.listing_mark().as_bytes()));
+        let marks = client.open_standing_stream(SentListingMark::Sent(Some(client.listing_mark())));
         (client, marks)
     });
     let serving = tokio::spawn(async move {

@@ -75,24 +75,11 @@ impl CodexAvailabilityWatch {
     /// Waits, however long it takes, until the service is no longer on its way back, and answers
     /// where it came to rest; a stop under way waits too, since it may still end in a start.
     pub(crate) async fn rest(&mut self) -> CodexServiceRest {
-        let rested = self
-            .availability
-            .wait_for(|availability| {
-                !availability.is_coming_back()
-                    && !matches!(availability, CodexServiceAvailability::Stopping)
-            })
-            .await;
-        match &*rested.expect("the service outlives its watch") {
-            CodexServiceAvailability::Up => CodexServiceRest::Up,
-            CodexServiceAvailability::ShutDown => CodexServiceRest::ShutDown,
-            CodexServiceAvailability::Stopped
-            | CodexServiceAvailability::StartFailed(_)
-            | CodexServiceAvailability::CrashLoop => CodexServiceRest::Down,
-            // The wait above passes none of these.
-            CodexServiceAvailability::Starting
-            | CodexServiceAvailability::Reconnecting
-            | CodexServiceAvailability::Restarting
-            | CodexServiceAvailability::Stopping => unreachable!("the service is at rest"),
+        loop {
+            if let Some(rest) = read_rest(&self.availability.borrow_and_update()) {
+                return rest;
+            }
+            self.changed().await;
         }
     }
 
@@ -102,5 +89,21 @@ impl CodexAvailabilityWatch {
             .changed()
             .await
             .expect("the service outlives its watch");
+    }
+}
+
+// Where `availability` has come to rest; `None` while the service is on its way back or a stop
+// under way may still end in a start.
+fn read_rest(availability: &CodexServiceAvailability) -> Option<CodexServiceRest> {
+    match availability {
+        CodexServiceAvailability::Up => Some(CodexServiceRest::Up),
+        CodexServiceAvailability::ShutDown => Some(CodexServiceRest::ShutDown),
+        CodexServiceAvailability::Stopped
+        | CodexServiceAvailability::StartFailed(_)
+        | CodexServiceAvailability::CrashLoop => Some(CodexServiceRest::Down),
+        CodexServiceAvailability::Starting
+        | CodexServiceAvailability::Reconnecting
+        | CodexServiceAvailability::Restarting
+        | CodexServiceAvailability::Stopping => None,
     }
 }

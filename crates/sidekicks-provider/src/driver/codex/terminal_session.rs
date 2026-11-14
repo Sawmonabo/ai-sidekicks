@@ -19,9 +19,10 @@ use self::exchanges::{
     CodexTerminalDelivery, CodexTerminalMessage, CodexTerminalTurnEnd, deliver_to_terminal_session,
     reread_turn_end,
 };
+use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::CodexService;
-use crate::driver::codex::service::supervisor::away::CodexServiceRest;
+use crate::driver::codex::service::supervisor::away::{CodexAvailabilityWatch, CodexServiceRest};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_messages::{
@@ -34,6 +35,10 @@ use crate::port::session_message_reading_publisher::{
 /// How long a terminal joined to the service tries to reconnect once the service is away, Codex's
 /// own window; past it the terminal never rejoins, even when the service comes back.
 pub(crate) const TERMINAL_RECONNECT_WINDOW: Duration = Duration::from_secs(120);
+
+// How many times a wait reads a turn's end in a row, on a service that reads up, before it waits
+// for the service's next change or the conversation's next status change.
+const TURN_END_READ_ATTEMPTS: usize = 3;
 
 /// Why an agent's message did not reach a Codex session typed in a terminal.
 #[derive(Debug, thiserror::Error)]
@@ -256,10 +261,13 @@ enum TurnEndReread {
 
 // The end of the turn `turn_id` of `thread_id`, read again after the seat's connection ended
 // before it, following the terminal home's service in `registry` from `service` on: at once
-// while the service is up, else once it is back however long it was away. A read that fails, or
-// whose own seat ends, waits for the service's next change before it reads again; a service
-// another took the home over from hands the wait to that one. Codex's own refusal of a read
-// ends the turn failed in its words.
+// while the service is up, else once it is back however long it was away. A read that fails
+// with the service still up, Codex's overloaded answer among them, or whose own seat's
+// connection ends, is read again at once, up to `TURN_END_READ_ATTEMPTS` reads in all; past
+// them the wait reads again at the service's next change or the conversation's next status
+// change, whichever comes first. A service another took the home over from hands the wait to
+// that one, and a service the daemon only joined reads down once the terminals gave it up. Codex's
+// own refusal of a read ends the turn failed in its words.
 async fn await_turn_end_again(
     registry: &CodexServiceRegistry,
     mut service: Arc<CodexService>,
@@ -269,35 +277,68 @@ async fn await_turn_end_again(
     'service: loop {
         let mut availability = service.watch_availability();
         loop {
-            match availability.rest().await {
-                CodexServiceRest::Up => {}
-                CodexServiceRest::ShutDown => return TurnEndReread::ShutDown,
-                CodexServiceRest::Down => match registry.terminal_home_service() {
-                    Some(next) if !Arc::ptr_eq(&next, &service) => {
-                        service = next;
-                        continue 'service;
+            // Listening before the reads, so a status change that comes while they run wakes the
+            // next round.
+            let mut status_changes = service.terminal_conversations().listen_status_changes();
+            for _attempt in 0..TURN_END_READ_ATTEMPTS {
+                match rest_for_wait(&service, &mut availability).await {
+                    CodexServiceRest::Up => {}
+                    CodexServiceRest::ShutDown => return TurnEndReread::ShutDown,
+                    CodexServiceRest::Down => match registry.terminal_home_service() {
+                        Some(next) if !Arc::ptr_eq(&next, &service) => {
+                            service = next;
+                            continue 'service;
+                        }
+                        Some(_) | None => return TurnEndReread::DownForGood,
+                    },
+                }
+                match reread_turn_end(&service, thread_id, turn_id).await {
+                    Ok(Some(end)) => return TurnEndReread::Ended(end),
+                    // The seat's own connection ended before the turn did.
+                    Ok(None) => {}
+                    Err(error) => {
+                        if let Some(words) = error.provider_refusal_words() {
+                            return TurnEndReread::Ended(CodexTerminalTurnEnd::Failed {
+                                notice: words.to_owned(),
+                            });
+                        }
+                        tracing::debug!(
+                            thread_id,
+                            error = &error as &(dyn std::error::Error + 'static),
+                            "a terminal session's turn end is read again"
+                        );
                     }
-                    Some(_) | None => return TurnEndReread::DownForGood,
-                },
-            }
-            match reread_turn_end(&service, thread_id, turn_id).await {
-                Ok(Some(end)) => return TurnEndReread::Ended(end),
-                // The seat's own connection ended before the turn did.
-                Ok(None) => {}
-                Err(error) => {
-                    if let Some(words) = error.provider_refusal_words() {
-                        return TurnEndReread::Ended(CodexTerminalTurnEnd::Failed {
-                            notice: words.to_owned(),
-                        });
-                    }
-                    tracing::debug!(
-                        thread_id,
-                        error = &error as &(dyn std::error::Error + 'static),
-                        "a terminal session's turn is read again once its service changes"
-                    );
                 }
             }
-            availability.changed().await;
+            tokio::select! {
+                () = availability.changed() => {}
+                () = status_changes.next_of(thread_id) => {}
+            }
+        }
+    }
+}
+
+// Where `service` comes to rest for a wait, as `availability` reads it; a service the daemon only
+// joined, which it never ends and redials without end, reads down once it has been away past the
+// terminal's reconnect window, when every terminal gave it up and a listing reads its
+// conversations not reachable.
+async fn rest_for_wait(
+    service: &CodexService,
+    availability: &mut CodexAvailabilityWatch,
+) -> CodexServiceRest {
+    if service.kind() != CodexServiceKind::Joined {
+        return availability.rest().await;
+    }
+    loop {
+        let Some(away) = service.away_for() else {
+            return availability.rest().await;
+        };
+        let window_left = TERMINAL_RECONNECT_WINDOW.saturating_sub(away);
+        if window_left.is_zero() {
+            return CodexServiceRest::Down;
+        }
+        if let Ok(rest) = tokio::time::timeout(window_left, availability.rest()).await {
+            return rest;
         }
     }
 }

@@ -20,7 +20,7 @@ use rmcp::transport::streamable_http_server::session::never::NeverSessionManager
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use sidekicks_platforms::{AtomicWriteError, LeftoverSweep, replace_file_atomically};
 use sidekicks_provider::pricing::receiver::refuse_unknown_telemetry_path;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
@@ -37,6 +37,9 @@ const PORT_FILE_MODE: u32 = 0o600;
 /// How long a connect to the kept port may go unanswered before the port counts as held: a
 /// loopback port no one listens on refuses at once.
 const HELD_PORT_ANSWER_BOUND: Duration = Duration::from_secs(1);
+
+/// How many connections the listener queues before it accepts them, as Tokio's own bind does.
+const LISTEN_BACKLOG: u32 = 1024;
 
 /// Why the listener did not bind; nothing is listening.
 #[derive(Debug, thiserror::Error)]
@@ -83,13 +86,11 @@ impl ToolServerListener {
         let port_file = data_folder.join(PORT_FILE_NAME);
         let kept = read_kept_port(&port_file).await?;
         let listener = match kept {
-            Some(kept) if is_held(kept).await => bind_free_port().await?,
-            Some(kept) => match TcpListener::bind((Ipv4Addr::LOCALHOST, kept)).await {
-                Ok(listener) => listener,
-                Err(error) if error.kind() == io::ErrorKind::AddrInUse => bind_free_port().await?,
-                Err(error) => return Err(ToolServerListenerError::Bind(error)),
+            Some(kept) => match bind_kept_port(kept).await? {
+                Some(listener) => listener,
+                None => bind_free_port()?,
             },
-            None => bind_free_port().await?,
+            None => bind_free_port()?,
         };
         let port = listener
             .local_addr()
@@ -189,10 +190,29 @@ async fn read_kept_port(port_file: &Path) -> Result<Option<u16>, ToolServerListe
         .filter(|port| *port != 0))
 }
 
-// Whether a program listens on `127.0.0.1:<port>`, on loopback or on a wildcard address: a bind
-// cannot tell, since Tokio's sets `SO_REUSEADDR`, under which BSD rules let a loopback bind share
-// a wildcard holder's port, while the option is what lets a restart bind past its own closing
-// connections. A refused connect, or any other failed one, leaves the answer to the bind.
+// The listener at the kept `port`, `None` where another program holds it. The first bind does not
+// reuse the address, so the system refuses it wherever any socket holds the port, a wildcard
+// holder among them, in the bind itself. Only where that bind was refused and nothing answers a
+// connect, which leaves the closing connections of the port's last listener, does a second bind
+// reuse the address to pass them. Fails as loopback refuses a bind for another cause.
+async fn bind_kept_port(port: u16) -> Result<Option<TcpListener>, ToolServerListenerError> {
+    match bind_loopback(port, false) {
+        Ok(listener) => return Ok(Some(listener)),
+        Err(error) if error.kind() == io::ErrorKind::AddrInUse => {}
+        Err(error) => return Err(ToolServerListenerError::Bind(error)),
+    }
+    if is_held(port).await {
+        return Ok(None);
+    }
+    match bind_loopback(port, true) {
+        Ok(listener) => Ok(Some(listener)),
+        Err(error) if error.kind() == io::ErrorKind::AddrInUse => Ok(None),
+        Err(error) => Err(ToolServerListenerError::Bind(error)),
+    }
+}
+
+// Whether a program listens on `127.0.0.1:<port>`, on loopback or on a wildcard address. A failed
+// connect, refused or any other, reads as free.
 async fn is_held(port: u16) -> bool {
     match timeout(
         HELD_PORT_ANSWER_BOUND,
@@ -205,10 +225,18 @@ async fn is_held(port: u16) -> bool {
     }
 }
 
-async fn bind_free_port() -> Result<TcpListener, ToolServerListenerError> {
-    TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-        .await
-        .map_err(ToolServerListenerError::Bind)
+fn bind_free_port() -> Result<TcpListener, ToolServerListenerError> {
+    bind_loopback(0, false).map_err(ToolServerListenerError::Bind)
+}
+
+// A listener on `127.0.0.1:<port>`, the address reused where `reuse_address` says, which lets the
+// bind pass the port's own closing connections and, under BSD rules, share a wildcard holder's
+// port.
+fn bind_loopback(port: u16, reuse_address: bool) -> io::Result<TcpListener> {
+    let socket = TcpSocket::new_v4()?;
+    socket.set_reuseaddr(reuse_address)?;
+    socket.bind((Ipv4Addr::LOCALHOST, port).into())?;
+    socket.listen(LISTEN_BACKLOG)
 }
 
 // Writes `port` to `port_file`, whole or not at all.

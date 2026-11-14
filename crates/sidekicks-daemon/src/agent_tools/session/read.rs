@@ -1,18 +1,19 @@
 //! `session_read`'s handler: another session's last answer, its latest turns or the turns around
-//! a search hit, read through the session's transcript windows, or one tool output by line range
-//! or by the lines that match a search. A result stops at a page's size and ends with the shared
-//! `more_trailer`, whose cursor the next call hands back.
+//! a search hit, read through the session's transcript windows, or one output or message by line
+//! range or by the lines that match a search. A result stops at a page's size and ends with the
+//! shared `more_trailer`, whose cursor the next call hands back.
+
+mod output;
 
 use std::collections::HashSet;
 use std::ops::ControlFlow;
 
 use rusqlite::params;
 use serde_json::{Map, Value};
+use sidekicks_agent::tools::session::more_trailer;
 use sidekicks_agent::tools::session::read::{
-    Include, LineRange, SessionReadArguments, no_lines_in_range, no_matching_lines, nothing_yet,
-    output_not_found, position_unknown, rest_of_row, typed_in_terminal,
+    Include, SessionReadArguments, nothing_yet, position_unknown, rest_of_row, typed_in_terminal,
 };
-use sidekicks_agent::tools::session::{PageCursor, more_trailer};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::event_cursor::{EventCursor, encode_event_cursor};
 use sidekicks_contracts::session::id::SessionId;
@@ -34,10 +35,6 @@ use crate::orchestration::session_directory::{
 /// The most text one result carries, in UTF-8 bytes, so a read stays a small part of the calling
 /// model's context; the rest follows a page at a time.
 const READ_PAGE_MAX_BYTES: usize = 64 * 1024;
-
-/// The most of one body line a read holds: just past a page, so `cut_to_page` still marks a line
-/// too long for one without the whole line in memory.
-const LINE_KEPT_MAX_BYTES: usize = READ_PAGE_MAX_BYTES + 4;
 
 /// `session_read` for a call `caller` makes. Refuses, in the text the model reads, a name the
 /// directory does not resolve to one session, a session typed in a terminal, an output, hit or
@@ -66,6 +63,7 @@ pub(crate) async fn read_session(
     }
     let session_id = SessionId::new(&target.id).map_err(AgentToolError::failed)?;
     let reading = SessionReading {
+        directory,
         sessions,
         session_id,
         name,
@@ -105,7 +103,7 @@ pub(crate) async fn read_session(
         let turns = arguments.turns.map_or(1, |turns| {
             usize::try_from(turns.get()).unwrap_or(usize::MAX)
         });
-        (reading.read_latest_turns(directory, turns).await?, None)
+        (reading.read_latest_turns(turns).await?, None)
     };
     if rows.is_empty() {
         return Ok(nothing_yet(&reading.name));
@@ -113,8 +111,10 @@ pub(crate) async fn read_session(
     reading.render(&rows, &shown, continues_after).await
 }
 
-// One session being read: the store it is read through, its id and the name a result uses.
+// One session being read: the directory and store it is read through, its id and the name a
+// result uses.
 struct SessionReading<'read> {
+    directory: &'read SessionDirectory,
     sessions: &'read SessionService,
     session_id: SessionId,
     name: String,
@@ -246,9 +246,9 @@ impl SessionReading<'_> {
     // took, read backward from its newest readable event one window at a time.
     async fn read_latest_turns(
         &self,
-        directory: &SessionDirectory,
         turns: usize,
     ) -> Result<Vec<TranscriptReadRow>, AgentToolError> {
+        let directory = self.directory;
         let bound = session_read_bound(
             |session_id: &SessionId| (directory.read_damaged_from_sequence)(session_id),
             &self.session_id,
@@ -364,12 +364,7 @@ impl SessionReading<'_> {
             return Ok(None);
         }
         if event_type == SessionEventType::UserMessageSent.as_str() {
-            let message = parts
-                .payload
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            return Ok(Some(format!("message: {message}")));
+            return Ok(Some(format!("message: {}", message_text_of(parts.payload))));
         }
         if event_type == SessionEventType::AgentToolCallInvoked.as_str() && includes(Include::Tools)
         {
@@ -477,175 +472,14 @@ impl SessionReading<'_> {
             }
         }
     }
-
-    // How many lines a row's body holds, read part by part; `None` for a row the session does not
-    // hold or one with no body.
-    async fn count_body_lines(&self, row_id: &str) -> Result<Option<u64>, AgentToolError> {
-        let mut lines = BodyLines::default();
-        let read = self
-            .read_body_parts(row_id, 0, |part| {
-                lines.take(part, &mut |_: u64, _: u64, _: &str| true)
-            })
-            .await?;
-        Ok(read.map(|_| lines.count()))
-    }
-
-    // One output's numbered lines: the range or matches asked for, from the cursor's line on, read
-    // from where that line starts.
-    async fn read_output(
-        &self,
-        output: &str,
-        lines: Option<LineRange>,
-        search: Option<&str>,
-        cursor: Option<&PageCursor>,
-    ) -> Result<String, AgentToolError> {
-        let (from_line, from_offset) = match cursor {
-            None => (1, 0),
-            Some(cursor) => read_line_cursor(cursor.as_str()).ok_or_else(|| {
-                AgentToolError::Refused(position_unknown(cursor.as_str(), &self.name))
-            })?,
-        };
-        let not_found = || AgentToolError::Refused(output_not_found(output, &self.name));
-        let (first, last) = match lines {
-            None => (1, u64::MAX),
-            Some(LineRange::Span { first, last }) => (first.get(), last.get()),
-            Some(LineRange::Last(count)) => {
-                // The range counts back from the end, so the lines are counted in a read before.
-                let line_count = self.count_body_lines(output).await?.ok_or_else(not_found)?;
-                (line_count.saturating_sub(count.get()) + 1, line_count)
-            }
-        };
-        let mut pieces: Vec<String> = Vec::new();
-        let mut length = 0;
-        // Takes one numbered line, answering whether the read goes on.
-        let mut each = |number: u64, start: u64, line: &str| {
-            if number > last {
-                return false;
-            }
-            if number < first.max(from_line) || search.is_some_and(|search| !line.contains(search))
-            {
-                return true;
-            }
-            let piece = format!("{number}: {line}");
-            if !pieces.is_empty() && length + piece.len() > READ_PAGE_MAX_BYTES {
-                pieces.push(more_trailer(&format!(
-                    "{number}{LINE_CURSOR_SEPARATOR}{start}"
-                )));
-                return false;
-            }
-            length += piece.len();
-            pieces.push(cut_to_page(piece));
-            true
-        };
-        let mut body_lines = BodyLines::from_line(from_line, from_offset);
-        let read = self
-            .read_body_parts(output, from_offset, |part| body_lines.take(part, &mut each))
-            .await?;
-        match read.ok_or_else(not_found)? {
-            ControlFlow::Continue(()) => body_lines.finish(&mut each),
-            ControlFlow::Break(()) => {}
-        }
-        if pieces.is_empty() {
-            return Ok(match search {
-                Some(_) => no_matching_lines(output),
-                None => no_lines_in_range(output),
-            });
-        }
-        Ok(pieces.join("\n"))
-    }
 }
 
-// The `next_cursor` of an output page: the line it goes on at and that line's byte offset in the
-// body, joined by this.
-const LINE_CURSOR_SEPARATOR: char = '@';
-
-// The line and its byte offset an output page's `cursor` names; `None` for text that names none.
-fn read_line_cursor(cursor: &str) -> Option<(u64, u64)> {
-    let (line, offset) = cursor.split_once(LINE_CURSOR_SEPARATOR)?;
-    Some((
-        line.parse().ok().filter(|&line| line > 0)?,
-        offset.parse().ok()?,
-    ))
-}
-
-// A body's numbered lines as it is read part by part, split where `str::lines` splits it, each
-// held only up to `LINE_KEPT_MAX_BYTES`, with where each starts in the body.
-#[derive(Default)]
-struct BodyLines {
-    ended: u64,
-    line: String,
-    // The body's bytes taken so far, from its start.
-    taken: u64,
-    // Where the line being read starts in the body.
-    line_start: u64,
-}
-
-impl BodyLines {
-    // The lines of a body read from `offset`, where its line `line` starts.
-    fn from_line(line: u64, offset: u64) -> Self {
-        Self {
-            ended: line - 1,
-            line: String::new(),
-            taken: offset,
-            line_start: offset,
-        }
-    }
-
-    // Takes the body's next part, handing each line it ends to `each` with its number and where
-    // it starts until `each` answers that the read stops.
-    fn take(
-        &mut self,
-        part: &str,
-        each: &mut impl FnMut(u64, u64, &str) -> bool,
-    ) -> ControlFlow<()> {
-        let mut segments = part.split('\n').peekable();
-        while let Some(segment) = segments.next() {
-            self.keep(segment);
-            self.taken += u64::try_from(segment.len()).expect("a part's length fits 64 bits");
-            if segments.peek().is_none() {
-                break;
-            }
-            // The line feed ending the line.
-            self.taken += 1;
-            self.ended += 1;
-            let is_reading_on = each(
-                self.ended,
-                self.line_start,
-                self.line.strip_suffix('\r').unwrap_or(&self.line),
-            );
-            self.line.clear();
-            self.line_start = self.taken;
-            if !is_reading_on {
-                return ControlFlow::Break(());
-            }
-        }
-        ControlFlow::Continue(())
-    }
-
-    // Hands `each` the body's last line where no newline ends it.
-    fn finish(&mut self, each: &mut impl FnMut(u64, u64, &str) -> bool) {
-        if !self.line.is_empty() {
-            self.ended += 1;
-            // The body's last line, so whether `each` would read on changes nothing.
-            each(self.ended, self.line_start, &self.line);
-        }
-    }
-
-    // How many lines the parts taken so far hold.
-    fn count(&self) -> u64 {
-        self.ended + u64::from(!self.line.is_empty())
-    }
-
-    // Adds `segment` to the line being read, up to the most a line keeps.
-    fn keep(&mut self, segment: &str) {
-        let mut end = LINE_KEPT_MAX_BYTES
-            .saturating_sub(self.line.len())
-            .min(segment.len());
-        while !segment.is_char_boundary(end) {
-            end -= 1;
-        }
-        self.line.push_str(&segment[..end]);
-    }
+// The text of a message the session took, from its event's payload.
+fn message_text_of(payload: &Map<String, Value>) -> &str {
+    payload
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
 }
 
 // A piece longer than a page alone, cut there on a character's boundary.
@@ -686,7 +520,10 @@ mod tests {
     use serde_json::json;
     use sidekicks_agent::tools::session::SessionReference;
     use sidekicks_agent::tools::session::errors::{SharedNameHolder, shared_name};
-    use sidekicks_agent::tools::session::read::{SessionReadArguments, rest_of_row};
+    use sidekicks_agent::tools::session::read::{
+        SessionReadArguments, position_unknown, rest_of_row,
+    };
+    use sidekicks_contracts::event::registry::SessionEventType;
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -878,5 +715,92 @@ mod tests {
             .await
             .expect("the last lines read");
         assert_eq!(last, "19999: line 19999\n20000: line 20000");
+    }
+
+    // A message longer than a page, whose text only its event holds, is cut there with a line
+    // naming its id and the line the cut fell in, and reading on from that line walks the text to
+    // its last line, page by page; a cursor whose line is changed is refused. Killed by a message
+    // read refused as no output, and by a cursor taken where it does not start its line.
+    #[tokio::test]
+    async fn a_message_past_a_page_reads_on_by_its_lines_to_its_last() {
+        let (database, reader) = database_of_this_machine();
+        let caller: SessionId = test_session_id();
+        let builder: SessionId = test_session_id();
+        insert_session_row(&reader, builder.text().as_str(), Some("builder"), None);
+        insert_lead(&database, builder, PROVIDERS[0].id);
+        // About 220 KB, so the rest past the first page takes more than one page.
+        let lines: Vec<String> = (1..=20_000).map(|line| format!("line {line:05}")).collect();
+        let (_, message_id) = insert_test_event(
+            &reader,
+            builder,
+            json!({
+                "type": SessionEventType::UserMessageSent.as_str(),
+                "payload": {"sessionId": builder, "actor": "person", "message": lines.join("\n")},
+            }),
+            None,
+            AT,
+        );
+        let (directory, sessions) = directory_and_sessions(&database);
+        let read = |arguments: serde_json::Value| {
+            let arguments: SessionReadArguments =
+                serde_json::from_value(arguments).expect("the test's arguments parse");
+            read_session(&directory, &sessions, &caller, arguments)
+        };
+
+        let turn = read(json!({"session": "builder", "turns": 1}))
+            .await
+            .expect("the turn reads");
+        let (shown, rest) = turn
+            .rsplit_once('\n')
+            .expect("a cut message ends with a line");
+        assert!(shown.starts_with("message: line 00001\nline 00002\n"));
+        let cut_line = shown.lines().count();
+        assert_eq!(rest, rest_of_row(&message_id, cut_line));
+
+        let range = format!("{cut_line}-20000");
+        let mut read_lines: Vec<String> = Vec::new();
+        let mut cursor: Option<String> = None;
+        let mut first_cursor: Option<String> = None;
+        loop {
+            let mut arguments = json!({"session": "builder", "output": message_id, "lines": range});
+            if let Some(cursor) = &cursor {
+                arguments["cursor"] = json!(cursor);
+            }
+            let page = read(arguments).await.expect("a page of lines reads");
+            cursor = None;
+            for line in page.lines() {
+                match line.strip_prefix("More: next_cursor \"") {
+                    Some(next) => cursor = Some(next.trim_end_matches('"').to_owned()),
+                    None => read_lines.push(line.to_owned()),
+                }
+            }
+            if first_cursor.is_none() {
+                first_cursor.clone_from(&cursor);
+            }
+            if cursor.is_none() {
+                break;
+            }
+        }
+        let numbered: Vec<String> = (1_u64..)
+            .zip(&lines)
+            .skip(cut_line - 1)
+            .map(|(number, line)| format!("{number}: {line}"))
+            .collect();
+        assert_eq!(read_lines, numbered);
+
+        let first_cursor = first_cursor.expect("the rest takes more than one page");
+        let (line, place) = first_cursor
+            .split_once('@')
+            .expect("a cursor names its line");
+        let line: u64 = line.parse().expect("a cursor's line is a number");
+        let moved = format!("{}@{place}", line + 1);
+        let refused = read(json!({
+            "session": "builder", "output": message_id, "lines": range, "cursor": moved,
+        }))
+        .await;
+        let Err(AgentToolError::Refused(text)) = refused else {
+            panic!("a cursor moved off its line is refused");
+        };
+        assert_eq!(text, position_unknown(&moved, "builder"));
     }
 }

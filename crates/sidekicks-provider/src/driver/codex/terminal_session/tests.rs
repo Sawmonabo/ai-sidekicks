@@ -10,8 +10,10 @@ use super::exchanges::{CodexTerminalTurnEnd, reread_turn_end};
 use super::{TERMINAL_RECONNECT_WINDOW, TerminalReadings, publish_turn_end};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::test_service::{
-    ScriptedCodexService, start_scripted_terminal_service,
+    ScriptedCodexService, bind_test_listener, next_socket_request, send_on_socket,
+    start_scripted_terminal_service,
 };
+use crate::driver::codex::session::side_questions::test_copies::accept_copy;
 use crate::driver::test_registry::RecordedQueue;
 use crate::port::session_message_reading_publisher::SessionMessageReading;
 
@@ -214,11 +216,20 @@ enum ServiceWhileWaiting {
     ShutDown,
     // Its restarts are spent.
     RestartsSpent,
+    // It stays up while the seat a read opened on the turn still in progress loses its connection.
+    SeatEndsWhileUp,
+    // It stays up while the first read goes unanswered past its deadline.
+    ReadTimesOut,
+    // It answers the first read with a reply that is no page.
+    PageUnparsed,
+    // It answers the first read overloaded.
+    Overloaded,
 }
 
 // The readings a wait on an unread turn end publishes while the home's service does `row`, the
-// stored turn answered with `REPLY` wherever it is read.
-async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Vec<SessionMessageReading> {
+// stored turn answered with `REPLY` wherever it is read; `None` for a row that needs a socket
+// listener where the system binds none.
+async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Option<Vec<SessionMessageReading>> {
     let mut followed = start_scripted_terminal_service();
     let (recorded, readings) = recorded_readings();
     let turn = json!({"id": TURN, "status": "completed", "completedAt": 1_767_000_000});
@@ -261,13 +272,71 @@ async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Vec<SessionMessageRea
             await_publishing(publish_unread_turn_end(&registry, &followed, &readings)).await;
             set_aside
         }
+        ServiceWhileWaiting::SeatEndsWhileUp => {
+            let listener = bind_test_listener(followed.service.socket_path())?;
+            // The seat's socket is a real one, so the clock runs while it is served.
+            tokio::time::resume();
+            let registry = CodexServiceRegistry::holding(&followed);
+            let publishing = publish_unread_turn_end(&registry, &followed, &readings);
+            let running = json!({"id": TURN, "status": "inProgress"});
+            answer_turn_list(&mut followed, &running).await;
+            let mut seat = tokio::time::timeout(DEADLOCK_BOUND, accept_copy(&listener))
+                .await
+                .expect("a turn still in progress takes a seat");
+            let resume = next_socket_request(&mut seat).await;
+            assert_eq!(resume["method"], "thread/resume");
+            let active = json!({"type": "active", "activeFlags": []});
+            let thread = json!({"id": THREAD, "sessionId": "codex-session", "status": active});
+            let newest = json!({"data": [running], "nextCursor": null});
+            let resumed = json!({"thread": thread, "initialTurnsPage": newest});
+            send_on_socket(&mut seat, json!({"id": resume["id"], "result": resumed})).await;
+            drop(seat);
+            answer_turn_list(&mut followed, &turn).await;
+            answer_reply(&mut followed, REPLY).await;
+            await_publishing(publishing).await;
+            tokio::time::pause();
+            None
+        }
+        ServiceWhileWaiting::ReadTimesOut => {
+            let registry = CodexServiceRegistry::holding(&followed);
+            let publishing = publish_unread_turn_end(&registry, &followed, &readings);
+            // Never answered, so its deadline passes on the live connection.
+            let _unanswered = followed.next_request("thread/turns/list").await;
+            answer_turn_list(&mut followed, &turn).await;
+            answer_reply(&mut followed, REPLY).await;
+            await_publishing(publishing).await;
+            None
+        }
+        ServiceWhileWaiting::PageUnparsed => {
+            let registry = CodexServiceRegistry::holding(&followed);
+            let publishing = publish_unread_turn_end(&registry, &followed, &readings);
+            let listed = followed.next_request("thread/turns/list").await;
+            followed.script.answer(&listed, &json!({"data": "no page"}));
+            answer_turn_list(&mut followed, &turn).await;
+            answer_reply(&mut followed, REPLY).await;
+            await_publishing(publishing).await;
+            None
+        }
+        ServiceWhileWaiting::Overloaded => {
+            let registry = CodexServiceRegistry::holding(&followed);
+            let publishing = publish_unread_turn_end(&registry, &followed, &readings);
+            let listed = followed.next_request("thread/turns/list").await;
+            let overloaded = json!({"code": -32001, "message": "Server overloaded; retry later."});
+            followed
+                .script
+                .send(&json!({"jsonrpc": "2.0", "id": listed["id"], "error": overloaded}));
+            answer_turn_list(&mut followed, &turn).await;
+            answer_reply(&mut followed, REPLY).await;
+            await_publishing(publishing).await;
+            None
+        }
     };
     let asked = followed.script.next_sent_within(QUIET).await;
     assert!(
         asked.is_none(),
         "nothing more reaches the service: {asked:?}"
     );
-    lock(&recorded.readings).clone()
+    Some(lock(&recorded.readings).clone())
 }
 
 // Waits for the publishing task to end.
@@ -280,8 +349,10 @@ async fn await_publishing(publishing: tokio::task::JoinHandle<()>) {
 
 // Kills: a failed read in the gap before the away state is published read as not reachable, a
 // wait that holds on to a service another took the home over from, a shutdown with the daemon
-// answered at all, and a service whose restarts are spent left open, asked again or read as
-// anything but not reachable with the reopen line.
+// answered at all, a service whose restarts are spent left open, asked again or read as anything
+// but not reachable with the reopen line, and a wait left open on a service that stays up after
+// its seat's connection ends, a read times out, a page does not parse or the service is
+// overloaded, or one that reads Codex's overloaded answer as the turn's failure.
 #[tokio::test(start_paused = true)]
 async fn an_unread_turn_end_reads_not_reachable_only_once_the_homes_service_is_down_for_good() {
     let answered = SessionMessageReading::Answered {
@@ -295,12 +366,19 @@ async fn an_unread_turn_end_reads_not_reachable_only_once_the_homes_service_is_d
     };
     let rows = [
         (ServiceWhileWaiting::DropsBeforeAway, vec![answered.clone()]),
-        (ServiceWhileWaiting::Replaced, vec![answered]),
+        (ServiceWhileWaiting::Replaced, vec![answered.clone()]),
         (ServiceWhileWaiting::ShutDown, Vec::new()),
         (ServiceWhileWaiting::RestartsSpent, vec![not_reachable]),
+        (ServiceWhileWaiting::SeatEndsWhileUp, vec![answered.clone()]),
+        (ServiceWhileWaiting::ReadTimesOut, vec![answered.clone()]),
+        (ServiceWhileWaiting::PageUnparsed, vec![answered.clone()]),
+        (ServiceWhileWaiting::Overloaded, vec![answered]),
     ];
 
     for (row, expected) in rows {
-        assert_eq!(read_unread_turn_end(row).await, expected, "{row:?}");
+        let Some(readings) = read_unread_turn_end(row).await else {
+            continue;
+        };
+        assert_eq!(readings, expected, "{row:?}");
     }
 }

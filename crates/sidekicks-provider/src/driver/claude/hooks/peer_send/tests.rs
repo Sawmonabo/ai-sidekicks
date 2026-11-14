@@ -14,6 +14,7 @@ use sidekicks_contracts::session::id::SessionId;
 
 use super::{
     ClaudePeerSendCheck, ClaudeTurnSenders, another_session, answer_goes_back, answer_peer_send,
+    own_address,
 };
 use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
 use crate::driver::claude::hooks::registration::{
@@ -171,6 +172,7 @@ enum Expected {
     Pass,
     AnswerGoesBack,
     AnotherSession(&'static str, &'static str),
+    OwnAddress,
     NoSession,
     Unread,
 }
@@ -180,8 +182,8 @@ enum Expected {
 // address denied kills `did:` passing; the absorbed sender getting the another-session words by
 // its id kills the answer-goes-back words for an absorbed sender; a pipe written with `?` denied
 // kills a pipe read by its `.` form alone; the shared name sent to by id kills the name kept; the
-// caller's own name passing and its own socket reading as no session kill a registry walk that
-// lists the caller.
+// caller's own name passing kills a registry walk that lists the caller, and its own socket
+// reading as its own address kills that address read as no session.
 #[rstest]
 #[case::a_helper_by_id("c4d8b8d7a99274f48", TurnMessages::None, false, Expected::Pass)]
 #[case::a_helper_named_like_a_session("tester", TurnMessages::None, false, Expected::Pass)]
@@ -252,7 +254,7 @@ enum Expected {
     "uds:{socks}/4100.sock",
     TurnMessages::None,
     false,
-    Expected::NoSession
+    Expected::OwnAddress
 )]
 #[case::an_unread_tree("courier", TurnMessages::None, true, Expected::Unread)]
 #[tokio::test]
@@ -311,6 +313,9 @@ async fn a_message_call_passes_to_a_helper_and_is_denied_to_another_session(
         Expected::AnotherSession(name, target) => ClaudeHookAnswer::Deny {
             reason: another_session(name, target),
         },
+        Expected::OwnAddress => ClaudeHookAnswer::Deny {
+            reason: own_address(&to),
+        },
         Expected::NoSession => ClaudeHookAnswer::Deny {
             reason: no_session_named(&to),
         },
@@ -321,8 +326,8 @@ async fn a_message_call_passes_to_a_helper_and_is_denied_to_another_session(
     assert_eq!(answer, expected);
 }
 
-// The words name the session, and send the model to it by the given target as a JSON string.
-// Killed by either text's wording or its target changing.
+// The words name the session, and send the model to it by the given target as a JSON string, or
+// name the caller's own address. Killed by any text's wording or its target changing.
 #[test]
 fn the_refusals_read_as_the_model_is_told() {
     assert_eq!(
@@ -333,6 +338,10 @@ fn the_refusals_read_as_the_model_is_told() {
         answer_goes_back("planner", "s-4a10"),
         "Your answer already reaches planner when you finish this turn. To say more, use \
          session_send {\"to\": \"s-4a10\"}."
+    );
+    assert_eq!(
+        own_address("uds:/tmp/cc-socks/4100.sock"),
+        "Not sent: uds:/tmp/cc-socks/4100.sock is this session's own address."
     );
 }
 

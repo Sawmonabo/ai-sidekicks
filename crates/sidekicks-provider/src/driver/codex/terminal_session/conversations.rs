@@ -3,7 +3,8 @@
 //! of it since, so a listing while the service is away still names them, and the ones a seat of
 //! the daemon's holds, so a turn end's watch takes no second seat on a conversation and one a
 //! seat keeps for a running command reads as working. An exchange's seat sits beside a held one,
-//! and the exchanges with one conversation write to it one at a time.
+//! and the exchanges with one conversation write to it one at a time. A wait on a turn's end
+//! listens here for its conversation's next status change.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -16,6 +17,8 @@ use sidekicks_contracts::session::controls::methods::{
 };
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::error::RecvError;
 
 use super::TERMINAL_RECONNECT_WINDOW;
 use crate::driver::codex::event_normalizer::CODEX_THREAD_STATUS_CHANGED_METHOD;
@@ -25,11 +28,25 @@ use crate::driver::codex::transport::connection::read_codex_object;
 
 /// The terminal conversations one service listed last and the ones a seat holds, bounded by the
 /// conversations the service holds loaded.
-#[derive(Default)]
 pub(crate) struct CodexTerminalConversations {
     seen: Mutex<SeenConversations>,
     // Held per conversation while one exchange resumes it and writes its message.
     writing: KeyedLock<String>,
+    // The conversation of each status change or close, told only while a wait listens.
+    status_changes: broadcast::Sender<Arc<str>>,
+}
+
+// How many status changes a listening wait may fall behind by before it reads them as one.
+const STATUS_CHANGES_HELD: usize = 16;
+
+impl Default for CodexTerminalConversations {
+    fn default() -> Self {
+        Self {
+            seen: Mutex::default(),
+            writing: KeyedLock::default(),
+            status_changes: broadcast::Sender::new(STATUS_CHANGES_HELD),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -100,8 +117,8 @@ impl CodexTerminalConversations {
     }
 
     /// Moves a remembered conversation by one frame of it: a status change sets its state, and
-    /// its unload or close forgets it. Any other frame, or one of a conversation not remembered,
-    /// changes nothing.
+    /// its unload or close forgets it; either is told to each wait listening, remembered or not.
+    /// Any other frame, or one of a conversation not remembered, changes nothing.
     pub(crate) fn observe_frame(&self, method: &str, params: &RawValue, thread_id: &str) {
         let status = if method == CODEX_THREAD_CLOSED_METHOD {
             CodexThreadStatus::NotLoaded
@@ -112,6 +129,10 @@ impl CodexTerminalConversations {
         } else {
             return;
         };
+        if self.status_changes.receiver_count() > 0 {
+            // A wait that stopped listening since the count has no use for the change.
+            let _unheard = self.status_changes.send(Arc::from(thread_id));
+        }
         let mut seen = lock(&self.seen);
         let Some(listed) = seen.listed.as_mut() else {
             return;
@@ -129,6 +150,14 @@ impl CodexTerminalConversations {
         }
     }
 
+    /// Listens for the conversations' status changes and closes from now on, for a wait on a
+    /// turn's end to wake at its conversation's next one.
+    pub(crate) fn listen_status_changes(&self) -> CodexStatusChanges {
+        CodexStatusChanges {
+            changes: self.status_changes.subscribe(),
+        }
+    }
+
     /// Waits for `thread_id`'s exchanges to be free to resume it and write a message, holding
     /// them until the hold drops; one exchange writes to a conversation at a time, and exchanges
     /// with other conversations never wait on it.
@@ -143,6 +172,27 @@ impl CodexTerminalConversations {
             conversations: Arc::clone(self),
             thread_id: thread_id.to_owned(),
         })
+    }
+}
+
+/// One wait's listening on its service's conversation status changes.
+pub(crate) struct CodexStatusChanges {
+    changes: broadcast::Receiver<Arc<str>>,
+}
+
+impl CodexStatusChanges {
+    /// Waits for the next status change or close of `thread_id` since the listening began, a run
+    /// of changes missed for falling behind read as one of it. Waits for good once the service's
+    /// conversations are dropped, which a caller holding the service rules out.
+    pub(crate) async fn next_of(&mut self, thread_id: &str) {
+        loop {
+            match self.changes.recv().await {
+                Ok(changed) if changed.as_ref() == thread_id => return,
+                Ok(_other) => {}
+                Err(RecvError::Lagged(_missed)) => return,
+                Err(RecvError::Closed) => std::future::pending().await,
+            }
+        }
     }
 }
 

@@ -8,6 +8,7 @@
 //! the end alike.
 
 use std::collections::{HashMap, HashSet};
+use std::ops::ControlFlow;
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, named_params};
@@ -24,8 +25,8 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::sql_list::sql_list_of;
 use crate::events::content::codec::{
-    DecodedStretch, StoredBodyColumns, stored_body_columns_sql, stored_body_encoding_sql,
-    stored_body_length_sql,
+    DecodedStretch, StoredBodyColumns, StoredBodyPlace, stored_body_columns_sql,
+    stored_body_encoding_sql, stored_body_length_sql, stored_body_place_sql,
 };
 use crate::events::session::read::{
     SELECTED_COLUMNS, SessionEventReads, SessionLogReadError, payload_damage_of, readable_event_sql,
@@ -201,6 +202,16 @@ static PIECE_BODY_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT {} FROM session_events AS event
   WHERE event.session_id = @session_id AND event.sequence = @sequence",
         stored_body_columns_sql("event"),
+    )
+});
+
+// Where the stored body of the piece at one sequence sits, for a row that has one.
+static PIECE_BODY_PLACE_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {} FROM session_events AS event
+  WHERE event.session_id = @session_id AND event.sequence = @sequence
+    AND event.content_payload IS NOT NULL",
+        stored_body_place_sql("event"),
     )
 });
 
@@ -389,22 +400,34 @@ where
         read().map_err(|error| payload_damage_of(self.reader, self.session_id, error))
     }
 
-    /// Hands `each` the body of the piece at `sequence` in order, one stored frame decoded at a
-    /// time; nothing where the piece has no body or no row. Fails as [`RowReads::piece_texts`]
-    /// does.
-    pub fn piece_frames(&self, sequence: i64, each: impl FnMut(&str)) -> rusqlite::Result<()> {
-        self.reader
-            .prepare_cached(&PIECE_BODY_SQL)?
-            .query_row(
-                named_params! {
-                    "@session_id": self.session_id.text().as_str(),
-                    "@sequence": sequence,
-                },
-                |row| StoredBodyColumns::read(row, 0)?.decode_each_frame(0, each),
-            )
-            .optional()
-            .map(|_read| ())
-            .map_err(|error| payload_damage_of(self.reader, self.session_id, error))
+    /// Hands `each` the body of the piece at `sequence` in order, a stored frame at a time as
+    /// [`StoredBodyPlace::stream`] reads it, stopping once `each` breaks and answering what it
+    /// broke with; nothing where the piece has no body or no row. Fails as
+    /// [`RowReads::piece_texts`] does.
+    pub fn piece_frames<Stop>(
+        &self,
+        sequence: i64,
+        each: impl FnMut(&str) -> ControlFlow<Stop>,
+    ) -> rusqlite::Result<ControlFlow<Stop>> {
+        let read = || {
+            let place = self
+                .reader
+                .prepare_cached(&PIECE_BODY_PLACE_SQL)?
+                .query_row(
+                    named_params! {
+                        "@session_id": self.session_id.text().as_str(),
+                        "@sequence": sequence,
+                    },
+                    |row| StoredBodyPlace::read(row, 0),
+                )
+                .optional()?
+                .flatten();
+            match place {
+                Some(place) => place.stream_column(self.reader, 0, each),
+                None => Ok(ControlFlow::Continue(())),
+            }
+        };
+        read().map_err(|error| payload_damage_of(self.reader, self.session_id, error))
     }
 
     /// The stretch covering `from..to` of the body of the piece at `sequence`, decoding only the

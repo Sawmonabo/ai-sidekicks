@@ -58,6 +58,11 @@ fn answer_goes_back(name: &str, id: &str) -> String {
     )
 }
 
+/// The words for a send to `to`, the calling session's own address.
+fn own_address(to: &str) -> String {
+    format!("Not sent: {to} is this session's own address.")
+}
+
 // `text` as a JSON string, so a name holding a quote still reads as one value.
 fn quoted(text: &str) -> String {
     serde_json::to_string(text).expect("a string serializes")
@@ -129,10 +134,10 @@ pub(crate) struct ClaudePeerSendCheck<'a> {
 
 /// The send hook's answer to `check`, the first matching rule deciding: one of the session's own
 /// helpers by id or name, or `main`, passes; the daemon's inbox is denied with the words for the
-/// turn's starting sender, else its latest absorbed one, else as no session; any other address is
-/// denied as the session the directory or the registry finds there, else as no session; a name a
-/// session has is denied as that session; any other name passes. A failed read is denied with its
-/// cause.
+/// turn's starting sender, else its latest absorbed one, else as no session; the calling session's
+/// own socket is denied as its own address; any other address is denied as the session the
+/// directory or the registry finds there, else as no session; a name a session has is denied as
+/// that session; any other name passes. A failed read is denied with its cause.
 pub(crate) async fn answer_peer_send(check: ClaudePeerSendCheck<'_>) -> ClaudeHookAnswer {
     match judge(check).await {
         Ok(Some(reason)) => ClaudeHookAnswer::Deny { reason },
@@ -176,19 +181,23 @@ async fn judge(
     if let Some(reason) = directory_refusal(&listed) {
         return Ok(Some(reason));
     }
-    let mut running = read_live_sessions(&check.registry_folders.await?).await;
-    running.retain(|session| session.process_id != check.caller_process_id);
+    let (own, running): (Vec<_>, Vec<_>) = read_live_sessions(&check.registry_folders.await?)
+        .await
+        .into_iter()
+        .partition(|session| session.process_id == check.caller_process_id);
     if !is_address(to) {
         return Ok(by_name(&running, to)
             .next()
             .map(|session| registry_refusal(&running, session, to)));
     }
+    if !is_socket_address(to) {
+        return Ok(Some(no_session_named(to)));
+    }
     // An address whose folder cannot be resolved holds no session, and is denied either way.
-    let at_socket = if is_socket_address(to) {
-        by_socket(&running, to).await.ok().flatten()
-    } else {
-        None
-    };
+    if by_socket(&own, to).await.ok().flatten().is_some() {
+        return Ok(Some(own_address(to)));
+    }
+    let at_socket = by_socket(&running, to).await.ok().flatten();
     Ok(Some(at_socket.map_or_else(
         || no_session_named(to),
         |session| registry_refusal(&running, session, to),

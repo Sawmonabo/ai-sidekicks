@@ -48,6 +48,12 @@ impl BearerToken {
         Zeroizing::new(base16ct::lower::encode_string(&self.0[..]))
     }
 
+    /// A key drawn from the token's bytes under `context`, one-way, so it gives nothing of the
+    /// token away and differs from a key drawn under any other context.
+    pub fn derive_key(&self, context: &str) -> [u8; 32] {
+        blake3::derive_key(context, &self.0[..])
+    }
+
     /// The `Authorization` header value that presents this token, for a client the daemon hands
     /// its configuration to.
     pub fn header_value(&self) -> Zeroizing<String> {

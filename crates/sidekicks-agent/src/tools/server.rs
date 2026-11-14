@@ -42,9 +42,8 @@ use sidekicks_provider::tool_server_name::{
 use tokio::time::{Instant, interval_at};
 use tokio_util::sync::CancellationToken;
 
-use crate::tools::admission::AnswerStream;
 use crate::tools::entries::{
-    StandingStreamEvent, ToolServerClient, ToolServerEntries, ToolServerEntry,
+    SentListingMark, StandingStreamEvent, ToolServerClient, ToolServerEntries, ToolServerEntry,
 };
 use crate::tools::group::{AgentTool, AgentToolGroup, ToolGroupLoading};
 use crate::tools::session::rules::SHARED_RULES;
@@ -129,23 +128,11 @@ pub struct AgentToolServer {
     host: Arc<CallbackToolHost>,
 }
 
-// A request's route: where it came, the spawn entry its secret admits there, and the event
-// stream it is answered on, which a request carried in process has none of.
+// A request's route: where it came and the spawn entry its secret admits there.
 struct AdmittedRoute {
     path: ToolServerPath,
     entry: Arc<ToolServerEntry>,
     descriptor: &'static ProviderDescriptor,
-    answer_stream: Option<AnswerStream>,
-}
-
-impl AdmittedRoute {
-    // Answers once the event stream the request is answered on closes; never without one.
-    async fn answer_stream_closed(&self) {
-        match &self.answer_stream {
-            Some(answer_stream) => answer_stream.closed().await,
-            None => std::future::pending().await,
-        }
-    }
 }
 
 impl AgentToolServer {
@@ -167,7 +154,7 @@ impl AgentToolServer {
     // parts, a path naming no tool server, a secret no live entry admits, or a provider no driver
     // answers.
     fn admitted(&self, extensions: &Extensions) -> Result<AdmittedRoute, McpError> {
-        let (parts, path, authorization) = request_route(extensions)?;
+        let (path, authorization) = request_route(extensions)?;
         let entry = self
             .entries
             .admitted(&path, authorization)
@@ -180,14 +167,13 @@ impl AgentToolServer {
             path,
             entry,
             descriptor,
-            answer_stream: parts.extensions.get::<AnswerStream>().cloned(),
         })
     }
 
     // The client of a spawn's server the request whose `extensions` hold its HTTP parts presents.
     // Fails as `admitted` does.
     fn admitted_client(&self, extensions: &Extensions) -> Result<ToolServerClient, McpError> {
-        let (_, path, authorization) = request_route(extensions)?;
+        let (path, authorization) = request_route(extensions)?;
         self.entries
             .admitted_client(&path, authorization)
             .ok_or_else(not_admitted)
@@ -369,9 +355,9 @@ impl AgentToolServer {
     }
 
     // Holds `answer` until it settles, telling the caller every 45 s it still runs where the
-    // request carries a progress token; a cancelable call ends early once its caller canceled it,
-    // the stream it is answered on closed or its spawn's process is gone, dropping the answer's
-    // work.
+    // request carries a progress token; a cancelable call ends early once its caller canceled it
+    // or dropped the stream it is answered on, which rmcp cancels the call's token for, or its
+    // spawn's process is gone, dropping the answer's work.
     async fn hold_call(
         route: &AdmittedRoute,
         context: &RequestContext<RoleServer>,
@@ -392,9 +378,6 @@ impl AgentToolServer {
                 () = route.entry.ended(), if is_cancelable => {
                     return Err(McpError::internal_error("the caller's process is gone", None));
                 }
-                () = route.answer_stream_closed(), if is_cancelable => {
-                    return Err(McpError::internal_error("the caller's stream is gone", None));
-                }
                 answer = &mut answer => return answer.map(CallToolResponse::from),
                 _ = progress.tick(), if progress_token.is_some() => {
                     beats += 1;
@@ -414,12 +397,9 @@ impl AgentToolServer {
     }
 }
 
-// The HTTP parts the request whose `extensions` hold them came with, the tool server their path
-// names and their `Authorization` header. Fails for a request with no parts or a path naming no
-// tool server.
-fn request_route(
-    extensions: &Extensions,
-) -> Result<(&Parts, ToolServerPath, Option<&[u8]>), McpError> {
+// The tool server the path of the HTTP parts the request whose `extensions` hold them names, and
+// their `Authorization` header. Fails for a request with no parts or a path naming no tool server.
+fn request_route(extensions: &Extensions) -> Result<(ToolServerPath, Option<&[u8]>), McpError> {
     let parts = extensions
         .get::<Parts>()
         .ok_or_else(|| McpError::invalid_request("the request came on no tool route", None))?;
@@ -430,7 +410,7 @@ fn request_route(
         .headers
         .get(AUTHORIZATION)
         .map(http::HeaderValue::as_bytes);
-    Ok((parts, path, authorization))
+    Ok((path, authorization))
 }
 
 // The refusal of a request whose secret no live spawn admits.
@@ -510,12 +490,13 @@ impl ServerHandler for AgentToolServer {
         &self,
         _requested: &SubscriptionFilter,
     ) -> Option<SubscriptionFilter> {
+        // rmcp narrows what this accepts to what the client requested before it acknowledges.
         Some(SubscriptionFilter::builder().tools_list_changed().build())
     }
 
     async fn listen(&self, context: SubscriptionContext) -> Result<(), McpError> {
         let client = self.admitted_client(&context.request_context().extensions)?;
-        let mut marks = client.open_standing_stream(None);
+        let mut marks = client.open_standing_stream(SentListingMark::Absent);
         loop {
             let event = tokio::select! {
                 () = context.cancelled() => return Ok(()),

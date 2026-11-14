@@ -12,7 +12,8 @@
 //! those conversations' closes, so each is a client of its own.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::fmt;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::provider::id::ProviderId;
@@ -23,6 +24,7 @@ use sidekicks_provider::port::hook_tool_server::HookToolServer;
 use sidekicks_provider::port::tool_server_route::{ToolServerConversation, ToolServerSpawn};
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 
 use crate::tools::secret_key::ToolServerSecretKey;
 use crate::tools::server::ToolServerPath;
@@ -69,6 +71,8 @@ struct OpenedServer {
     name: &'static str,
     /// The secret the spawn's process presents there on every request.
     token: BearerToken,
+    /// The tag a listing mark names this server by, drawn from its secret.
+    listing_tag: u64,
     /// Counts the times the server's tool list changed since the entry was made, which its
     /// standing streams announce.
     tools_changes: AtomicU32,
@@ -115,6 +119,51 @@ pub(crate) struct StandingStreamMarks {
     stream_closes: u32,
 }
 
+/// The listing mark a handshake's answer hands a client of a spawn's server: a tag that names that
+/// server alone and gives nothing of its secret away, and the server's count of tool-list changes
+/// when it was handed out. Its text, `<tag>.<count>`, is the session id the client sends back.
+#[derive(Clone, Copy)]
+pub(crate) struct ListingMark {
+    /// Names the server.
+    tag: u64,
+    /// The server's count of tool-list changes then.
+    tools_changes: u32,
+}
+
+impl ListingMark {
+    /// The mark `text` reads as; `None` for text that is no mark.
+    fn parse(text: &[u8]) -> Option<Self> {
+        let (tag, tools_changes) = std::str::from_utf8(text).ok()?.split_once('.')?;
+        Some(Self {
+            tag: u64::from_str_radix(tag, 16).ok()?,
+            tools_changes: tools_changes.parse().ok()?,
+        })
+    }
+}
+
+impl fmt::Display for ListingMark {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{:016x}.{}", self.tag, self.tools_changes)
+    }
+}
+
+/// What a client opening a standing stream sends back of the listing mark its handshake was
+/// handed.
+#[derive(Clone, Copy)]
+pub(crate) enum SentListingMark {
+    /// It sends none.
+    Absent,
+    /// It sends one: the mark, or `None` for text that is no mark.
+    Sent(Option<ListingMark>),
+}
+
+impl SentListingMark {
+    /// What a `GET`'s session id header, `None` where it carries none, sends back.
+    pub(crate) fn read(header: Option<&[u8]>) -> Self {
+        header.map_or(Self::Absent, |text| Self::Sent(ListingMark::parse(text)))
+    }
+}
+
 /// What a standing event stream sends next.
 pub(crate) enum StandingStreamEvent {
     /// The server's tool list changed since the stream's last announcement.
@@ -133,11 +182,10 @@ pub struct ToolServerEntry {
     dispatcher: CallbackToolDispatcher,
     /// Lists and answers the tools the spawn's hook rows call; `None` for a spawn with no rows.
     hook_tools: Option<Arc<dyn HookToolServer>>,
-    /// Set when the spawn drops, since its process is gone and no open call is answered.
-    has_ended: AtomicBool,
-    /// Wakes every wait on the spawn's end and every standing stream, at the end, a changed tool
-    /// list or a close.
-    waiters: Notify,
+    /// Canceled when the spawn drops, since its process is gone and no open call is answered.
+    end: CancellationToken,
+    /// Wakes every standing stream at a changed tool list or a close.
+    stream_changes: Notify,
 }
 
 // Counts the inline struct only: not its `Arc`'s counts, the heap its servers' slice and provider
@@ -162,20 +210,7 @@ impl ToolServerEntry {
 
     /// Settles once the spawn dropped, so a call its process left open is canceled.
     pub async fn ended(&self) {
-        loop {
-            // Made before the flag is read, so a drop between the two still wakes it.
-            let woken = self.waiters.notified();
-            if self.has_ended.load(Ordering::Acquire) {
-                return;
-            }
-            woken.await;
-        }
-    }
-
-    // Marks the spawn ended and wakes every wait on it.
-    fn end(&self) {
-        self.has_ended.store(true, Ordering::Release);
-        self.waiters.notify_waiters();
+        self.end.cancelled().await;
     }
 
     // The place of the server named `server_name` among those the spawn opened.
@@ -187,33 +222,28 @@ impl ToolServerEntry {
 }
 
 impl ToolServerClient {
-    /// The listing mark a handshake's answer hands the client, as `<tag>.<count>`: this server's
-    /// count of tool-list changes now, and a tag drawn from the server's secret that names this
-    /// spawn's server alone and gives nothing of the secret away. Taken before the client lists,
-    /// it names no change the listing missed.
-    pub(crate) fn listing_mark(&self) -> String {
+    /// The listing mark a handshake's answer hands the client: this server's tag and its count of
+    /// tool-list changes now. Taken before the client lists, it names no change the listing
+    /// missed.
+    pub(crate) fn listing_mark(&self) -> ListingMark {
         let server = &self.entry.servers[self.server];
-        format!(
-            "{:016x}.{}",
-            listing_tag(server),
-            server.tools_changes.load(Ordering::Acquire)
-        )
+        ListingMark {
+            tag: server.listing_tag,
+            tools_changes: server.tools_changes.load(Ordering::Acquire),
+        }
     }
 
-    /// The marks of a standing stream the client opens now, sending back `listing_mark`, the mark
-    /// its handshake was handed, where it has one. The stream announces at once every change since
-    /// that mark; with no mark, every change since the entry was made; and with a mark of another
-    /// spawn's server or one that does not read, a change at once, since its client listed
-    /// elsewhere.
-    pub(crate) fn open_standing_stream(&self, listing_mark: Option<&[u8]>) -> StandingStreamMarks {
+    /// The marks of a standing stream the client opens now, sending back `sent`. The stream
+    /// announces at once every change since the mark it sends; with none, every change since the
+    /// entry was made; and with a mark of another spawn's server or text that is no mark, a change
+    /// at once, since its client listed elsewhere.
+    pub(crate) fn open_standing_stream(&self, sent: SentListingMark) -> StandingStreamMarks {
         let server = &self.entry.servers[self.server];
-        let tools_changes = match listing_mark {
-            None => Some(0),
-            Some(mark) => std::str::from_utf8(mark)
-                .ok()
-                .and_then(|mark| mark.split_once('.'))
-                .filter(|(tag, _)| u64::from_str_radix(tag, 16) == Ok(listing_tag(server)))
-                .and_then(|(_, count)| count.parse().ok()),
+        let tools_changes = match sent {
+            SentListingMark::Absent => Some(0),
+            SentListingMark::Sent(mark) => mark
+                .filter(|mark| mark.tag == server.listing_tag)
+                .map(|mark| mark.tools_changes),
         };
         StandingStreamMarks {
             tools_changes,
@@ -230,10 +260,8 @@ impl ToolServerClient {
         let server = &self.entry.servers[self.server];
         loop {
             // Made before the marks are read, so a change between the two still wakes it.
-            let woken = self.entry.waiters.notified();
-            if self.entry.has_ended.load(Ordering::Acquire)
-                || self.stream_closes() != marks.stream_closes
-            {
+            let woken = self.entry.stream_changes.notified();
+            if self.entry.end.is_cancelled() || self.stream_closes() != marks.stream_closes {
                 return StandingStreamEvent::Closed;
             }
             let tools_changes = server.tools_changes.load(Ordering::Acquire);
@@ -241,7 +269,10 @@ impl ToolServerClient {
                 marks.tools_changes = Some(tools_changes);
                 return StandingStreamEvent::ToolsChanged;
             }
-            woken.await;
+            tokio::select! {
+                () = woken => {}
+                () = self.entry.end.cancelled() => {}
+            }
         }
     }
 
@@ -258,7 +289,7 @@ impl ToolServerClient {
                 row.closes = row.closes.wrapping_add(1);
             }),
         }
-        self.entry.waiters.notify_waiters();
+        self.entry.stream_changes.notify_waiters();
     }
 
     // The closes the client asked for.
@@ -272,10 +303,10 @@ impl ToolServerClient {
     }
 }
 
-// The tag a listing mark names `server` by: drawn from its secret, which only this spawn's server
-// holds, as a one-way hash under its own context.
-fn listing_tag(server: &OpenedServer) -> u64 {
-    let derived = blake3::derive_key(LISTING_MARK_CONTEXT, server.token.text().as_bytes());
+// The tag a listing mark names the server holding `token` by: drawn from its secret, which only
+// this spawn's server holds, as a one-way hash under its own context.
+fn listing_tag(token: &BearerToken) -> u64 {
+    let derived = token.derive_key(LISTING_MARK_CONTEXT);
     u64::from_be_bytes(
         derived[..8]
             .try_into()
@@ -328,6 +359,7 @@ impl ToolServerEntries {
             .into_iter()
             .map(|(name, token)| OpenedServer {
                 name,
+                listing_tag: listing_tag(&token),
                 token,
                 tools_changes: AtomicU32::new(0),
                 stream_closes: AtomicU32::new(0),
@@ -338,8 +370,8 @@ impl ToolServerEntries {
             servers,
             dispatcher: spawn.dispatcher,
             hook_tools: spawn.hook_tools,
-            has_ended: AtomicBool::new(false),
-            waiters: Notify::new(),
+            end: CancellationToken::new(),
+            stream_changes: Notify::new(),
         });
         let guard = ToolServerEntryGuard {
             entries: Arc::downgrade(&self.entries),
@@ -440,7 +472,7 @@ impl ToolServerEntries {
                 entry.servers[server]
                     .tools_changes
                     .fetch_add(1, Ordering::AcqRel);
-                entry.waiters.notify_waiters();
+                entry.stream_changes.notify_waiters();
             }
         }
     }
@@ -489,7 +521,7 @@ pub struct ToolServerEntryGuard {
 impl Drop for ToolServerEntryGuard {
     fn drop(&mut self) {
         if let Some(entry) = self.entry.upgrade() {
-            entry.end();
+            entry.end.cancel();
         }
         let Some(entries) = self.entries.upgrade() else {
             return;

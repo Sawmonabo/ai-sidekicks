@@ -355,10 +355,12 @@ impl CodexError {
         )
     }
 
-    /// Codex's own words where this is its JSON-RPC error answer, the service not draining toward
-    /// its exit; `None` for every other failure, a connection's among them.
+    /// Codex's own words where this is its JSON-RPC error answer and the service neither
+    /// overloaded nor draining toward its exit; `None` for every other failure, a connection's
+    /// among them.
     pub(crate) fn provider_refusal_words(&self) -> Option<&str> {
-        if let Self::ProviderRequest { message, .. } = self
+        if let Self::ProviderRequest { code, message, .. } = self
+            && *code != CODEX_OVERLOADED_CODE
             && !self.is_service_draining()
         {
             return Some(message.as_str());
@@ -370,11 +372,7 @@ impl CodexError {
     /// refusal `code` in `message` with Codex's words bounded as its failure detail; any other
     /// error is returned unchanged.
     pub(crate) fn refused_as(self, code: RefusalCode, message: &str) -> Self {
-        let is_refusal = matches!(
-            &self,
-            Self::ProviderRequest { code: answer_code, .. } if *answer_code != CODEX_OVERLOADED_CODE
-        ) && !self.is_service_draining();
-        if !is_refusal {
+        if self.provider_refusal_words().is_none() {
             return self;
         }
         Self::Driver(DriverError::from(provider_failure_refusal(

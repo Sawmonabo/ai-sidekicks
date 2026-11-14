@@ -8,6 +8,8 @@
 
 pub(crate) mod starts_cache;
 
+use std::ops::ControlFlow;
+
 use rusqlite::Connection;
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use sidekicks_contracts::session::id::SessionId;
@@ -54,9 +56,9 @@ impl From<BodyReadError> for HandlerError {
 }
 
 /// Whether the body of the event `row_id` of `session_id` is cut into blocks, so that a read of it
-/// may load it whole while it still takes pieces: a reply that may be drawn as markdown. Reads the event alone, not its body, on
-/// `reader`; `read_damaged_from_sequence` answers where a damaged session's reads stop. Fails with
-/// [`TranscriptReadError`]'s faults when the read fails.
+/// may load it whole while it still takes pieces: a reply that may be drawn as markdown. Reads the
+/// event alone, not its body, on `reader`; `read_damaged_from_sequence` answers where a damaged
+/// session's reads stop. Fails with [`TranscriptReadError`]'s faults when the read fails.
 pub(crate) fn is_body_cut_into_blocks<DamagedFrom>(
     reader: &Connection,
     read_damaged_from_sequence: &DamagedFrom,
@@ -213,8 +215,9 @@ where
 }
 
 // The cut of the ended reply drawn as `prose` whose pieces are `piece_bounds`, each `(sequence,
-// length)` in order, by `parse`, read a stored frame at a time so the body is never held whole.
-// Fails as a read fails; the inner error is a cut that did not advance.
+// length)` in order, by `parse`, read a stored frame at a time so the body is never held whole,
+// and no further once the cut is settled. Fails as a read fails; the inner error is a cut that
+// did not advance.
 fn cut_ended_reply<DamagedFrom>(
     rows_of: &RowReads<'_, '_, DamagedFrom>,
     piece_bounds: &[(i64, usize)],
@@ -225,18 +228,17 @@ where
     DamagedFrom: Fn(&SessionId) -> Option<i64>,
 {
     let mut cut = EndedBodyCut::new(prose, parse);
-    let mut failure = None;
     for &(piece_sequence, _) in piece_bounds {
-        rows_of.piece_frames(piece_sequence, |text| {
-            if failure.is_none()
-                && let Err(error) = cut.push(text)
-            {
-                failure = Some(error);
-            }
+        let read = rows_of.piece_frames(piece_sequence, |text| match cut.push(text) {
+            Ok(ControlFlow::Continue(())) => ControlFlow::Continue(()),
+            Ok(ControlFlow::Break(())) => ControlFlow::Break(None),
+            Err(error) => ControlFlow::Break(Some(error)),
         })?;
-    }
-    if let Some(error) = failure {
-        return Ok(Err(error));
+        match read {
+            ControlFlow::Continue(()) => {}
+            ControlFlow::Break(Some(error)) => return Ok(Err(error)),
+            ControlFlow::Break(None) => break,
+        }
     }
     Ok(cut.finish().map(|starts| match starts {
         Some(starts) => EndedBlockCut::Starts(starts.into()),

@@ -16,13 +16,13 @@ use rmcp::model::{ServerJsonRpcMessage, ServerNotification, ToolListChangedNotif
 use rmcp::transport::common::http_header::EVENT_STREAM_MIME_TYPE;
 use tokio_util::sync::CancellationToken;
 
-use crate::tools::entries::{StandingStreamEvent, ToolServerClient};
+use crate::tools::entries::{SentListingMark, StandingStreamEvent, ToolServerClient};
 
-/// The standing stream `client` opens, sending back `listing_mark`, its handshake's mark, where it
-/// has one; it ends at `stop` too, and once hyper drops its body as the connection closes.
+/// The standing stream `client` opens, sending back `listing_mark`, what it sends of its
+/// handshake's mark; it ends at `stop` too, and once hyper drops its body as the connection closes.
 pub(super) fn standing_stream(
     client: ToolServerClient,
-    listing_mark: Option<&[u8]>,
+    listing_mark: SentListingMark,
     stop: CancellationToken,
 ) -> Response {
     // Taken now, so a change raised once the answer's headers are out is announced.
