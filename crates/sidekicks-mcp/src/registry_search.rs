@@ -15,8 +15,8 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::requests::{
-    McpRegistryInput, McpRegistryPackage, McpRegistryRemote, McpRegistrySearchRequest,
-    McpRegistrySearchResponse, McpRegistryServer,
+    MCP_REGISTRY_MIN_QUERY_LENGTH, McpRegistryInput, McpRegistryPackage, McpRegistryRemote,
+    McpRegistrySearchRequest, McpRegistrySearchResponse, McpRegistryServer,
 };
 use sidekicks_contracts::web_address::WebAddress;
 use sidekicks_contracts::wire::AnyValue;
@@ -36,10 +36,6 @@ pub const MCP_REGISTRY_REPLY_MAX_BYTES: usize = 256 * 1024;
 
 /// The servers one search asks the registry for.
 pub const MCP_REGISTRY_PAGE_SIZE: usize = 30;
-
-/// The fewest code points, after trimming surrounding whitespace, a query the registry is sent
-/// holds; the registry refuses a shorter one that is not empty.
-pub const MCP_REGISTRY_MIN_QUERY_LENGTH: usize = 3;
 
 /// The registry's list of servers, under its address.
 const SERVERS_PATH: &str = "/v0.1/servers";

@@ -449,8 +449,9 @@ pub enum McpDeclaredConfigMember {
 closed_list_key!(McpTransport, McpDeclaredConfigMember);
 
 /// What a provider's driver declares about the servers it takes: the transports it reaches them
-/// over and the members it reads beyond the ones every provider reads. The desktop's form offers
-/// only these, and the daemon refuses any other.
+/// over, the members it reads beyond the ones every provider reads, and whether its `local` scope
+/// is the daemon's emulation. The desktop's form offers only these, and the daemon refuses any
+/// other.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -461,6 +462,10 @@ pub struct ProviderMcpDeclaration {
     /// The members it reads beyond the shared ones; may be empty.
     #[garde(dive)]
     pub config_members: UniqueList<McpDeclaredConfigMember, 0, { usize::MAX }>,
+    /// Whether a `local` server is an entry in the provider's user file kept switched off and
+    /// switched on by the daemon in that project's sessions, so the provider's own command shows
+    /// it as switched off in every folder.
+    pub is_local_scope_emulated: bool,
 }
 
 impl McpServerConfigInput {

@@ -97,10 +97,14 @@ type McpEffectiveBinding = McpServerBindingRef | null;
 // to the sanctioned provider write path, NEVER round-tripped in inventory reads or event payloads
 // (names may appear; values never do). Which transports and members a provider takes is that
 // provider's own declaration, the tool-server transports and fields in its driver's descriptor,
-// which `provider.list` carries: the form checks against it as the person types, and the daemon
-// checks the request against the binding's provider again, refusing a transport or member that
-// provider does not declare with mcp.server.configInvalid before anything is written. The comments
-// below name the provider whose native field each member is.
+// which `provider.list` carries as `mcp: {transports, configMembers, isLocalScopeEmulated}`: the
+// form checks against it as the person types, and the daemon checks the request against the
+// binding's provider again, refusing a transport or member that provider does not declare with
+// mcp.server.configInvalid before anything is written. `isLocalScopeEmulated` is true where the
+// provider's `local` scope is the daemon's emulation (below): the server is an entry in the
+// provider's user file kept switched off, so the provider's own command shows it as switched off
+// in every folder, and the form says so under the project chooser. The comments below name the
+// provider whose native field each member is.
 // EVERY SCOPE TAKES WHAT THE PERSON TYPES: at `project` scope the values are written into the
 // project's file in that provider's own format, as at the other scopes. A declaration may name a
 // variable in place of a value — a Claude Code `env` or `headers` value written as a `${VAR}` or
@@ -364,13 +368,17 @@ interface McpLiveApplicationResult {
 //   mcp.registry.search {query: string, cursor?: string} → {servers: McpRegistryServer[],
 // nextCursor?: string} // `Browse servers`: a search of the public MCP Registry (`GET
 // /v0.1/servers?search=<query>&version=latest` on registry.modelcontextprotocol.io), made by the
-// daemon only when the person types and caching nothing past the page. Each result carries its
-// title or name, description and version, whether it runs as a package (its `version`,
-// `runtimeHint`, `runtimeArguments` and `packageArguments`) or at an address (its `remotes`, each
-// `url` an address or a template its `variables` fill, with its `headers`), and each environment
-// variable, header and address variable as one input: its name, description, whether it is
-// required and whether it is secret — never a value or a default, and a secret argument carries
-// neither. A pick fills the add form; the person still adds the server and types every secret.
+// daemon only when the person types and caching nothing past the page. A query holding fewer than
+// MCP_REGISTRY_MIN_QUERY_LENGTH (3) code points once its surrounding whitespace is trimmed is
+// sent nowhere and answers `{servers: []}`, never a refusal, since the registry refuses one that
+// short; the contracts export the constant, and a client searches only from that length. Each
+// result carries its title or name, description and version, whether it runs as a package (its
+// `version`, `runtimeHint`, `runtimeArguments` and `packageArguments`) or at an address (its
+// `remotes`, each `url` an address or a template its `variables` fill, with its `headers`), and
+// each environment variable, header and address variable as one input: its name, description,
+// whether it is required and whether it is secret — never a value or a default, and a secret
+// argument carries neither. A pick fills the add form; the person still adds the server and types
+// every secret.
 // Non-reads (open to this machine's own client or any
 // linked device, with no policy check; every operation except mcp.server.reconnect carries the
 // MANDATORY clientIdempotencyKey: string — requester-generated UUID; a retry under the same key

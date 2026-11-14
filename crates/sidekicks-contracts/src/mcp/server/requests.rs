@@ -175,8 +175,14 @@ binding_addressed! {
     }
 }
 
+/// The fewest code points, after trimming surrounding whitespace, a search query holds for the
+/// daemon to send it to the registry, which refuses a shorter one; a shorter query answers no
+/// servers.
+pub const MCP_REGISTRY_MIN_QUERY_LENGTH: usize = 3;
+
 /// Searches the public MCP Registry for servers to add. The daemon makes the call, only when the
-/// person types, and keeps nothing past the page it answers.
+/// person types, and keeps nothing past the page it answers; a query under
+/// [`MCP_REGISTRY_MIN_QUERY_LENGTH`] code points, trimmed, answers no servers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

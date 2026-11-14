@@ -276,13 +276,14 @@ impl ProviderDescriptor {
     }
 
     /// The transports and declaration members the provider takes for a tool server, which a
-    /// submitted declaration is checked against.
+    /// submitted declaration is checked against, and whether its `local` scope is emulated.
     pub fn mcp_declaration(&self) -> ProviderMcpDeclaration {
         ProviderMcpDeclaration {
             transports: UniqueList::new(self.mcp_transports.to_vec())
                 .expect("a descriptor lists at least one transport"),
             config_members: UniqueList::new(self.mcp_config_members.to_vec())
                 .expect("a descriptor's members fit an unbounded list"),
+            is_local_scope_emulated: self.is_mcp_local_scope_emulated,
         }
     }
 

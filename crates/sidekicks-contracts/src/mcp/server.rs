@@ -79,6 +79,9 @@ ts_constants! {
     /// The longest command, argument, name, value, address or search text an `mcp.*` request
     /// carries.
     MCP_REQUEST_TEXT_MAX_LEN = config::MCP_REQUEST_TEXT_MAX_LEN;
+    /// The fewest code points, after trimming, a registry search query holds for the daemon to
+    /// send it; a shorter one answers no servers, so a client searches only from this length.
+    MCP_REGISTRY_MIN_QUERY_LENGTH = requests::MCP_REGISTRY_MIN_QUERY_LENGTH;
     /// Every tool override facet, in declaration order.
     MCP_TOOL_OVERRIDE_FACETS = inventory::MCP_TOOL_OVERRIDE_FACETS;
 }
