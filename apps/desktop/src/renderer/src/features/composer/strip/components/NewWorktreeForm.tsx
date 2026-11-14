@@ -32,7 +32,10 @@ export function NewWorktreeForm(props: NewWorktreeFormProps): React.JSX.Element 
   const [tail, setTail] = useState(props.suggestion.suggestedTail ?? "");
   const [base, setBase] = useState<string | undefined>(undefined);
   const [carriesChanges, setCarriesChanges] = useState(false);
-  const [errorLine, setErrorLine] = useState<string | undefined>(undefined);
+  // Git's refusal, kept with the request it refused so any edit of the form lifts it.
+  const [gitRefusal, setGitRefusal] = useState<
+    { readonly request: string; readonly detail: string } | undefined
+  >(undefined);
   const [refusal, setRefusal] = useState<ExtendedRefusal | undefined>(undefined);
   const [workspace, setWorkspace] = useState<WorkspaceListEntry | undefined>(undefined);
   const [branches, setBranches] = useState<ProjectBranchListResponse | undefined>(undefined);
@@ -76,19 +79,23 @@ export function NewWorktreeForm(props: NewWorktreeFormProps): React.JSX.Element 
     };
   }, [props.bridge, props.sessionId]);
   const name = `${props.suggestion.fixedPart}${tail}`;
+  const isTailEmpty = tail.trim().length === 0;
+  const request = JSON.stringify([name, base, carriesChanges]);
+  // Create stays disabled with its reason under the field while the tail is empty or git refuses
+  // the name.
+  const errorLine = isTailEmpty
+    ? "Enter a name first"
+    : gitRefusal?.request === request
+      ? gitRefusal.detail
+      : undefined;
   return (
     <form
       className="meridian-composer-worktrees__new"
       onSubmit={(event) => {
         event.preventDefault();
-        if (tail.trim().length === 0) {
-          setErrorLine("Enter a name first");
+        if (workspace === undefined || errorLine !== undefined) {
           return;
         }
-        if (workspace === undefined) {
-          return;
-        }
-        setErrorLine(undefined);
         void callDaemon(props.bridge, "workspace.executionRoot.prepare", {
           workspaceId: workspace.id,
           branchName: name,
@@ -97,7 +104,7 @@ export function NewWorktreeForm(props: NewWorktreeFormProps): React.JSX.Element 
         }).then((reply) => {
           if (reply.status === "refused") {
             // Git's own refusal reads as git printed it, under the field.
-            setErrorLine(reply.refusal.detail);
+            setGitRefusal({ request, detail: reply.refusal.detail });
             return;
           }
           props.onCreated();
@@ -152,7 +159,11 @@ export function NewWorktreeForm(props: NewWorktreeFormProps): React.JSX.Element 
       <button type="button" className="meridian-clickable-word" onClick={props.onCancel}>
         Cancel
       </button>
-      <button type="submit" className="meridian-clickable-word" disabled={workspace === undefined}>
+      <button
+        type="submit"
+        className="meridian-clickable-word"
+        disabled={workspace === undefined || errorLine !== undefined}
+      >
         Create and move here
       </button>
     </form>

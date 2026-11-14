@@ -6,7 +6,7 @@
 // the addressed run's binding group renders. The skills are read only while the list is open.
 // What it says out loud goes through the app's announcer.
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { type ComposerProps } from "#renderer/registries/composer/registry.js";
 import { skillListFeedFor } from "#renderer/services/daemon/skills.js";
 import { useSkillListState } from "#renderer/store/skills/hooks/useSkillListState.js";
@@ -43,7 +43,9 @@ export function CommandList(props: CommandListProps): React.JSX.Element | null {
   const target = useComposerAddress(props.sessionStore);
   const draftKey = composerDraftKey(props.sessionStore.sessionId);
   // The same store and key the send bar reads its line from, so both see one reading.
-  const discovery = useCommandListTrigger(region, { draftStore, draftKey });
+  // The open popover answers the line's Enter through this, so Enter chooses its active row.
+  const lineEnterChoiceRef = useRef<(() => boolean) | undefined>(undefined);
+  const discovery = useCommandListTrigger(region, { draftStore, draftKey }, lineEnterChoiceRef);
   const isOpen = discovery.prefix !== undefined;
   const enumeration = useProviderCommandEnumeration({
     enumeration: commandEnumeration,
@@ -61,7 +63,7 @@ export function CommandList(props: CommandListProps): React.JSX.Element | null {
     (entry: SkillCommandEntry) => {
       const { rest } = splitFirstWord(draftStore.read(draftKey)?.text ?? "");
       draftStore.write(draftKey, `${entry.callForm}${rest.length === 0 ? " " : rest}`);
-      heldDraft.addSkillPick(entry.pick);
+      heldDraft.addSkillPick(entry.pick, entry.callForm);
       dismiss();
     },
     [draftStore, draftKey, heldDraft, dismiss],
@@ -71,10 +73,12 @@ export function CommandList(props: CommandListProps): React.JSX.Element | null {
       prefix={discovery.prefix ?? ""}
       readCommands={readCommands}
       enumeration={enumeration}
-      skills={skills}
+      skills={skills.state}
+      onReadSkillsAgain={skills.readAgain}
       onPickSkill={pickSkill}
       addressed={addressed}
       stepIntoListToken={discovery.stepIntoListToken}
+      lineEnterChoiceRef={lineEnterChoiceRef}
       onDismiss={discovery.dismiss}
     />
   ) : null;

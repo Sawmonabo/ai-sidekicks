@@ -10,7 +10,7 @@ import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { projectListFeedFor } from "#renderer/services/daemon/project-list.js";
 import { sessionDirectoryFeedFor } from "#renderer/services/daemon/session/list-feed.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
-import { useProjectList } from "#renderer/store/projects/hooks/useProjectList.js";
+import { useSessionProject } from "#renderer/store/projects/hooks/useSessionProject.js";
 import { listedSessionOf } from "#renderer/store/session/directory/state.js";
 import { useSessionDirectory } from "#renderer/store/session/directory/useSessionDirectory.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
@@ -20,24 +20,26 @@ import { WorktreeSwitcher } from "./WorktreeSwitcher.js";
 
 import "./ComposerStrip.css";
 
-/** What the strip reads: the session, and the act that opens the inspector for `Details`. */
+/** What the strip reads: the session, and the acts its `Details` and its badge open. */
 export interface ComposerStripProps {
   readonly bridge: PlatformBridge;
   readonly sessionStore: SessionStore;
   readonly sessionId: SessionId;
   readonly openDetails: () => void;
+  /** Open the Sidekicks pane on its list. */
+  readonly openSidekicks: () => void;
 }
 
 /** The strip; empty at its left until the session's listing is read. */
 export function ComposerStrip(props: ComposerStripProps): React.JSX.Element {
-  const directory = useSessionDirectory(sessionDirectoryFeedFor(props.bridge));
-  const projects = useProjectList(projectListFeedFor(props.bridge));
+  const directoryFeed = sessionDirectoryFeedFor(props.bridge);
+  const directory = useSessionDirectory(directoryFeed);
+  const { session, project } = useSessionProject(
+    directoryFeed,
+    projectListFeedFor(props.bridge),
+    props.sessionId,
+  );
   const [isConverting, setIsConverting] = useState(false);
-  const session = listedSessionOf(directory, props.sessionId);
-  const project =
-    session?.shape === "project" && projects.status === "served"
-      ? projects.projects.find((listed) => listed.projectId === session.projectId)
-      : undefined;
   const sessionNameOf = (sessionId: string): string =>
     listedSessionOf(directory, sessionId)?.name ?? sessionId;
   return (
@@ -58,7 +60,7 @@ export function ComposerStrip(props: ComposerStripProps): React.JSX.Element {
             <WorktreeSwitcher
               bridge={props.bridge}
               sessionId={props.sessionId}
-              projectId={session.projectId}
+              project={project}
               currentName={session.branch ?? project.name}
               sessionNameOf={sessionNameOf}
               openDetails={props.openDetails}
@@ -83,7 +85,11 @@ export function ComposerStrip(props: ComposerStripProps): React.JSX.Element {
           </>
         ) : null}
         <span className="meridian-composer-strip__end">
-          <SidekicksBadge bridge={props.bridge} sessionStore={props.sessionStore} />
+          <SidekicksBadge
+            bridge={props.bridge}
+            sessionStore={props.sessionStore}
+            openSidekicks={props.openSidekicks}
+          />
         </span>
       </div>
     </>

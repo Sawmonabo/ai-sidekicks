@@ -3,10 +3,11 @@
 // at its next step, so a run-addressed composer sends the same call as a session-addressed one.
 //
 // Resolution is pure and separate from dispatch. Ids are read through the wire readers, so an
-// unreadable id is a rendered refusal that names it, and a rejected call propagates. Trimming
-// only decides blankness; the wire gets the user's bytes, and slash rules read the raw text, so
-// indented text starting with `/` is prose. What rides with the words, the held draft's files,
-// skill picks, turn speed and repository, goes on the request as the draft holds it.
+// unreadable id is a rendered refusal that names it, and a rejected call propagates. A message
+// with no words still goes when it carries a staged file. Trimming only decides blankness; the
+// wire gets the user's bytes, and slash rules read the raw text, so indented text starting with
+// `/` is prose. What rides with the words, the held draft's files, skill picks, turn speed and
+// repository, goes on the request as the draft holds it.
 
 import type { AgentQueueItemCreateRequest } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionDraftExtras } from "@ai-sidekicks/contracts/session/draft";
@@ -57,8 +58,7 @@ export class ComposerSendRouter {
     target: ComposerTarget,
     extras: SessionDraftExtras,
   ): ComposerSendResolution {
-    // Trimming decides only blankness; the value is never what gets sent.
-    if (text.trim().length === 0) {
+    if (carriesNothing(text, extras)) {
       return refused("empty-message", "There is nothing to send yet. Type a message.");
     }
     const slashOutcome = this.#resolveSlashPrefix(text);
@@ -141,6 +141,14 @@ export class ComposerSendRouter {
         return await dispatchQueuedMessage(this.#calls, resolution.request);
     }
   }
+}
+
+/**
+ * Whether a message carries nothing to send: no words and no staged file. Composed notes are
+ * words in the draft. Trimming decides only blankness; the value is never what gets sent.
+ */
+export function carriesNothing(text: string, extras: SessionDraftExtras): boolean {
+  return text.trim().length === 0 && (extras.attachments ?? []).length === 0;
 }
 
 /** One composer-side refusal, already wrapped in the resolution's refused arm. */

@@ -1,7 +1,8 @@
 // The app's one provider store, read from the feed for as long as the caller is mounted.
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
 
+import { useSharedFeedState } from "../../hooks/useSharedFeedState.js";
 import {
   ProviderSectionsStore,
   type ProviderSectionsFeed,
@@ -19,12 +20,7 @@ export function useProviderSectionsState(
     () => (feed === undefined ? undefined : new ProviderSectionsStore(feed)),
     [feed],
   );
-  const watch = useCallback(
-    (onChange: () => void) => (store === undefined ? () => undefined : store.watch(onChange)),
-    [store],
-  );
-  const read = useCallback(() => store?.state ?? NOT_OPENED, [store]);
-  return useSyncExternalStore(watch, read, read);
+  return useSharedFeedState(store, NOT_OPENED);
 }
 
 /** What is read while no feed is open yet. */

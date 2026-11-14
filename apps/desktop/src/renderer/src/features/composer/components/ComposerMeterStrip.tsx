@@ -1,6 +1,6 @@
-// The composer toolbar's row: the row of chips at its left, and at its right the cluster that never
-// folds, Attach and the context ring drawn from a reading the caller has folded, so the toolbar over
-// an open session and the composer's resting space draw the same box.
+// The composer toolbar's row: the row of chips at its left, and at its right the cluster that
+// never folds, Attach and the context ring drawn from a reading the caller has folded, so the
+// toolbar over an open session and the composer's resting space draw the same box.
 
 import type { ContextWindowReading } from "#renderer/store/session/events/context-window-reading.js";
 import { ContextRing } from "../context-ring/ContextRing.js";

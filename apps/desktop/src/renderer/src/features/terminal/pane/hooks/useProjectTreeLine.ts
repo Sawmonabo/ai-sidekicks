@@ -7,9 +7,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { projectListFeedFor } from "#renderer/services/daemon/project-list.js";
 import { sessionDirectoryFeedFor } from "#renderer/services/daemon/session/list-feed.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
-import { useProjectList } from "#renderer/store/projects/hooks/useProjectList.js";
-import { listedSessionOf } from "#renderer/store/session/directory/state.js";
-import { useSessionDirectory } from "#renderer/store/session/directory/useSessionDirectory.js";
+import { useSessionProject } from "#renderer/store/projects/hooks/useSessionProject.js";
 
 /**
  * `<project> · <tree>` for a project session, the project alone while its tree names no branch,
@@ -19,13 +17,12 @@ export function useProjectTreeLine(
   bridge: PlatformBridge,
   sessionId: SessionId,
 ): string | undefined {
-  const session = listedSessionOf(useSessionDirectory(sessionDirectoryFeedFor(bridge)), sessionId);
-  const projects = useProjectList(projectListFeedFor(bridge));
-  if (session?.shape !== "project" || projects.status !== "served") {
-    return undefined;
-  }
-  const project = projects.projects.find((listed) => listed.projectId === session.projectId);
-  if (project === undefined) {
+  const { session, project } = useSessionProject(
+    sessionDirectoryFeedFor(bridge),
+    projectListFeedFor(bridge),
+    sessionId,
+  );
+  if (session?.shape !== "project" || project === undefined) {
     return undefined;
   }
   return session.branch === undefined ? project.name : `${project.name} · ${session.branch}`;

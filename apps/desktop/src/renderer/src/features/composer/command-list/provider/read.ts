@@ -64,5 +64,5 @@ export async function settleEnumeration(
 /** The refusal for a composer addressed at identifiers the wire would not accept. */
 function unparsableAddress(): Refusal {
   const code: ProviderCommandReadRefusalCode = "addressed-agent-unparsable";
-  return refuse(PROVIDER_COMMAND_READ_ORIGIN, code, "Couldn't load the commands and skills");
+  return refuse(PROVIDER_COMMAND_READ_ORIGIN, code, "Couldn't load commands and skills");
 }

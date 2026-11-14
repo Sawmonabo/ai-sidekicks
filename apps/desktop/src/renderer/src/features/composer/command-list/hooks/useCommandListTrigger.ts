@@ -1,12 +1,14 @@
 // Watches the composer's draft to decide what the command list opens, without owning a copy of it.
 // It observes the draft store, not the DOM: history recall, send and a button-run command all
 // write the store without a keystroke. Keydown is for keys only, and only ones aimed at the line:
-// Escape dismisses, ArrowDown steps into the list, and Enter (Send's) dismisses and passes on.
+// Escape dismisses, ArrowDown steps into the list, and Enter on a line holding only the word
+// chooses the list's active row when the list takes it, or otherwise dismisses and passes on to
+// Send.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { DraftStore } from "#renderer/store/drafts.js";
-import { readCommandListPrefix } from "../../slash-command-syntax.js";
+import { readCommandListPrefix, splitFirstWord } from "../../slash-command-syntax.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 
 /** What the composer's line is currently asking the command list for. */
@@ -28,6 +30,12 @@ export interface DraftLineSource {
 }
 
 /**
+ * The open list's answer to Enter in the line: `true` when it chose its active row, `false` when
+ * the line's Enter is Send's. The list sets it while mounted.
+ */
+export type LineEnterChoice = React.RefObject<(() => boolean) | undefined>;
+
+/**
  * Read the composer's line and decide what it opens. The dismissal is keyed on the text it was
  * raised at, not a boolean, so it lifts by itself once the text changes, including when a send
  * clears the line.
@@ -35,6 +43,7 @@ export interface DraftLineSource {
 export function useCommandListTrigger(
   region: React.RefObject<HTMLElement | null>,
   source: DraftLineSource,
+  lineEnterChoiceRef: LineEnterChoice,
 ): CommandListTrigger {
   const { draftStore, draftKey } = source;
   // The same reading the send bar takes of the same key, through the same hook.
@@ -79,7 +88,17 @@ export function useCommandListTrigger(
         return;
       }
       if (event.key === "Enter" && !event.shiftKey) {
-        // Not stopped and not prevented: Send is the send bar's and stays its.
+        // While only the word is typed, the list may choose its row: stopped as well as prevented
+        // then, so Send does not also fire. A line with more after the word is Send's.
+        if (
+          isOpenRef.current &&
+          splitFirstWord(readLineText()).rest.length === 0 &&
+          lineEnterChoiceRef.current?.() === true
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
         setDismissedAtText(readLineText());
         return;
       }
@@ -104,7 +123,7 @@ export function useCommandListTrigger(
     return () => {
       element.removeEventListener("keydown", onKeyDown);
     };
-  }, [region, readLineText]);
+  }, [region, readLineText, lineEnterChoiceRef]);
 
   return {
     prefix: isOpen ? typedPrefix : undefined,

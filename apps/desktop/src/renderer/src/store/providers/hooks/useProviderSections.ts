@@ -25,7 +25,7 @@ export function useProviderSections(): readonly ProviderSection[] {
   }
   if (state.status === "failed") {
     throw new RefusalError(
-      refuse("provider-list", "provider-list-unread", "Couldn't load the providers"),
+      refuse("provider-list", "provider-list-unread", "Couldn't load providers"),
     );
   }
   return state.sections;

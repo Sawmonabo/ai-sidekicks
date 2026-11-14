@@ -2,8 +2,9 @@
 // which delivers the draft held now and again after each change: a save from any device, or a
 // message a Stop put back. Every delivery is checked with the contract's generated check. A draft
 // that names staged files comes with what the daemon found for each, read off `session.read`'s
-// staged set, since the draft names a file only by its artifact. An unreadable delivery, a refused
-// read and a stream the daemon refuses are handed on as the draft being lost.
+// staged set, since the draft names a file only by its artifact; a draft naming only files the
+// last read found, as the echo of this window's own save does, reuses what it found. An unreadable
+// delivery, a refused read and a stream the daemon refuses are handed on as the draft being lost.
 
 import {
   type HeldSessionDraft,
@@ -48,6 +49,8 @@ class SessionDraftFollower {
   readonly #onFrame: (frame: SessionDraftFrame) => void;
   // The staged-file read in flight, aborted when a newer draft arrives or the stream is released.
   #filesRead: AbortController | undefined;
+  // What the last completed staged-file read found for each file, by artifact.
+  #found: ReadonlyMap<string, SessionAttachmentSummary> = new Map();
 
   public constructor(
     bridge: PlatformBridge,
@@ -102,8 +105,12 @@ class SessionDraftFollower {
       return;
     }
     const named = payload.draft.extras.attachments ?? [];
-    if (named.length === 0) {
-      this.#onFrame({ kind: "held", held: payload, files: [] });
+    const known = named.flatMap((artifactId) => {
+      const file = this.#found.get(artifactId);
+      return file === undefined ? [] : [file];
+    });
+    if (known.length === named.length) {
+      this.#onFrame({ kind: "held", held: payload, files: known });
       return;
     }
     const filesRead = new AbortController();
@@ -122,8 +129,9 @@ class SessionDraftFollower {
         return;
       }
       const staged = reply.value.session.attachments;
+      this.#found = new Map(staged.map((summary) => [summary.artifactId, summary]));
       const files = named.flatMap((artifactId) => {
-        const file = staged.find((summary) => summary.artifactId === artifactId);
+        const file = this.#found.get(artifactId);
         return file === undefined ? [] : [file];
       });
       this.#onFrame({ kind: "held", held: payload, files });

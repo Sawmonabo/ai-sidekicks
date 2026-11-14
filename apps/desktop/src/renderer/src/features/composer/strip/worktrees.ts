@@ -8,6 +8,8 @@ import type { WorktreeId, WorktreeStatusRecord } from "@ai-sidekicks/contracts/w
 export interface WorktreeRow {
   readonly path: string;
   readonly name: string;
+  /** The branch checked out in it, which the session's listing names once the session is in it. */
+  readonly branchName: string;
   /** `off <base>` for a tree the app made, absent for one the person made. */
   readonly offBase: string | undefined;
   /** `↑<ahead>`, absent at zero or while unknown. */
@@ -16,8 +18,10 @@ export interface WorktreeRow {
   readonly behind: string | undefined;
   /** `<dirty> uncommitted`, absent with nothing uncommitted. */
   readonly uncommitted: string | undefined;
-  /** `<n> unpushed`, absent with nothing unpushed. */
-  readonly unpushed: string | undefined;
+  /** The files changed and not committed, which a removal would discard. */
+  readonly uncommittedFileCount: number;
+  /** The commits not pushed, which a removal would discard. */
+  readonly unpushedCommitCount: number;
   /** The sessions attached to it. */
   readonly occupyingSessionIds: readonly string[];
   /** The session whose agent runs in it, which holds its removal, or `undefined`. */
@@ -31,6 +35,7 @@ export function readWorktreeRow(record: WorktreeStatusRecord): WorktreeRow {
   return {
     path: record.path,
     name: record.name,
+    branchName: record.branchName,
     offBase: record.madeBy === "app" ? `off ${record.baseBranchName}` : undefined,
     ahead: figureOrAbsent("↑", record.ahead),
     behind: figureOrAbsent("↓", record.behind),
@@ -38,10 +43,8 @@ export function readWorktreeRow(record: WorktreeStatusRecord): WorktreeRow {
       record.uncommittedFileCount === 0
         ? undefined
         : `${String(record.uncommittedFileCount)} uncommitted`,
-    unpushed:
-      record.unpushedCommitCount === 0
-        ? undefined
-        : `${String(record.unpushedCommitCount)} unpushed`,
+    uncommittedFileCount: record.uncommittedFileCount,
+    unpushedCommitCount: record.unpushedCommitCount,
     occupyingSessionIds: record.occupyingSessionIds,
     runningSessionId: record.runningSessionId ?? undefined,
     removableWorktreeId: record.madeBy === "app" ? record.worktreeId : undefined,

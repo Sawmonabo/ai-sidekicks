@@ -1,10 +1,10 @@
-// Every skill the background service lists, across its four origins. The feed opens with the
-// first reader and closes with the last; each list it delivers replaces what is held. A lost feed
-// is the store's failed state, never an empty list, which would read as no skills.
+// Every skill the background service lists, across its four origins. Each list the feed delivers
+// replaces what is held. A lost feed is the store's failed state, never an empty list, which would
+// read as no skills.
 
 import type { SkillListEntry } from "@ai-sidekicks/contracts/skill";
 
-import type { Unsubscribe } from "#shared/preload-api.js";
+import { SharedFeed, type Feed, type FeedFold } from "../shared-feed.js";
 
 /**
  * What the app knows of the skills at one moment: `reading` until the list arrives, the list once
@@ -20,58 +20,19 @@ export type SkillListFrame =
   | { readonly kind: "list"; readonly skills: readonly SkillListEntry[] }
   | { readonly kind: "lost" };
 
-/**
- * Open the service's skill feed, handing each frame on, until the handle releases it. The
- * composition supplies it, so `store/` stays below `services/`.
- */
-export type SkillListFeed = (onFrame: (frame: SkillListFrame) => void) => Unsubscribe;
+/** Open the service's skill feed, handing each frame on, until the handle releases it. */
+export type SkillListFeed = Feed<SkillListFrame>;
 
 /** The skills read from one feed, shared by every reader while any reads. */
-export class SkillListStore {
-  readonly #feed: SkillListFeed;
-  readonly #readers = new Set<() => void>();
-  #state: SkillListState = READING;
-  #release: Unsubscribe | undefined;
-
+export class SkillListStore extends SharedFeed<SkillListFrame, SkillListState> {
   public constructor(feed: SkillListFeed) {
-    this.#feed = feed;
-  }
-
-  /** What readers see now: `reading` until the feed delivers its list. */
-  public get state(): SkillListState {
-    return this.#state;
-  }
-
-  /** Read the feed until the handle releases it, waking `onChange` each time the state moves. */
-  public watch(onChange: () => void): Unsubscribe {
-    this.#readers.add(onChange);
-    if (this.#readers.size === 1) {
-      this.#release = this.#feed((frame) => {
-        this.#apply(frame);
-      });
-    }
-    return () => {
-      this.#readers.delete(onChange);
-      if (this.#readers.size === 0) {
-        const release = this.#release;
-        this.#release = undefined;
-        // A later reader opens the feed afresh, so it reads no list from before.
-        this.#state = READING;
-        release?.();
-      }
-    };
-  }
-
-  #apply(frame: SkillListFrame): void {
-    this.#state = frame.kind === "list" ? { status: "served", skills: frame.skills } : FAILED;
-    for (const onChange of [...this.#readers]) {
-      onChange();
-    }
+    super(feed, SKILL_LIST_FOLD);
   }
 }
 
-/** What is held before the feed delivers its list. */
-const READING: SkillListState = { status: "reading" };
-
-/** What is held once the feed is lost. */
-const FAILED: SkillListState = { status: "failed" };
+/** Reading until the list arrives, then each list, or failed once the feed is lost. */
+const SKILL_LIST_FOLD: FeedFold<SkillListFrame, SkillListState> = {
+  initial: { status: "reading" },
+  open: () => (_state, frame) =>
+    frame.kind === "list" ? { status: "served", skills: frame.skills } : { status: "failed" },
+};

@@ -19,6 +19,7 @@ import { type WorkflowStartOperations } from "../../command-list/workflow/start-
 import type { ComposerHeldDraft } from "../../held-draft/holder.js";
 import type { ComposerSendCalls } from "../send/dispatch.js";
 import { useSendController } from "../send/hooks/useSendController.js";
+import { carriesNothing } from "../send/router.js";
 import { composerDraftKey } from "../draft-key.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 import { SendIconButton } from "../../components/SendIconButton.js";
@@ -65,8 +66,6 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
     composerDraftKey(props.sessionStore.sessionId),
   );
   const held = useSyncExternalStore(props.heldDraft.subscribe, props.heldDraft.snapshot);
-  const carriesNothing =
-    draft.text.trim().length === 0 && (held.extras.attachments ?? []).length === 0;
   useSendOnEnter(props.region, controller.send);
 
   return (
@@ -74,14 +73,14 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
       <SendIconButton
         type="button"
         size="regular"
-        isEmpty={carriesNothing}
+        isEmpty={carriesNothing(draft.text, held.extras)}
         isSending={isSending}
         onPress={() => {
           void controller.send();
         }}
       />
       {controller.refusal === undefined ? null : (
-        // Through the remedy join: a refusal such as `session.not_found` has a next move the
+        // Through the remedy join: a refusal such as `session.notFound` has a next move the
         // daemon's sentence lacks.
         <div className="meridian-composer__send-refusal">
           <RefusalWithRemedy refusal={controller.refusal} />

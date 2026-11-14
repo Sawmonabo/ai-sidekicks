@@ -10,3 +10,15 @@ import { PROVIDER_SECTIONS } from "#fixtures/data/provider-list.js";
 export function providerSectionsFixture(): readonly ProviderSection[] {
   return PROVIDER_SECTIONS;
 }
+
+/**
+ * The fixture's section for `provider` under the name `name`, as one `provider.subscribe` message
+ * restates it. Throws for a provider the fixture lacks.
+ */
+export function providerSection(provider: string, name: string): ProviderSection {
+  const section = PROVIDER_SECTIONS.find((each) => each.provider === provider);
+  if (section === undefined) {
+    throw new Error(`The provider fixture has no ${provider}`);
+  }
+  return { ...section, name };
+}

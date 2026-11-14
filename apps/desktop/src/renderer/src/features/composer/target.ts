@@ -66,9 +66,19 @@ export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarge
       kind: "run",
       sessionId: input.sessionId,
       agentId: leadAgentId,
-      providerName: readAgentDriverNames(input.standingEvents).get(leadAgentId),
+      providerName: readLeadProviderId(input.standingEvents),
       targetRunId: run.id,
     };
   }
   return { kind: "session", sessionId: input.sessionId };
+}
+
+/** The lead's current provider as the session's standing events say, `undefined` until they do. */
+export function readLeadProviderId(
+  standingEvents: readonly ProjectedSessionEvent[],
+): ProviderId | undefined {
+  const leadAgentId = readLeadAgentId(standingEvents);
+  return leadAgentId === undefined
+    ? undefined
+    : readAgentDriverNames(standingEvents).get(leadAgentId);
 }

@@ -1,13 +1,13 @@
 // The run controls' one chokepoint: guards threaded, keys minted, answers read.
 //
-// A button assembling its own request could omit a comparand or reuse a key across a changed
-// body, so every run call carries `expectedRunVersion` from the caller's target, and steer and
-// interrupt carry a UUID `clientIdempotencyKey` minted per dispatch, except that a retry of a steer
-// not delivered goes under the failed steer's own id, so a second press answers as the first. A
-// steer is a message on one child's own queue, which the child takes at its next step, so it names
-// the session and the child rather than a run version. The fresh comparand is the newer of the answer's version and the state
-// stream's, since the run also advances with no control pressed. Eligibility is decided by the
-// daemon, not here; a rejected call propagates. The daemon calls are an argument
+// A button assembling its own request could omit a comparand or reuse a key across a changed body,
+// so every run call carries `expectedRunVersion` from the caller's target, and steer and interrupt
+// carry a UUID `clientIdempotencyKey` minted per dispatch, except that a retry of a steer not
+// delivered goes under the failed steer's own id, so a second press answers as the first. A steer
+// is a message on one child's own queue, which the child takes at its next step, so it names the
+// session and the child rather than a run version. The fresh comparand is the newer of the answer's
+// version and the state stream's, since the run also advances with no control pressed. Eligibility
+// is decided by the daemon, not here; a rejected call propagates. The daemon calls are an argument
 // (`RunControlCalls`), so this module holds no bridge.
 
 import type {

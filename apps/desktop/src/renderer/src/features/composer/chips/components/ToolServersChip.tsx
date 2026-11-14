@@ -11,6 +11,9 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { OverlayPopoverPopup } from "#renderer/components/OverlayPopups/OverlayPopoverPopup.js";
 import { Switch } from "#renderer/components/Switch/Switch.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
@@ -30,7 +33,8 @@ export interface ToolServersChipProps {
 
 /** The tool-servers chip, always drawn. */
 export function ToolServersChip(props: ToolServersChipProps): React.JSX.Element {
-  const frame = useSessionMcpServers(props.bridge, props.sessionId);
+  const clock = useClock();
+  const { frame, readAgain } = useSessionMcpServers(props.bridge, props.sessionId);
   const [isOpen, setIsOpen] = useState(false);
   const [refusal, setRefusal] = useState<ExtendedRefusal | undefined>(undefined);
   const chip = readToolServersChip(frame?.kind === "listed" ? frame.servers : []);
@@ -70,7 +74,13 @@ export function ToolServersChip(props: ToolServersChipProps): React.JSX.Element 
     <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
       <Popover.Trigger className="meridian-composer-chip">{chip.label}</Popover.Trigger>
       <OverlayPopoverPopup className="meridian-composer-tool-servers" sideOffset={4}>
-        {chip.working.length === 0 && chip.notWorking.length === 0 ? (
+        {frame === undefined ? (
+          <LoadingNotice title="Loading tool servers…" placement="block" clock={clock} />
+        ) : frame.kind === "lost" ? (
+          <p className="meridian-composer-tool-servers__empty">
+            Couldn't load tool servers <TryAgainButton onPress={readAgain} />
+          </p>
+        ) : chip.working.length === 0 && chip.notWorking.length === 0 ? (
           <p className="meridian-composer-tool-servers__empty">No tool servers on this session.</p>
         ) : (
           <ul className="meridian-composer-tool-servers__list">

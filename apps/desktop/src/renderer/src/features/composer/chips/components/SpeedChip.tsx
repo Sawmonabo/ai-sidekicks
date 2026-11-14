@@ -12,7 +12,7 @@ import type { ComposerHeldDraft } from "../../held-draft/holder.js";
 import { useLeadModel } from "../hooks/useLeadModel.js";
 import { readSpeedChip } from "../speed.js";
 
-/** What the speed chip reads and writes: the session, and the held draft the turn speed rides in. */
+/** What the speed chip reads and writes: the session, and the held draft holding the turn speed. */
 export interface SpeedChipProps {
   readonly bridge: PlatformBridge;
   readonly sessionId: SessionId;

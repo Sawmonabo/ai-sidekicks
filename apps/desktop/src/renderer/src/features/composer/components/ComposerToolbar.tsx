@@ -1,6 +1,7 @@
-// The composer's toolbar: the chips and Attach its host hands in, and the context ring, read from the session's standing events for the lead's
-// addressed run, so it reports the lead's fullness however much of the log the window holds, never
-// a child's. A composer addressed to the session and not to a run asks for no reading.
+// The composer's toolbar: the chips and Attach its host hands in, and the context ring, read from
+// the session's standing events for the lead's addressed run, so it reports the lead's fullness
+// however much of the log the window holds, never a child's. A composer addressed to the session
+// and not to a run asks for no reading.
 
 import { useMemo } from "react";
 import type { ComposerProps } from "#renderer/registries/composer/registry.js";

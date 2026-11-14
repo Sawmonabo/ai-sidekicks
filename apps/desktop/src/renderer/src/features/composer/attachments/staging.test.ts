@@ -1,6 +1,7 @@
 // A staged file goes out under main's token, and the staged set the daemon answers becomes the
 // held draft's files; a file the daemon would not stage is named with its cause, a failed copy can
-// be copied again, and a send waits for a copy still running.
+// be copied again, a pick of several says how many it took, and a send waits for a copy still
+// running.
 
 import { describe, expect, it } from "vitest";
 
@@ -17,7 +18,7 @@ import { DraftStore } from "#renderer/store/drafts.js";
 import type { FilePathRef } from "#shared/preload-api.js";
 import { composerDraftKey } from "../draft-line/draft-key.js";
 import { ComposerHeldDraft } from "../held-draft/holder.js";
-import { ComposerStaging, type StagingItem } from "./staging.js";
+import { ComposerStaging, stagingRefusalWords, type StagingItem } from "./staging.js";
 
 const SESSION_ID = "8f1c2c3e-5c6a-4a19-9f5f-1d2b3c4d5e6f" as SessionId;
 const NOTES: SessionAttachmentSummary = {
@@ -78,7 +79,7 @@ describe("the composer's file staging", () => {
     // Mutation: dropping `trackCopy` lets `whenCopied` settle before the file is staged, and a
     // send reads a draft with no file.
     const { staging, heldDraft, sent, answer } = stagingWithHandAnsweredAdd();
-    staging.stage([{ ref: "token-notes" as FilePathRef, name: "notes.md" }]);
+    staging.stage([{ ref: "token-notes" as FilePathRef, name: "notes.md", sizeBytes: 2048 }]);
     expect(sent).toStrictEqual([
       [{ clientStagingId: "0b1c2d3e-4f50-4617-8829-3a4b5c6d7e81", path: "token-notes" }],
     ]);
@@ -105,8 +106,8 @@ describe("the composer's file staging", () => {
   it("names a refused file with the daemon's cause and copies a failed one again", async () => {
     const { staging, sent, answer } = stagingWithHandAnsweredAdd();
     staging.stage([
-      { ref: "token-shot" as FilePathRef, name: "shot.png" },
-      { ref: "token-big" as FilePathRef, name: "big.iso" },
+      { ref: "token-shot" as FilePathRef, name: "shot.png", sizeBytes: 4096 },
+      { ref: "token-big" as FilePathRef, name: "big.iso", sizeBytes: 8192 },
     ]);
     answer({
       status: "served",
@@ -133,11 +134,16 @@ describe("the composer's file staging", () => {
     });
     await settle();
     const refusals = staging.snapshot().refusals;
-    expect(refusals.map((each) => `${each.name} was not attached · ${each.cause}`)).toStrictEqual([
+    expect(
+      refusals.map(
+        (each) => `${each.name} was not attached · ${stagingRefusalWords(each.cause, "Codex")}`,
+      ),
+    ).toStrictEqual([
       "shot.png was not attached · disk read failed",
-      "big.iso was not attached · Card waiting",
+      "big.iso was not attached · Answer the card above first",
     ]);
     expect(refusals[1]?.retry).toBeUndefined();
+    expect(staging.snapshot().pickCount).toStrictEqual({ attached: 0, offered: 2 });
 
     staging.retry("0b1c2d3e-4f50-4617-8829-3a4b5c6d7e81");
     expect(sent[1]).toStrictEqual([

@@ -1,6 +1,7 @@
 // Which of the lead's runs the composer is addressed at: the newest live run, one that has not
-// settled, else none, and the composer addresses the session. A send goes onto the session's queue either way; the address names the run the composer reads, which
-// "the newest row touched" gets wrong once a run settles.
+// settled, else none, and the composer addresses the session. A send goes onto the session's queue
+// either way; the address names the run the composer reads, which "the newest row touched" gets
+// wrong once a run settles.
 
 import { isLiveRunState, readRunState } from "#renderer/services/daemon/wire/identifiers.js";
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";

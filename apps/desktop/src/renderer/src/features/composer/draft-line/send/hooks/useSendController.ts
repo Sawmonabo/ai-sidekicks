@@ -88,7 +88,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     try {
       // A file dropped just before the press is still copying; the message waits and carries it.
       await heldDraft.whenCopied();
-      const { extras } = heldDraft.snapshot();
+      const extras = heldDraft.extrasFor(body);
       const routed = await router.send(body, target, extras);
       if (routed.status === "intercepted") {
         if (commandExecutor === undefined) {
@@ -127,7 +127,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
           // Clear only where the settlement is still current: the draft store is keyed by
           // session, not visit, so a return trip would erase text typed on the second visit.
           clearSentDraft(identity, draftKey);
-          heldDraft.clear();
+          heldDraft.clearSent(extras);
           settle(identity, undefined);
           return;
         case "refused":

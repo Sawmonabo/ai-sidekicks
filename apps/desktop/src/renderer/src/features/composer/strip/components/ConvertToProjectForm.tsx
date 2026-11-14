@@ -45,9 +45,7 @@ export function ConvertToProjectForm(props: ConvertToProjectFormProps): React.JS
         });
       }}
     >
-      <p className="meridian-composer-convert__line">
-        This chat's files are copied into the repository, and the chat becomes a project session.
-      </p>
+      <p className="meridian-composer-convert__line">Copies chat files to the repo</p>
       <input
         className="meridian-composer-convert__path"
         aria-label="Repository folder"

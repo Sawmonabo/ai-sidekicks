@@ -39,7 +39,7 @@ describe("the composer's speed chip", () => {
     });
   });
 
-  it("grays with no reason while the lead's model is not read, and when one level is offered", () => {
+  it("grays with no reason while the model is unread, and names a one-level model", () => {
     expect(readSpeedChip(undefined, LEVELS, undefined)).toStrictEqual({
       kind: "grayed",
       reason: undefined,

@@ -47,20 +47,18 @@ export function subscribeToCanMoveToBackground(listener: () => void): Unsubscrib
 
 /**
  * Send the background request for the newest running command the provider offers to move, or
- * send nothing and answer `false` where none does: the control does not exist then. The request
- * names the session and the command, nothing else.
+ * send nothing where none does: the control does not exist then. The request names the session
+ * and the command, nothing else.
  */
 export function moveCommandToBackground(
   sessionId: SessionId,
   commands: readonly RunningCommand[],
   send: (request: AgentCommandBackgroundRequest) => void,
-): boolean {
+): void {
   const command = commands.findLast(canMoveToBackground);
-  if (command === undefined) {
-    return false;
+  if (command !== undefined) {
+    send({ sessionId, commandId: command.commandId });
   }
-  send({ sessionId, commandId: command.commandId });
-  return true;
 }
 
 /** Whether the provider offers to move this running command to the background. */

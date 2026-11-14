@@ -1,6 +1,7 @@
 // The browser payloads a drop and a paste arrive as, which jsdom will not construct. Shared so
-// both suites exercise the same shapes: `types` decides whether a drag carries files, and `files`
-// is read for its `length` and passed to `Array.from`, so an array-like with both is enough.
+// both suites exercise the same shapes: `types` decides whether a drag carries files, `files` is
+// read for its `length` and passed to `Array.from`, and `items` gives each file's entry, which
+// says whether it is a folder; array-likes with those members are enough.
 
 /** An array-like standing in for `FileList`. */
 export function fileListOf(files: readonly File[]): FileList {
@@ -11,11 +12,12 @@ export function fileListOf(files: readonly File[]): FileList {
   return list as unknown as FileList;
 }
 
-/** A drag or drop declaring that it carries files. */
+/** A transfer carrying `files`, every one a file rather than a folder. */
 export function fileTransferOf(files: readonly File[]): DataTransfer {
   return {
     types: ["Files"],
     files: fileListOf(files),
+    items: files.map(() => ({ kind: "file", webkitGetAsEntry: () => ({ isDirectory: false }) })),
     dropEffect: "none",
   } as unknown as DataTransfer;
 }

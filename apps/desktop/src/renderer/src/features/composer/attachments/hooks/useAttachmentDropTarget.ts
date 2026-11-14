@@ -1,7 +1,9 @@
 // Drop and paste of files over the whole composer region, both handing staging the files with
-// how they came, since main mints a dropped file's token and writes a pasted picture first. A paste with no file is left alone, since the message input lives inside the
-// region and `preventDefault()` on every paste would break pasting text. Enter and leave are
-// counted because `dragleave` also fires when the pointer crosses an inner child.
+// how they came, since main mints a dropped file's token and writes a pasted picture first. A
+// dropped folder is marked as one, read off its transfer entry while the drop lasts. A paste with
+// no file is left alone, since the message input lives inside the region and `preventDefault()`
+// on every paste would break pasting text. Enter and leave are counted because `dragleave` also
+// fires when the pointer crosses an inner child.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -12,11 +14,17 @@ export interface AttachmentDropOptions {
   /** The composer region, supplied by the host that owns it. */
   readonly region: React.RefObject<HTMLElement | null>;
   /** Where the chosen files go. Called with at least one file, never with none. */
-  readonly onFilesChosen: (files: readonly File[], source: FileSource) => void;
+  readonly onFilesChosen: (files: readonly ChosenFile[], source: FileSource) => void;
 }
 
 /** How files reached the composer. */
 export type FileSource = "drop" | "paste";
+
+/** One file that reached the composer, and whether it is a folder. */
+export interface ChosenFile {
+  readonly file: File;
+  readonly isFolder: boolean;
+}
 
 /**
  * The transfer type a browser declares when a drag carries files. `DataTransfer.files` is
@@ -38,11 +46,19 @@ export function useAttachmentDropTarget(options: AttachmentDropOptions): boolean
   const { region } = options;
 
   const deliver = useCallback(
-    (files: FileList | null | undefined, source: FileSource): boolean => {
-      if (files === null || files === undefined || files.length === 0) {
+    (transfer: DataTransfer | null | undefined, source: FileSource): boolean => {
+      if (transfer === null || transfer === undefined || transfer.files.length === 0) {
         return false;
       }
-      onFilesChosenRef.current(Array.from(files), source);
+      // A transfer lists its file items in the order of its files, and reads them only now.
+      const fileItems = Array.from(transfer.items).filter((item) => item.kind === "file");
+      onFilesChosenRef.current(
+        Array.from(transfer.files, (file, index) => ({
+          file,
+          isFolder: fileItems[index]?.webkitGetAsEntry()?.isDirectory === true,
+        })),
+        source,
+      );
       return true;
     },
     [onFilesChosenRef],
@@ -92,11 +108,11 @@ export function useAttachmentDropTarget(options: AttachmentDropOptions): boolean
       event.preventDefault();
       dragDepthRef.current = 0;
       setIsDraggingFiles(false);
-      deliver(event.dataTransfer?.files, "drop");
+      deliver(event.dataTransfer, "drop");
     };
     const onPaste = (event: ClipboardEvent): void => {
       // The default is left alone unless files traveled, so pasting text still works.
-      if (deliver(event.clipboardData?.files, "paste")) {
+      if (deliver(event.clipboardData, "paste")) {
         event.preventDefault();
       }
     };

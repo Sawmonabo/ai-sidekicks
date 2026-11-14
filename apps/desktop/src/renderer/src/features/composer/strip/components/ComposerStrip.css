@@ -16,10 +16,17 @@
   margin-inline-start: auto;
 }
 
+/* A pressable badge drawn as the strip's own text, with no button chrome. */
 .meridian-composer-strip__badge {
   display: inline-flex;
   gap: var(--meridian-space-1);
   align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
 
 /* A child waiting on an approval is an interactive affordance to go to, so it takes the accent. */

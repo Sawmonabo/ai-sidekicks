@@ -10,7 +10,7 @@ import {
   fileListOf,
   fileTransferOf,
 } from "./useAttachmentDropTarget.test-support.js";
-import { useAttachmentDropTarget } from "./useAttachmentDropTarget.js";
+import { useAttachmentDropTarget, type ChosenFile } from "./useAttachmentDropTarget.js";
 
 /** One file, as a picker or a drop would hand it over. */
 function fileNamed(name: string): File {
@@ -28,7 +28,7 @@ function dispatch(target: HTMLElement, type: string, property: string, value: un
 
 /** The region the binding is bound over, with what it reports rendered onto it. */
 function DropProbe(props: {
-  readonly onFilesChosen: (files: readonly File[]) => void;
+  readonly onFilesChosen: (files: readonly ChosenFile[]) => void;
 }): React.JSX.Element {
   const regionRef = useRef<HTMLElement | null>(null);
   const isDraggingFiles = useAttachmentDropTarget({
@@ -38,8 +38,8 @@ function DropProbe(props: {
   return <section ref={regionRef} data-dragging={String(isDraggingFiles)} />;
 }
 
-function mountProbe(): { readonly region: HTMLElement; readonly delivered: File[][] } {
-  const delivered: File[][] = [];
+function mountProbe(): { readonly region: HTMLElement; readonly delivered: ChosenFile[][] } {
+  const delivered: ChosenFile[][] = [];
   const { container } = render(
     <DropProbe
       onFilesChosen={(files) => {
@@ -59,15 +59,18 @@ describe("the composer's drop and paste binding", () => {
     const { region, delivered } = mountProbe();
     const event = dispatch(region, "drop", "dataTransfer", fileTransferOf([fileNamed("notes.md")]));
     expect(delivered).toHaveLength(1);
-    expect(delivered[0]?.[0]?.name).toBe("notes.md");
+    expect(delivered[0]?.[0]?.file.name).toBe("notes.md");
     expect(event.defaultPrevented).toBe(true);
   });
 
   it("takes a pasted file and consumes the paste", () => {
     const { region, delivered } = mountProbe();
-    const event = dispatch(region, "paste", "clipboardData", {
-      files: fileListOf([fileNamed("capture.png")]),
-    });
+    const event = dispatch(
+      region,
+      "paste",
+      "clipboardData",
+      fileTransferOf([fileNamed("capture.png")]),
+    );
     expect(delivered).toHaveLength(1);
     expect(event.defaultPrevented).toBe(true);
   });

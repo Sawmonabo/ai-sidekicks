@@ -110,9 +110,8 @@ describe("Ctrl+B — move to background", () => {
   it("sends nothing where no running command can be moved", () => {
     const send = vi.fn();
 
-    const moved = moveCommandToBackground(SESSION_ID, [commandRunning("cmd-build", false)], send);
+    moveCommandToBackground(SESSION_ID, [commandRunning("cmd-build", false)], send);
 
-    expect(moved).toBe(false);
     expect(send).not.toHaveBeenCalled();
   });
 });

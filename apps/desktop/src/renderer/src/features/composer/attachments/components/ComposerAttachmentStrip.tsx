@@ -1,23 +1,33 @@
 // The composer's attachment strip: one chip per staged file, its name and size as the daemon found
 // them and its own `×`, a chip for each file still copying whose size slot reads `Copying…` past
-// the short delay, and one line per file the daemon would not stage. Present only while something
-// is staged, copying or refused, so the composer carries no standing tray.
+// the short delay, a pick of several files that was not taken whole saying how many were, and one
+// line per file that was not staged. Present only while something is staged, copying or refused,
+// so the composer carries no standing tray.
 
 import type { SessionAttachmentSummary } from "@ai-sidekicks/contracts/session/draft";
 
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import type { ComposerStaging, ComposerStagingSnapshot } from "../staging.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
+import { useLeadProviderName } from "../../hooks/useLeadProviderName.js";
+import {
+  stagingRefusalWords,
+  type ComposerStaging,
+  type ComposerStagingSnapshot,
+  type StagingRefusalLine,
+} from "../staging.js";
 
 import "./ComposerAttachmentStrip.css";
 
 /** What the strip draws: the held draft's staged files and the staging beside them. */
 export interface ComposerAttachmentStripProps {
+  readonly sessionStore: SessionStore;
   readonly files: readonly SessionAttachmentSummary[];
   readonly staging: ComposerStaging;
   readonly snapshot: ComposerStagingSnapshot;
@@ -35,6 +45,7 @@ export function ComposerAttachmentStrip(
     files.length === 0 &&
     snapshot.pending.length === 0 &&
     snapshot.refusals.length === 0 &&
+    snapshot.pickerRefusal === undefined &&
     !props.isDraggingFiles
   ) {
     return null;
@@ -77,27 +88,56 @@ export function ComposerAttachmentStrip(
           </li>
         ))}
       </ul>
-      {snapshot.refusals.map((refusal) => (
+      {snapshot.pickCount === undefined ? null : (
         <AnnouncedLine
-          key={refusal.clientStagingId}
           element="p"
           className="meridian-composer-attachment__remedy"
-          words={`${refusal.name} was not attached · ${refusal.cause}`}
+          words={`${String(snapshot.pickCount.attached)} of ${String(snapshot.pickCount.offered)} attached`}
           politeness="assertive"
-        >
-          {`${refusal.name} was not attached · ${refusal.cause}`}
-          {refusal.retry === undefined ? null : (
-            <>
-              {" "}
-              <TryAgainButton
-                onPress={() => {
-                  staging.retry(refusal.clientStagingId);
-                }}
-              />
-            </>
-          )}
-        </AnnouncedLine>
+        />
+      )}
+      {snapshot.refusals.map((refusal) => (
+        <StagingRefusal
+          key={refusal.clientStagingId}
+          sessionStore={props.sessionStore}
+          staging={staging}
+          refusal={refusal}
+        />
       ))}
+      {snapshot.pickerRefusal === undefined ? null : (
+        <InlineRefusal code={snapshot.pickerRefusal.code} detail={snapshot.pickerRefusal.detail} />
+      )}
     </section>
+  );
+}
+
+/** One file's `<name> was not attached · <cause>` line, with `Try again` on a failed copy. */
+function StagingRefusal(props: {
+  readonly sessionStore: SessionStore;
+  readonly staging: ComposerStaging;
+  readonly refusal: StagingRefusalLine;
+}): React.JSX.Element {
+  const { refusal, staging } = props;
+  const providerName = useLeadProviderName(props.sessionStore);
+  const line = `${refusal.name} was not attached · ${stagingRefusalWords(refusal.cause, providerName)}`;
+  return (
+    <AnnouncedLine
+      element="p"
+      className="meridian-composer-attachment__remedy"
+      words={line}
+      politeness="assertive"
+    >
+      {line}
+      {refusal.retry === undefined ? null : (
+        <>
+          {" "}
+          <TryAgainButton
+            onPress={() => {
+              staging.retry(refusal.clientStagingId);
+            }}
+          />
+        </>
+      )}
+    </AnnouncedLine>
   );
 }

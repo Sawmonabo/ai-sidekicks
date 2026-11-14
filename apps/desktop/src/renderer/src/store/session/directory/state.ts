@@ -7,7 +7,7 @@ import type {
   SessionListEntry,
 } from "@ai-sidekicks/contracts/session/directory";
 
-import type { Unsubscribe } from "#shared/preload-api.js";
+import type { Feed } from "../../shared-feed.js";
 
 /**
  * What a view knows about the service's sessions at one moment. A served list carries
@@ -42,9 +42,9 @@ export type SessionDirectoryFrame =
 
 /**
  * Open the service's session list feed, handing each frame on, until the handle releases it. The
- * composition supplies it, held stable per window, so `store/` stays below `services/`.
+ * composition holds it stable per window.
  */
-export type SessionDirectoryFeed = (onFrame: (frame: SessionDirectoryFrame) => void) => Unsubscribe;
+export type SessionDirectoryFeed = Feed<SessionDirectoryFrame>;
 
 /**
  * The session `sessionId` as the service's list names it, or `undefined` while the list is not

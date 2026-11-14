@@ -1,9 +1,10 @@
 // The composer host: the region, and the palette's replace question, the attachment strip, the
 // draft line with Send, the command list, the toolbar with its chips and Attach, and the strip
-// under it, mounted in that order. It owns the provider-command enumeration holder and hands it to the command list, whose
-// enumeration is read live and never cached; it follows and saves the session's held draft, whose
-// words land in the line and whose skill picks and staged files ride with them; it contributes the
-// lead's run controls to the palette; and it answers Ctrl+B for its session.
+// under it, mounted in that order. It owns the provider-command enumeration holder and hands it to
+// the command list, whose enumeration is read live and never cached; it follows and saves the
+// session's held draft, whose words land in the line and whose skill picks and staged files ride
+// with them; it contributes the lead's run controls to the palette; and it answers Ctrl+B for its
+// session.
 
 import { useMemo, useRef } from "react";
 
@@ -92,6 +93,7 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
       <WorkflowStartPrefillQuestion prompt={prefillPrompt} />
       {staging === undefined ? null : (
         <ComposerAttachmentStrip
+          sessionStore={props.sessionStore}
           files={reading.files}
           staging={staging.staging}
           snapshot={staging.snapshot}
@@ -156,6 +158,12 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
             sessionId={wireSessionId}
             openDetails={() => {
               readComposerCommands(props.route).invoke("paneLayout.openInspector");
+            }}
+            openSidekicks={() => {
+              props.frameStore.paneOpenRequests.request({
+                sessionId: props.sessionStore.sessionId,
+                address: { kind: "agents" },
+              });
             }}
           />
         </>

@@ -6,7 +6,7 @@
 import { Popover } from "@base-ui/react/popover";
 import { useState } from "react";
 
-import type { ProjectId } from "@ai-sidekicks/contracts/project";
+import type { ProjectListEntry } from "@ai-sidekicks/contracts/project";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   RemovedWorktreeId,
@@ -35,7 +35,8 @@ import { readWorktreeRow, type WorktreeRow } from "../worktrees.js";
 export interface WorktreeSwitcherProps {
   readonly bridge: PlatformBridge;
   readonly sessionId: SessionId;
-  readonly projectId: ProjectId;
+  /** The session's project, whose own checkout the root row moves to before the list is read. */
+  readonly project: ProjectListEntry;
   /** The name the chip reads: the tree the session works in now. */
   readonly currentName: string;
   /** The session name a busy tree's reason names, by session id. */
@@ -55,7 +56,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
   const [refusal, setRefusal] = useState<ExtendedRefusal | undefined>(undefined);
   const { reading, readAgain } = useWorktreeStatus(
     props.bridge,
-    props.projectId,
+    props.project.projectId,
     props.sessionId,
     isOpen,
   );
@@ -97,10 +98,13 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
       readAgain();
     });
   };
+  // The move a pick asked for waits only until the session's listed branch is its target's: the
+  // run boundary applied it.
+  const pending = pendingTarget?.branchName === props.currentName ? undefined : pendingTarget;
   const chipWords =
-    pendingTarget === undefined
+    pending === undefined
       ? props.currentName
-      : `${props.currentName} → ${pendingTarget.name} when this run ends`;
+      : `${props.currentName} → ${pending.name} when this run ends`;
   return (
     <Popover.Root
       open={isOpen}
@@ -118,17 +122,19 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
         {chipWords}
       </Popover.Trigger>
       <OverlayPopoverPopup className="meridian-composer-worktrees" sideOffset={4}>
-        {reading.kind === "loaded" ? (
-          <button
-            type="button"
-            className="meridian-composer-worktrees__row"
-            onClick={() => {
-              moveTo(reading.status.repoRoot.path, undefined);
-            }}
-          >
-            {reading.status.repoRoot.branchName}
-          </button>
-        ) : null}
+        {/* Drawn at once from the project; the read names the checkout's branch once it lands. */}
+        <button
+          type="button"
+          className="meridian-composer-worktrees__row"
+          onClick={() => {
+            moveTo(
+              reading.kind === "loaded" ? reading.status.repoRoot.path : props.project.folderPath,
+              undefined,
+            );
+          }}
+        >
+          {reading.kind === "loaded" ? reading.status.repoRoot.branchName : props.project.name}
+        </button>
         {isMakingNew && reading.kind === "loaded" && reading.status.newWorktree !== undefined ? (
           <NewWorktreeForm
             bridge={props.bridge}
@@ -156,11 +162,11 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
         )}
         <div role="separator" className="meridian-composer-worktrees__rule" />
         {reading.kind === "loading" ? (
-          <LoadingNotice title="Loading…" placement="block" clock={clock} />
+          <LoadingNotice title="Loading worktrees…" placement="block" clock={clock} />
         ) : null}
         {reading.kind === "failed" ? (
           <p className="meridian-composer-worktrees__failed">
-            Couldn't load the worktrees <TryAgainButton onPress={readAgain} />
+            Couldn't load worktrees <TryAgainButton onPress={readAgain} />
           </p>
         ) : null}
         {reading.kind === "loaded" ? (
@@ -253,12 +259,12 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
                       )}
                       {row.occupyingSessionIds.length === 0 ? null : (
                         <span className="meridian-composer-worktrees__faint">
-                          {occupancyWords(row.occupyingSessionIds.length)}
+                          {occupancyCount(row)}
                         </span>
                       )}
                     </span>
                   </button>
-                  {pendingTarget?.path === row.path ? (
+                  {pending?.path === row.path ? (
                     <span className="meridian-composer-worktrees__faint">
                       switching when this run ends{" "}
                       <button
@@ -333,13 +339,21 @@ type RowStandIn =
 /** The confirm's risk line from what the row shows, or `undefined` for a clean, unused tree. */
 function removalRisks(row: WorktreeRow): string | undefined {
   const risks = [
-    row.uncommitted,
-    row.unpushed,
-    row.occupyingSessionIds.length === 0
-      ? undefined
-      : occupancyWords(row.occupyingSessionIds.length),
+    countWords(row.uncommittedFileCount, "uncommitted file", "uncommitted files"),
+    countWords(row.unpushedCommitCount, "unpushed commit", "unpushed commits"),
+    occupancyCount(row),
   ].filter((risk) => risk !== undefined);
   return risks.length === 0 ? undefined : `${risks.join(" · ")}.`;
+}
+
+/** The occupancy phrase, `1 session attached` or `2 sessions attached`, absent with none. */
+function occupancyCount(row: WorktreeRow): string | undefined {
+  return countWords(row.occupyingSessionIds.length, "session attached", "sessions attached");
+}
+
+/** `<count> <noun>` in the noun's number, absent at zero. */
+function countWords(count: number, singular: string, plural: string): string | undefined {
+  return count === 0 ? undefined : `${String(count)} ${count === 1 ? singular : plural}`;
 }
 
 /** The tree `sessionId` works in now: the one it occupies, else the project's own checkout. */
@@ -354,8 +368,4 @@ function currentPathIn(status: WorktreeStatusReadResponse, sessionId: SessionId)
 function isSourceDirty(status: WorktreeStatusReadResponse, sessionId: SessionId): boolean {
   const current = status.worktrees.find((record) => record.occupyingSessionIds.includes(sessionId));
   return current !== undefined && current.uncommittedFileCount > 0;
-}
-
-function occupancyWords(count: number): string {
-  return count === 1 ? "1 session attached" : `${String(count)} sessions attached`;
 }

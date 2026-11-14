@@ -1,12 +1,11 @@
-// Every provider's section as the background service lists it, one store per app. The feed opens
-// with the first reader and closes with the last; its list replaces what is held, and each section
-// it delivers after that replaces the one provider it names. A section that arrives before the list
-// moves nothing, since the list restates it. A lost feed is the store's failed state, never an
-// empty list, which would read as no providers.
+// Every provider's section as the background service lists it, one store per app. Its list
+// replaces what is held, and each section it delivers after that replaces the one provider it
+// names. A section that arrives before the list moves nothing, since the list restates it. A lost
+// feed is the store's failed state, never an empty list, which would read as no providers.
 
 import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 
-import type { Unsubscribe } from "#shared/preload-api.js";
+import { SharedFeed, type Feed, type FeedFold } from "../shared-feed.js";
 
 /**
  * What the app knows of the providers at one moment: `reading` until the list arrives, the
@@ -26,62 +25,18 @@ export type ProviderSectionsFrame =
   | { readonly kind: "section"; readonly section: ProviderSection }
   | { readonly kind: "lost" };
 
-/**
- * Open the service's provider feed, handing each frame on, until the handle releases it. The
- * composition supplies it, so `store/` stays below `services/`.
- */
-export type ProviderSectionsFeed = (onFrame: (frame: ProviderSectionsFrame) => void) => Unsubscribe;
+/** Open the service's provider feed, handing each frame on, until the handle releases it. */
+export type ProviderSectionsFeed = Feed<ProviderSectionsFrame>;
 
 /** The providers' sections read from one feed, shared by every reader while any reads. */
-export class ProviderSectionsStore {
-  readonly #feed: ProviderSectionsFeed;
-  readonly #readers = new Set<() => void>();
-  #state: ProviderSectionsState = READING;
-  #release: Unsubscribe | undefined;
-
+export class ProviderSectionsStore extends SharedFeed<
+  ProviderSectionsFrame,
+  ProviderSectionsState
+> {
   public constructor(feed: ProviderSectionsFeed) {
-    this.#feed = feed;
-  }
-
-  /** What readers see now: `reading` until the feed delivers its list. */
-  public get state(): ProviderSectionsState {
-    return this.#state;
-  }
-
-  /** Read the feed until the handle releases it, waking `onChange` each time the state moves. */
-  public watch(onChange: () => void): Unsubscribe {
-    this.#readers.add(onChange);
-    if (this.#readers.size === 1) {
-      this.#release = this.#feed((frame) => {
-        this.#apply(frame);
-      });
-    }
-    return () => {
-      this.#readers.delete(onChange);
-      if (this.#readers.size === 0) {
-        const release = this.#release;
-        this.#release = undefined;
-        // A later reader opens the feed afresh, so it reads no list from before.
-        this.#state = READING;
-        release?.();
-      }
-    };
-  }
-
-  #apply(frame: ProviderSectionsFrame): void {
-    const next = stateAfter(this.#state, frame);
-    if (next === this.#state) {
-      return;
-    }
-    this.#state = next;
-    for (const onChange of [...this.#readers]) {
-      onChange();
-    }
+    super(feed, PROVIDER_SECTIONS_FOLD);
   }
 }
-
-/** What is held before the feed delivers its list. */
-const READING: ProviderSectionsState = { status: "reading" };
 
 /** The state after one frame. */
 function stateAfter(
@@ -99,6 +54,12 @@ function stateAfter(
         : state;
   }
 }
+
+/** Reading until the list arrives, then each frame as `stateAfter` moves it. */
+const PROVIDER_SECTIONS_FOLD: FeedFold<ProviderSectionsFrame, ProviderSectionsState> = {
+  initial: { status: "reading" },
+  open: () => stateAfter,
+};
 
 /** The sections with `section` where its provider stood, or at the end for a new provider. */
 function withSection(

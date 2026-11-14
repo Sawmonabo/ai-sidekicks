@@ -40,7 +40,8 @@ describe("the worktree popover's rows", () => {
       ahead: "↑2",
       behind: undefined,
       uncommitted: "3 uncommitted",
-      unpushed: "2 unpushed",
+      uncommittedFileCount: 3,
+      unpushedCommitCount: 2,
       runningSessionId: undefined,
       removableWorktreeId: WORKTREE_ID,
     });

@@ -1,34 +1,24 @@
-// Who owns the Agents pane's child-run links read, and for how long; `../reads.ts` owns which
-// method answers it and what makes it ask again. A console shows one session, so the models hold at
-// most one child-run links read (built on the first lease, disposed with the last); the agent list
-// is the session's shared one, which the columns read themselves. Acquiring a child-run links read
-// does not start it: render may be abandoned or re-run, so the pane starts it from a mount effect,
-// where a cleanup exists. `start()` is idempotent. The clock comes from the bridge, so the
-// fixture's frozen clock drives every debounce.
+// Who owns the Agents pane's leases on the session's child-run links read, and for how long;
+// `../reads.ts` owns which method answers it and what makes it ask again. The read itself is the
+// session's shared one (`store/session/child-run-links.ts`), which the composer's badge leases
+// too; the agent list is the session's shared one, which the columns read themselves. Acquiring a
+// lease does not start the read: render may be abandoned or re-run, so the pane starts it from a
+// mount effect, where a cleanup exists. `start()` is idempotent. The clock comes from the bridge,
+// so the fixture's frozen clock drives every debounce.
 
 import type { Clock } from "#renderer/lib/clock.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type SessionSubject } from "#renderer/store/session/subject.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
+import { createChildRunLinks } from "#renderer/services/daemon/child-run-links.js";
 import {
-  createChildRunLinks,
-  type ChildRunLinksRead,
-} from "#renderer/services/daemon/child-run-links.js";
+  sessionChildRunLinks,
+  type ChildRunLinksLease,
+} from "#renderer/store/session/child-run-links.js";
 import type { AgentsPaneCalls } from "../reads.js";
 
 /**
- * One holder's grant of the session's child-link read, handed over unstarted. Releasing is
- * something the acquiring effect does for itself alone.
- */
-export interface ChildRunLinksLease {
-  readonly read: ChildRunLinksRead;
-  /** Give this grant back. Idempotent. */
-  release: () => void;
-}
-
-/**
- * One session's Agents pane reads. A class because it owns the child-run links cache's lifetime and
- * teardown.
+ * One session's Agents pane reads. A class because it owns its leases' lifetime and teardown.
  */
 export class AgentsPaneModels {
   /**
@@ -40,8 +30,8 @@ export class AgentsPaneModels {
   readonly #bridge: PlatformBridge;
   readonly #clock: Clock;
   readonly #calls: AgentsPaneCalls;
-  #childRunLinks: ChildRunLinksRead | undefined;
-  #outstandingChildRunLinksLeaseCount = 0;
+  // The leases this set handed out and that were not given back.
+  readonly #leases = new Set<ChildRunLinksLease>();
   #disposed = false;
 
   public constructor(
@@ -62,66 +52,44 @@ export class AgentsPaneModels {
     return this.subject.sessionStore.sessionId;
   }
 
-  /** Whether a child-run links read is held. */
+  /** Whether this set holds a lease on the child-run links read. */
   public get holdsChildRunLinks(): boolean {
-    return this.#childRunLinks !== undefined;
+    return this.#leases.size > 0;
   }
 
-  /** Child-run links leases handed out and not given back. */
+  /** Child-run links leases this set handed out and that were not given back. */
   public get outstandingChildRunLinksLeaseCount(): number {
-    return this.#outstandingChildRunLinksLeaseCount;
+    return this.#leases.size;
   }
 
   /**
-   * Take a lease on the session's child-link read, building it on the first ask. The read is
-   * not started here; the taker starts it from a mount effect.
+   * Take a lease on the session's shared child-link read, building it on the first ask. The read
+   * is not started here; the taker starts it from a mount effect.
    */
   public acquireChildRunLinks(): ChildRunLinksLease {
-    const childRunLinks =
-      this.#childRunLinks ??
-      createChildRunLinks(
-        this.#bridge,
-        this.subject.sessionStore,
-        this.#clock,
-        this.#calls.readChildRunLinks,
-      );
-    this.#childRunLinks = childRunLinks;
-    this.#outstandingChildRunLinksLeaseCount += 1;
-    return this.#leaseOn(childRunLinks);
+    const { sessionStore } = this.subject;
+    const shared = sessionChildRunLinks.acquire(sessionStore, () =>
+      createChildRunLinks(this.#bridge, sessionStore, this.#clock, this.#calls.readChildRunLinks),
+    );
+    const lease: ChildRunLinksLease = {
+      read: shared.read,
+      release: () => {
+        this.#leases.delete(lease);
+        shared.release();
+      },
+    };
+    this.#leases.add(lease);
+    return lease;
   }
 
-  /** Release every read. Terminal. */
+  /** Give back every lease this set holds. Terminal. */
   public dispose(): void {
     if (this.#disposed) {
       return;
     }
     this.#disposed = true;
-    this.#releaseChildRunLinks();
-  }
-
-  /** One lease over the held read, counted down once however often it is released. */
-  #leaseOn(childRunLinks: ChildRunLinksRead): ChildRunLinksLease {
-    let isReleased = false;
-    return {
-      read: childRunLinks,
-      release: () => {
-        if (isReleased) {
-          return;
-        }
-        isReleased = true;
-        this.#outstandingChildRunLinksLeaseCount -= 1;
-        if (this.#outstandingChildRunLinksLeaseCount <= 0) {
-          this.#releaseChildRunLinks();
-        }
-      },
-    };
-  }
-
-  /** Dispose whatever child-run links read is held, at most once. Safe with none. */
-  #releaseChildRunLinks(): void {
-    const held = this.#childRunLinks;
-    this.#childRunLinks = undefined;
-    this.#outstandingChildRunLinksLeaseCount = 0;
-    held?.dispose();
+    for (const lease of [...this.#leases]) {
+      lease.release();
+    }
   }
 }

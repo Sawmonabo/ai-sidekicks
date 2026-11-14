@@ -214,7 +214,7 @@ describe("useSendController — a line its command does not act on", () => {
 
 describe("useSendController — a sent message and the held draft", () => {
   it("queues the message with the held draft's extras and saves the cleared draft", async () => {
-    // Mutation: dropping `heldDraft.clear()` after a send leaves the pick on the daemon's draft
+    // Mutation: dropping `heldDraft.clearSent()` after a send leaves the pick on the daemon's draft
     // (no save, or one still naming it); dropping the extras from the send loses the pick.
     const pick = { name: "codemod", folderPath: "/repo/.ai-sidekicks/skills/codemod" };
     const saved: { readonly draft: SessionDraft; readonly expectedRevision: number }[] = [];
@@ -242,8 +242,8 @@ describe("useSendController — a sent message and the held draft", () => {
       },
     );
     // Typed, then the pause saves it, so the daemon holds the words and the pick before the send.
-    driven.heldDraft.addSkillPick(pick);
-    driven.draftStore.write(driven.draftKey, "Run the codemod");
+    driven.heldDraft.addSkillPick(pick, "/codemod");
+    driven.draftStore.write(driven.draftKey, "/codemod Run it");
     await act(async () => {
       clock.advance(COMPOSER_DRAFT_SAVE_PAUSE_MILLISECONDS);
       await crossMacrotaskBoundary();
@@ -259,13 +259,13 @@ describe("useSendController — a sent message and the held draft", () => {
         params: {
           sessionId: SESSION_ID,
           clientIdempotencyKey: expect.any(String),
-          content: "Run the codemod",
+          content: "/codemod Run it",
           skills: [pick],
         },
       },
     ]);
     expect(saved).toStrictEqual([
-      { draft: { text: "Run the codemod", extras: { skills: [pick] } }, expectedRevision: 0 },
+      { draft: { text: "/codemod Run it", extras: { skills: [pick] } }, expectedRevision: 0 },
       { draft: { text: "", extras: {} }, expectedRevision: 1 },
     ]);
   });

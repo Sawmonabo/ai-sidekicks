@@ -1,12 +1,13 @@
 // The popover listing what the console can do, what the run's provider enumerated and the skills
 // that provider runs, in that order, each provider and skill row carrying its origin mark. Every
 // provider entry is one the provider enumerated for the addressed binding; nothing here composes
-// or completes a provider command. A skill row is picked into the message by the list's owner. `CommandList.tsx` owns when the line asks for the
-// popover; the popover draws only while a row matches what is typed, because a word no row matches
-// goes to the provider as typed.
+// or completes a provider command. A skill row is picked into the message by the list's owner.
+// `CommandList.tsx` owns when the line asks for the popover; the popover draws only while a row
+// matches what is typed, because a word no row matches goes to the provider as typed.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import type { SkillListState } from "#renderer/store/skills/list.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import type { CommandOutcome } from "../../types.js";
@@ -24,6 +25,7 @@ import {
   type SkillCommandEntry,
 } from "../entries.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
+import type { LineEnterChoice } from "../hooks/useCommandListTrigger.js";
 import { type ProviderCommandReadState } from "../provider/read.js";
 import { EnumerationState } from "./EnumerationState.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
@@ -39,9 +41,6 @@ const PROVIDER_ENTRY_NOT_RUNNABLE =
   "Provider commands are listed for reference. This app " +
   "starts no turn from one, so there is nothing here to run.";
 
-/** What the list says under its rows when the skill list could not be read. */
-const SKILLS_UNREAD = "Couldn't load your skills";
-
 /**
  * The popover, mounted only while the line opens it so the active-entry cursor dies with the list.
  * The catalog is read on every render, not memoized: the command registry fills after a child
@@ -51,7 +50,7 @@ const SKILLS_UNREAD = "Couldn't load your skills";
  */
 export function CommandListPopover(props: CommandListPopoverProps): React.JSX.Element | null {
   const { prefix, readCommands, enumeration, skills, addressed, stepIntoListToken } = props;
-  const { onDismiss, onPickSkill } = props;
+  const { onDismiss, onPickSkill, onReadSkillsAgain, lineEnterChoiceRef } = props;
   const listId = useId();
   const listRef = useRef<HTMLUListElement | null>(null);
   const scrollerScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>();
@@ -128,6 +127,27 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
     [executor, onPickSkill],
   );
 
+  // Enter in the line chooses the active console or skill row. A provider row is listed for
+  // reference, and a console row already typed whole is Send's to run, so on either the line's
+  // Enter goes on to Send.
+  const activeEntry = boundedIndex < 0 ? undefined : entries[boundedIndex];
+  useEffect(() => {
+    lineEnterChoiceRef.current = () => {
+      if (
+        activeEntry === undefined ||
+        activeEntry.source === "provider" ||
+        (activeEntry.source === "console" && activeEntry.commandId === prefix)
+      ) {
+        return false;
+      }
+      activateEntry(activeEntry);
+      return true;
+    };
+    return () => {
+      lineEnterChoiceRef.current = undefined;
+    };
+  }, [lineEnterChoiceRef, activeEntry, activateEntry, prefix]);
+
   const onListKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLUListElement>) => {
       const movedIndex = cursorMove(event.key, actableIndexes, boundedIndex);
@@ -141,7 +161,6 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
       // Space is prevented because a listbox scrolls and Space would move it mid-press.
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        const activeEntry = boundedIndex < 0 ? undefined : entries[boundedIndex];
         if (activeEntry !== undefined) {
           activateEntry(activeEntry);
         }
@@ -152,7 +171,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
         onDismiss();
       }
     },
-    [activateEntry, actableIndexes, boundedIndex, entries, onDismiss],
+    [activateEntry, activeEntry, actableIndexes, boundedIndex, onDismiss],
   );
 
   if (entries.length === 0) {
@@ -199,7 +218,9 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
       )}
       <EnumerationState enumeration={enumeration} addressedGroup={addressedGroup} />
       {skills.status === "failed" ? (
-        <div className="meridian-command-discovery__state">{SKILLS_UNREAD}</div>
+        <div className="meridian-command-discovery__state">
+          Couldn't load skills <TryAgainButton onPress={onReadSkillsAgain} />
+        </div>
       ) : null}
       {actionOutcome?.status === "refused" ? (
         <InlineRefusal code={actionOutcome.refusal.code} detail={actionOutcome.refusal.detail} />
@@ -214,10 +235,14 @@ interface CommandListPopoverProps {
   readonly enumeration: ReturnType<typeof useProviderCommandEnumeration>;
   /** The service's skills, of which the list offers those the addressed provider runs. */
   readonly skills: SkillListState;
+  /** Reads the skills again after a failed read. */
+  readonly onReadSkillsAgain: () => void;
   /** Picks a skill row into the message. */
   readonly onPickSkill: (entry: SkillCommandEntry) => void;
   readonly addressed: AddressedProviderBinding;
   readonly stepIntoListToken: number;
+  /** Where the popover answers Enter pressed in the line. */
+  readonly lineEnterChoiceRef: LineEnterChoice;
   readonly onDismiss: () => void;
 }
 
