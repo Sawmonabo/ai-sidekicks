@@ -140,8 +140,7 @@ export const CONCURRENT_STREAMING_LEAD: ScenarioAgent = findScenarioMember(
 // Two entry builders only these lanes need: no other script meters a cost or raises an approval,
 // so they move to `fixtures/data/` on a second use.
 
-// `usage.cost_update` has no strict payload variant in `packages/contracts`, so nothing but
-// this builder checks the row's members.
+// A cost reading prices one token event, the one the lane's request recorded.
 function costUpdateEntry(
   sessionId: string,
   input: { readonly atMs: number; readonly runId: string; readonly costUsdMicros: number },
@@ -154,6 +153,12 @@ function costUpdateEntry(
       runId: input.runId,
       costUsdMicros: input.costUsdMicros,
       costSource: "providerReported",
+      pricedEvents: [
+        {
+          eventId: `token-${input.runId}-${String(input.atMs)}`,
+          costUsdMicros: input.costUsdMicros,
+        },
+      ],
     },
   };
 }
@@ -185,7 +190,7 @@ function approvalEntry(
     ...(input.actorId === undefined ? {} : { actorId: input.actorId }),
     payload: {
       sessionId,
-      runId: RUN_IMPLEMENTER,
+      holder: { kind: "run", runId: RUN_IMPLEMENTER },
       approvalRequestId: APPROVAL_REQUEST_ID,
       // The wire's closed-set category for a write to the working tree.
       category: "fileWrite",
@@ -502,7 +507,6 @@ export function composeConcurrentStreamingLanes(
       atMs: at(2_225),
       kind: "usage.rateLimit.updated",
       payload: {
-        sessionId: input.sessionId,
         provider: "claude",
         providerAccountId: PROVIDER_ACCOUNT_ID,
         credentialGeneration: 1,

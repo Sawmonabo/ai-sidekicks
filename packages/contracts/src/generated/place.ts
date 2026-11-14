@@ -3,8 +3,6 @@
 
 // Where work runs on a computer: Windows itself, or a WSL 2 distribution by name.
 
-import { type CompiledSchemaCheck, ucs2length } from "../schema-check.js";
-
 /** The longest WSL distribution name accepted. */
 export const WSL_DISTRO_NAME_MAX_LEN = 256 as const;
 
@@ -54,31 +52,9 @@ export interface DistributionRefusalDetails {
   distro: DistroName;
 }
 
-// prettier-ignore
-const func1 = ucs2length;
-// prettier-ignore
-const pattern5 = new RegExp("^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$", "u");
-/** Checks that a value is a {@link DistroName}. */
-// prettier-ignore
-export const validateDistroName: CompiledSchemaCheck<DistroName> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is DistroName {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateDistroName.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(typeof data === "string"){if(func1(data) > 256){validateDistroName.errors = [{instancePath,schemaPath:"#/maxLength",keyword:"maxLength",params:{limit: 256}}];return false;}else {if(!pattern5.test(data)){validateDistroName.errors = [{instancePath,schemaPath:"#/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$"}}];return false;}}}else {validateDistroName.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "string"}}];return false;}}validateDistroName.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateDistroName.evaluated = {"dynamicProps":false,"dynamicItems":false} as any;
-/** Checks that a value is a {@link WslPlace}. */
-// prettier-ignore
-export const validateWslPlace: CompiledSchemaCheck<WslPlace> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is WslPlace {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateWslPlace.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.distro === undefined) && (missing0 = "distro")){validateWslPlace.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "distro")){validateWslPlace.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.distro !== undefined){if(!(validateDistroName.call(this, data.distro, {instancePath:instancePath+"/distro",parentData:data,parentDataProperty:"distro",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateDistroName.errors : vErrors.concat(validateDistroName.errors);errors = vErrors.length;}}}}}else {validateWslPlace.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateWslPlace.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateWslPlace.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-// prettier-ignore
-const schema369: any = {"anyOf":[{"description":"Windows itself.","type":"string","enum":["windows"]},{"$ref":"#/$defs/WslPlace","description":"A WSL distribution."}],"description":"Where work runs: `\"windows\"`, or `{distro}` for a WSL 2 distribution. A provider's `Command`\nrow may also name a WSL 1 distribution, the one place no work runs."};
-/** Checks that a value is a {@link Place}. */
-// prettier-ignore
-export const validatePlace: CompiledSchemaCheck<Place> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is Place {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validatePlace.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}const _errs0: any = errors;let valid0: any = false;const _errs1: any = errors;if(typeof data !== "string"){const err0: any = {instancePath,schemaPath:"#/anyOf/0/type",keyword:"type",params:{type: "string"}};if(vErrors === null){vErrors = [err0];}else {vErrors.push(err0);}errors++;}if(!(data === "windows")){const err1: any = {instancePath,schemaPath:"#/anyOf/0/enum",keyword:"enum",params:{allowedValues: schema369.anyOf[0].enum}};if(vErrors === null){vErrors = [err1];}else {vErrors.push(err1);}errors++;}var _valid0: any = _errs1 === errors;valid0 = valid0 || _valid0;const _errs3: any = errors;if(!(validateWslPlace.call(this, data, {instancePath,parentData,parentDataProperty,rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateWslPlace.errors : vErrors.concat(validateWslPlace.errors);errors = vErrors.length;}var _valid0: any = _errs3 === errors;valid0 = valid0 || _valid0;if(_valid0){var props0: any = true;}if(!valid0){const err2: any = {instancePath,schemaPath:"#/anyOf",keyword:"anyOf",params:{}};if(vErrors === null){vErrors = [err2];}else {vErrors.push(err2);}errors++;validatePlace.errors = vErrors;return false;}else {errors = _errs0;if(vErrors !== null){if(_errs0){vErrors.length = _errs0;}else {vErrors = null;}}}validatePlace.errors = vErrors;evaluated0.props = props0;return errors === 0;};
-// prettier-ignore
-validatePlace.evaluated = {"dynamicProps":true,"dynamicItems":false} as any;
-// prettier-ignore
-const pattern33 = new RegExp("^[^\\x00]*$", "u");
-/** Checks that a value is a {@link PlacedPath}. */
-// prettier-ignore
-export const validatePlacedPath: CompiledSchemaCheck<PlacedPath> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is PlacedPath {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validatePlacedPath.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.path === undefined) && (missing0 = "path")){validatePlacedPath.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!((key0 === "path") || (key0 === "place"))){validatePlacedPath.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.path !== undefined){let data0: any = data.path;const _errs2: any = errors;if(errors === _errs2){if(typeof data0 === "string"){if(func1(data0) > 4096){validatePlacedPath.errors = [{instancePath:instancePath+"/path",schemaPath:"#/properties/path/maxLength",keyword:"maxLength",params:{limit: 4096}}];return false;}else {if(func1(data0) < 1){validatePlacedPath.errors = [{instancePath:instancePath+"/path",schemaPath:"#/properties/path/minLength",keyword:"minLength",params:{limit: 1}}];return false;}else {if(!pattern33.test(data0)){validatePlacedPath.errors = [{instancePath:instancePath+"/path",schemaPath:"#/properties/path/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]*$"}}];return false;}}}}else {validatePlacedPath.errors = [{instancePath:instancePath+"/path",schemaPath:"#/properties/path/type",keyword:"type",params:{type: "string"}}];return false;}}var valid0: any = _errs2 === errors;}else {var valid0: any = true;}if(valid0){if(data.place !== undefined){const _errs4: any = errors;if(!(validateWslPlace.call(this, data.place, {instancePath:instancePath+"/place",parentData:data,parentDataProperty:"place",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateWslPlace.errors : vErrors.concat(validateWslPlace.errors);errors = vErrors.length;}var valid0: any = _errs4 === errors;}else {var valid0: any = true;}}}}}else {validatePlacedPath.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validatePlacedPath.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validatePlacedPath.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
+export {
+  validateDistroName,
+  validatePlace,
+  validatePlacedPath,
+  validateWslPlace,
+} from "./checks/place.js";

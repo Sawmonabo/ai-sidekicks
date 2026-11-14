@@ -1,9 +1,9 @@
 // Writes a module's checks: Ajv 2020 compiles each checked definition to standalone code at
 // generation time, so the shipped checks hold no `eval` and compile nothing at run time. Every
-// definition compiles to one function, written once in its owner's file and imported wherever
-// another check calls it. Ajv's ES-module output still loads its run-time helpers with `require`
-// and leaves its functions untyped; this rewrites both, statement by statement, into TypeScript
-// the package can ship.
+// definition compiles to one function, written once in its owner's checks file and imported
+// wherever another check calls it. Ajv's ES-module output still loads its run-time helpers with
+// `require` and leaves its functions untyped; this rewrites both, statement by statement, into
+// TypeScript the package can ship.
 import { Ajv2020, Name, _, type Code, type KeywordCxt, type SchemaObject } from "ajv/dist/2020.js";
 import standaloneCode from "ajv/dist/standalone/index.js";
 
@@ -21,6 +21,18 @@ const REPEATS_ITEM_KEY = "repeatsItemKey";
 
 /** The `schema-check` values the generated code may name, imported where a check names one. */
 const RUN_TIME_VALUES = ["SCHEMA_FORMATS", WIRE_BYTE_LENGTH, REPEATS_ITEM_KEY] as const;
+
+/**
+ * The folder, under the generated one, of every module's checks file. A module's checks sit apart
+ * from its types and constants, so a bundle that reads only a module's constants loads none of
+ * its checks, and one that loads a check on first use carries it in that load alone.
+ */
+export const CHECKS_FOLDER = "checks";
+
+/** The path, under the generated folder, of `modulePath`'s checks file. */
+export function checksModulePath(modulePath: string): string {
+  return `${CHECKS_FOLDER}/${modulePath}`;
+}
 
 /** The generated check's name for definition `name`. */
 export function checkName(name: string): string {
@@ -314,21 +326,22 @@ function withoutUnreadConstants(statements: readonly string[]): string[] {
 }
 
 /**
- * Generates the checks of `module`'s definitions that `compiler` compiled, from
+ * Generates the checks file of `module`'s definitions that `compiler` compiled, from
  * {@link createCheckCompiler}: one exported function per definition, named by
- * {@link checkName}, calling another module's definition through its owner's export. Adds the
- * imports the code needs to `imports` and returns the module's code.
+ * {@link checkName}, calling another module's definition through its owner's checks file. Adds
+ * the imports the code needs to `imports`, the checks file's, and returns the code with the names
+ * of the checks it exports.
  */
 export function generateChecks(
   module: ContractModule,
   compiler: CheckCompiler,
   imports: ModuleImports,
-): string {
+): { readonly code: string; readonly checkNames: readonly string[] } {
   const compiledNames = Object.keys(definitionsOf(module)).filter(
     (name) => compiler.ajv.schemas[definitionKey(module.path, name)]?.validate !== undefined,
   );
   if (compiledNames.length === 0) {
-    return "";
+    return { code: "", checkNames: [] };
   }
   const definitionOf = (functionName: string): CompiledDefinition => {
     const definition = compiler.definitionOf.get(functionName);
@@ -358,6 +371,15 @@ export function generateChecks(
   // type predicate. A constant, not a declaration: a declared function's own properties have no
   // type an isolated declaration can state.
   imports.addFromHandWrittenModule(SCHEMA_CHECK_MODULE, "CompiledSchemaCheck", "type");
+  // A check's `evaluated` record is set in its constant, never by a statement of its own: a
+  // bundler keeps every top-level assignment, which would keep every check a page never calls.
+  const evaluatedOf = new Map(
+    own.flatMap((statement) => {
+      const evaluated = AJV_EVALUATED.exec(statement);
+      return evaluated === null ? [] : [[evaluated[1]!, evaluated[2]!] as const];
+    }),
+  );
+  const checkNames: string[] = [];
   const typed = own.flatMap((statement): string[] => {
     const runtime = AJV_RUNTIME.exec(statement);
     if (runtime !== null) {
@@ -377,11 +399,8 @@ export function generateChecks(
     if (schemaConstant !== null) {
       return [`const ${schemaConstant[1]!}: any = ${statement.slice(schemaConstant[0].length)}`];
     }
-    // A check reads the `props` or `items` of another's `evaluated`, which one object
-    // literal's inferred type may lack.
-    const evaluated = AJV_EVALUATED.exec(statement);
-    if (evaluated !== null) {
-      return [`${evaluated[1]!}.evaluated = ${evaluated[2]!} as any;`];
+    if (AJV_EVALUATED.test(statement)) {
+      return [];
     }
     const head = AJV_FUNCTION_HEAD.exec(statement);
     if (head === null) {
@@ -389,12 +408,19 @@ export function generateChecks(
     }
     const functionName = head[1]!;
     const checkedType = definitionOf(functionName).name;
+    imports.addFromModule(module.path, checkedType, "type");
+    checkNames.push(checkName(checkedType));
+    const evaluated = evaluatedOf.get(functionName);
     const typedHead =
       `/** Checks that a value is a {@link ${checkedType}}. */\n` +
-      `export const ${functionName}: CompiledSchemaCheck<${checkedType}> = function (this: any, ` +
-      `data: any, ` +
+      `export const ${functionName}: CompiledSchemaCheck<${checkedType}> = ` +
+      (evaluated === undefined ? "" : "/* @__PURE__ */ Object.assign(") +
+      `function (this: any, data: any, ` +
       `{instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {})` +
       `: data is ${checkedType} {`;
+    // A check reads the `props` or `items` of another's `evaluated`, which one object
+    // literal's inferred type may lack.
+    const tail = evaluated === undefined ? "" : `, { evaluated: ${evaluated} as any })`;
     const body = replaceOutsideStrings(statement.slice(head[0].length), (part) =>
       part
         .replace(/\b(let|var|const) (\w+) = /gu, "$1 $2: any = ")
@@ -405,7 +431,7 @@ export function generateChecks(
         // comparison of two constants.
         .replace(/\((\d+(?:\.\d+)?) === 0 \|\| \(/gu, "(($1 as number) === 0 || ("),
     );
-    return [`${typedHead}${body};`];
+    return [`${typedHead}${body}${tail};`];
   });
 
   // Each function takes its definition's check name, here and in every call to it.
@@ -427,7 +453,7 @@ export function generateChecks(
   for (const word of identifierCounts(named.join("\n")).keys()) {
     const owner = ownerOf.get(word);
     if (owner !== undefined && owner !== module.path) {
-      imports.addFromModule(owner, word, "value");
+      imports.addFromModule(checksModulePath(owner), word, "value");
     }
   }
   for (const value of RUN_TIME_VALUES) {
@@ -438,11 +464,12 @@ export function generateChecks(
   // A recursive reference holds its function in a wrapper made at load, so the wrappers come
   // after every function's constant they name.
   const isWrapper = (statement: string): boolean => /^const wrapper\d+ = /u.test(statement);
-  return [...named.filter((statement) => !isWrapper(statement)), ...named.filter(isWrapper)]
+  const code = [...named.filter((statement) => !isWrapper(statement)), ...named.filter(isWrapper)]
     .map((statement) =>
       statement.startsWith("/**")
         ? statement.replace("*/\n", "*/\n// prettier-ignore\n")
         : `// prettier-ignore\n${statement}`,
     )
     .join("\n");
+  return { code, checkNames: checkNames.sort() };
 }

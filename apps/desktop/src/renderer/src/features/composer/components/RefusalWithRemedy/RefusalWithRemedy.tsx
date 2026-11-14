@@ -5,7 +5,7 @@
 // code with no remedy renders inline with the daemon's words and no action, and the console invents
 // no next move.
 
-import { refusalRemedyFor, remedyWordsOf } from "#renderer/lib/refusal/remedies.js";
+import { refusalRemedyFor } from "#renderer/lib/refusal/remedies.js";
 import { type ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { RefusalCard } from "#renderer/components/Refusal/RefusalCard.js";
@@ -21,7 +21,7 @@ export interface RefusalWithRemedyProps {
 export function RefusalWithRemedy(props: RefusalWithRemedyProps): React.JSX.Element {
   const { refusal } = props;
   const remedy = refusalRemedyFor(refusal.code);
-  const remedyWords = remedy === undefined ? undefined : remedyWordsOf(remedy);
+  const remedyWords = remedy?.nextMove;
   const action = remedy === undefined ? undefined : <RefusalRemedyContent remedy={remedy} />;
   if (remedy?.rendering === "card" || remedy?.rendering === "banner") {
     return (

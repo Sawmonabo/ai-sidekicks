@@ -3,10 +3,12 @@
 
 // The push contract: a machine hands the control plane one sealed notice for one of the person's devices, sealed to the device's own push key.
 
-import { type CompiledSchemaCheck, type SchemaCheck, ucs2length } from "../schema-check.js";
-import { type WireInstant, validateWireInstant } from "./internal/wire-scalars.js";
-import { type EmptyPayload, validateEmptyPayload } from "./method-descriptor.js";
-import { type DeviceId, validateDeviceId } from "./trust-statement.js";
+import type { SchemaCheck } from "../schema-check.js";
+import { validateEmptyPayload } from "./checks/method-descriptor.js";
+import { validateDevicePushSendRequest } from "./checks/push.js";
+import type { WireInstant } from "./internal/wire-scalars.js";
+import type { EmptyPayload } from "./method-descriptor.js";
+import type { DeviceId } from "./trust-statement.js";
 
 /** The most sealed bytes one push carries: every platform's 4 KB payload limit. */
 export const PUSH_SEALED_NOTICE_MAX_BYTES = 4096 as const;
@@ -51,31 +53,11 @@ export interface DevicePushSendRequest {
   expiresAt: WireInstant;
 }
 
-// prettier-ignore
-const schema1031: any = {"description":"How soon the push service delivers a notice: `Waiting on you` and a workflow's Notify step go\nat `high`; `Finished` and `Failed` at `normal`.","type":"string","enum":["high","normal"]};
-/** Checks that a value is a {@link PushUrgency}. */
-// prettier-ignore
-export const validatePushUrgency: CompiledSchemaCheck<PushUrgency> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is PushUrgency {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validatePushUrgency.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(typeof data !== "string"){validatePushUrgency.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "string"}}];return false;}if(!((data === "high") || (data === "normal"))){validatePushUrgency.errors = [{instancePath,schemaPath:"#/enum",keyword:"enum",params:{allowedValues: schema1031.enum}}];return false;}validatePushUrgency.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validatePushUrgency.evaluated = {"dynamicProps":false,"dynamicItems":false} as any;
-// prettier-ignore
-const pattern710 = new RegExp("^[A-Za-z0-9_-]{1,32}$", "u");
-/** Checks that a value is a {@link PushCollapseId}. */
-// prettier-ignore
-export const validatePushCollapseId: CompiledSchemaCheck<PushCollapseId> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is PushCollapseId {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validatePushCollapseId.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(typeof data === "string"){if(!pattern710.test(data)){validatePushCollapseId.errors = [{instancePath,schemaPath:"#/pattern",keyword:"pattern",params:{pattern: "^[A-Za-z0-9_-]{1,32}$"}}];return false;}}else {validatePushCollapseId.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "string"}}];return false;}}validatePushCollapseId.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validatePushCollapseId.evaluated = {"dynamicProps":false,"dynamicItems":false} as any;
-// prettier-ignore
-const func1 = ucs2length;
-// prettier-ignore
-const pattern708 = new RegExp("==$", "u");
-// prettier-ignore
-const pattern157 = new RegExp("^(?:[0-9a-zA-Z+/]{4})*(?:[0-9a-zA-Z+/]{2}==|[0-9a-zA-Z+/]{3}=)?$", "u");
-/** Checks that a value is a {@link DevicePushSendRequest}. */
-// prettier-ignore
-export const validateDevicePushSendRequest: CompiledSchemaCheck<DevicePushSendRequest> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is DevicePushSendRequest {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateDevicePushSendRequest.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((((((data.deviceId === undefined) && (missing0 = "deviceId")) || ((data.sealed === undefined) && (missing0 = "sealed"))) || ((data.collapseId === undefined) && (missing0 = "collapseId"))) || ((data.urgency === undefined) && (missing0 = "urgency"))) || ((data.expiresAt === undefined) && (missing0 = "expiresAt"))){validateDevicePushSendRequest.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(((((key0 === "deviceId") || (key0 === "sealed")) || (key0 === "collapseId")) || (key0 === "urgency")) || (key0 === "expiresAt"))){validateDevicePushSendRequest.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.deviceId !== undefined){const _errs2: any = errors;if(!(validateDeviceId.call(this, data.deviceId, {instancePath:instancePath+"/deviceId",parentData:data,parentDataProperty:"deviceId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateDeviceId.errors : vErrors.concat(validateDeviceId.errors);errors = vErrors.length;}var valid0: any = _errs2 === errors;}else {var valid0: any = true;}if(valid0){if(data.sealed !== undefined){let data1: any = data.sealed;const _errs3: any = errors;const _errs5: any = errors;let valid1: any = false;const _errs6: any = errors;if(errors === _errs6){if(typeof data1 === "string"){if(func1(data1) > 5460){const err0: any = {instancePath:instancePath+"/sealed",schemaPath:"#/properties/sealed/anyOf/0/maxLength",keyword:"maxLength",params:{limit: 5460}};if(vErrors === null){vErrors = [err0];}else {vErrors.push(err0);}errors++;}}else {const err1: any = {instancePath:instancePath+"/sealed",schemaPath:"#/properties/sealed/anyOf/0/type",keyword:"type",params:{type: "string"}};if(vErrors === null){vErrors = [err1];}else {vErrors.push(err1);}errors++;}}var _valid0: any = _errs6 === errors;valid1 = valid1 || _valid0;const _errs8: any = errors;if(errors === _errs8){if(typeof data1 === "string"){if(!pattern708.test(data1)){const err2: any = {instancePath:instancePath+"/sealed",schemaPath:"#/properties/sealed/anyOf/1/pattern",keyword:"pattern",params:{pattern: "==$"}};if(vErrors === null){vErrors = [err2];}else {vErrors.push(err2);}errors++;}}else {const err3: any = {instancePath:instancePath+"/sealed",schemaPath:"#/properties/sealed/anyOf/1/type",keyword:"type",params:{type: "string"}};if(vErrors === null){vErrors = [err3];}else {vErrors.push(err3);}errors++;}}var _valid0: any = _errs8 === errors;valid1 = valid1 || _valid0;if(!valid1){const err4: any = {instancePath:instancePath+"/sealed",schemaPath:"#/properties/sealed/anyOf",keyword:"anyOf",params:{}};if(vErrors === null){vErrors = [err4];}else {vErrors.push(err4);}errors++;validateDevicePushSendRequest.errors = vErrors;return false;}else {errors = _errs5;if(vErrors !== null){if(_errs5){vErrors.length = _errs5;}else {vErrors = null;}}}if(errors === _errs3){if(typeof data1 === "string"){if(func1(data1) > 5464){validateDevicePushSendRequest.errors = [{instancePath:instancePath+"/sealed",schemaPath:"#/properties/sealed/maxLength",keyword:"maxLength",params:{limit: 5464}}];return false;}else {if(func1(data1) < 1){validateDevicePushSendRequest.errors = [{instancePath:instancePath+"/sealed",schemaPath:"#/properties/sealed/minLength",keyword:"minLength",params:{limit: 1}}];return false;}else {if(!pattern157.test(data1)){validateDevicePushSendRequest.errors = [{instancePath:instancePath+"/sealed",schemaPath:"#/properties/sealed/pattern",keyword:"pattern",params:{pattern: "^(?:[0-9a-zA-Z+/]{4})*(?:[0-9a-zA-Z+/]{2}==|[0-9a-zA-Z+/]{3}=)?$"}}];return false;}}}}else {validateDevicePushSendRequest.errors = [{instancePath:instancePath+"/sealed",schemaPath:"#/properties/sealed/type",keyword:"type",params:{type: "string"}}];return false;}}var valid0: any = _errs3 === errors;}else {var valid0: any = true;}if(valid0){if(data.collapseId !== undefined){const _errs10: any = errors;if(!(validatePushCollapseId.call(this, data.collapseId, {instancePath:instancePath+"/collapseId",parentData:data,parentDataProperty:"collapseId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validatePushCollapseId.errors : vErrors.concat(validatePushCollapseId.errors);errors = vErrors.length;}var valid0: any = _errs10 === errors;}else {var valid0: any = true;}if(valid0){if(data.urgency !== undefined){const _errs11: any = errors;if(!(validatePushUrgency.call(this, data.urgency, {instancePath:instancePath+"/urgency",parentData:data,parentDataProperty:"urgency",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validatePushUrgency.errors : vErrors.concat(validatePushUrgency.errors);errors = vErrors.length;}var valid0: any = _errs11 === errors;}else {var valid0: any = true;}if(valid0){if(data.expiresAt !== undefined){const _errs12: any = errors;if(!(validateWireInstant.call(this, data.expiresAt, {instancePath:instancePath+"/expiresAt",parentData:data,parentDataProperty:"expiresAt",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateWireInstant.errors : vErrors.concat(validateWireInstant.errors);errors = vErrors.length;}var valid0: any = _errs12 === errors;}else {var valid0: any = true;}}}}}}}}else {validateDevicePushSendRequest.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateDevicePushSendRequest.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateDevicePushSendRequest.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
+export {
+  validateDevicePushSendRequest,
+  validatePushCollapseId,
+  validatePushUrgency,
+} from "./checks/push.js";
 
 /** The methods of {@link PUSH_METHOD_DESCRIPTORS}, each with its checks. */
 export interface PushMethodDescriptors {
@@ -88,8 +70,8 @@ export interface PushMethodDescriptors {
   };
 }
 /** The push procedure the control plane serves. */
-export const PUSH_METHOD_DESCRIPTORS: PushMethodDescriptors = Object.freeze({
-  "device.push.send": Object.freeze({
+export const PUSH_METHOD_DESCRIPTORS: PushMethodDescriptors = /* @__PURE__ */ Object.freeze({
+  "device.push.send": /* @__PURE__ */ Object.freeze({
     method: "device.push.send",
     procedureType: "mutation",
     mutating: true,

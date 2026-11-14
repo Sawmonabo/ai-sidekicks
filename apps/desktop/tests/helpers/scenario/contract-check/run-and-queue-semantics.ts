@@ -1,134 +1,31 @@
-// The rules the shipped schemas do not carry, each read off the module that owns it; where no
-// module owns one, it is written here once. The `queue_item.*` payloads, `state` included, are
-// held by their strict variants, so no leg here repeats them.
+// The run rules the generated checks do not carry, each read off the module that owns it. Every
+// registered type's payload, the queue rows' `state` and the run rows' among them, is held by the
+// strict session event check (`beat/shape.ts`), so no leg here repeats it.
 //
-// - The run state machine's transition table: a self-transition passes every schema layer.
-// - The payload of each run kind that reaches a subscriber only through `session.subscribe`,
-//   keyed by the census's `run.` kinds less those `session/event/stream-kinds.ts` narrows, so a
-//   newly excluded kind is a compile error here.
-// - The projection `projection.fixture.ts` delivers to a `run.subscribeState`
-//   subscriber, called rather than copied. Queue kinds stay off it, because its queue arm needs
-//   `position` and `createdAt`, which only the queue rows' own read supplies.
+// - The run state machine's transition table: a self-transition passes every check.
+// - The projection `projection.fixture.ts` delivers to a `run.subscribeState` subscriber, called
+//   rather than copied.
 
-import {
-  RunProviderInitializedPayloadSchema,
-  RunTurnStartedPayloadSchema,
-  RunWorkerShutdownPayloadSchema,
-} from "@ai-sidekicks/contracts/run/events";
-import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run/queued";
-import {
-  RunRecoveryResolvedPayloadSchema,
-  RunRecoveryStepsAddedPayloadSchema,
-} from "@ai-sidekicks/contracts/run/control";
-import {
-  RunRefusalChoiceRequestedPayloadSchema,
-  RunRefusalChoiceResolvedPayloadSchema,
-  RunUsageCreditsChoiceRequestedPayloadSchema,
-  RunUsageCreditsChoiceResolvedPayloadSchema,
-} from "@ai-sidekicks/contracts/run/provider-choice";
-import {
-  RunStepLimitReachedPayloadSchema,
-  RunTokenLimitReachedPayloadSchema,
-} from "@ai-sidekicks/contracts/session/controls/events";
-import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import type { ZodType } from "zod";
-
-import { describeSchemaIssue } from "./defect.js";
 import { projectRunStateStreamDelivery } from "#renderer/services/run-streams/projection.fixture.js";
 import type { ScenarioBeat } from "#fixtures/scenario.js";
 import { RUN_STATE_EVENT_STREAM } from "#shared/daemon/streams.js";
-import {
-  runStateStreamArmFor,
-  type RunStateStreamKind,
-} from "#renderer/services/daemon/session/event/stream-kinds.js";
+import { runStateStreamArmFor } from "#renderer/services/daemon/session/event/stream-kinds.js";
 
 /**
  * What one beat gets wrong about the run rule its kind is under, or `undefined`.
  *
- * Three legs in the order the defects compound: a self-transition, an unprojected run payload,
- * and the stream projection. Each answers `undefined` for a kind it does not claim. The last two
- * partition the `run.` root by construction, since one claims exactly the kinds
- * `runStateStreamArmFor` names and the other exactly the rest.
+ * Two legs in the order the defects compound: a self-transition, then the stream projection. Each
+ * answers `undefined` for a kind it does not claim.
  */
 export function describeRunAndQueueSemanticsDefect(beat: ScenarioBeat): string | undefined {
-  return (
-    describeSelfTransitionDefect(beat) ??
-    describeUnprojectedRunPayloadDefect(beat) ??
-    describeRunStreamProjectionDefect(beat)
-  );
-}
-
-/**
- * One kind of the census's run-lifecycle root.
- *
- * `Extract`ed from the census rather than listed, so a kind added under `run.` has to be decided
- * here.
- */
-type RunLifecycleKind = Extract<SessionEventType, `run.${string}`>;
-
-/**
- * The run kinds no narrowed stream projects, taken as a type.
- *
- * The routing table read backwards, which makes the payload table below total: a kind that leaves
- * `run.subscribeState` fails to compile until its payload is written, and one that joins fails
- * until its row is removed.
- */
-type UnprojectedRunLifecycleKind = Exclude<RunLifecycleKind, RunStateStreamKind>;
-
-/**
- * The registered payload of each run kind no stream projects, each the contract's own schema.
- *
- * `RunStateChangeEventSchema` is the `run.subscribeState` wire projection rather than the durable
- * payload, so these kinds are checked here against the payload their own variant registers.
- */
-const REGISTERED_UNPROJECTED_RUN_PAYLOADS: Readonly<Record<UnprojectedRunLifecycleKind, ZodType>> =
-  Object.freeze({
-    "run.queued": RunQueuedPayloadSchema,
-    "run.provider_initialized": RunProviderInitializedPayloadSchema,
-    "run.turn_started": RunTurnStartedPayloadSchema,
-    "run.worker_shutdown": RunWorkerShutdownPayloadSchema,
-    "run.step_limit_reached": RunStepLimitReachedPayloadSchema,
-    "run.token_limit_reached": RunTokenLimitReachedPayloadSchema,
-    "run.recovery_steps_added": RunRecoveryStepsAddedPayloadSchema,
-    "run.recovery_resolved": RunRecoveryResolvedPayloadSchema,
-    "run.refusal_choice_requested": RunRefusalChoiceRequestedPayloadSchema,
-    "run.refusal_choice_resolved": RunRefusalChoiceResolvedPayloadSchema,
-    "run.usage_credits_choice_requested": RunUsageCreditsChoiceRequestedPayloadSchema,
-    "run.usage_credits_choice_resolved": RunUsageCreditsChoiceResolvedPayloadSchema,
-  } satisfies Record<UnprojectedRunLifecycleKind, ZodType>);
-
-/**
- * A run beat whose registered payload rejects it, or `undefined` for every other kind.
- *
- * The half of the run root the projection leg cannot reach. A `run.queued` beat with only
- * `{sessionId, runId}` composes into a carrier the envelope accepts and takes the strict layer's
- * discriminator escape, and the run-lifecycle projector folds it into a run entity with no
- * progression counter and no state. Nothing else refuses it.
- */
-function describeUnprojectedRunPayloadDefect(beat: ScenarioBeat): string | undefined {
-  const registeredPayload = Object.hasOwn(REGISTERED_UNPROJECTED_RUN_PAYLOADS, beat.event.kind)
-    ? REGISTERED_UNPROJECTED_RUN_PAYLOADS[beat.event.kind as UnprojectedRunLifecycleKind]
-    : undefined;
-  if (registeredPayload === undefined) {
-    return undefined;
-  }
-  const parsed = registeredPayload.safeParse(beat.event.payload ?? {});
-  if (parsed.success) {
-    return undefined;
-  }
-  return (
-    `the registered "${beat.event.kind}" payload rejects this beat, and no narrowed stream ` +
-    "projects this kind — so nothing downstream would refuse it either, and a view would " +
-    `read a run built out of half a payload: ` +
-    `${parsed.error.issues.map(describeSchemaIssue).join("; ")}.`
-  );
+  return describeSelfTransitionDefect(beat) ?? describeRunStreamProjectionDefect(beat);
 }
 
 /**
  * A beat claiming a run moved from a state to itself, or `undefined` when it claims no such thing.
  *
  * The run state machine has no row whose `From` and `To` are the same state, so no daemon emits
- * one, yet it reads as real: both values are registered and no payload variant catches it. A view
+ * one, yet it reads as real: both values are registered and no payload check catches it. A view
  * built against it learns to render a transition that never happens. Keyed on the two payload
  * members rather than the kind, so it holds for any run row a later taxonomy registers.
  */
@@ -154,13 +51,13 @@ function describeSelfTransitionDefect(beat: ScenarioBeat): string | undefined {
  * A run-lifecycle beat the stream that carries it cannot project, or `undefined` when the
  * projection builds a delivery out of it.
  *
- * `projection.fixture.ts` owns the complete registered shape: it parses the candidate
- * through the schema for the arm (`RunStateChangeEventSchema` or `RunRolledBackEventSchema`) and
- * cross-checks the kind against the announced state and the envelope's session against the
+ * `projection.fixture.ts` owns the complete registered shape: it checks the candidate with the
+ * generated check for the arm (`validateRunStateChangeEvent` or `validateAgentRunRolledBackEvent`)
+ * and cross-checks the kind against the announced state and the envelope's session against the
  * payload's. Calling it rather than copying a fragment keeps a scenario from passing here and
  * failing one stream later; its refusal is reported in its own words.
  *
- * Scoped by `runStateStreamArmFor` rather than a kind list: `run.queued` (delivered by
+ * Scoped by `runStateStreamArmFor` rather than a kind list: `agent.run.queued` (delivered by
  * `session.subscribe`) and the forward rows have no registered projection.
  */
 function describeRunStreamProjectionDefect(beat: ScenarioBeat): string | undefined {

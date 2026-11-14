@@ -5,35 +5,38 @@
 
 import type { SchemaCheck } from "../../schema-check.js";
 import {
-  type ArtifactIngestCompleteRequest,
-  type ArtifactIngestCompleteResponse,
-  type ArtifactIngestStartRequest,
-  type ArtifactIngestStartResponse,
-  type ArtifactIngestWriteRequest,
-  type ArtifactIngestWriteResponse,
   validateArtifactIngestCompleteRequest,
   validateArtifactIngestCompleteResponse,
   validateArtifactIngestStartRequest,
   validateArtifactIngestStartResponse,
   validateArtifactIngestWriteRequest,
   validateArtifactIngestWriteResponse,
-} from "./ingest.js";
+} from "../checks/artifacts/ingest.js";
 import {
-  type ArtifactListRequest,
-  type ArtifactListResponse,
-  type ArtifactReadRequest,
-  type ArtifactReadResponse,
   validateArtifactListRequest,
   validateArtifactListResponse,
   validateArtifactReadRequest,
   validateArtifactReadResponse,
-} from "./operations.js";
+} from "../checks/artifacts/operations.js";
 import {
-  type ArtifactPublishRequest,
-  type ArtifactPublishResponse,
   validateArtifactPublishRequest,
   validateArtifactPublishResponse,
-} from "./publication.js";
+} from "../checks/artifacts/publication.js";
+import type {
+  ArtifactIngestCompleteRequest,
+  ArtifactIngestCompleteResponse,
+  ArtifactIngestStartRequest,
+  ArtifactIngestStartResponse,
+  ArtifactIngestWriteRequest,
+  ArtifactIngestWriteResponse,
+} from "./ingest.js";
+import type {
+  ArtifactListRequest,
+  ArtifactListResponse,
+  ArtifactReadRequest,
+  ArtifactReadResponse,
+} from "./operations.js";
+import type { ArtifactPublishRequest, ArtifactPublishResponse } from "./publication.js";
 
 /** The methods of {@link ARTIFACT_METHOD_DESCRIPTORS}, each with its checks. */
 export interface ArtifactMethodDescriptors {
@@ -81,47 +84,49 @@ export interface ArtifactMethodDescriptors {
   };
 }
 /** The `artifact.*` methods, each with its checks. */
-export const ARTIFACT_METHOD_DESCRIPTORS: ArtifactMethodDescriptors = Object.freeze({
-  "artifact.list": Object.freeze({
-    method: "artifact.list",
-    procedureType: "query",
-    mutating: false,
-    requestCheck: validateArtifactListRequest,
-    responseCheck: validateArtifactListResponse,
-  }),
-  "artifact.read": Object.freeze({
-    method: "artifact.read",
-    procedureType: "query",
-    mutating: false,
-    requestCheck: validateArtifactReadRequest,
-    responseCheck: validateArtifactReadResponse,
-  }),
-  "artifact.ingest.start": Object.freeze({
-    method: "artifact.ingest.start",
-    procedureType: "mutation",
-    mutating: true,
-    requestCheck: validateArtifactIngestStartRequest,
-    responseCheck: validateArtifactIngestStartResponse,
-  }),
-  "artifact.ingest.write": Object.freeze({
-    method: "artifact.ingest.write",
-    procedureType: "mutation",
-    mutating: true,
-    requestCheck: validateArtifactIngestWriteRequest,
-    responseCheck: validateArtifactIngestWriteResponse,
-  }),
-  "artifact.ingest.complete": Object.freeze({
-    method: "artifact.ingest.complete",
-    procedureType: "mutation",
-    mutating: true,
-    requestCheck: validateArtifactIngestCompleteRequest,
-    responseCheck: validateArtifactIngestCompleteResponse,
-  }),
-  "artifact.publish": Object.freeze({
-    method: "artifact.publish",
-    procedureType: "mutation",
-    mutating: true,
-    requestCheck: validateArtifactPublishRequest,
-    responseCheck: validateArtifactPublishResponse,
-  }),
-});
+export const ARTIFACT_METHOD_DESCRIPTORS: ArtifactMethodDescriptors = /* @__PURE__ */ Object.freeze(
+  {
+    "artifact.list": /* @__PURE__ */ Object.freeze({
+      method: "artifact.list",
+      procedureType: "query",
+      mutating: false,
+      requestCheck: validateArtifactListRequest,
+      responseCheck: validateArtifactListResponse,
+    }),
+    "artifact.read": /* @__PURE__ */ Object.freeze({
+      method: "artifact.read",
+      procedureType: "query",
+      mutating: false,
+      requestCheck: validateArtifactReadRequest,
+      responseCheck: validateArtifactReadResponse,
+    }),
+    "artifact.ingest.start": /* @__PURE__ */ Object.freeze({
+      method: "artifact.ingest.start",
+      procedureType: "mutation",
+      mutating: true,
+      requestCheck: validateArtifactIngestStartRequest,
+      responseCheck: validateArtifactIngestStartResponse,
+    }),
+    "artifact.ingest.write": /* @__PURE__ */ Object.freeze({
+      method: "artifact.ingest.write",
+      procedureType: "mutation",
+      mutating: true,
+      requestCheck: validateArtifactIngestWriteRequest,
+      responseCheck: validateArtifactIngestWriteResponse,
+    }),
+    "artifact.ingest.complete": /* @__PURE__ */ Object.freeze({
+      method: "artifact.ingest.complete",
+      procedureType: "mutation",
+      mutating: true,
+      requestCheck: validateArtifactIngestCompleteRequest,
+      responseCheck: validateArtifactIngestCompleteResponse,
+    }),
+    "artifact.publish": /* @__PURE__ */ Object.freeze({
+      method: "artifact.publish",
+      procedureType: "mutation",
+      mutating: true,
+      requestCheck: validateArtifactPublishRequest,
+      responseCheck: validateArtifactPublishResponse,
+    }),
+  },
+);

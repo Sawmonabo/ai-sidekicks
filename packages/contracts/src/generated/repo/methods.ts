@@ -4,19 +4,9 @@
 // Every repo mount, machine folder, workspace, project, clone, git read and worktree method.
 
 import type { SchemaCheck } from "../../schema-check.js";
+import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
+import { validateEmptyPayload } from "../checks/method-descriptor.js";
 import {
-  type SubscribeAcknowledgmentResponse,
-  validateSubscribeAcknowledgmentResponse,
-} from "../jsonrpc/streaming.js";
-import { type EmptyPayload, validateEmptyPayload } from "../method-descriptor.js";
-import {
-  type ProjectBranchPatternUpdateRequest,
-  type ProjectEditResponse,
-  type ProjectEnvironmentUpdateRequest,
-  type ProjectList,
-  type ProjectRenameRequest,
-  type ProjectSetupUpdateRequest,
-  type ProjectStateChangeRequest,
   validateProjectBranchPatternUpdateRequest,
   validateProjectEditResponse,
   validateProjectEnvironmentUpdateRequest,
@@ -24,67 +14,16 @@ import {
   validateProjectRenameRequest,
   validateProjectSetupUpdateRequest,
   validateProjectStateChangeRequest,
-} from "../project.js";
+} from "../checks/project.js";
 import {
-  type WorktreeCopyProgress,
-  type WorktreeCopySubscribeRequest,
-  validateWorktreeCopyProgress,
-  validateWorktreeCopySubscribeRequest,
-} from "../worktree/copy-progress.js";
-import {
-  type WorkspaceExecutionRootPrepareRequest,
-  type WorkspaceExecutionRootPrepareResponse,
-  type WorktreeRetireRequest,
-  type WorktreeRetireResponse,
-  type WorktreeStatusReadRequest,
-  type WorktreeStatusReadResponse,
-  validateWorkspaceExecutionRootPrepareRequest,
-  validateWorkspaceExecutionRootPrepareResponse,
-  validateWorktreeRetireRequest,
-  validateWorktreeRetireResponse,
-  validateWorktreeStatusReadRequest,
-  validateWorktreeStatusReadResponse,
-} from "../worktree/lifecycle.js";
-import {
-  type RemovedWorktreeRequest,
-  type WorktreeRemovedListRequest,
-  type WorktreeRemovedListResponse,
-  type WorktreeRestoreResponse,
-  validateRemovedWorktreeRequest,
-  validateWorktreeRemovedListRequest,
-  validateWorktreeRemovedListResponse,
-  validateWorktreeRestoreResponse,
-} from "../worktree/removed.js";
-import {
-  type WorktreeSetupRequest,
-  type WorktreeSetupStatus,
-  validateWorktreeSetupRequest,
-  validateWorktreeSetupStatus,
-} from "../worktree/setup.js";
-import {
-  type ProjectCloneAnswerRequest,
-  type ProjectCloneFolderReadResponse,
-  type ProjectCloneRequest,
-  type ProjectCloneStartRequest,
-  type ProjectCloneStartResponse,
-  type ProjectCloneStatus,
   validateProjectCloneAnswerRequest,
   validateProjectCloneFolderReadResponse,
   validateProjectCloneRequest,
   validateProjectCloneStartRequest,
   validateProjectCloneStartResponse,
   validateProjectCloneStatus,
-} from "./clone.js";
+} from "../checks/repo/clone.js";
 import {
-  type MachineFolderListRequest,
-  type MachineFolderListResponse,
-  type RepoMountAttachRequest,
-  type RepoMountAttachResponse,
-  type RepoMountDetachResponse,
-  type RepoMountListResponse,
-  type RepoMountReadResponse,
-  type RepoMountReattachResponse,
-  type RepoMountRequest,
   validateMachineFolderListRequest,
   validateMachineFolderListResponse,
   validateRepoMountAttachRequest,
@@ -94,30 +33,105 @@ import {
   validateRepoMountReadResponse,
   validateRepoMountReattachResponse,
   validateRepoMountRequest,
-} from "./folders.js";
+} from "../checks/repo/folders.js";
 import {
-  type ProjectBranchListRequest,
-  type ProjectBranchListResponse,
-  type ProjectFileReadRequest,
-  type ProjectFileReadResponse,
-  type SessionWorkingFolderSubscribeRequest,
-  type WorkingTreeChange,
   validateProjectBranchListRequest,
   validateProjectBranchListResponse,
   validateProjectFileReadRequest,
   validateProjectFileReadResponse,
   validateSessionWorkingFolderSubscribeRequest,
   validateWorkingTreeChange,
-} from "./git-reads.js";
+} from "../checks/repo/git-reads.js";
 import {
-  type WorkspaceBindRequest,
-  type WorkspaceBindResponse,
-  type WorkspaceListRequest,
-  type WorkspaceListResponse,
   validateWorkspaceBindRequest,
   validateWorkspaceBindResponse,
   validateWorkspaceListRequest,
   validateWorkspaceListResponse,
+} from "../checks/repo/workspace.js";
+import {
+  validateWorktreeCopyProgress,
+  validateWorktreeCopySubscribeRequest,
+} from "../checks/worktree/copy-progress.js";
+import {
+  validateWorkspaceExecutionRootPrepareRequest,
+  validateWorkspaceExecutionRootPrepareResponse,
+  validateWorktreeRetireRequest,
+  validateWorktreeRetireResponse,
+  validateWorktreeStatusReadRequest,
+  validateWorktreeStatusReadResponse,
+} from "../checks/worktree/lifecycle.js";
+import {
+  validateRemovedWorktreeRequest,
+  validateWorktreeRemovedListRequest,
+  validateWorktreeRemovedListResponse,
+  validateWorktreeRestoreResponse,
+} from "../checks/worktree/removed.js";
+import {
+  validateWorktreeSetupRequest,
+  validateWorktreeSetupStatus,
+} from "../checks/worktree/setup.js";
+import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
+import type { EmptyPayload } from "../method-descriptor.js";
+import type {
+  ProjectBranchPatternUpdateRequest,
+  ProjectEditResponse,
+  ProjectEnvironmentUpdateRequest,
+  ProjectList,
+  ProjectRenameRequest,
+  ProjectSetupUpdateRequest,
+  ProjectStateChangeRequest,
+} from "../project.js";
+import type {
+  WorktreeCopyProgress,
+  WorktreeCopySubscribeRequest,
+} from "../worktree/copy-progress.js";
+import type {
+  WorkspaceExecutionRootPrepareRequest,
+  WorkspaceExecutionRootPrepareResponse,
+  WorktreeRetireRequest,
+  WorktreeRetireResponse,
+  WorktreeStatusReadRequest,
+  WorktreeStatusReadResponse,
+} from "../worktree/lifecycle.js";
+import type {
+  RemovedWorktreeRequest,
+  WorktreeRemovedListRequest,
+  WorktreeRemovedListResponse,
+  WorktreeRestoreResponse,
+} from "../worktree/removed.js";
+import type { WorktreeSetupRequest, WorktreeSetupStatus } from "../worktree/setup.js";
+import type {
+  ProjectCloneAnswerRequest,
+  ProjectCloneFolderReadResponse,
+  ProjectCloneRequest,
+  ProjectCloneStartRequest,
+  ProjectCloneStartResponse,
+  ProjectCloneStatus,
+} from "./clone.js";
+import type {
+  MachineFolderListRequest,
+  MachineFolderListResponse,
+  RepoMountAttachRequest,
+  RepoMountAttachResponse,
+  RepoMountDetachResponse,
+  RepoMountListResponse,
+  RepoMountReadResponse,
+  RepoMountReattachResponse,
+  RepoMountRequest,
+} from "./folders.js";
+import type {
+  ProjectBranchListRequest,
+  ProjectBranchListResponse,
+  ProjectFileReadRequest,
+  ProjectFileReadResponse,
+  SessionWorkingFolderSubscribeRequest,
+  WorkingTreeChange,
+} from "./git-reads.js";
+import type {
+  WorkspaceBindRequest,
+  WorkspaceBindResponse,
+  WorkspaceListRequest,
+  WorkspaceListResponse,
 } from "./workspace.js";
 
 /** The methods of {@link REPO_METHOD_DESCRIPTORS}, each with its checks. */
@@ -360,64 +374,64 @@ export interface RepoMethodDescriptors {
   };
 }
 /** Every repo mount, machine folder, workspace, project, clone, git read and worktree method. */
-export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = Object.freeze({
-  "repoMount.attach": Object.freeze({
+export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = /* @__PURE__ */ Object.freeze({
+  "repoMount.attach": /* @__PURE__ */ Object.freeze({
     method: "repoMount.attach",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateRepoMountAttachRequest,
     responseCheck: validateRepoMountAttachResponse,
   }),
-  "repoMount.read": Object.freeze({
+  "repoMount.read": /* @__PURE__ */ Object.freeze({
     method: "repoMount.read",
     procedureType: "query",
     mutating: false,
     requestCheck: validateRepoMountRequest,
     responseCheck: validateRepoMountReadResponse,
   }),
-  "repoMount.list": Object.freeze({
+  "repoMount.list": /* @__PURE__ */ Object.freeze({
     method: "repoMount.list",
     procedureType: "query",
     mutating: false,
     requestCheck: validateEmptyPayload,
     responseCheck: validateRepoMountListResponse,
   }),
-  "repoMount.detach": Object.freeze({
+  "repoMount.detach": /* @__PURE__ */ Object.freeze({
     method: "repoMount.detach",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateRepoMountRequest,
     responseCheck: validateRepoMountDetachResponse,
   }),
-  "repoMount.reattach": Object.freeze({
+  "repoMount.reattach": /* @__PURE__ */ Object.freeze({
     method: "repoMount.reattach",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateRepoMountRequest,
     responseCheck: validateRepoMountReattachResponse,
   }),
-  "machine.folder.list": Object.freeze({
+  "machine.folder.list": /* @__PURE__ */ Object.freeze({
     method: "machine.folder.list",
     procedureType: "query",
     mutating: false,
     requestCheck: validateMachineFolderListRequest,
     responseCheck: validateMachineFolderListResponse,
   }),
-  "workspace.bind": Object.freeze({
+  "workspace.bind": /* @__PURE__ */ Object.freeze({
     method: "workspace.bind",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateWorkspaceBindRequest,
     responseCheck: validateWorkspaceBindResponse,
   }),
-  "workspace.list": Object.freeze({
+  "workspace.list": /* @__PURE__ */ Object.freeze({
     method: "workspace.list",
     procedureType: "query",
     mutating: false,
     requestCheck: validateWorkspaceListRequest,
     responseCheck: validateWorkspaceListResponse,
   }),
-  "project.subscribe": Object.freeze({
+  "project.subscribe": /* @__PURE__ */ Object.freeze({
     method: "project.subscribe",
     procedureType: "subscription",
     mutating: false,
@@ -425,56 +439,56 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = Object.freeze({
     responseCheck: validateSubscribeAcknowledgmentResponse,
     emissionCheck: validateProjectList,
   }),
-  "project.rename": Object.freeze({
+  "project.rename": /* @__PURE__ */ Object.freeze({
     method: "project.rename",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateProjectRenameRequest,
     responseCheck: validateProjectEditResponse,
   }),
-  "project.archive": Object.freeze({
+  "project.archive": /* @__PURE__ */ Object.freeze({
     method: "project.archive",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateProjectStateChangeRequest,
     responseCheck: validateProjectEditResponse,
   }),
-  "project.reactivate": Object.freeze({
+  "project.reactivate": /* @__PURE__ */ Object.freeze({
     method: "project.reactivate",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateProjectStateChangeRequest,
     responseCheck: validateProjectEditResponse,
   }),
-  "project.setup.update": Object.freeze({
+  "project.setup.update": /* @__PURE__ */ Object.freeze({
     method: "project.setup.update",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateProjectSetupUpdateRequest,
     responseCheck: validateProjectEditResponse,
   }),
-  "project.environment.update": Object.freeze({
+  "project.environment.update": /* @__PURE__ */ Object.freeze({
     method: "project.environment.update",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateProjectEnvironmentUpdateRequest,
     responseCheck: validateProjectEditResponse,
   }),
-  "project.branchPattern.update": Object.freeze({
+  "project.branchPattern.update": /* @__PURE__ */ Object.freeze({
     method: "project.branchPattern.update",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateProjectBranchPatternUpdateRequest,
     responseCheck: validateProjectEditResponse,
   }),
-  "project.clone.start": Object.freeze({
+  "project.clone.start": /* @__PURE__ */ Object.freeze({
     method: "project.clone.start",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateProjectCloneStartRequest,
     responseCheck: validateProjectCloneStartResponse,
   }),
-  "project.clone.subscribe": Object.freeze({
+  "project.clone.subscribe": /* @__PURE__ */ Object.freeze({
     method: "project.clone.subscribe",
     procedureType: "subscription",
     mutating: false,
@@ -482,49 +496,49 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = Object.freeze({
     responseCheck: validateSubscribeAcknowledgmentResponse,
     emissionCheck: validateProjectCloneStatus,
   }),
-  "project.clone.answer": Object.freeze({
+  "project.clone.answer": /* @__PURE__ */ Object.freeze({
     method: "project.clone.answer",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateProjectCloneAnswerRequest,
     responseCheck: validateEmptyPayload,
   }),
-  "project.clone.cancel": Object.freeze({
+  "project.clone.cancel": /* @__PURE__ */ Object.freeze({
     method: "project.clone.cancel",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateProjectCloneRequest,
     responseCheck: validateEmptyPayload,
   }),
-  "project.clone.folder.read": Object.freeze({
+  "project.clone.folder.read": /* @__PURE__ */ Object.freeze({
     method: "project.clone.folder.read",
     procedureType: "query",
     mutating: false,
     requestCheck: validateEmptyPayload,
     responseCheck: validateProjectCloneFolderReadResponse,
   }),
-  "project.largeFile.pull": Object.freeze({
+  "project.largeFile.pull": /* @__PURE__ */ Object.freeze({
     method: "project.largeFile.pull",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateProjectCloneRequest,
     responseCheck: validateEmptyPayload,
   }),
-  "project.branch.list": Object.freeze({
+  "project.branch.list": /* @__PURE__ */ Object.freeze({
     method: "project.branch.list",
     procedureType: "query",
     mutating: false,
     requestCheck: validateProjectBranchListRequest,
     responseCheck: validateProjectBranchListResponse,
   }),
-  "project.file.read": Object.freeze({
+  "project.file.read": /* @__PURE__ */ Object.freeze({
     method: "project.file.read",
     procedureType: "query",
     mutating: false,
     requestCheck: validateProjectFileReadRequest,
     responseCheck: validateProjectFileReadResponse,
   }),
-  "session.workingFolder.subscribe": Object.freeze({
+  "session.workingFolder.subscribe": /* @__PURE__ */ Object.freeze({
     method: "session.workingFolder.subscribe",
     procedureType: "subscription",
     mutating: false,
@@ -532,28 +546,28 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = Object.freeze({
     responseCheck: validateSubscribeAcknowledgmentResponse,
     emissionCheck: validateWorkingTreeChange,
   }),
-  "workspace.executionRoot.prepare": Object.freeze({
+  "workspace.executionRoot.prepare": /* @__PURE__ */ Object.freeze({
     method: "workspace.executionRoot.prepare",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateWorkspaceExecutionRootPrepareRequest,
     responseCheck: validateWorkspaceExecutionRootPrepareResponse,
   }),
-  "worktree.retire": Object.freeze({
+  "worktree.retire": /* @__PURE__ */ Object.freeze({
     method: "worktree.retire",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateWorktreeRetireRequest,
     responseCheck: validateWorktreeRetireResponse,
   }),
-  "worktree.status.read": Object.freeze({
+  "worktree.status.read": /* @__PURE__ */ Object.freeze({
     method: "worktree.status.read",
     procedureType: "query",
     mutating: false,
     requestCheck: validateWorktreeStatusReadRequest,
     responseCheck: validateWorktreeStatusReadResponse,
   }),
-  "worktree.setup.subscribe": Object.freeze({
+  "worktree.setup.subscribe": /* @__PURE__ */ Object.freeze({
     method: "worktree.setup.subscribe",
     procedureType: "subscription",
     mutating: false,
@@ -561,14 +575,14 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = Object.freeze({
     responseCheck: validateSubscribeAcknowledgmentResponse,
     emissionCheck: validateWorktreeSetupStatus,
   }),
-  "worktree.setup.retry": Object.freeze({
+  "worktree.setup.retry": /* @__PURE__ */ Object.freeze({
     method: "worktree.setup.retry",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateWorktreeSetupRequest,
     responseCheck: validateEmptyPayload,
   }),
-  "worktree.copy.subscribe": Object.freeze({
+  "worktree.copy.subscribe": /* @__PURE__ */ Object.freeze({
     method: "worktree.copy.subscribe",
     procedureType: "subscription",
     mutating: false,
@@ -576,21 +590,21 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = Object.freeze({
     responseCheck: validateSubscribeAcknowledgmentResponse,
     emissionCheck: validateWorktreeCopyProgress,
   }),
-  "worktree.removed.list": Object.freeze({
+  "worktree.removed.list": /* @__PURE__ */ Object.freeze({
     method: "worktree.removed.list",
     procedureType: "query",
     mutating: false,
     requestCheck: validateWorktreeRemovedListRequest,
     responseCheck: validateWorktreeRemovedListResponse,
   }),
-  "worktree.restore": Object.freeze({
+  "worktree.restore": /* @__PURE__ */ Object.freeze({
     method: "worktree.restore",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateRemovedWorktreeRequest,
     responseCheck: validateWorktreeRestoreResponse,
   }),
-  "worktree.removed.delete": Object.freeze({
+  "worktree.removed.delete": /* @__PURE__ */ Object.freeze({
     method: "worktree.removed.delete",
     procedureType: "mutation",
     mutating: true,

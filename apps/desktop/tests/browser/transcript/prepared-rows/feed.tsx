@@ -234,7 +234,7 @@ export function heldHistoryRead(
               entries: answer.value.entries.map((row) => {
                 const content = contentById.get(row.id);
                 return content !== undefined && row.kind === "general"
-                  ? { ...row, type: "assistant.message", content }
+                  ? { ...row, type: "agent.message.sent", content }
                   : row;
               }),
             },

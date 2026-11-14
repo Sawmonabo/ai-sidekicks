@@ -14,13 +14,10 @@ import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 export type RefusalRendering = "inline" | "card" | "banner";
 
 /**
- * What a component does about one named refusal beyond rendering the daemon's words: the
- * app-wide entry, or a feature table's entry with the exclusive cases one code stands for.
+ * What a component does about one named refusal beyond rendering the daemon's words: the rendering
+ * it calls for, its next move, and whether it is done.
  */
-export type RefusalRemedy = AppRefusalRemedy | CasedRefusalRemedy;
-
-/** The app-wide entry: the rendering a refusal calls for, its next move, and whether it is done. */
-export interface AppRefusalRemedy {
+export interface RefusalRemedy {
   /**
    * The rendering this refusal calls for, by blast radius rather than severity. A component
    * with one rendering ignores it; one that can raise a banner does, so `session.notFound`
@@ -36,17 +33,8 @@ export interface AppRefusalRemedy {
   readonly settled: boolean;
 }
 
-/**
- * A feature table's entry: the next move, and the exclusive cases a person chooses between where
- * one code stands for more than one situation. `distinctions` is empty when there is one move.
- */
-export interface CasedRefusalRemedy {
-  readonly nextMove: string;
-  readonly distinctions: readonly string[];
-}
-
 /** The next move for each named refusal; a code with no entry needs only the daemon's sentence. */
-const REFUSAL_REMEDIES: Readonly<Partial<Record<RefusalCode, AppRefusalRemedy>>> = {
+const REFUSAL_REMEDIES: Readonly<Partial<Record<RefusalCode, RefusalRemedy>>> = {
   // The retry reused a key already spent on different text; the daemon applied the first body,
   // so the remedy is a new message.
   "agent.intervention.idempotencyConflict": {
@@ -82,12 +70,6 @@ const REFUSAL_REMEDIES: Readonly<Partial<Record<RefusalCode, AppRefusalRemedy>>>
 };
 
 /** The next move for this code, or nothing where the daemon's sentence is the whole of it. */
-export function refusalRemedyFor(code: string): AppRefusalRemedy | undefined {
+export function refusalRemedyFor(code: string): RefusalRemedy | undefined {
   return Object.hasOwn(REFUSAL_REMEDIES, code) ? REFUSAL_REMEDIES[code as RefusalCode] : undefined;
-}
-
-/** A remedy as it is read out: the next move, then each exclusive case, in the order drawn. */
-export function remedyWordsOf(remedy: RefusalRemedy): string {
-  const distinctions = "distinctions" in remedy ? remedy.distinctions : [];
-  return [remedy.nextMove, ...distinctions].join(" ");
 }

@@ -94,7 +94,7 @@ const APPROVAL_REQUEST_SCRIPT: readonly ScriptEntry[] = [
     actorId: AGENT_IMPLEMENTER,
     payload: {
       sessionId: SESSION_ID,
-      runId: RUN_ID,
+      holder: { kind: "run", runId: RUN_ID },
       approvalRequestId: APPROVAL_RESOLVED,
       category: "toolExecution",
       scope: "run",
@@ -110,7 +110,7 @@ const APPROVAL_REQUEST_SCRIPT: readonly ScriptEntry[] = [
     actorId: USER_YOU,
     payload: {
       sessionId: SESSION_ID,
-      runId: RUN_ID,
+      holder: { kind: "run", runId: RUN_ID },
       approvalRequestId: APPROVAL_RESOLVED,
       category: "toolExecution",
       scope: "run",
@@ -125,7 +125,7 @@ const APPROVAL_REQUEST_SCRIPT: readonly ScriptEntry[] = [
     actorId: AGENT_IMPLEMENTER,
     payload: {
       sessionId: SESSION_ID,
-      runId: RUN_ID,
+      holder: { kind: "run", runId: RUN_ID },
       approvalRequestId: APPROVAL_PENDING_GIT_RESET,
       category: "destructiveGit",
       scope: "session",
@@ -139,7 +139,7 @@ const APPROVAL_REQUEST_SCRIPT: readonly ScriptEntry[] = [
     actorId: AGENT_IMPLEMENTER,
     payload: {
       sessionId: SESSION_ID,
-      runId: RUN_ID,
+      holder: { kind: "run", runId: RUN_ID },
       approvalRequestId: APPROVAL_PENDING_WRITE,
       category: "fileWrite",
       scope: "session",
@@ -158,7 +158,7 @@ const APPROVAL_REQUEST_SCRIPT: readonly ScriptEntry[] = [
     actorId: AGENT_IMPLEMENTER,
     payload: {
       sessionId: SESSION_ID,
-      runId: RUN_ID,
+      holder: { kind: "run", runId: RUN_ID },
       approvalRequestId: APPROVAL_PENDING_ASK,
       askId: PERMISSION_ASK_ID,
       category: "toolExecution",

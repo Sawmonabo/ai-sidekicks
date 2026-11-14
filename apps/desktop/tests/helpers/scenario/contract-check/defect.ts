@@ -1,9 +1,11 @@
-// What a scenario contract defect is, and the issue formatter its reasons are built from.
+// What a scenario contract defect is, and the fault formatter its reasons are built from.
 //
 // A leaf: the aggregate entry answers in this shape and three axis modules construct one, so
 // declaring it in any of them would make the others import a sibling for a type, and declaring it
-// in the entry would close a cycle. The formatter is here so two legs reporting a schema refusal
-// share one spelling of "where the issue is, and what it says".
+// in the entry would close a cycle. The formatter is here so every leg reporting a check's refusal
+// shares one spelling of "where the fault is, and which rule it breaks".
+
+import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
 
 /**
  * One way a scenario contradicts the shipped wire contract.
@@ -19,16 +21,12 @@ export interface ScenarioContractDefect {
 }
 
 /**
- * One schema issue as a sentence fragment: where it is, and what it says.
- *
- * The path is joined, as in `payload.runVersion`, because a person fixing a scenario edits that
- * member; an empty path is the whole value and is named. Typed structurally because callers pass
- * only a path and a message.
+ * The faults `check` left when it last refused a value, as one sentence fragment: each fault's
+ * place, as a JSON pointer such as `/payload/runVersion` or `(root)` for the whole value, and the
+ * rule it breaks. Read it right after that call: the check keeps only its newest refusal's faults.
  */
-export function describeSchemaIssue(issue: {
-  readonly path: readonly PropertyKey[];
-  readonly message: string;
-}): string {
-  const location = issue.path.length === 0 ? "the event" : issue.path.map(String).join(".");
-  return `${location} — ${issue.message}`;
+export function describeCheckFaults(check: SchemaCheck<unknown>): string {
+  return (check.errors ?? [])
+    .map((fault) => `${fault.instancePath || "(root)"}: breaks the "${fault.keyword}" rule`)
+    .join("; ");
 }

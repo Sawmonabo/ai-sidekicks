@@ -1,8 +1,8 @@
 // Does a scenario script events the daemon can actually emit?
 //
 // One predicate over every scenario in `fixtures/scenarios/`, so a scenario added with a defect
-// fails here without its author knowing this module exists. Every beat meets the three schemas in
-// `@ai-sidekicks/contracts` (`beat/shape.ts`), then the rules those schemas do not carry,
+// fails here without its author knowing this module exists. Every beat meets the three checks in
+// `@ai-sidekicks/contracts` (`beat/shape.ts`), then the rules those checks do not carry,
 // each read off the module that owns it: run and queue semantics, beat order and replies,
 // one module per axis.
 //

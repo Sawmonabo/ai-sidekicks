@@ -28,7 +28,8 @@ import {
   type ParamAnswers,
   type ParamIssues,
 } from "#renderer/features/workflows/param-form/answers.js";
-import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
+import type { PageModuleState } from "#renderer/components/Markdown/worker/page-module-load.js";
+import { useWorkflowChecks } from "#renderer/features/workflows/param-form/hooks/useWorkflowChecks.js";
 
 /** Where the step's form read stands. */
 export type StepFormRead =
@@ -44,6 +45,11 @@ export interface StepFormHold {
   readonly changeAnswers: (next: ParamAnswers) => void;
   readonly submit: () => void;
   readonly submitState: WorkflowCallState<unknown>;
+  /**
+   * Where the workflow checks stood after a press they held, since a field they have not read
+   * cannot be told shown or hidden; `undefined` once they answer or no press was held.
+   */
+  readonly heldSubmit: Exclude<PageModuleState, "ready"> | undefined;
   /** A draft the daemon refused to save, said in place; typing goes on. */
   readonly draftRefusal: Refusal | undefined;
   readonly readAgain: () => void;
@@ -188,14 +194,18 @@ export function useStepForm(
     },
   );
 
+  const checks = useWorkflowChecks(false);
+  const [isSubmitHeld, setIsSubmitHeld] = useState(false);
   const submit = useCallback(() => {
-    // A field the checks have not read yet cannot be told shown or hidden, so the press waits.
-    if (
-      form === undefined ||
-      (hasConditionalParam(form.fields) && markdownWorker.workflowChecks.state !== "ready")
-    ) {
+    if (form === undefined) {
       return;
     }
+    // A field the checks have not read yet cannot be told shown or hidden, so the press waits.
+    if (hasConditionalParam(form.fields) && checks.state !== "ready") {
+      setIsSubmitHeld(true);
+      return;
+    }
+    setIsSubmitHeld(false);
     const check = checkParamAnswers(form.fields, answers);
     if (check.kind === "invalid") {
       setIssues(check.issues);
@@ -213,7 +223,7 @@ export function useStepForm(
       paths: check.paths,
       expectedRevision: form.formRevision,
     });
-  }, [answers, clock, form, submission]);
+  }, [answers, checks.state, clock, form, submission]);
 
   const readAgain = useCallback(() => {
     setReadRevision((revision) => revision + 1);
@@ -226,6 +236,7 @@ export function useStepForm(
     changeAnswers,
     submit,
     submitState: submission.state,
+    heldSubmit: isSubmitHeld && checks.state !== "ready" ? checks.state : undefined,
     draftRefusal,
     readAgain,
   };

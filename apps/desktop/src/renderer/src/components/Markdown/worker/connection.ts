@@ -6,16 +6,16 @@
 // page's text codec, matcher or checks want one go to them, the checks' only once something first
 // asks for them; the worker parses what the page does not: a streaming tail, a block too long to
 // parse on the page, a long table's pieces, and every block while the page's parser could not
-// start. It
-// sends each text to parse and hands back the parser's binary tree; a reply's markdown as the UTF-8
-// bytes of its pieces, moved to the worker, or a drawn part's tree as a copy, to be made into what
-// it copies as; and it answers each of the worker's asks for a long table's undrawn rows from the
-// table the page drew, with the rows one slice writes, so no task on the page grows with a text or
-// a table. When the worker stops, fails to load or run the parser, sends what cannot be read or an
-// ask no copied table answers, or leaves a request unanswered past its deadline, it ends that
-// worker and fails every request still waiting; the next request starts a new one. A worker left
-// unused for a minute, with no turn holding it awake, is ended to give its memory back while the
-// compiled module stays; a request sent while a new worker loads waits in the worker's own queue.
+// start. It sends each text to parse and hands back the parser's binary tree; a reply's markdown as
+// the UTF-8 bytes of its pieces, moved to the worker, or a drawn part's tree as a copy, to be made
+// into what it copies as; and it answers each of the worker's asks for a long table's undrawn rows
+// from the table the page drew, with the rows one slice writes, so no task on the page grows with a
+// text or a table. When the worker stops, fails to load or run the parser, sends what cannot be
+// read or an ask no copied table answers, or leaves a request unanswered past its deadline, it ends
+// that worker and fails every request still waiting; the next request starts a new one, and a
+// module still on its way starts one at once. A worker left unused for a minute, with no turn
+// holding it awake, is ended to give its memory back while the compiled module stays; a request
+// sent while a new worker loads waits in the worker's own queue.
 
 import type { Table } from "mdast";
 
@@ -24,11 +24,9 @@ import { queueIdleTaskIn } from "#renderer/lib/idle-task.js";
 import type { WorkerPort, WorkerStart } from "#renderer/lib/worker-port.js";
 import { queueTaskIn } from "#renderer/lib/queued-task.js";
 import { appTextCompression, type TextCompression } from "#renderer/lib/text/compression.js";
-import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 import { startSlice } from "#renderer/lib/work-slices.js";
 import { describeFailure } from "#shared/failure-message.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import type { FuzzyMatcher } from "@ai-sidekicks/search-ranking";
 import {
   decodePiecesInSlices,
   encodePiecesInSlices,
@@ -39,7 +37,7 @@ import { drawnTreeLength, drawnTreeText, type CopyFlavor, type DrawnTree } from 
 import { appPageParser, type PageParser } from "../parse/page-parser.js";
 import { piecedRowsOf } from "../parse/pieced-table.js";
 import { holdTableRows, passTableRows } from "../parse/table-rows.js";
-import { appWorkflowChecks, type WorkflowChecksLoad } from "./workflow-checks-load.js";
+import { appFuzzyMatcherLoad, appWorkflowChecks, type PageModuleLoad } from "./page-module-load.js";
 import type {
   CompiledPageModule,
   MarkdownCutAnswer,
@@ -91,10 +89,10 @@ export class MarkdownWorkerConnection {
   public readonly pageParser: PageParser;
   /** The page's text codec, which this connection hands the compression module to. */
   public readonly textCompression: TextCompression;
-  /** The page's fuzzy matcher, which this connection hands the matcher's module to. */
-  public readonly fuzzyMatcher: FuzzyMatcher;
+  /** The page's fuzzy matcher's module, which every worker compiles until it is in hand. */
+  public readonly fuzzyMatcher: PageModuleLoad;
   /** The page's workflow checks, which this connection has compiled on first need. */
-  public readonly workflowChecks: WorkflowChecksLoad;
+  public readonly workflowChecks: PageModuleLoad;
   readonly #startWorker: MarkdownWorkerStart;
   readonly #view: Window;
   /** Each request to make a copy sent and not answered, by its id. */
@@ -137,8 +135,8 @@ export class MarkdownWorkerConnection {
     view: Window,
     pageParser: PageParser,
     textCompression: TextCompression,
-    fuzzyMatcher: FuzzyMatcher,
-    workflowChecks: WorkflowChecksLoad,
+    fuzzyMatcher: PageModuleLoad,
+    workflowChecks: PageModuleLoad,
   ) {
     this.#startWorker = startWorker;
     this.#view = view;
@@ -174,8 +172,7 @@ export class MarkdownWorkerConnection {
       // The new worker's load asks for the checks, which are wanted now.
       this.#open();
     } catch (error: unknown) {
-      recordWorkflowChecksFailure(error);
-      this.workflowChecks.dropLoad();
+      this.workflowChecks.fail(error);
     }
   }
 
@@ -359,11 +356,13 @@ export class MarkdownWorkerConnection {
     };
     this.#port = port;
     this.#armIdleCheck(port, MARKDOWN_WORKER_IDLE_STOP_MS);
+    // Every worker compiles the matcher's module until one is in hand, after a failure too.
+    this.fuzzyMatcher.want();
     port.postMessage({
       kind: "load",
       parser: this.#parser,
       shouldCompileTextCompression: this.textCompression.isModuleWanted,
-      shouldCompileFuzzyMatcher: !this.fuzzyMatcher.isReady,
+      shouldCompileFuzzyMatcher: this.fuzzyMatcher.isModuleWanted,
       shouldCompileWorkflowChecks: this.workflowChecks.isModuleWanted,
     });
     return port;
@@ -382,10 +381,10 @@ export class MarkdownWorkerConnection {
         this.#handToTextCompression(reply.textCompression);
         return;
       case "fuzzy-matcher":
-        this.#handToFuzzyMatcher(reply.fuzzyMatcher);
+        this.fuzzyMatcher.provide(reply.fuzzyMatcher);
         return;
       case "workflow-checks":
-        this.workflowChecks.provide(reply.workflowChecks, recordWorkflowChecksFailure);
+        this.workflowChecks.provide(reply.workflowChecks);
         return;
       case "load-failed":
         // Compiled again by the next worker, since what failed may have been the module handed.
@@ -451,22 +450,6 @@ export class MarkdownWorkerConnection {
       new Error(textCompression.reason),
     );
     this.textCompression.provide(undefined);
-  }
-
-  /**
-   * Hands the page's fuzzy matcher the module the worker compiled. A module that was not compiled,
-   * or does not start, is recorded, and the matcher scores nothing until a later worker's does.
-   */
-  #handToFuzzyMatcher(fuzzyMatcher: CompiledPageModule): void {
-    if (fuzzyMatcher.status === "absent") {
-      recordFuzzyMatcherFailure(new Error(fuzzyMatcher.reason));
-      return;
-    }
-    try {
-      this.fuzzyMatcher.provide(fuzzyMatcher.module);
-    } catch (error: unknown) {
-      recordFuzzyMatcherFailure(error);
-    }
   }
 
   #landTrees(
@@ -682,8 +665,26 @@ export class MarkdownWorkerConnection {
     clearTimeout(this.#parseWatchdog);
     clearTimeout(this.#idleCheck);
     this.#port = undefined;
-    // The checks' compile, if one was asked of this worker, is gone with it.
+    // A module's compile, if one was asked of this worker, is gone with it; one still wanted after
+    // that is asked of a new worker at once, since nothing else would start one.
+    this.fuzzyMatcher.dropLoad();
     this.workflowChecks.dropLoad();
+    if (this.fuzzyMatcher.isModuleWanted || this.workflowChecks.isModuleWanted) {
+      try {
+        this.#open();
+      } catch (error: unknown) {
+        this.#failWantedModules(error);
+      }
+    }
+  }
+
+  /** Fails each module still wanted when no worker can start to compile it. */
+  #failWantedModules(failure: unknown): void {
+    for (const load of [this.fuzzyMatcher, this.workflowChecks]) {
+      if (load.isModuleWanted) {
+        load.fail(failure);
+      }
+    }
   }
 }
 
@@ -769,16 +770,6 @@ function withoutPosition(key: string, value: unknown): unknown {
   return key === "position" ? undefined : value;
 }
 
-/** Records why the page's workflow checks did not get a running module from this worker. */
-function recordWorkflowChecksFailure(failure: unknown): void {
-  recordRejectedRequest("components/Markdown/worker", "workflow-checks-not-started", failure);
-}
-
-/** Records why the page's fuzzy matcher did not get a running module from this worker. */
-function recordFuzzyMatcherFailure(failure: unknown): void {
-  recordRejectedRequest("components/Markdown/worker", "fuzzy-matcher-not-started", failure);
-}
-
 /** The deadline of a request `byteLength` bytes long. */
 function answerDeadlineMs(byteLength: number): number {
   return ANSWER_DEADLINE_MS_PER_MEBIBYTE * Math.max(1, Math.ceil(byteLength / 2 ** 20));
@@ -793,6 +784,6 @@ export const markdownWorker: MarkdownWorkerConnection = new MarkdownWorkerConnec
   window,
   appPageParser,
   appTextCompression,
-  appFuzzyMatcher,
+  appFuzzyMatcherLoad,
   appWorkflowChecks,
 );

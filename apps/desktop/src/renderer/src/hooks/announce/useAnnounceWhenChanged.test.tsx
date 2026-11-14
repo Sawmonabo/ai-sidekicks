@@ -87,14 +87,14 @@ describe("a drawn line", () => {
     expect(
       spokenAcross(
         [
-          { sentence: "Could not load the terminal", attempt: firstFailure },
+          { sentence: "Could not load terminal", attempt: firstFailure },
           { sentence: undefined },
-          { sentence: "Could not load the terminal", attempt: firstFailure },
+          { sentence: "Could not load terminal", attempt: firstFailure },
           { sentence: undefined },
-          { sentence: "Could not load the terminal", attempt: retriedFailure },
+          { sentence: "Could not load terminal", attempt: retriedFailure },
         ],
         { isReadSettlement: false },
       ),
-    ).toStrictEqual(["Could not load the terminal", "Could not load the terminal"]);
+    ).toStrictEqual(["Could not load terminal", "Could not load terminal"]);
   });
 });

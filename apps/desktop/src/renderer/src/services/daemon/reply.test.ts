@@ -2,8 +2,8 @@
 // never reaches the wire, a rejection becomes a refusal and never an exception, and a read whose
 // owner has gone reads nothing from its reply. Every case drives the real `callDaemon` over the
 // real method table's generated checks and the shipped fixture bridge, so a hand-rolled check
-// cannot pass with the shipped one deleted. The helpers are `reply.test-support.ts` beside this file and the
-// shared `tests/helpers/fixture/bridge.ts`.
+// cannot pass with the shipped one deleted. The helpers are `reply.test-support.ts` beside this
+// file and the shared `tests/helpers/fixture/bridge.ts`.
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { RefusalCategory, RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";

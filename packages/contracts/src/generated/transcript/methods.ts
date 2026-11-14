@@ -5,16 +5,6 @@
 
 import type { SchemaCheck } from "../../schema-check.js";
 import {
-  type TranscriptBodyReadRequest,
-  type TranscriptBodyReadResponse,
-  type TranscriptChildRunExpandRequest,
-  type TranscriptChildRunExpandResponse,
-  type TranscriptPatchListRequest,
-  type TranscriptPatchListResponse,
-  type TranscriptReadRequest,
-  type TranscriptReadResponse,
-  type TranscriptReasoningReadRequest,
-  type TranscriptReasoningReadResponse,
   validateTranscriptBodyReadRequest,
   validateTranscriptBodyReadResponse,
   validateTranscriptChildRunExpandRequest,
@@ -25,13 +15,24 @@ import {
   validateTranscriptReadResponse,
   validateTranscriptReasoningReadRequest,
   validateTranscriptReasoningReadResponse,
-} from "./operations.js";
+} from "../checks/transcript/operations.js";
 import {
-  type TranscriptSearchRequest,
-  type TranscriptSearchResponse,
   validateTranscriptSearchRequest,
   validateTranscriptSearchResponse,
-} from "./search.js";
+} from "../checks/transcript/search.js";
+import type {
+  TranscriptBodyReadRequest,
+  TranscriptBodyReadResponse,
+  TranscriptChildRunExpandRequest,
+  TranscriptChildRunExpandResponse,
+  TranscriptPatchListRequest,
+  TranscriptPatchListResponse,
+  TranscriptReadRequest,
+  TranscriptReadResponse,
+  TranscriptReasoningReadRequest,
+  TranscriptReasoningReadResponse,
+} from "./operations.js";
+import type { TranscriptSearchRequest, TranscriptSearchResponse } from "./search.js";
 
 /** The methods of {@link TRANSCRIPT_METHOD_DESCRIPTORS}, each with its checks. */
 export interface TranscriptMethodDescriptors {
@@ -79,47 +80,48 @@ export interface TranscriptMethodDescriptors {
   };
 }
 /** The `transcript.*` methods' wire contract: name, procedure type and types. */
-export const TRANSCRIPT_METHOD_DESCRIPTORS: TranscriptMethodDescriptors = Object.freeze({
-  "transcript.read": Object.freeze({
-    method: "transcript.read",
-    procedureType: "query",
-    mutating: false,
-    requestCheck: validateTranscriptReadRequest,
-    responseCheck: validateTranscriptReadResponse,
-  }),
-  "transcript.reasoning.read": Object.freeze({
-    method: "transcript.reasoning.read",
-    procedureType: "query",
-    mutating: false,
-    requestCheck: validateTranscriptReasoningReadRequest,
-    responseCheck: validateTranscriptReasoningReadResponse,
-  }),
-  "transcript.childRun.expand": Object.freeze({
-    method: "transcript.childRun.expand",
-    procedureType: "query",
-    mutating: false,
-    requestCheck: validateTranscriptChildRunExpandRequest,
-    responseCheck: validateTranscriptChildRunExpandResponse,
-  }),
-  "transcript.body.read": Object.freeze({
-    method: "transcript.body.read",
-    procedureType: "query",
-    mutating: false,
-    requestCheck: validateTranscriptBodyReadRequest,
-    responseCheck: validateTranscriptBodyReadResponse,
-  }),
-  "transcript.patch.list": Object.freeze({
-    method: "transcript.patch.list",
-    procedureType: "query",
-    mutating: false,
-    requestCheck: validateTranscriptPatchListRequest,
-    responseCheck: validateTranscriptPatchListResponse,
-  }),
-  "transcript.search": Object.freeze({
-    method: "transcript.search",
-    procedureType: "query",
-    mutating: false,
-    requestCheck: validateTranscriptSearchRequest,
-    responseCheck: validateTranscriptSearchResponse,
-  }),
-});
+export const TRANSCRIPT_METHOD_DESCRIPTORS: TranscriptMethodDescriptors =
+  /* @__PURE__ */ Object.freeze({
+    "transcript.read": /* @__PURE__ */ Object.freeze({
+      method: "transcript.read",
+      procedureType: "query",
+      mutating: false,
+      requestCheck: validateTranscriptReadRequest,
+      responseCheck: validateTranscriptReadResponse,
+    }),
+    "transcript.reasoning.read": /* @__PURE__ */ Object.freeze({
+      method: "transcript.reasoning.read",
+      procedureType: "query",
+      mutating: false,
+      requestCheck: validateTranscriptReasoningReadRequest,
+      responseCheck: validateTranscriptReasoningReadResponse,
+    }),
+    "transcript.childRun.expand": /* @__PURE__ */ Object.freeze({
+      method: "transcript.childRun.expand",
+      procedureType: "query",
+      mutating: false,
+      requestCheck: validateTranscriptChildRunExpandRequest,
+      responseCheck: validateTranscriptChildRunExpandResponse,
+    }),
+    "transcript.body.read": /* @__PURE__ */ Object.freeze({
+      method: "transcript.body.read",
+      procedureType: "query",
+      mutating: false,
+      requestCheck: validateTranscriptBodyReadRequest,
+      responseCheck: validateTranscriptBodyReadResponse,
+    }),
+    "transcript.patch.list": /* @__PURE__ */ Object.freeze({
+      method: "transcript.patch.list",
+      procedureType: "query",
+      mutating: false,
+      requestCheck: validateTranscriptPatchListRequest,
+      responseCheck: validateTranscriptPatchListResponse,
+    }),
+    "transcript.search": /* @__PURE__ */ Object.freeze({
+      method: "transcript.search",
+      procedureType: "query",
+      mutating: false,
+      requestCheck: validateTranscriptSearchRequest,
+      responseCheck: validateTranscriptSearchResponse,
+    }),
+  });

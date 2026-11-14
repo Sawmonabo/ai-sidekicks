@@ -27,8 +27,7 @@ import type {
 import { MarkdownWorkerConnection, type MarkdownWorkerPort } from "./connection.js";
 import { inThreadParserModule } from "./connection.test-support.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
-import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
-import { appWorkflowChecks } from "./workflow-checks-load.js";
+import { appFuzzyMatcherLoad, appWorkflowChecks } from "./page-module-load.js";
 
 /** A stand-in worker that keeps the requests to make a copy it is sent and answers only when told. */
 class StandInWorker implements MarkdownWorkerPort {
@@ -115,7 +114,7 @@ it("hands the compiled parser to the page; a worker's later load failure leaves 
     view,
     pageParser,
     appTextCompression,
-    appFuzzyMatcher,
+    appFuzzyMatcherLoad,
     appWorkflowChecks,
   );
   void connection.html("# one").catch(() => undefined);
@@ -154,7 +153,7 @@ it("reports a page parser that fails to start as failed for good, while the work
     view,
     pageParser,
     appTextCompression,
-    appFuzzyMatcher,
+    appFuzzyMatcherLoad,
     appWorkflowChecks,
   );
   const first = connection.html("# one");
@@ -185,7 +184,7 @@ it("hands over an answer's trees a slice at a time, in the order the texts were 
     tasks.window,
     new PageParser(loadMarkdownParserCalls),
     appTextCompression,
-    appFuzzyMatcher,
+    appFuzzyMatcherLoad,
     appWorkflowChecks,
   );
   const handed: string[] = [];
@@ -224,7 +223,7 @@ it("fails every text when its worker stops, and starts a new one for the next", 
     TASKS_AT_ONCE,
     new PageParser(loadMarkdownParserCalls),
     appTextCompression,
-    appFuzzyMatcher,
+    appFuzzyMatcherLoad,
     appWorkflowChecks,
   );
 
@@ -257,7 +256,7 @@ it("fails only a cut the worker could not make, and keeps the worker for the tex
     TASKS_AT_ONCE,
     new PageParser(loadMarkdownParserCalls),
     appTextCompression,
-    appFuzzyMatcher,
+    appFuzzyMatcherLoad,
     appWorkflowChecks,
   );
   const cuts: MarkdownCutAnswer[] = [];
@@ -288,7 +287,7 @@ it.each([
     TASKS_AT_ONCE,
     new PageParser(loadMarkdownParserCalls),
     appTextCompression,
-    appFuzzyMatcher,
+    appFuzzyMatcherLoad,
     appWorkflowChecks,
   );
   const cell: TableCell = { type: "tableCell", children: [{ type: "text", value: "x" }] };

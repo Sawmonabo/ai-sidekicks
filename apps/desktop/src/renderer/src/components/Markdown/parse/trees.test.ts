@@ -14,9 +14,8 @@ import { parseMarkdownTree } from "./serialized-tree.js";
 import { piecedRowsOf } from "./pieced-table.js";
 import { MarkdownTrees, type MarkdownParseOutcome } from "./trees.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
-import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
-import { appWorkflowChecks } from "../worker/workflow-checks-load.js";
+import { appFuzzyMatcherLoad, appWorkflowChecks } from "../worker/page-module-load.js";
 
 /** Trees of their own, parsed by stand-in workers that `start` starts and the app's page parser. */
 function treesOn(start: MarkdownWorkerStart): MarkdownTrees {
@@ -26,7 +25,7 @@ function treesOn(start: MarkdownWorkerStart): MarkdownTrees {
       window,
       appPageParser,
       appTextCompression,
-      appFuzzyMatcher,
+      appFuzzyMatcherLoad,
       appWorkflowChecks,
     ),
   );
@@ -199,7 +198,7 @@ describe("a long table's piece trees", () => {
         window,
         appPageParser,
         appTextCompression,
-        appFuzzyMatcher,
+        appFuzzyMatcherLoad,
         appWorkflowChecks,
       ),
       1_000_000,

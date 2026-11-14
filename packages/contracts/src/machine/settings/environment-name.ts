@@ -13,6 +13,9 @@ const ENVIRONMENT_NAME_REGEX = new RegExp(ENVIRONMENT_NAME_PATTERN);
  * Why the app's shared rules refuse a row's name, or `null` when they let it be saved; the service
  * also refuses a name a registered driver sets. Names compare without case, because Windows reads
  * `path` and `PATH` as one variable.
+ *
+ * @consumedBy the environment rows on the project and machine settings pages, checking a row's
+ * name before it is saved
  */
 export function environmentNameRefusal(name: string): EnvironmentNameRefusalReason | null {
   if (!ENVIRONMENT_NAME_REGEX.test(name)) {

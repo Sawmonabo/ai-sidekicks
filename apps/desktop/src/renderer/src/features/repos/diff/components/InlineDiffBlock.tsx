@@ -9,13 +9,13 @@
 // The rows are drawn in steps of a fixed count, each step one box, laid out and painted on its own,
 // so a step that lands or wraps again costs the browser its own rows rather than every row above
 // it. Whether a block is open whole is its host's to hold, so it stays open while its row scrolls
-// out and back. Inside a transcript viewport a block opened whole draws as a window over its steps,
-// only those near the reader mounted and a spacer holding the room of each run of the rest, its
-// steps measured off screen a slice at a time so the spacers hold their real room, and a copy across
-// the undrawn steps reads their rows' text. Outside one, Show all mounts the rows to a screen past
-// the screen in the press itself and the rest one step per task, so no task mounts thousands of
-// rows; rows not mounted yet hold no room, so no scroll, however the browser runs it, can reach a
-// part of the block with no rows drawn.
+// out and back. Inside a transcript viewport a block opened whole draws as a window over its
+// steps, only those near the reader mounted and a spacer holding the room of each run of the rest,
+// its steps measured off screen a slice at a time so the spacers hold their real room, and a copy
+// across the undrawn steps reads their rows' text. Outside one, Show all mounts the rows to a
+// screen past the screen in the press itself and the rest one step per task, so no task mounts
+// thousands of rows; rows not mounted yet hold no room, so no scroll, however the browser runs
+// it, can reach a part of the block with no rows drawn.
 
 // The rows' own sheet, shared with Review's renderer so a change reads the same in both, then the
 // block's and the flow's look.
@@ -51,7 +51,9 @@ import { DiffRowView } from "./DiffRowView.js";
 /** What one file's block is drawn from: the file, its rows in the flow, and the flow's measures. */
 export interface InlineDiffBlockProps {
   readonly file: DiffFile;
-  /** The transcript row the block is drawn in, which a block opened whole lays its rows out from. */
+  /**
+   * The transcript row the block is drawn in, which a block opened whole lays its rows out from.
+   */
   readonly rowKey: string;
   readonly flowRows: DiffFlowRows;
   /** The visible flow's height, in CSS pixels, which the cut is read from. */
@@ -222,13 +224,23 @@ function gutterStyleOf(flowRows: DiffFlowRows): React.CSSProperties {
   } as React.CSSProperties;
 }
 
-/** The first `lineCount` lines of `text`, one or more, or `text` itself when it holds no more. */
+/**
+ * The most characters one wrapped row of a patch shown as sent can hold: a 12-pixel monospace
+ * character is about 7 CSS pixels wide, so a row on a window 7,680 pixels wide holds about 1,000.
+ */
+const RAW_PATCH_ROW_CHARACTER_LIMIT = 1024;
+
+/**
+ * The first `lineCount` lines of `text`, one or more, and no more characters than that many rows
+ * can hold, so a patch with few line breaks is cut too; `text` itself when it holds no more.
+ */
 function leadingLinesOf(text: string, lineCount: number): string {
+  const characterLimit = lineCount * RAW_PATCH_ROW_CHARACTER_LIMIT;
   let lineEnd = -1;
   for (let line = 0; line < lineCount; line += 1) {
     lineEnd = text.indexOf("\n", lineEnd + 1);
-    if (lineEnd === -1) {
-      return text;
+    if (lineEnd === -1 || lineEnd >= characterLimit) {
+      return text.length <= characterLimit ? text : text.slice(0, characterLimit);
     }
   }
   return lineEnd === text.length - 1 ? text : text.slice(0, lineEnd);

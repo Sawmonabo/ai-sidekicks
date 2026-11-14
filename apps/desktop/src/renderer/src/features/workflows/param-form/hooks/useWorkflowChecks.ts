@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
-import type { WorkflowChecksState } from "#renderer/components/Markdown/worker/workflow-checks-load.js";
+import type { PageModuleState } from "#renderer/components/Markdown/worker/page-module-load.js";
 
 /** The workflow checks, asked for while `isNeeded`; the component re-renders as they move. */
 export function useWorkflowChecks(isNeeded: boolean): WorkflowChecks {
@@ -23,6 +23,6 @@ export function useWorkflowChecks(isNeeded: boolean): WorkflowChecks {
 
 /** Where the checks stand, and the ask that loads them again after a failure. */
 interface WorkflowChecks {
-  readonly state: WorkflowChecksState;
+  readonly state: PageModuleState;
   readonly loadAgain: () => void;
 }

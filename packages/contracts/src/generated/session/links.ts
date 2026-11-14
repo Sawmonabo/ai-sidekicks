@@ -3,19 +3,17 @@
 
 // The links between sessions as the person reads and changes them.
 
+import type { SchemaCheck } from "../../schema-check.js";
+import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
+import { validateEmptyPayload } from "../checks/method-descriptor.js";
 import {
-  type CompiledSchemaCheck,
-  type SchemaCheck,
-  deepEqual,
-  ucs2length,
-  wireByteLength,
-} from "../../schema-check.js";
-import {
-  type SubscribeAcknowledgmentResponse,
-  validateSubscribeAcknowledgmentResponse,
-} from "../jsonrpc/streaming.js";
-import { type EmptyPayload, validateEmptyPayload } from "../method-descriptor.js";
-import { type SessionId, validateSessionId } from "./id.js";
+  validateSessionLinkRequest,
+  validateSessionRelatedListUpdate,
+  validateSessionRelatedSessionSubscribeRequest,
+} from "../checks/session/links.js";
+import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
+import type { EmptyPayload } from "../method-descriptor.js";
+import type { SessionId } from "./id.js";
 
 /**
  * How two sessions are linked. Every kind but `related` is written by the daemon when the event
@@ -99,39 +97,13 @@ export interface SessionLinkRequest {
   targetSessionId: SessionId;
 }
 
-// prettier-ignore
-const schema1247: any = {"description":"How two sessions are linked. Every kind but `related` is written by the daemon when the event\nthat makes it happens; `related` is added on purpose and is the one a person removes.","type":"string","enum":["started","copiedFrom","messaged","asked","mentioned","related"]};
-/** Checks that a value is a {@link SessionLinkKind}. */
-// prettier-ignore
-export const validateSessionLinkKind: CompiledSchemaCheck<SessionLinkKind> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is SessionLinkKind {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateSessionLinkKind.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(typeof data !== "string"){validateSessionLinkKind.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "string"}}];return false;}if(!((((((data === "started") || (data === "copiedFrom")) || (data === "messaged")) || (data === "asked")) || (data === "mentioned")) || (data === "related"))){validateSessionLinkKind.errors = [{instancePath,schemaPath:"#/enum",keyword:"enum",params:{allowedValues: schema1247.enum}}];return false;}validateSessionLinkKind.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateSessionLinkKind.evaluated = {"dynamicProps":false,"dynamicItems":false} as any;
-/** Checks that a value is a {@link SessionRelatedSessionSubscribeRequest}. */
-// prettier-ignore
-export const validateSessionRelatedSessionSubscribeRequest: CompiledSchemaCheck<SessionRelatedSessionSubscribeRequest> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is SessionRelatedSessionSubscribeRequest {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateSessionRelatedSessionSubscribeRequest.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.sessionId === undefined) && (missing0 = "sessionId")){validateSessionRelatedSessionSubscribeRequest.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "sessionId")){validateSessionRelatedSessionSubscribeRequest.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.sessionId !== undefined){if(!(validateSessionId.call(this, data.sessionId, {instancePath:instancePath+"/sessionId",parentData:data,parentDataProperty:"sessionId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateSessionId.errors : vErrors.concat(validateSessionId.errors);errors = vErrors.length;}}}}}else {validateSessionRelatedSessionSubscribeRequest.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateSessionRelatedSessionSubscribeRequest.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateSessionRelatedSessionSubscribeRequest.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-// prettier-ignore
-const func1 = ucs2length;
-// prettier-ignore
-const pattern5 = new RegExp("^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$", "u");
-/** Checks that a value is a {@link SessionRelatedListEntry}. */
-// prettier-ignore
-export const validateSessionRelatedListEntry: CompiledSchemaCheck<SessionRelatedListEntry> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is SessionRelatedListEntry {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateSessionRelatedListEntry.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if(((((data.sessionId === undefined) && (missing0 = "sessionId")) || ((data.kind === undefined) && (missing0 = "kind"))) || ((data.sessionIsSource === undefined) && (missing0 = "sessionIsSource"))) || ((data.removable === undefined) && (missing0 = "removable"))){validateSessionRelatedListEntry.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!((((((key0 === "sessionId") || (key0 === "name")) || (key0 === "kind")) || (key0 === "sessionIsSource")) || (key0 === "messageCount")) || (key0 === "removable"))){validateSessionRelatedListEntry.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.sessionId !== undefined){const _errs2: any = errors;if(!(validateSessionId.call(this, data.sessionId, {instancePath:instancePath+"/sessionId",parentData:data,parentDataProperty:"sessionId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateSessionId.errors : vErrors.concat(validateSessionId.errors);errors = vErrors.length;}var valid0: any = _errs2 === errors;}else {var valid0: any = true;}if(valid0){if(data.name !== undefined){let data1: any = data.name;const _errs3: any = errors;if(errors === _errs3){if(typeof data1 === "string"){if(func1(data1) > 256){validateSessionRelatedListEntry.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/maxLength",keyword:"maxLength",params:{limit: 256}}];return false;}else {if(func1(data1) < 1){validateSessionRelatedListEntry.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/minLength",keyword:"minLength",params:{limit: 1}}];return false;}else {if(!pattern5.test(data1)){validateSessionRelatedListEntry.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$"}}];return false;}}}}else {validateSessionRelatedListEntry.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/type",keyword:"type",params:{type: "string"}}];return false;}}var valid0: any = _errs3 === errors;}else {var valid0: any = true;}if(valid0){if(data.kind !== undefined){const _errs5: any = errors;if(!(validateSessionLinkKind.call(this, data.kind, {instancePath:instancePath+"/kind",parentData:data,parentDataProperty:"kind",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateSessionLinkKind.errors : vErrors.concat(validateSessionLinkKind.errors);errors = vErrors.length;}var valid0: any = _errs5 === errors;}else {var valid0: any = true;}if(valid0){if(data.sessionIsSource !== undefined){const _errs6: any = errors;if(typeof data.sessionIsSource !== "boolean"){validateSessionRelatedListEntry.errors = [{instancePath:instancePath+"/sessionIsSource",schemaPath:"#/properties/sessionIsSource/type",keyword:"type",params:{type: "boolean"}}];return false;}var valid0: any = _errs6 === errors;}else {var valid0: any = true;}if(valid0){if(data.messageCount !== undefined){let data4: any = data.messageCount;const _errs8: any = errors;if(!(((typeof data4 == "number") && (!(data4 % 1) && !isNaN(data4))) && (isFinite(data4)))){validateSessionRelatedListEntry.errors = [{instancePath:instancePath+"/messageCount",schemaPath:"#/properties/messageCount/type",keyword:"type",params:{type: "integer"}}];return false;}if(errors === _errs8){if((typeof data4 == "number") && (isFinite(data4))){if(data4 > 9007199254740991 || isNaN(data4)){validateSessionRelatedListEntry.errors = [{instancePath:instancePath+"/messageCount",schemaPath:"#/properties/messageCount/maximum",keyword:"maximum",params:{comparison: "<=", limit: 9007199254740991}}];return false;}else {if(data4 < 1 || isNaN(data4)){validateSessionRelatedListEntry.errors = [{instancePath:instancePath+"/messageCount",schemaPath:"#/properties/messageCount/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1}}];return false;}}}}var valid0: any = _errs8 === errors;}else {var valid0: any = true;}if(valid0){if(data.removable !== undefined){const _errs10: any = errors;if(typeof data.removable !== "boolean"){validateSessionRelatedListEntry.errors = [{instancePath:instancePath+"/removable",schemaPath:"#/properties/removable/type",keyword:"type",params:{type: "boolean"}}];return false;}var valid0: any = _errs10 === errors;}else {var valid0: any = true;}}}}}}}}}else {validateSessionRelatedListEntry.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateSessionRelatedListEntry.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateSessionRelatedListEntry.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-/** Checks that a value is a {@link SessionRelatedListUpdate}. */
-// prettier-ignore
-export const validateSessionRelatedListUpdate: CompiledSchemaCheck<SessionRelatedListUpdate> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is SessionRelatedListUpdate {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateSessionRelatedListUpdate.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if(((data.sessionId === undefined) && (missing0 = "sessionId")) || ((data.related === undefined) && (missing0 = "related"))){validateSessionRelatedListUpdate.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!((key0 === "sessionId") || (key0 === "related"))){validateSessionRelatedListUpdate.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.sessionId !== undefined){const _errs2: any = errors;if(!(validateSessionId.call(this, data.sessionId, {instancePath:instancePath+"/sessionId",parentData:data,parentDataProperty:"sessionId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateSessionId.errors : vErrors.concat(validateSessionId.errors);errors = vErrors.length;}var valid0: any = _errs2 === errors;}else {var valid0: any = true;}if(valid0){if(data.related !== undefined){let data1: any = data.related;const _errs3: any = errors;if(wireByteLength(data1, this && this.attachments) > 991808){validateSessionRelatedListUpdate.errors = [{instancePath:instancePath+"/related",schemaPath:"#/properties/related/maxJsonBytes",keyword:"maxJsonBytes",params:{}}];return false;}if(errors === _errs3){if(Array.isArray(data1)){var valid1: any = true;const len0: any = data1.length;for(let i0=0; i0<len0; i0++){const _errs5: any = errors;if(!(validateSessionRelatedListEntry.call(this, data1[i0], {instancePath:instancePath+"/related/" + i0,parentData:data1,parentDataProperty:i0,rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateSessionRelatedListEntry.errors : vErrors.concat(validateSessionRelatedListEntry.errors);errors = vErrors.length;}var valid1: any = _errs5 === errors;if(!valid1){break;}}}else {validateSessionRelatedListUpdate.errors = [{instancePath:instancePath+"/related",schemaPath:"#/properties/related/type",keyword:"type",params:{type: "array"}}];return false;}}var valid0: any = _errs3 === errors;}else {var valid0: any = true;}}}}}else {validateSessionRelatedListUpdate.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateSessionRelatedListUpdate.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateSessionRelatedListUpdate.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-// prettier-ignore
-const func0 = deepEqual;
-/** Checks that a value is a {@link SessionLinkRequest}. */
-// prettier-ignore
-export const validateSessionLinkRequest: CompiledSchemaCheck<SessionLinkRequest> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is SessionLinkRequest {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateSessionLinkRequest.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if(((data.sessionId === undefined) && (missing0 = "sessionId")) || ((data.targetSessionId === undefined) && (missing0 = "targetSessionId"))){validateSessionLinkRequest.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!((key0 === "sessionId") || (key0 === "targetSessionId"))){validateSessionLinkRequest.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.sessionId !== undefined){const _errs2: any = errors;if(!(validateSessionId.call(this, data.sessionId, {instancePath:instancePath+"/sessionId",parentData:data,parentDataProperty:"sessionId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateSessionId.errors : vErrors.concat(validateSessionId.errors);errors = vErrors.length;}var valid0: any = _errs2 === errors;}else {var valid0: any = true;}if(valid0){if(data.targetSessionId !== undefined){let data1: any = data.targetSessionId;const _errs3: any = errors;if(typeof data1 !== "string"){validateSessionLinkRequest.errors = [{instancePath:instancePath+"/targetSessionId",schemaPath:"#/properties/targetSessionId/type",keyword:"type",params:{type: "string"}}];return false;}if(!(validateSessionId.call(this, data1, {instancePath:instancePath+"/targetSessionId",parentData:data,parentDataProperty:"targetSessionId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateSessionId.errors : vErrors.concat(validateSessionId.errors);errors = vErrors.length;}else {const _errs5: any = errors;const _errs6: any = errors;const vSchema0: any = data && data.sessionId;if(vSchema0 !== undefined && (!func0(data1, vSchema0))){const err0: any = {};if(vErrors === null){vErrors = [err0];}else {vErrors.push(err0);}errors++;}var valid1: any = _errs6 === errors;if(valid1){validateSessionLinkRequest.errors = [{instancePath:instancePath+"/targetSessionId",schemaPath:"#/properties/targetSessionId/not",keyword:"not",params:{}}];return false;}else {errors = _errs5;if(vErrors !== null){if(_errs5){vErrors.length = _errs5;}else {vErrors = null;}}}}var valid0: any = _errs3 === errors;}else {var valid0: any = true;}}}}}else {validateSessionLinkRequest.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateSessionLinkRequest.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateSessionLinkRequest.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
+export {
+  validateSessionLinkKind,
+  validateSessionLinkRequest,
+  validateSessionRelatedListEntry,
+  validateSessionRelatedListUpdate,
+  validateSessionRelatedSessionSubscribeRequest,
+} from "../checks/session/links.js";
 
 /** The methods of {@link SESSION_LINK_METHOD_DESCRIPTORS}, each with its checks. */
 export interface SessionLinkMethodDescriptors {
@@ -159,27 +131,28 @@ export interface SessionLinkMethodDescriptors {
   };
 }
 /** The session link methods' wire contract: name, procedure type and types. */
-export const SESSION_LINK_METHOD_DESCRIPTORS: SessionLinkMethodDescriptors = Object.freeze({
-  "session.relatedSession.subscribe": Object.freeze({
-    method: "session.relatedSession.subscribe",
-    procedureType: "subscription",
-    mutating: false,
-    requestCheck: validateSessionRelatedSessionSubscribeRequest,
-    responseCheck: validateSubscribeAcknowledgmentResponse,
-    emissionCheck: validateSessionRelatedListUpdate,
-  }),
-  "session.link.add": Object.freeze({
-    method: "session.link.add",
-    procedureType: "mutation",
-    mutating: true,
-    requestCheck: validateSessionLinkRequest,
-    responseCheck: validateEmptyPayload,
-  }),
-  "session.link.remove": Object.freeze({
-    method: "session.link.remove",
-    procedureType: "mutation",
-    mutating: true,
-    requestCheck: validateSessionLinkRequest,
-    responseCheck: validateEmptyPayload,
-  }),
-});
+export const SESSION_LINK_METHOD_DESCRIPTORS: SessionLinkMethodDescriptors =
+  /* @__PURE__ */ Object.freeze({
+    "session.relatedSession.subscribe": /* @__PURE__ */ Object.freeze({
+      method: "session.relatedSession.subscribe",
+      procedureType: "subscription",
+      mutating: false,
+      requestCheck: validateSessionRelatedSessionSubscribeRequest,
+      responseCheck: validateSubscribeAcknowledgmentResponse,
+      emissionCheck: validateSessionRelatedListUpdate,
+    }),
+    "session.link.add": /* @__PURE__ */ Object.freeze({
+      method: "session.link.add",
+      procedureType: "mutation",
+      mutating: true,
+      requestCheck: validateSessionLinkRequest,
+      responseCheck: validateEmptyPayload,
+    }),
+    "session.link.remove": /* @__PURE__ */ Object.freeze({
+      method: "session.link.remove",
+      procedureType: "mutation",
+      mutating: true,
+      requestCheck: validateSessionLinkRequest,
+      responseCheck: validateEmptyPayload,
+    }),
+  });

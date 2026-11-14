@@ -3,8 +3,13 @@
 
 // The service's lifecycle verbs: stop, restart, the flush at quit and the ping on a quiet link.
 
-import type { CompiledSchemaCheck, SchemaCheck } from "../../schema-check.js";
-import { type EmptyPayload, validateEmptyPayload } from "../method-descriptor.js";
+import type { SchemaCheck } from "../../schema-check.js";
+import {
+  validateDaemonFlushResponse,
+  validateDaemonLifecycleAccepted,
+} from "../checks/daemon/lifecycle.js";
+import { validateEmptyPayload } from "../checks/method-descriptor.js";
+import type { EmptyPayload } from "../method-descriptor.js";
 
 /**
  * The words the service's ready line carries, written once it answers on its socket;
@@ -39,16 +44,10 @@ export interface DaemonFlushResponse {
   flushed: true;
 }
 
-/** Checks that a value is a {@link DaemonLifecycleAccepted}. */
-// prettier-ignore
-export const validateDaemonLifecycleAccepted: CompiledSchemaCheck<DaemonLifecycleAccepted> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is DaemonLifecycleAccepted {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateDaemonLifecycleAccepted.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.accepted === undefined) && (missing0 = "accepted")){validateDaemonLifecycleAccepted.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "accepted")){validateDaemonLifecycleAccepted.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.accepted !== undefined){let data0: any = data.accepted;if(typeof data0 !== "boolean"){validateDaemonLifecycleAccepted.errors = [{instancePath:instancePath+"/accepted",schemaPath:"#/properties/accepted/type",keyword:"type",params:{type: "boolean"}}];return false;}if(true !== data0){validateDaemonLifecycleAccepted.errors = [{instancePath:instancePath+"/accepted",schemaPath:"#/properties/accepted/const",keyword:"const",params:{allowedValue: true}}];return false;}}}}}else {validateDaemonLifecycleAccepted.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateDaemonLifecycleAccepted.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateDaemonLifecycleAccepted.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-/** Checks that a value is a {@link DaemonFlushResponse}. */
-// prettier-ignore
-export const validateDaemonFlushResponse: CompiledSchemaCheck<DaemonFlushResponse> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is DaemonFlushResponse {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateDaemonFlushResponse.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.flushed === undefined) && (missing0 = "flushed")){validateDaemonFlushResponse.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "flushed")){validateDaemonFlushResponse.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.flushed !== undefined){let data0: any = data.flushed;if(typeof data0 !== "boolean"){validateDaemonFlushResponse.errors = [{instancePath:instancePath+"/flushed",schemaPath:"#/properties/flushed/type",keyword:"type",params:{type: "boolean"}}];return false;}if(true !== data0){validateDaemonFlushResponse.errors = [{instancePath:instancePath+"/flushed",schemaPath:"#/properties/flushed/const",keyword:"const",params:{allowedValue: true}}];return false;}}}}}else {validateDaemonFlushResponse.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateDaemonFlushResponse.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateDaemonFlushResponse.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
+export {
+  validateDaemonFlushResponse,
+  validateDaemonLifecycleAccepted,
+} from "../checks/daemon/lifecycle.js";
 
 /** The methods of {@link DAEMON_LIFECYCLE_METHOD_DESCRIPTORS}, each with its checks. */
 export interface DaemonLifecycleMethodDescriptors {
@@ -85,33 +84,34 @@ export interface DaemonLifecycleMethodDescriptors {
  * The lifecycle verbs. Every verb takes an empty request; none is ever refused, so the
  * service can always be stopped, restarted or flushed.
  */
-export const DAEMON_LIFECYCLE_METHOD_DESCRIPTORS: DaemonLifecycleMethodDescriptors = Object.freeze({
-  "daemon.stop": Object.freeze({
-    method: "daemon.stop",
-    procedureType: "mutation",
-    mutating: true,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateDaemonLifecycleAccepted,
-  }),
-  "daemon.restart": Object.freeze({
-    method: "daemon.restart",
-    procedureType: "mutation",
-    mutating: true,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateDaemonLifecycleAccepted,
-  }),
-  "daemon.flush": Object.freeze({
-    method: "daemon.flush",
-    procedureType: "mutation",
-    mutating: true,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateDaemonFlushResponse,
-  }),
-  "daemon.ping": Object.freeze({
-    method: "daemon.ping",
-    procedureType: "query",
-    mutating: false,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateEmptyPayload,
-  }),
-});
+export const DAEMON_LIFECYCLE_METHOD_DESCRIPTORS: DaemonLifecycleMethodDescriptors =
+  /* @__PURE__ */ Object.freeze({
+    "daemon.stop": /* @__PURE__ */ Object.freeze({
+      method: "daemon.stop",
+      procedureType: "mutation",
+      mutating: true,
+      requestCheck: validateEmptyPayload,
+      responseCheck: validateDaemonLifecycleAccepted,
+    }),
+    "daemon.restart": /* @__PURE__ */ Object.freeze({
+      method: "daemon.restart",
+      procedureType: "mutation",
+      mutating: true,
+      requestCheck: validateEmptyPayload,
+      responseCheck: validateDaemonLifecycleAccepted,
+    }),
+    "daemon.flush": /* @__PURE__ */ Object.freeze({
+      method: "daemon.flush",
+      procedureType: "mutation",
+      mutating: true,
+      requestCheck: validateEmptyPayload,
+      responseCheck: validateDaemonFlushResponse,
+    }),
+    "daemon.ping": /* @__PURE__ */ Object.freeze({
+      method: "daemon.ping",
+      procedureType: "query",
+      mutating: false,
+      requestCheck: validateEmptyPayload,
+      responseCheck: validateEmptyPayload,
+    }),
+  });

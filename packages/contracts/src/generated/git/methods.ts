@@ -5,30 +5,6 @@
 
 import type { SchemaCheck } from "../../schema-check.js";
 import {
-  type SubscribeAcknowledgmentResponse,
-  validateSubscribeAcknowledgmentResponse,
-} from "../jsonrpc/streaming.js";
-import { type EmptyPayload, validateEmptyPayload } from "../method-descriptor.js";
-import {
-  type ChangeRequestFrame,
-  type GitChangeRequestSubscribeRequest,
-  type GitCheckLogReadRequest,
-  type GitCheckLogReadResponse,
-  type GitHostAddRequest,
-  type GitHostAddResponse,
-  type GitHostListResponse,
-  type GitHostRemoveRequest,
-  type GitHostRemoveResponse,
-  type GitLabelListResponse,
-  type GitReviewSubmitRequest,
-  type GitReviewSubmitResponse,
-  type GitReviewThreadReplyRequest,
-  type GitReviewThreadReplyResponse,
-  type GitReviewThreadResolveRequest,
-  type GitReviewThreadResolveResponse,
-  type GitReviewerListRequest,
-  type GitReviewerListResponse,
-  type GitSessionRequest,
   validateChangeRequestFrame,
   validateGitChangeRequestSubscribeRequest,
   validateGitCheckLogReadRequest,
@@ -48,19 +24,8 @@ import {
   validateGitReviewerListRequest,
   validateGitReviewerListResponse,
   validateGitSessionRequest,
-} from "./hosting.js";
+} from "../checks/git/hosting.js";
 import {
-  type GitActFrame,
-  type GitActionExecuteRequest,
-  type GitActionExecuteResponse,
-  type GitActionPreviewRequest,
-  type GitActionPreviewResponse,
-  type GitActionSubscribeRequest,
-  type GitBranchContextReadResponse,
-  type GitChangeRequestTextGenerateResponse,
-  type GitCommitMessageGenerateResponse,
-  type GitDiffReadRequest,
-  type GitDiffReadResponse,
   validateGitActFrame,
   validateGitActionExecuteRequest,
   validateGitActionExecuteResponse,
@@ -72,6 +37,44 @@ import {
   validateGitCommitMessageGenerateResponse,
   validateGitDiffReadRequest,
   validateGitDiffReadResponse,
+} from "../checks/git/local.js";
+import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
+import { validateEmptyPayload } from "../checks/method-descriptor.js";
+import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
+import type { EmptyPayload } from "../method-descriptor.js";
+import type {
+  ChangeRequestFrame,
+  GitChangeRequestSubscribeRequest,
+  GitCheckLogReadRequest,
+  GitCheckLogReadResponse,
+  GitHostAddRequest,
+  GitHostAddResponse,
+  GitHostListResponse,
+  GitHostRemoveRequest,
+  GitHostRemoveResponse,
+  GitLabelListResponse,
+  GitReviewSubmitRequest,
+  GitReviewSubmitResponse,
+  GitReviewThreadReplyRequest,
+  GitReviewThreadReplyResponse,
+  GitReviewThreadResolveRequest,
+  GitReviewThreadResolveResponse,
+  GitReviewerListRequest,
+  GitReviewerListResponse,
+  GitSessionRequest,
+} from "./hosting.js";
+import type {
+  GitActFrame,
+  GitActionExecuteRequest,
+  GitActionExecuteResponse,
+  GitActionPreviewRequest,
+  GitActionPreviewResponse,
+  GitActionSubscribeRequest,
+  GitBranchContextReadResponse,
+  GitChangeRequestTextGenerateResponse,
+  GitCommitMessageGenerateResponse,
+  GitDiffReadRequest,
+  GitDiffReadResponse,
 } from "./local.js";
 
 /** The methods of {@link GIT_METHOD_DESCRIPTORS}, each with its checks. */
@@ -199,57 +202,57 @@ export interface GitMethodDescriptors {
   };
 }
 /** Every `git.*` method. */
-export const GIT_METHOD_DESCRIPTORS: GitMethodDescriptors = Object.freeze({
-  "git.host.list": Object.freeze({
+export const GIT_METHOD_DESCRIPTORS: GitMethodDescriptors = /* @__PURE__ */ Object.freeze({
+  "git.host.list": /* @__PURE__ */ Object.freeze({
     method: "git.host.list",
     procedureType: "query",
     mutating: false,
     requestCheck: validateEmptyPayload,
     responseCheck: validateGitHostListResponse,
   }),
-  "git.host.add": Object.freeze({
+  "git.host.add": /* @__PURE__ */ Object.freeze({
     method: "git.host.add",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateGitHostAddRequest,
     responseCheck: validateGitHostAddResponse,
   }),
-  "git.host.remove": Object.freeze({
+  "git.host.remove": /* @__PURE__ */ Object.freeze({
     method: "git.host.remove",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateGitHostRemoveRequest,
     responseCheck: validateGitHostRemoveResponse,
   }),
-  "git.branchContext.read": Object.freeze({
+  "git.branchContext.read": /* @__PURE__ */ Object.freeze({
     method: "git.branchContext.read",
     procedureType: "query",
     mutating: false,
     requestCheck: validateGitSessionRequest,
     responseCheck: validateGitBranchContextReadResponse,
   }),
-  "git.diff.read": Object.freeze({
+  "git.diff.read": /* @__PURE__ */ Object.freeze({
     method: "git.diff.read",
     procedureType: "query",
     mutating: false,
     requestCheck: validateGitDiffReadRequest,
     responseCheck: validateGitDiffReadResponse,
   }),
-  "git.action.preview": Object.freeze({
+  "git.action.preview": /* @__PURE__ */ Object.freeze({
     method: "git.action.preview",
     procedureType: "query",
     mutating: false,
     requestCheck: validateGitActionPreviewRequest,
     responseCheck: validateGitActionPreviewResponse,
   }),
-  "git.action.execute": Object.freeze({
+  "git.action.execute": /* @__PURE__ */ Object.freeze({
     method: "git.action.execute",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateGitActionExecuteRequest,
     responseCheck: validateGitActionExecuteResponse,
   }),
-  "git.action.subscribe": Object.freeze({
+  "git.action.subscribe": /* @__PURE__ */ Object.freeze({
     method: "git.action.subscribe",
     procedureType: "subscription",
     mutating: false,
@@ -257,21 +260,21 @@ export const GIT_METHOD_DESCRIPTORS: GitMethodDescriptors = Object.freeze({
     responseCheck: validateSubscribeAcknowledgmentResponse,
     emissionCheck: validateGitActFrame,
   }),
-  "git.commitMessage.generate": Object.freeze({
+  "git.commitMessage.generate": /* @__PURE__ */ Object.freeze({
     method: "git.commitMessage.generate",
     procedureType: "mutation",
     mutating: false,
     requestCheck: validateGitSessionRequest,
     responseCheck: validateGitCommitMessageGenerateResponse,
   }),
-  "git.changeRequest.text.generate": Object.freeze({
+  "git.changeRequest.text.generate": /* @__PURE__ */ Object.freeze({
     method: "git.changeRequest.text.generate",
     procedureType: "mutation",
     mutating: false,
     requestCheck: validateGitSessionRequest,
     responseCheck: validateGitChangeRequestTextGenerateResponse,
   }),
-  "git.changeRequest.subscribe": Object.freeze({
+  "git.changeRequest.subscribe": /* @__PURE__ */ Object.freeze({
     method: "git.changeRequest.subscribe",
     procedureType: "subscription",
     mutating: false,
@@ -279,42 +282,42 @@ export const GIT_METHOD_DESCRIPTORS: GitMethodDescriptors = Object.freeze({
     responseCheck: validateSubscribeAcknowledgmentResponse,
     emissionCheck: validateChangeRequestFrame,
   }),
-  "git.reviewer.list": Object.freeze({
+  "git.reviewer.list": /* @__PURE__ */ Object.freeze({
     method: "git.reviewer.list",
     procedureType: "query",
     mutating: false,
     requestCheck: validateGitReviewerListRequest,
     responseCheck: validateGitReviewerListResponse,
   }),
-  "git.label.list": Object.freeze({
+  "git.label.list": /* @__PURE__ */ Object.freeze({
     method: "git.label.list",
     procedureType: "query",
     mutating: false,
     requestCheck: validateGitSessionRequest,
     responseCheck: validateGitLabelListResponse,
   }),
-  "git.review.submit": Object.freeze({
+  "git.review.submit": /* @__PURE__ */ Object.freeze({
     method: "git.review.submit",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateGitReviewSubmitRequest,
     responseCheck: validateGitReviewSubmitResponse,
   }),
-  "git.reviewThread.resolve": Object.freeze({
+  "git.reviewThread.resolve": /* @__PURE__ */ Object.freeze({
     method: "git.reviewThread.resolve",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateGitReviewThreadResolveRequest,
     responseCheck: validateGitReviewThreadResolveResponse,
   }),
-  "git.reviewThread.reply": Object.freeze({
+  "git.reviewThread.reply": /* @__PURE__ */ Object.freeze({
     method: "git.reviewThread.reply",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateGitReviewThreadReplyRequest,
     responseCheck: validateGitReviewThreadReplyResponse,
   }),
-  "git.checkLog.read": Object.freeze({
+  "git.checkLog.read": /* @__PURE__ */ Object.freeze({
     method: "git.checkLog.read",
     procedureType: "query",
     mutating: false,

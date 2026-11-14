@@ -1,5 +1,5 @@
 // The next move under a refusal, in the region the `action` prop fills; one component for every
-// table's `RefusalRemedy`. A code with no move has no remedy and so draws none of this.
+// `RefusalRemedy`. A code with no move has no remedy and so draws none of this.
 
 import "./Refusal.css";
 

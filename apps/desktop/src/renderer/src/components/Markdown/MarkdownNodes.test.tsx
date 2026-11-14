@@ -14,9 +14,8 @@ import type { MarkdownTableOffer } from "./table-offer.js";
 import { MarkdownWorkerConnection } from "./worker/connection.js";
 import { InThreadMarkdownWorkers } from "./worker/connection.test-support.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
-import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
-import { appWorkflowChecks } from "./worker/workflow-checks-load.js";
+import { appFuzzyMatcherLoad, appWorkflowChecks } from "./worker/page-module-load.js";
 
 /** Leaves the renderer's caches alone: no case here shows enough pictures to empty them for. */
 const keepUnusedMemory = (): void => undefined;
@@ -157,7 +156,7 @@ describe("a long table offered to a body that draws its rows", () => {
         window,
         appPageParser,
         appTextCompression,
-        appFuzzyMatcher,
+        appFuzzyMatcherLoad,
         appWorkflowChecks,
       ),
       1_000_000,

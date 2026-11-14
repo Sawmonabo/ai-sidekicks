@@ -3,48 +3,8 @@
 
 // A session's live agents as a client reads and moves them, and the live agents' method table, which also carries the definition verbs.
 
+import type { SchemaCheck } from "../../schema-check.js";
 import {
-  type CompiledSchemaCheck,
-  type SchemaCheck,
-  deepEqual,
-  repeatsItemKey,
-  ucs2length,
-} from "../../schema-check.js";
-import { type WireInstant, validateWireInstant } from "../internal/wire-scalars.js";
-import {
-  type SubscribeAcknowledgmentResponse,
-  type SubscriptionId,
-  validateSubscribeAcknowledgmentResponse,
-  validateSubscriptionId,
-} from "../jsonrpc/streaming.js";
-import { type EmptyPayload, validateEmptyPayload } from "../method-descriptor.js";
-import {
-  type ObservedProviderOption,
-  type ProviderOptionSetting,
-  validateObservedProviderOption,
-  validateProviderOptionSetting,
-} from "../provider/declaration.js";
-import {
-  type ProviderOutputSpeedState,
-  validateProviderOutputSpeedState,
-} from "../provider/driver/output-speed.js";
-import { type ProviderId, validateProviderId } from "../provider/id.js";
-import { type SessionId, validateSessionId } from "../session/id.js";
-import {
-  type AgentDefinitionCreateRequest,
-  type AgentDefinitionCreateResponse,
-  type AgentDefinitionDeleteRequest,
-  type AgentDefinitionDeleteResponse,
-  type AgentDefinitionExportRequest,
-  type AgentDefinitionExportResponse,
-  type AgentDefinitionImportRequest,
-  type AgentDefinitionImportResponse,
-  type AgentDefinitionListResponse,
-  type AgentDefinitionUpdateRequest,
-  type AgentDefinitionUpdateResponse,
-  type AgentId,
-  type AgentProviderBinding,
-  type AgentResolvedConfiguration,
   validateAgentDefinitionCreateRequest,
   validateAgentDefinitionCreateResponse,
   validateAgentDefinitionDeleteRequest,
@@ -56,17 +16,44 @@ import {
   validateAgentDefinitionListResponse,
   validateAgentDefinitionUpdateRequest,
   validateAgentDefinitionUpdateResponse,
-  validateAgentId,
-  validateAgentProviderBinding,
-  validateAgentResolvedConfiguration,
-} from "./definition.js";
+} from "../checks/agent/definition.js";
 import {
-  type AgentBindingSwitchDisposition,
-  type AgentBindingSwitchPending,
-  validateAgentBindingSwitchDisposition,
-  validateAgentBindingSwitchPending,
+  validateAgentConfigUpdateRequest,
+  validateAgentConfigUpdateResponse,
+  validateAgentSubscribeEntry,
+  validateAgentSubscribeRequest,
+  validateAgentSubscribeResponse,
+} from "../checks/agent/methods.js";
+import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
+import { validateEmptyPayload } from "../checks/method-descriptor.js";
+import type { WireInstant } from "../internal/wire-scalars.js";
+import type { SubscribeAcknowledgmentResponse, SubscriptionId } from "../jsonrpc/streaming.js";
+import type { EmptyPayload } from "../method-descriptor.js";
+import type { ObservedProviderOption, ProviderOptionSetting } from "../provider/declaration.js";
+import type { ProviderOutputSpeedState } from "../provider/driver/output-speed.js";
+import type { ProviderId } from "../provider/id.js";
+import type { SessionId } from "../session/id.js";
+import type {
+  AgentDefinitionCreateRequest,
+  AgentDefinitionCreateResponse,
+  AgentDefinitionDeleteRequest,
+  AgentDefinitionDeleteResponse,
+  AgentDefinitionExportRequest,
+  AgentDefinitionExportResponse,
+  AgentDefinitionImportRequest,
+  AgentDefinitionImportResponse,
+  AgentDefinitionListResponse,
+  AgentDefinitionUpdateRequest,
+  AgentDefinitionUpdateResponse,
+  AgentId,
+  AgentProviderBinding,
+  AgentResolvedConfiguration,
+} from "./definition.js";
+import type {
+  AgentBindingSwitchDisposition,
+  AgentBindingSwitchPending,
 } from "./provider-binding.js";
-import { type AgentTreeMember, validateAgentTreeMember } from "./tree.js";
+import type { AgentTreeMember } from "./tree.js";
 
 /**
  * The session whose agents `agent.subscribe` streams.
@@ -200,46 +187,13 @@ export interface AgentConfigUpdateResponse {
   switch: AgentBindingSwitchDisposition;
 }
 
-/** Checks that a value is a {@link AgentSubscribeRequest}. */
-// prettier-ignore
-export const validateAgentSubscribeRequest: CompiledSchemaCheck<AgentSubscribeRequest> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is AgentSubscribeRequest {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateAgentSubscribeRequest.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.sessionId === undefined) && (missing0 = "sessionId")){validateAgentSubscribeRequest.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "sessionId")){validateAgentSubscribeRequest.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.sessionId !== undefined){if(!(validateSessionId.call(this, data.sessionId, {instancePath:instancePath+"/sessionId",parentData:data,parentDataProperty:"sessionId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateSessionId.errors : vErrors.concat(validateSessionId.errors);errors = vErrors.length;}}}}}else {validateAgentSubscribeRequest.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateAgentSubscribeRequest.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateAgentSubscribeRequest.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-// prettier-ignore
-const schema73: any = {"type":"object","additionalProperties":false,"properties":{"agentId":{"$ref":"sidekicks-contracts:agent/definition#/$defs/AgentId","description":"The agent."},"name":{"type":"string","minLength":1,"pattern":"^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$","maxLength":128,"description":"Its name."},"binding":{"$ref":"sidekicks-contracts:agent/definition#/$defs/AgentProviderBinding","description":"The binding it runs under now, never the pending one."},"observedOutputSpeed":{"$ref":"sidekicks-contracts:provider/driver/output-speed#/$defs/ProviderOutputSpeedState","description":"The speed the provider declared on the live binding; absent until it declares one."},"observedOptions":{"type":"array","items":{"$ref":"sidekicks-contracts:provider/declaration#/$defs/ObservedProviderOption"},"minItems":1,"uniqueItems":true,"uniqueItemKey":"id","description":"The session options as the provider reports them on the live binding; absent where\nno binding is live or its driver declares none, never read as off."},"pendingSwitch":{"$ref":"sidekicks-contracts:agent/provider-binding#/$defs/AgentBindingSwitchPending","description":"Present exactly while a switch waits, so every client learns of it, after a\nrestart too."},"resolvedConfiguration":{"$ref":"sidekicks-contracts:agent/definition#/$defs/AgentResolvedConfiguration","description":"Present exactly when the agent started from a saved definition, which names it on\nscreen."},"ancestry":{"type":"array","items":{"$ref":"sidekicks-contracts:agent/tree#/$defs/AgentTreeMember"},"description":"From the lead down to this agent's parent; empty for the lead."},"createdAt":{"$ref":"sidekicks-contracts:internal/wire-scalars#/$defs/WireInstant","description":"When it joined the session."}},"required":["agentId","name","binding","ancestry","createdAt"],"description":"One agent in the session."};
-// prettier-ignore
-const func2 = Object.prototype.hasOwnProperty;
-// prettier-ignore
-const func1 = ucs2length;
-// prettier-ignore
-const func0 = deepEqual;
-// prettier-ignore
-const pattern5 = new RegExp("^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$", "u");
-/** Checks that a value is a {@link AgentSubscribeEntry}. */
-// prettier-ignore
-export const validateAgentSubscribeEntry: CompiledSchemaCheck<AgentSubscribeEntry> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is AgentSubscribeEntry {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateAgentSubscribeEntry.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((((((data.agentId === undefined) && (missing0 = "agentId")) || ((data.name === undefined) && (missing0 = "name"))) || ((data.binding === undefined) && (missing0 = "binding"))) || ((data.ancestry === undefined) && (missing0 = "ancestry"))) || ((data.createdAt === undefined) && (missing0 = "createdAt"))){validateAgentSubscribeEntry.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(func2.call(schema73.properties, key0))){validateAgentSubscribeEntry.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.agentId !== undefined){const _errs2: any = errors;if(!(validateAgentId.call(this, data.agentId, {instancePath:instancePath+"/agentId",parentData:data,parentDataProperty:"agentId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateAgentId.errors : vErrors.concat(validateAgentId.errors);errors = vErrors.length;}var valid0: any = _errs2 === errors;}else {var valid0: any = true;}if(valid0){if(data.name !== undefined){let data1: any = data.name;const _errs3: any = errors;if(errors === _errs3){if(typeof data1 === "string"){if(func1(data1) > 128){validateAgentSubscribeEntry.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/maxLength",keyword:"maxLength",params:{limit: 128}}];return false;}else {if(func1(data1) < 1){validateAgentSubscribeEntry.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/minLength",keyword:"minLength",params:{limit: 1}}];return false;}else {if(!pattern5.test(data1)){validateAgentSubscribeEntry.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$"}}];return false;}}}}else {validateAgentSubscribeEntry.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/type",keyword:"type",params:{type: "string"}}];return false;}}var valid0: any = _errs3 === errors;}else {var valid0: any = true;}if(valid0){if(data.binding !== undefined){const _errs5: any = errors;if(!(validateAgentProviderBinding.call(this, data.binding, {instancePath:instancePath+"/binding",parentData:data,parentDataProperty:"binding",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateAgentProviderBinding.errors : vErrors.concat(validateAgentProviderBinding.errors);errors = vErrors.length;}var valid0: any = _errs5 === errors;}else {var valid0: any = true;}if(valid0){if(data.observedOutputSpeed !== undefined){const _errs6: any = errors;if(!(validateProviderOutputSpeedState.call(this, data.observedOutputSpeed, {instancePath:instancePath+"/observedOutputSpeed",parentData:data,parentDataProperty:"observedOutputSpeed",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateProviderOutputSpeedState.errors : vErrors.concat(validateProviderOutputSpeedState.errors);errors = vErrors.length;}var valid0: any = _errs6 === errors;}else {var valid0: any = true;}if(valid0){if(data.observedOptions !== undefined){let data4: any = data.observedOptions;const _errs7: any = errors;if(errors === _errs7){if(Array.isArray(data4)){if(data4.length < 1){validateAgentSubscribeEntry.errors = [{instancePath:instancePath+"/observedOptions",schemaPath:"#/properties/observedOptions/minItems",keyword:"minItems",params:{limit: 1}}];return false;}else {var valid1: any = true;const len0: any = data4.length;for(let i0=0; i0<len0; i0++){const _errs9: any = errors;if(!(validateObservedProviderOption.call(this, data4[i0], {instancePath:instancePath+"/observedOptions/" + i0,parentData:data4,parentDataProperty:i0,rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateObservedProviderOption.errors : vErrors.concat(validateObservedProviderOption.errors);errors = vErrors.length;}var valid1: any = _errs9 === errors;if(!valid1){break;}}if(valid1){let valid2: any;let i1: any = data4.length;let j0: any;valid2 = true;if(i1 > 1){outer0:for(;i1--;){for(j0 = i1; j0--;){if(func0(data4[i1], data4[j0])){validateAgentSubscribeEntry.errors = [{instancePath:instancePath+"/observedOptions",schemaPath:"#/properties/observedOptions/uniqueItems",keyword:"uniqueItems",params:{i: i1, j: j0}}];return false;valid2 = false;break outer0;}}}}if(valid2){if(repeatsItemKey(data4, "id")){validateAgentSubscribeEntry.errors = [{instancePath:instancePath+"/observedOptions",schemaPath:"#/properties/observedOptions/uniqueItemKey",keyword:"uniqueItemKey",params:{}}];return false;}}}}}else {validateAgentSubscribeEntry.errors = [{instancePath:instancePath+"/observedOptions",schemaPath:"#/properties/observedOptions/type",keyword:"type",params:{type: "array"}}];return false;}}var valid0: any = _errs7 === errors;}else {var valid0: any = true;}if(valid0){if(data.pendingSwitch !== undefined){const _errs10: any = errors;if(!(validateAgentBindingSwitchPending.call(this, data.pendingSwitch, {instancePath:instancePath+"/pendingSwitch",parentData:data,parentDataProperty:"pendingSwitch",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateAgentBindingSwitchPending.errors : vErrors.concat(validateAgentBindingSwitchPending.errors);errors = vErrors.length;}var valid0: any = _errs10 === errors;}else {var valid0: any = true;}if(valid0){if(data.resolvedConfiguration !== undefined){const _errs11: any = errors;if(!(validateAgentResolvedConfiguration.call(this, data.resolvedConfiguration, {instancePath:instancePath+"/resolvedConfiguration",parentData:data,parentDataProperty:"resolvedConfiguration",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateAgentResolvedConfiguration.errors : vErrors.concat(validateAgentResolvedConfiguration.errors);errors = vErrors.length;}var valid0: any = _errs11 === errors;}else {var valid0: any = true;}if(valid0){if(data.ancestry !== undefined){let data8: any = data.ancestry;const _errs12: any = errors;if(errors === _errs12){if(Array.isArray(data8)){var valid3: any = true;const len1: any = data8.length;for(let i2=0; i2<len1; i2++){const _errs14: any = errors;if(!(validateAgentTreeMember.call(this, data8[i2], {instancePath:instancePath+"/ancestry/" + i2,parentData:data8,parentDataProperty:i2,rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateAgentTreeMember.errors : vErrors.concat(validateAgentTreeMember.errors);errors = vErrors.length;}var valid3: any = _errs14 === errors;if(!valid3){break;}}}else {validateAgentSubscribeEntry.errors = [{instancePath:instancePath+"/ancestry",schemaPath:"#/properties/ancestry/type",keyword:"type",params:{type: "array"}}];return false;}}var valid0: any = _errs12 === errors;}else {var valid0: any = true;}if(valid0){if(data.createdAt !== undefined){const _errs15: any = errors;if(!(validateWireInstant.call(this, data.createdAt, {instancePath:instancePath+"/createdAt",parentData:data,parentDataProperty:"createdAt",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateWireInstant.errors : vErrors.concat(validateWireInstant.errors);errors = vErrors.length;}var valid0: any = _errs15 === errors;}else {var valid0: any = true;}}}}}}}}}}}}else {validateAgentSubscribeEntry.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateAgentSubscribeEntry.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateAgentSubscribeEntry.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-/** Checks that a value is a {@link AgentSubscribeResponse}. */
-// prettier-ignore
-export const validateAgentSubscribeResponse: CompiledSchemaCheck<AgentSubscribeResponse> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is AgentSubscribeResponse {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateAgentSubscribeResponse.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if(((data.subscriptionId === undefined) && (missing0 = "subscriptionId")) || ((data.agents === undefined) && (missing0 = "agents"))){validateAgentSubscribeResponse.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!((key0 === "subscriptionId") || (key0 === "agents"))){validateAgentSubscribeResponse.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.subscriptionId !== undefined){const _errs2: any = errors;if(!(validateSubscriptionId.call(this, data.subscriptionId, {instancePath:instancePath+"/subscriptionId",parentData:data,parentDataProperty:"subscriptionId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateSubscriptionId.errors : vErrors.concat(validateSubscriptionId.errors);errors = vErrors.length;}var valid0: any = _errs2 === errors;}else {var valid0: any = true;}if(valid0){if(data.agents !== undefined){let data1: any = data.agents;const _errs3: any = errors;if(errors === _errs3){if(Array.isArray(data1)){var valid1: any = true;const len0: any = data1.length;for(let i0=0; i0<len0; i0++){const _errs5: any = errors;if(!(validateAgentSubscribeEntry.call(this, data1[i0], {instancePath:instancePath+"/agents/" + i0,parentData:data1,parentDataProperty:i0,rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateAgentSubscribeEntry.errors : vErrors.concat(validateAgentSubscribeEntry.errors);errors = vErrors.length;}var valid1: any = _errs5 === errors;if(!valid1){break;}}}else {validateAgentSubscribeResponse.errors = [{instancePath:instancePath+"/agents",schemaPath:"#/properties/agents/type",keyword:"type",params:{type: "array"}}];return false;}}var valid0: any = _errs3 === errors;}else {var valid0: any = true;}}}}}else {validateAgentSubscribeResponse.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateAgentSubscribeResponse.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateAgentSubscribeResponse.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-// prettier-ignore
-const schema65: any = {"type":"object","additionalProperties":false,"properties":{"agentId":{"$ref":"sidekicks-contracts:agent/definition#/$defs/AgentId","description":"The agent."},"providerName":{"$ref":"sidekicks-contracts:provider/id#/$defs/ProviderId","description":"The provider."},"modelId":{"type":"string","minLength":1,"pattern":"^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$","maxLength":128,"description":"The model."},"effort":{"type":"string","minLength":1,"pattern":"^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$","maxLength":128,"description":"The effort."},"outputSpeed":{"type":"string","minLength":1,"pattern":"^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$","maxLength":128,"description":"The speed."},"options":{"type":"array","items":{"$ref":"sidekicks-contracts:provider/declaration#/$defs/ProviderOptionSetting"},"minItems":1,"uniqueItems":true,"uniqueItemKey":"id","description":"Values of the session options the target driver declares; an option left out keeps its\nvalue. The daemon checks each against the driver's declaration: an option the driver does\nnot declare, or a value outside its declaration, is refused `agent.providerAxisInvalid`."},"largerWindow":{"type":["integer","null"],"minimum":1,"maximum":9007199254740991,"description":"The window in tokens, or `null` back to the model's default."},"interruptAndSwitch":{"type":"boolean","description":"Interrupt the run first and hold the request open until the switch settles."}},"required":["agentId"],"description":"Moves a running agent's model, window, effort, speed, session options or provider: an omitted\nmember is unchanged and at least one moves, settled by the binding events. A provider switch\napplies at the end of the run in flight; the account is no member, since it follows the\nprovider's current account. A model move names its window.","anyOf":[{"type":"object","properties":{"providerName":{}},"required":["providerName"]},{"type":"object","properties":{"modelId":{}},"required":["modelId"]},{"type":"object","properties":{"effort":{}},"required":["effort"]},{"type":"object","properties":{"outputSpeed":{}},"required":["outputSpeed"]},{"type":"object","properties":{"options":{}},"required":["options"]},{"type":"object","properties":{"largerWindow":{}},"required":["largerWindow"]}],"dependentRequired":{"modelId":["largerWindow"]}};
-/** Checks that a value is a {@link AgentConfigUpdateRequest}. */
-// prettier-ignore
-export const validateAgentConfigUpdateRequest: CompiledSchemaCheck<AgentConfigUpdateRequest> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is AgentConfigUpdateRequest {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateAgentConfigUpdateRequest.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}const _errs1: any = errors;let valid0: any = false;const _errs2: any = errors;if(errors === _errs2){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.providerName === undefined) && (missing0 = "providerName")){const err0: any = {instancePath,schemaPath:"#/anyOf/0/required",keyword:"required",params:{missingProperty: missing0}};if(vErrors === null){vErrors = [err0];}else {vErrors.push(err0);}errors++;}}else {const err1: any = {instancePath,schemaPath:"#/anyOf/0/type",keyword:"type",params:{type: "object"}};if(vErrors === null){vErrors = [err1];}else {vErrors.push(err1);}errors++;}}var _valid0: any = _errs2 === errors;valid0 = valid0 || _valid0;if(_valid0){var props0: any = {};props0.providerName = true;}const _errs4: any = errors;if(errors === _errs4){if(data && typeof data == "object" && !Array.isArray(data)){let missing1: any;if((data.modelId === undefined) && (missing1 = "modelId")){const err2: any = {instancePath,schemaPath:"#/anyOf/1/required",keyword:"required",params:{missingProperty: missing1}};if(vErrors === null){vErrors = [err2];}else {vErrors.push(err2);}errors++;}}else {const err3: any = {instancePath,schemaPath:"#/anyOf/1/type",keyword:"type",params:{type: "object"}};if(vErrors === null){vErrors = [err3];}else {vErrors.push(err3);}errors++;}}var _valid0: any = _errs4 === errors;valid0 = valid0 || _valid0;if(_valid0){if(props0 !== true){props0 = props0 || {};props0.modelId = true;}}const _errs6: any = errors;if(errors === _errs6){if(data && typeof data == "object" && !Array.isArray(data)){let missing2: any;if((data.effort === undefined) && (missing2 = "effort")){const err4: any = {instancePath,schemaPath:"#/anyOf/2/required",keyword:"required",params:{missingProperty: missing2}};if(vErrors === null){vErrors = [err4];}else {vErrors.push(err4);}errors++;}}else {const err5: any = {instancePath,schemaPath:"#/anyOf/2/type",keyword:"type",params:{type: "object"}};if(vErrors === null){vErrors = [err5];}else {vErrors.push(err5);}errors++;}}var _valid0: any = _errs6 === errors;valid0 = valid0 || _valid0;if(_valid0){if(props0 !== true){props0 = props0 || {};props0.effort = true;}}const _errs8: any = errors;if(errors === _errs8){if(data && typeof data == "object" && !Array.isArray(data)){let missing3: any;if((data.outputSpeed === undefined) && (missing3 = "outputSpeed")){const err6: any = {instancePath,schemaPath:"#/anyOf/3/required",keyword:"required",params:{missingProperty: missing3}};if(vErrors === null){vErrors = [err6];}else {vErrors.push(err6);}errors++;}}else {const err7: any = {instancePath,schemaPath:"#/anyOf/3/type",keyword:"type",params:{type: "object"}};if(vErrors === null){vErrors = [err7];}else {vErrors.push(err7);}errors++;}}var _valid0: any = _errs8 === errors;valid0 = valid0 || _valid0;if(_valid0){if(props0 !== true){props0 = props0 || {};props0.outputSpeed = true;}}const _errs10: any = errors;if(errors === _errs10){if(data && typeof data == "object" && !Array.isArray(data)){let missing4: any;if((data.options === undefined) && (missing4 = "options")){const err8: any = {instancePath,schemaPath:"#/anyOf/4/required",keyword:"required",params:{missingProperty: missing4}};if(vErrors === null){vErrors = [err8];}else {vErrors.push(err8);}errors++;}}else {const err9: any = {instancePath,schemaPath:"#/anyOf/4/type",keyword:"type",params:{type: "object"}};if(vErrors === null){vErrors = [err9];}else {vErrors.push(err9);}errors++;}}var _valid0: any = _errs10 === errors;valid0 = valid0 || _valid0;if(_valid0){if(props0 !== true){props0 = props0 || {};props0.options = true;}}const _errs12: any = errors;if(errors === _errs12){if(data && typeof data == "object" && !Array.isArray(data)){let missing5: any;if((data.largerWindow === undefined) && (missing5 = "largerWindow")){const err10: any = {instancePath,schemaPath:"#/anyOf/5/required",keyword:"required",params:{missingProperty: missing5}};if(vErrors === null){vErrors = [err10];}else {vErrors.push(err10);}errors++;}}else {const err11: any = {instancePath,schemaPath:"#/anyOf/5/type",keyword:"type",params:{type: "object"}};if(vErrors === null){vErrors = [err11];}else {vErrors.push(err11);}errors++;}}var _valid0: any = _errs12 === errors;valid0 = valid0 || _valid0;if(_valid0){if(props0 !== true){props0 = props0 || {};props0.largerWindow = true;}}if(!valid0){const err12: any = {instancePath,schemaPath:"#/anyOf",keyword:"anyOf",params:{}};if(vErrors === null){vErrors = [err12];}else {vErrors.push(err12);}errors++;validateAgentConfigUpdateRequest.errors = vErrors;return false;}else {errors = _errs1;if(vErrors !== null){if(_errs1){vErrors.length = _errs1;}else {vErrors = null;}}}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing6: any;if((data.agentId === undefined) && (missing6 = "agentId")){validateAgentConfigUpdateRequest.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing6}}];return false;}else {const _errs14: any = errors;for(const key0 in data){if(!((((((((key0 === "agentId") || (key0 === "providerName")) || (key0 === "modelId")) || (key0 === "effort")) || (key0 === "outputSpeed")) || (key0 === "options")) || (key0 === "largerWindow")) || (key0 === "interruptAndSwitch"))){validateAgentConfigUpdateRequest.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs14 === errors){if(data.agentId !== undefined){const _errs15: any = errors;if(!(validateAgentId.call(this, data.agentId, {instancePath:instancePath+"/agentId",parentData:data,parentDataProperty:"agentId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateAgentId.errors : vErrors.concat(validateAgentId.errors);errors = vErrors.length;}var valid1: any = _errs15 === errors;}else {var valid1: any = true;}if(valid1){if(data.providerName !== undefined){const _errs16: any = errors;if(!(validateProviderId.call(this, data.providerName, {instancePath:instancePath+"/providerName",parentData:data,parentDataProperty:"providerName",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateProviderId.errors : vErrors.concat(validateProviderId.errors);errors = vErrors.length;}var valid1: any = _errs16 === errors;}else {var valid1: any = true;}if(valid1){if(data.modelId !== undefined){let data2: any = data.modelId;const _errs17: any = errors;if(errors === _errs17){if(typeof data2 === "string"){if(func1(data2) > 128){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/modelId",schemaPath:"#/properties/modelId/maxLength",keyword:"maxLength",params:{limit: 128}}];return false;}else {if(func1(data2) < 1){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/modelId",schemaPath:"#/properties/modelId/minLength",keyword:"minLength",params:{limit: 1}}];return false;}else {if(!pattern5.test(data2)){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/modelId",schemaPath:"#/properties/modelId/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$"}}];return false;}}}}else {validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/modelId",schemaPath:"#/properties/modelId/type",keyword:"type",params:{type: "string"}}];return false;}}var valid1: any = _errs17 === errors;}else {var valid1: any = true;}if(valid1){if(data.effort !== undefined){let data3: any = data.effort;const _errs19: any = errors;if(errors === _errs19){if(typeof data3 === "string"){if(func1(data3) > 128){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/effort",schemaPath:"#/properties/effort/maxLength",keyword:"maxLength",params:{limit: 128}}];return false;}else {if(func1(data3) < 1){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/effort",schemaPath:"#/properties/effort/minLength",keyword:"minLength",params:{limit: 1}}];return false;}else {if(!pattern5.test(data3)){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/effort",schemaPath:"#/properties/effort/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$"}}];return false;}}}}else {validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/effort",schemaPath:"#/properties/effort/type",keyword:"type",params:{type: "string"}}];return false;}}var valid1: any = _errs19 === errors;}else {var valid1: any = true;}if(valid1){if(data.outputSpeed !== undefined){let data4: any = data.outputSpeed;const _errs21: any = errors;if(errors === _errs21){if(typeof data4 === "string"){if(func1(data4) > 128){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/outputSpeed",schemaPath:"#/properties/outputSpeed/maxLength",keyword:"maxLength",params:{limit: 128}}];return false;}else {if(func1(data4) < 1){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/outputSpeed",schemaPath:"#/properties/outputSpeed/minLength",keyword:"minLength",params:{limit: 1}}];return false;}else {if(!pattern5.test(data4)){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/outputSpeed",schemaPath:"#/properties/outputSpeed/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$"}}];return false;}}}}else {validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/outputSpeed",schemaPath:"#/properties/outputSpeed/type",keyword:"type",params:{type: "string"}}];return false;}}var valid1: any = _errs21 === errors;}else {var valid1: any = true;}if(valid1){if(data.options !== undefined){let data5: any = data.options;const _errs23: any = errors;if(errors === _errs23){if(Array.isArray(data5)){if(data5.length < 1){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/options",schemaPath:"#/properties/options/minItems",keyword:"minItems",params:{limit: 1}}];return false;}else {var valid2: any = true;const len0: any = data5.length;for(let i0=0; i0<len0; i0++){const _errs25: any = errors;if(!(validateProviderOptionSetting.call(this, data5[i0], {instancePath:instancePath+"/options/" + i0,parentData:data5,parentDataProperty:i0,rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateProviderOptionSetting.errors : vErrors.concat(validateProviderOptionSetting.errors);errors = vErrors.length;}var valid2: any = _errs25 === errors;if(!valid2){break;}}if(valid2){let valid3: any;let i1: any = data5.length;let j0: any;valid3 = true;if(i1 > 1){outer0:for(;i1--;){for(j0 = i1; j0--;){if(func0(data5[i1], data5[j0])){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/options",schemaPath:"#/properties/options/uniqueItems",keyword:"uniqueItems",params:{i: i1, j: j0}}];return false;valid3 = false;break outer0;}}}}if(valid3){if(repeatsItemKey(data5, "id")){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/options",schemaPath:"#/properties/options/uniqueItemKey",keyword:"uniqueItemKey",params:{}}];return false;}}}}}else {validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/options",schemaPath:"#/properties/options/type",keyword:"type",params:{type: "array"}}];return false;}}var valid1: any = _errs23 === errors;}else {var valid1: any = true;}if(valid1){if(data.largerWindow !== undefined){let data7: any = data.largerWindow;const _errs26: any = errors;if((!(((typeof data7 == "number") && (!(data7 % 1) && !isNaN(data7))) && (isFinite(data7)))) && (data7 !== null)){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/largerWindow",schemaPath:"#/properties/largerWindow/type",keyword:"type",params:{type: schema65.properties.largerWindow.type}}];return false;}if(errors === _errs26){if((typeof data7 == "number") && (isFinite(data7))){if(data7 > 9007199254740991 || isNaN(data7)){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/largerWindow",schemaPath:"#/properties/largerWindow/maximum",keyword:"maximum",params:{comparison: "<=", limit: 9007199254740991}}];return false;}else {if(data7 < 1 || isNaN(data7)){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/largerWindow",schemaPath:"#/properties/largerWindow/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1}}];return false;}}}}var valid1: any = _errs26 === errors;}else {var valid1: any = true;}if(valid1){if(data.interruptAndSwitch !== undefined){const _errs28: any = errors;if(typeof data.interruptAndSwitch !== "boolean"){validateAgentConfigUpdateRequest.errors = [{instancePath:instancePath+"/interruptAndSwitch",schemaPath:"#/properties/interruptAndSwitch/type",keyword:"type",params:{type: "boolean"}}];return false;}var valid1: any = _errs28 === errors;}else {var valid1: any = true;}if(valid1){let missing7: any;if(data.modelId !== undefined && ((data.largerWindow === undefined) && (missing7 = "largerWindow"))){validateAgentConfigUpdateRequest.errors = [{instancePath,schemaPath:"#/dependentRequired",keyword:"dependentRequired",params:{property: "modelId",
-    missingProperty: missing7,
-    depsCount: 1,
-    deps: "largerWindow"}}];return false;}}}}}}}}}}}}else {validateAgentConfigUpdateRequest.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateAgentConfigUpdateRequest.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateAgentConfigUpdateRequest.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-/** Checks that a value is a {@link AgentConfigUpdateResponse}. */
-// prettier-ignore
-export const validateAgentConfigUpdateResponse: CompiledSchemaCheck<AgentConfigUpdateResponse> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is AgentConfigUpdateResponse {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateAgentConfigUpdateResponse.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((((data.agentId === undefined) && (missing0 = "agentId")) || ((data.updatedAt === undefined) && (missing0 = "updatedAt"))) || ((data.switch === undefined) && (missing0 = "switch"))){validateAgentConfigUpdateResponse.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(((key0 === "agentId") || (key0 === "updatedAt")) || (key0 === "switch"))){validateAgentConfigUpdateResponse.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.agentId !== undefined){const _errs2: any = errors;if(!(validateAgentId.call(this, data.agentId, {instancePath:instancePath+"/agentId",parentData:data,parentDataProperty:"agentId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateAgentId.errors : vErrors.concat(validateAgentId.errors);errors = vErrors.length;}var valid0: any = _errs2 === errors;}else {var valid0: any = true;}if(valid0){if(data.updatedAt !== undefined){const _errs3: any = errors;if(!(validateWireInstant.call(this, data.updatedAt, {instancePath:instancePath+"/updatedAt",parentData:data,parentDataProperty:"updatedAt",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateWireInstant.errors : vErrors.concat(validateWireInstant.errors);errors = vErrors.length;}var valid0: any = _errs3 === errors;}else {var valid0: any = true;}if(valid0){if(data.switch !== undefined){const _errs4: any = errors;if(!(validateAgentBindingSwitchDisposition.call(this, data.switch, {instancePath:instancePath+"/switch",parentData:data,parentDataProperty:"switch",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateAgentBindingSwitchDisposition.errors : vErrors.concat(validateAgentBindingSwitchDisposition.errors);errors = vErrors.length;}var valid0: any = _errs4 === errors;}else {var valid0: any = true;}}}}}}else {validateAgentConfigUpdateResponse.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateAgentConfigUpdateResponse.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateAgentConfigUpdateResponse.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
+export {
+  validateAgentConfigUpdateRequest,
+  validateAgentConfigUpdateResponse,
+  validateAgentSubscribeEntry,
+  validateAgentSubscribeRequest,
+  validateAgentSubscribeResponse,
+} from "../checks/agent/methods.js";
 
 /** The methods of {@link AGENT_METHOD_DESCRIPTORS}, each with its checks. */
 export interface AgentMethodDescriptors {
@@ -313,8 +267,8 @@ export interface AgentMethodDescriptors {
  * The live agents' methods and the definition verbs. `agent.definition.subscribe` resends
  * the whole `agent.definition.list` reply on each change to the registry.
  */
-export const AGENT_METHOD_DESCRIPTORS: AgentMethodDescriptors = Object.freeze({
-  "agent.subscribe": Object.freeze({
+export const AGENT_METHOD_DESCRIPTORS: AgentMethodDescriptors = /* @__PURE__ */ Object.freeze({
+  "agent.subscribe": /* @__PURE__ */ Object.freeze({
     method: "agent.subscribe",
     procedureType: "subscription",
     mutating: false,
@@ -322,21 +276,21 @@ export const AGENT_METHOD_DESCRIPTORS: AgentMethodDescriptors = Object.freeze({
     responseCheck: validateAgentSubscribeResponse,
     emissionCheck: validateAgentSubscribeEntry,
   }),
-  "agent.config.update": Object.freeze({
+  "agent.config.update": /* @__PURE__ */ Object.freeze({
     method: "agent.config.update",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateAgentConfigUpdateRequest,
     responseCheck: validateAgentConfigUpdateResponse,
   }),
-  "agent.definition.list": Object.freeze({
+  "agent.definition.list": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.list",
     procedureType: "query",
     mutating: false,
     requestCheck: validateEmptyPayload,
     responseCheck: validateAgentDefinitionListResponse,
   }),
-  "agent.definition.subscribe": Object.freeze({
+  "agent.definition.subscribe": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.subscribe",
     procedureType: "subscription",
     mutating: false,
@@ -344,35 +298,35 @@ export const AGENT_METHOD_DESCRIPTORS: AgentMethodDescriptors = Object.freeze({
     responseCheck: validateSubscribeAcknowledgmentResponse,
     emissionCheck: validateAgentDefinitionListResponse,
   }),
-  "agent.definition.create": Object.freeze({
+  "agent.definition.create": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.create",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateAgentDefinitionCreateRequest,
     responseCheck: validateAgentDefinitionCreateResponse,
   }),
-  "agent.definition.update": Object.freeze({
+  "agent.definition.update": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.update",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateAgentDefinitionUpdateRequest,
     responseCheck: validateAgentDefinitionUpdateResponse,
   }),
-  "agent.definition.delete": Object.freeze({
+  "agent.definition.delete": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.delete",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateAgentDefinitionDeleteRequest,
     responseCheck: validateAgentDefinitionDeleteResponse,
   }),
-  "agent.definition.export": Object.freeze({
+  "agent.definition.export": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.export",
     procedureType: "mutation",
     mutating: true,
     requestCheck: validateAgentDefinitionExportRequest,
     responseCheck: validateAgentDefinitionExportResponse,
   }),
-  "agent.definition.import": Object.freeze({
+  "agent.definition.import": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.import",
     procedureType: "mutation",
     mutating: true,

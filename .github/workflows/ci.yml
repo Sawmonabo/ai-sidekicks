@@ -276,18 +276,34 @@ jobs:
 
       # The contracts' build links the workflow checks' WebAssembly with the `wasm-bindgen` tool of
       # the release `Cargo.lock` holds for the `wasm-bindgen` crate, which the build checks: that
-      # release's prebuilt tool for the runner, checked against its published SHA-256. Every job
-      # that builds `@ai-sidekicks/contracts` repeats this step through the anchor.
+      # release's prebuilt tool for the runner, checked against the SHA-256 pinned here, so a
+      # release whose archive and published sum were both replaced is refused. A `Cargo.lock` that
+      # moves to another release fails here until its sums are pinned. Every job that builds
+      # `@ai-sidekicks/contracts` repeats this step through the anchor.
       - &wasm-bindgen-tool
         name: Install the wasm-bindgen tool
         shell: bash
         run: |
+          PINNED_VERSION="0.2.129"
           VERSION="$(awk '$0 == "name = \"wasm-bindgen\"" { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)"
+          [ "$VERSION" = "$PINNED_VERSION" ] || { echo "::error::Cargo.lock holds wasm-bindgen $VERSION; pin its release's sums here"; exit 1; }
           case "$RUNNER_OS-$(uname -m)" in
-            Linux-x86_64) TARGET="x86_64-unknown-linux-musl" ;;
-            Linux-aarch64) TARGET="aarch64-unknown-linux-musl" ;;
-            macOS-arm64) TARGET="aarch64-apple-darwin" ;;
-            macOS-x86_64) TARGET="x86_64-apple-darwin" ;;
+            Linux-x86_64)
+              TARGET="x86_64-unknown-linux-musl"
+              SHA256="82d12bb940e2d4e72e0d5605387fc1b8ca179044e012b620f0ce4e7440e8320e"
+              ;;
+            Linux-aarch64)
+              TARGET="aarch64-unknown-linux-musl"
+              SHA256="2ed4351c35dd9440308bbb02767d47ea278efe851a52465300f3c94f5b6c2a87"
+              ;;
+            macOS-arm64)
+              TARGET="aarch64-apple-darwin"
+              SHA256="81d4a23d56b3c3eb8187658329116d50e0b228a93b343825fb71f70179051cd1"
+              ;;
+            macOS-x86_64)
+              TARGET="x86_64-apple-darwin"
+              SHA256="7e028879a68ec53dae14048b55cc5215f6df75b17a9c1426fac8fa086d3202fd"
+              ;;
             *)
               echo "::error::no wasm-bindgen release for $RUNNER_OS $(uname -m)"
               exit 1
@@ -296,7 +312,6 @@ jobs:
           ASSET="wasm-bindgen-${VERSION}-${TARGET}"
           RELEASE="https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${VERSION}"
           curl -fsSL "${RELEASE}/${ASSET}.tar.gz" -o "${RUNNER_TEMP}/${ASSET}.tar.gz"
-          SHA256="$(curl -fsSL "${RELEASE}/${ASSET}.tar.gz.sha256sum" | cut -d ' ' -f 1)"
           echo "${SHA256}  ${RUNNER_TEMP}/${ASSET}.tar.gz" | shasum -a 256 -c -
           tar -xzf "${RUNNER_TEMP}/${ASSET}.tar.gz" -C "${CARGO_HOME:-$HOME/.cargo}/bin" --strip-components 1 "${ASSET}/wasm-bindgen"
           wasm-bindgen --version

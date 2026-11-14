@@ -3,25 +3,24 @@
 
 // The driver methods a client calls (`provider.model.list`, `provider.mode.list`, `provider.command.list`, `agent.run.context.compact`), their requests and replies, grouped by provider.
 
-import { type CompiledSchemaCheck, type SchemaCheck, ucs2length } from "../../../schema-check.js";
-import { type AgentId, validateAgentId } from "../../agent/definition.js";
-import { type RunId, validateRunId } from "../../run/id.js";
-import { type SessionId, validateSessionId } from "../../session/id.js";
-import { type ProviderId, validateProviderId } from "../id.js";
+import type { SchemaCheck } from "../../../schema-check.js";
+import type { AgentId } from "../../agent/definition.js";
+import { validateProviderCommandListResponse } from "../../checks/provider/driver/commands.js";
+import { validateAgentRunContextCompactResponse } from "../../checks/provider/driver/compaction.js";
 import {
-  type ProviderMode,
-  type ProviderModel,
-  validateProviderMode,
-  validateProviderModel,
-} from "./capabilities.js";
-import {
-  type ProviderCommandListResponse,
-  validateProviderCommandListResponse,
-} from "./commands.js";
-import {
-  type AgentRunContextCompactResponse,
-  validateAgentRunContextCompactResponse,
-} from "./compaction.js";
+  validateAgentRunContextCompactRequest,
+  validateProviderCommandListRequest,
+  validateProviderModeListRequest,
+  validateProviderModeListResponse,
+  validateProviderModelListRequest,
+  validateProviderModelListResponse,
+} from "../../checks/provider/driver/methods.js";
+import type { RunId } from "../../run/id.js";
+import type { SessionId } from "../../session/id.js";
+import type { ProviderId } from "../id.js";
+import type { ProviderMode, ProviderModel } from "./capabilities.js";
+import type { ProviderCommandListResponse } from "./commands.js";
+import type { AgentRunContextCompactResponse } from "./compaction.js";
 
 /**
  * The longest short identifier or label: a model's and a mode's id and name, and the words
@@ -260,55 +259,17 @@ export interface ProviderCommandListRequest {
   agentId: AgentId;
 }
 
-/** Checks that a value is a {@link ProviderModelListRequest}. */
-// prettier-ignore
-export const validateProviderModelListRequest: CompiledSchemaCheck<ProviderModelListRequest> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is ProviderModelListRequest {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateProviderModelListRequest.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.sessionId === undefined) && (missing0 = "sessionId")){validateProviderModelListRequest.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "sessionId")){validateProviderModelListRequest.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.sessionId !== undefined){if(!(validateSessionId.call(this, data.sessionId, {instancePath:instancePath+"/sessionId",parentData:data,parentDataProperty:"sessionId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateSessionId.errors : vErrors.concat(validateSessionId.errors);errors = vErrors.length;}}}}}else {validateProviderModelListRequest.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateProviderModelListRequest.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateProviderModelListRequest.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-/** Checks that a value is a {@link ProviderModeListRequest}. */
-// prettier-ignore
-export const validateProviderModeListRequest: CompiledSchemaCheck<ProviderModeListRequest> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is ProviderModeListRequest {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateProviderModeListRequest.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.sessionId === undefined) && (missing0 = "sessionId")){validateProviderModeListRequest.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "sessionId")){validateProviderModeListRequest.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.sessionId !== undefined){if(!(validateSessionId.call(this, data.sessionId, {instancePath:instancePath+"/sessionId",parentData:data,parentDataProperty:"sessionId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateSessionId.errors : vErrors.concat(validateSessionId.errors);errors = vErrors.length;}}}}}else {validateProviderModeListRequest.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateProviderModeListRequest.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateProviderModeListRequest.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-// prettier-ignore
-const func1 = ucs2length;
-// prettier-ignore
-const pattern5 = new RegExp("^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$", "u");
-/** Checks that a value is a {@link ProviderReadFailure}. */
-// prettier-ignore
-export const validateProviderReadFailure: CompiledSchemaCheck<ProviderReadFailure> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is ProviderReadFailure {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateProviderReadFailure.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.code === undefined) && (missing0 = "code")){validateProviderReadFailure.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!((key0 === "code") || (key0 === "providerFailureDetail"))){validateProviderReadFailure.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.code !== undefined){const _errs2: any = errors;if(typeof data.code !== "string"){validateProviderReadFailure.errors = [{instancePath:instancePath+"/code",schemaPath:"#/properties/code/type",keyword:"type",params:{type: "string"}}];return false;}var valid0: any = _errs2 === errors;}else {var valid0: any = true;}if(valid0){if(data.providerFailureDetail !== undefined){let data1: any = data.providerFailureDetail;const _errs4: any = errors;if(errors === _errs4){if(typeof data1 === "string"){if(func1(data1) > 32768){validateProviderReadFailure.errors = [{instancePath:instancePath+"/providerFailureDetail",schemaPath:"#/properties/providerFailureDetail/maxLength",keyword:"maxLength",params:{limit: 32768}}];return false;}else {if(func1(data1) < 1){validateProviderReadFailure.errors = [{instancePath:instancePath+"/providerFailureDetail",schemaPath:"#/properties/providerFailureDetail/minLength",keyword:"minLength",params:{limit: 1}}];return false;}else {if(!pattern5.test(data1)){validateProviderReadFailure.errors = [{instancePath:instancePath+"/providerFailureDetail",schemaPath:"#/properties/providerFailureDetail/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]*[^\\x00\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\x00]*$"}}];return false;}}}}else {validateProviderReadFailure.errors = [{instancePath:instancePath+"/providerFailureDetail",schemaPath:"#/properties/providerFailureDetail/type",keyword:"type",params:{type: "string"}}];return false;}}var valid0: any = _errs4 === errors;}else {var valid0: any = true;}}}}}else {validateProviderReadFailure.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateProviderReadFailure.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateProviderReadFailure.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-/** Checks that a value is a {@link ProviderModelReport}. */
-// prettier-ignore
-export const validateProviderModelReport: CompiledSchemaCheck<ProviderModelReport> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is ProviderModelReport {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateProviderModelReport.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}const _errs0: any = errors;let valid0: any = false;const _errs1: any = errors;if(errors === _errs1){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if(((data.providerName === undefined) && (missing0 = "providerName")) || ((data.models === undefined) && (missing0 = "models"))){const err0: any = {instancePath,schemaPath:"#/anyOf/0/required",keyword:"required",params:{missingProperty: missing0}};if(vErrors === null){vErrors = [err0];}else {vErrors.push(err0);}errors++;}else {const _errs3: any = errors;for(const key0 in data){if(!(((key0 === "providerName") || (key0 === "models")) || (key0 === "failure"))){const err1: any = {instancePath,schemaPath:"#/anyOf/0/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}};if(vErrors === null){vErrors = [err1];}else {vErrors.push(err1);}errors++;break;}}if(_errs3 === errors){if(data.providerName !== undefined){const _errs4: any = errors;if(!(validateProviderId.call(this, data.providerName, {instancePath:instancePath+"/providerName",parentData:data,parentDataProperty:"providerName",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateProviderId.errors : vErrors.concat(validateProviderId.errors);errors = vErrors.length;}var valid1: any = _errs4 === errors;}else {var valid1: any = true;}if(valid1){if(data.models !== undefined){let data1: any = data.models;const _errs5: any = errors;if(errors === _errs5){if(Array.isArray(data1)){var valid2: any = true;const len0: any = data1.length;for(let i0=0; i0<len0; i0++){const _errs7: any = errors;if(!(validateProviderModel.call(this, data1[i0], {instancePath:instancePath+"/models/" + i0,parentData:data1,parentDataProperty:i0,rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateProviderModel.errors : vErrors.concat(validateProviderModel.errors);errors = vErrors.length;}var valid2: any = _errs7 === errors;if(!valid2){break;}}}else {const err2: any = {instancePath:instancePath+"/models",schemaPath:"#/anyOf/0/properties/models/type",keyword:"type",params:{type: "array"}};if(vErrors === null){vErrors = [err2];}else {vErrors.push(err2);}errors++;}}var valid1: any = _errs5 === errors;}else {var valid1: any = true;}if(valid1){if(data.failure !== undefined){const _errs8: any = errors;const err3: any = {instancePath:instancePath+"/failure",schemaPath:"#/anyOf/0/properties/failure/not",keyword:"not",params:{}};if(vErrors === null){vErrors = [err3];}else {vErrors.push(err3);}errors++;var valid1: any = _errs8 === errors;}else {var valid1: any = true;}}}}}}else {const err4: any = {instancePath,schemaPath:"#/anyOf/0/type",keyword:"type",params:{type: "object"}};if(vErrors === null){vErrors = [err4];}else {vErrors.push(err4);}errors++;}}var _valid0: any = _errs1 === errors;valid0 = valid0 || _valid0;if(_valid0){var props0: any = true;}const _errs11: any = errors;if(errors === _errs11){if(data && typeof data == "object" && !Array.isArray(data)){let missing1: any;if(((data.providerName === undefined) && (missing1 = "providerName")) || ((data.failure === undefined) && (missing1 = "failure"))){const err5: any = {instancePath,schemaPath:"#/anyOf/1/required",keyword:"required",params:{missingProperty: missing1}};if(vErrors === null){vErrors = [err5];}else {vErrors.push(err5);}errors++;}else {const _errs13: any = errors;for(const key1 in data){if(!(((key1 === "providerName") || (key1 === "failure")) || (key1 === "models"))){const err6: any = {instancePath,schemaPath:"#/anyOf/1/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1}};if(vErrors === null){vErrors = [err6];}else {vErrors.push(err6);}errors++;break;}}if(_errs13 === errors){if(data.providerName !== undefined){const _errs14: any = errors;if(!(validateProviderId.call(this, data.providerName, {instancePath:instancePath+"/providerName",parentData:data,parentDataProperty:"providerName",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateProviderId.errors : vErrors.concat(validateProviderId.errors);errors = vErrors.length;}var valid3: any = _errs14 === errors;}else {var valid3: any = true;}if(valid3){if(data.failure !== undefined){const _errs15: any = errors;if(!(validateProviderReadFailure.call(this, data.failure, {instancePath:instancePath+"/failure",parentData:data,parentDataProperty:"failure",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateProviderReadFailure.errors : vErrors.concat(validateProviderReadFailure.errors);errors = vErrors.length;}var valid3: any = _errs15 === errors;}else {var valid3: any = true;}if(valid3){if(data.models !== undefined){const _errs16: any = errors;const err7: any = {instancePath:instancePath+"/models",schemaPath:"#/anyOf/1/properties/models/not",keyword:"not",params:{}};if(vErrors === null){vErrors = [err7];}else {vErrors.push(err7);}errors++;var valid3: any = _errs16 === errors;}else {var valid3: any = true;}}}}}}else {const err8: any = {instancePath,schemaPath:"#/anyOf/1/type",keyword:"type",params:{type: "object"}};if(vErrors === null){vErrors = [err8];}else {vErrors.push(err8);}errors++;}}var _valid0: any = _errs11 === errors;valid0 = valid0 || _valid0;if(_valid0){if(props0 !== true){props0 = true;}}if(!valid0){const err9: any = {instancePath,schemaPath:"#/anyOf",keyword:"anyOf",params:{}};if(vErrors === null){vErrors = [err9];}else {vErrors.push(err9);}errors++;validateProviderModelReport.errors = vErrors;return false;}else {errors = _errs0;if(vErrors !== null){if(_errs0){vErrors.length = _errs0;}else {vErrors = null;}}}validateProviderModelReport.errors = vErrors;evaluated0.props = props0;return errors === 0;};
-// prettier-ignore
-validateProviderModelReport.evaluated = {"dynamicProps":true,"dynamicItems":false} as any;
-/** Checks that a value is a {@link ProviderModelListResponse}. */
-// prettier-ignore
-export const validateProviderModelListResponse: CompiledSchemaCheck<ProviderModelListResponse> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is ProviderModelListResponse {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateProviderModelListResponse.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.providers === undefined) && (missing0 = "providers")){validateProviderModelListResponse.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "providers")){validateProviderModelListResponse.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.providers !== undefined){let data0: any = data.providers;const _errs2: any = errors;if(errors === _errs2){if(Array.isArray(data0)){var valid1: any = true;const len0: any = data0.length;for(let i0=0; i0<len0; i0++){const _errs4: any = errors;if(!(validateProviderModelReport.call(this, data0[i0], {instancePath:instancePath+"/providers/" + i0,parentData:data0,parentDataProperty:i0,rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateProviderModelReport.errors : vErrors.concat(validateProviderModelReport.errors);errors = vErrors.length;}var valid1: any = _errs4 === errors;if(!valid1){break;}}}else {validateProviderModelListResponse.errors = [{instancePath:instancePath+"/providers",schemaPath:"#/properties/providers/type",keyword:"type",params:{type: "array"}}];return false;}}}}}}else {validateProviderModelListResponse.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateProviderModelListResponse.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateProviderModelListResponse.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-/** Checks that a value is a {@link ProviderModeReport}. */
-// prettier-ignore
-export const validateProviderModeReport: CompiledSchemaCheck<ProviderModeReport> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is ProviderModeReport {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateProviderModeReport.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}const _errs0: any = errors;let valid0: any = false;const _errs1: any = errors;if(errors === _errs1){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if(((data.providerName === undefined) && (missing0 = "providerName")) || ((data.modes === undefined) && (missing0 = "modes"))){const err0: any = {instancePath,schemaPath:"#/anyOf/0/required",keyword:"required",params:{missingProperty: missing0}};if(vErrors === null){vErrors = [err0];}else {vErrors.push(err0);}errors++;}else {const _errs3: any = errors;for(const key0 in data){if(!(((key0 === "providerName") || (key0 === "modes")) || (key0 === "failure"))){const err1: any = {instancePath,schemaPath:"#/anyOf/0/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}};if(vErrors === null){vErrors = [err1];}else {vErrors.push(err1);}errors++;break;}}if(_errs3 === errors){if(data.providerName !== undefined){const _errs4: any = errors;if(!(validateProviderId.call(this, data.providerName, {instancePath:instancePath+"/providerName",parentData:data,parentDataProperty:"providerName",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateProviderId.errors : vErrors.concat(validateProviderId.errors);errors = vErrors.length;}var valid1: any = _errs4 === errors;}else {var valid1: any = true;}if(valid1){if(data.modes !== undefined){let data1: any = data.modes;const _errs5: any = errors;if(errors === _errs5){if(Array.isArray(data1)){var valid2: any = true;const len0: any = data1.length;for(let i0=0; i0<len0; i0++){const _errs7: any = errors;if(!(validateProviderMode.call(this, data1[i0], {instancePath:instancePath+"/modes/" + i0,parentData:data1,parentDataProperty:i0,rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateProviderMode.errors : vErrors.concat(validateProviderMode.errors);errors = vErrors.length;}var valid2: any = _errs7 === errors;if(!valid2){break;}}}else {const err2: any = {instancePath:instancePath+"/modes",schemaPath:"#/anyOf/0/properties/modes/type",keyword:"type",params:{type: "array"}};if(vErrors === null){vErrors = [err2];}else {vErrors.push(err2);}errors++;}}var valid1: any = _errs5 === errors;}else {var valid1: any = true;}if(valid1){if(data.failure !== undefined){const _errs8: any = errors;const err3: any = {instancePath:instancePath+"/failure",schemaPath:"#/anyOf/0/properties/failure/not",keyword:"not",params:{}};if(vErrors === null){vErrors = [err3];}else {vErrors.push(err3);}errors++;var valid1: any = _errs8 === errors;}else {var valid1: any = true;}}}}}}else {const err4: any = {instancePath,schemaPath:"#/anyOf/0/type",keyword:"type",params:{type: "object"}};if(vErrors === null){vErrors = [err4];}else {vErrors.push(err4);}errors++;}}var _valid0: any = _errs1 === errors;valid0 = valid0 || _valid0;if(_valid0){var props0: any = true;}const _errs11: any = errors;if(errors === _errs11){if(data && typeof data == "object" && !Array.isArray(data)){let missing1: any;if(((data.providerName === undefined) && (missing1 = "providerName")) || ((data.failure === undefined) && (missing1 = "failure"))){const err5: any = {instancePath,schemaPath:"#/anyOf/1/required",keyword:"required",params:{missingProperty: missing1}};if(vErrors === null){vErrors = [err5];}else {vErrors.push(err5);}errors++;}else {const _errs13: any = errors;for(const key1 in data){if(!(((key1 === "providerName") || (key1 === "failure")) || (key1 === "modes"))){const err6: any = {instancePath,schemaPath:"#/anyOf/1/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1}};if(vErrors === null){vErrors = [err6];}else {vErrors.push(err6);}errors++;break;}}if(_errs13 === errors){if(data.providerName !== undefined){const _errs14: any = errors;if(!(validateProviderId.call(this, data.providerName, {instancePath:instancePath+"/providerName",parentData:data,parentDataProperty:"providerName",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateProviderId.errors : vErrors.concat(validateProviderId.errors);errors = vErrors.length;}var valid3: any = _errs14 === errors;}else {var valid3: any = true;}if(valid3){if(data.failure !== undefined){const _errs15: any = errors;if(!(validateProviderReadFailure.call(this, data.failure, {instancePath:instancePath+"/failure",parentData:data,parentDataProperty:"failure",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateProviderReadFailure.errors : vErrors.concat(validateProviderReadFailure.errors);errors = vErrors.length;}var valid3: any = _errs15 === errors;}else {var valid3: any = true;}if(valid3){if(data.modes !== undefined){const _errs16: any = errors;const err7: any = {instancePath:instancePath+"/modes",schemaPath:"#/anyOf/1/properties/modes/not",keyword:"not",params:{}};if(vErrors === null){vErrors = [err7];}else {vErrors.push(err7);}errors++;var valid3: any = _errs16 === errors;}else {var valid3: any = true;}}}}}}else {const err8: any = {instancePath,schemaPath:"#/anyOf/1/type",keyword:"type",params:{type: "object"}};if(vErrors === null){vErrors = [err8];}else {vErrors.push(err8);}errors++;}}var _valid0: any = _errs11 === errors;valid0 = valid0 || _valid0;if(_valid0){if(props0 !== true){props0 = true;}}if(!valid0){const err9: any = {instancePath,schemaPath:"#/anyOf",keyword:"anyOf",params:{}};if(vErrors === null){vErrors = [err9];}else {vErrors.push(err9);}errors++;validateProviderModeReport.errors = vErrors;return false;}else {errors = _errs0;if(vErrors !== null){if(_errs0){vErrors.length = _errs0;}else {vErrors = null;}}}validateProviderModeReport.errors = vErrors;evaluated0.props = props0;return errors === 0;};
-// prettier-ignore
-validateProviderModeReport.evaluated = {"dynamicProps":true,"dynamicItems":false} as any;
-/** Checks that a value is a {@link ProviderModeListResponse}. */
-// prettier-ignore
-export const validateProviderModeListResponse: CompiledSchemaCheck<ProviderModeListResponse> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is ProviderModeListResponse {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateProviderModeListResponse.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.providers === undefined) && (missing0 = "providers")){validateProviderModeListResponse.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "providers")){validateProviderModeListResponse.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.providers !== undefined){let data0: any = data.providers;const _errs2: any = errors;if(errors === _errs2){if(Array.isArray(data0)){var valid1: any = true;const len0: any = data0.length;for(let i0=0; i0<len0; i0++){const _errs4: any = errors;if(!(validateProviderModeReport.call(this, data0[i0], {instancePath:instancePath+"/providers/" + i0,parentData:data0,parentDataProperty:i0,rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateProviderModeReport.errors : vErrors.concat(validateProviderModeReport.errors);errors = vErrors.length;}var valid1: any = _errs4 === errors;if(!valid1){break;}}}else {validateProviderModeListResponse.errors = [{instancePath:instancePath+"/providers",schemaPath:"#/properties/providers/type",keyword:"type",params:{type: "array"}}];return false;}}}}}}else {validateProviderModeListResponse.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateProviderModeListResponse.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateProviderModeListResponse.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-/** Checks that a value is a {@link AgentRunContextCompactRequest}. */
-// prettier-ignore
-export const validateAgentRunContextCompactRequest: CompiledSchemaCheck<AgentRunContextCompactRequest> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is AgentRunContextCompactRequest {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateAgentRunContextCompactRequest.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if(((data.sessionId === undefined) && (missing0 = "sessionId")) || ((data.runId === undefined) && (missing0 = "runId"))){validateAgentRunContextCompactRequest.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!((key0 === "sessionId") || (key0 === "runId"))){validateAgentRunContextCompactRequest.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.sessionId !== undefined){const _errs2: any = errors;if(!(validateSessionId.call(this, data.sessionId, {instancePath:instancePath+"/sessionId",parentData:data,parentDataProperty:"sessionId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateSessionId.errors : vErrors.concat(validateSessionId.errors);errors = vErrors.length;}var valid0: any = _errs2 === errors;}else {var valid0: any = true;}if(valid0){if(data.runId !== undefined){const _errs3: any = errors;if(!(validateRunId.call(this, data.runId, {instancePath:instancePath+"/runId",parentData:data,parentDataProperty:"runId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateRunId.errors : vErrors.concat(validateRunId.errors);errors = vErrors.length;}var valid0: any = _errs3 === errors;}else {var valid0: any = true;}}}}}else {validateAgentRunContextCompactRequest.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateAgentRunContextCompactRequest.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateAgentRunContextCompactRequest.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-/** Checks that a value is a {@link ProviderCommandListRequest}. */
-// prettier-ignore
-export const validateProviderCommandListRequest: CompiledSchemaCheck<ProviderCommandListRequest> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is ProviderCommandListRequest {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateProviderCommandListRequest.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if(((data.sessionId === undefined) && (missing0 = "sessionId")) || ((data.agentId === undefined) && (missing0 = "agentId"))){validateProviderCommandListRequest.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!((key0 === "sessionId") || (key0 === "agentId"))){validateProviderCommandListRequest.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.sessionId !== undefined){const _errs2: any = errors;if(!(validateSessionId.call(this, data.sessionId, {instancePath:instancePath+"/sessionId",parentData:data,parentDataProperty:"sessionId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateSessionId.errors : vErrors.concat(validateSessionId.errors);errors = vErrors.length;}var valid0: any = _errs2 === errors;}else {var valid0: any = true;}if(valid0){if(data.agentId !== undefined){const _errs3: any = errors;if(!(validateAgentId.call(this, data.agentId, {instancePath:instancePath+"/agentId",parentData:data,parentDataProperty:"agentId",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateAgentId.errors : vErrors.concat(validateAgentId.errors);errors = vErrors.length;}var valid0: any = _errs3 === errors;}else {var valid0: any = true;}}}}}else {validateProviderCommandListRequest.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateProviderCommandListRequest.errors = vErrors;return errors === 0;};
-// prettier-ignore
-validateProviderCommandListRequest.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
+export {
+  validateAgentRunContextCompactRequest,
+  validateProviderCommandListRequest,
+  validateProviderModeListRequest,
+  validateProviderModeListResponse,
+  validateProviderModeReport,
+  validateProviderModelListRequest,
+  validateProviderModelListResponse,
+  validateProviderModelReport,
+  validateProviderReadFailure,
+} from "../../checks/provider/driver/methods.js";
 
 /** The methods of {@link PROVIDER_DRIVER_METHOD_DESCRIPTORS}, each with its checks. */
 export interface ProviderDriverMethodDescriptors {
@@ -342,33 +303,34 @@ export interface ProviderDriverMethodDescriptors {
   };
 }
 /** The driver methods a client calls: their names, how each answers, and their shapes. */
-export const PROVIDER_DRIVER_METHOD_DESCRIPTORS: ProviderDriverMethodDescriptors = Object.freeze({
-  "provider.model.list": Object.freeze({
-    method: "provider.model.list",
-    procedureType: "query",
-    mutating: false,
-    requestCheck: validateProviderModelListRequest,
-    responseCheck: validateProviderModelListResponse,
-  }),
-  "provider.mode.list": Object.freeze({
-    method: "provider.mode.list",
-    procedureType: "query",
-    mutating: false,
-    requestCheck: validateProviderModeListRequest,
-    responseCheck: validateProviderModeListResponse,
-  }),
-  "agent.run.context.compact": Object.freeze({
-    method: "agent.run.context.compact",
-    procedureType: "mutation",
-    mutating: true,
-    requestCheck: validateAgentRunContextCompactRequest,
-    responseCheck: validateAgentRunContextCompactResponse,
-  }),
-  "provider.command.list": Object.freeze({
-    method: "provider.command.list",
-    procedureType: "query",
-    mutating: false,
-    requestCheck: validateProviderCommandListRequest,
-    responseCheck: validateProviderCommandListResponse,
-  }),
-});
+export const PROVIDER_DRIVER_METHOD_DESCRIPTORS: ProviderDriverMethodDescriptors =
+  /* @__PURE__ */ Object.freeze({
+    "provider.model.list": /* @__PURE__ */ Object.freeze({
+      method: "provider.model.list",
+      procedureType: "query",
+      mutating: false,
+      requestCheck: validateProviderModelListRequest,
+      responseCheck: validateProviderModelListResponse,
+    }),
+    "provider.mode.list": /* @__PURE__ */ Object.freeze({
+      method: "provider.mode.list",
+      procedureType: "query",
+      mutating: false,
+      requestCheck: validateProviderModeListRequest,
+      responseCheck: validateProviderModeListResponse,
+    }),
+    "agent.run.context.compact": /* @__PURE__ */ Object.freeze({
+      method: "agent.run.context.compact",
+      procedureType: "mutation",
+      mutating: true,
+      requestCheck: validateAgentRunContextCompactRequest,
+      responseCheck: validateAgentRunContextCompactResponse,
+    }),
+    "provider.command.list": /* @__PURE__ */ Object.freeze({
+      method: "provider.command.list",
+      procedureType: "query",
+      mutating: false,
+      requestCheck: validateProviderCommandListRequest,
+      responseCheck: validateProviderCommandListResponse,
+    }),
+  });

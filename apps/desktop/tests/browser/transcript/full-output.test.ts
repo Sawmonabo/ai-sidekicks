@@ -74,7 +74,7 @@ function eventAt(index: number): ProjectedSessionEvent {
   return index === LARGE_REPLY_INDEX
     ? {
         ...event,
-        kind: "assistant.message",
+        kind: "agent.message.sent",
         payload: { contentType: "text/markdown" },
         content: { status: "large", contentLength: LARGE_BODY_BYTES },
       }

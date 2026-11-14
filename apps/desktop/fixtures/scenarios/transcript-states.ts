@@ -67,6 +67,10 @@ export const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
  * so a row id cannot be rebuilt from the session and the sequence.
  */
 export const EVENT_ID_STEM = "019b793b-7b60-7ea1-8110-e5e0d115";
+
+// The row the reasoning read's entries belong to: an id past every beat's, since no beat here
+// writes those entries.
+const REASONING_ROW_ID = `${EVENT_ID_STEM}0900`;
 const USER_YOU = "019b793b-7b60-79a4-8110-cca0117a0410";
 const AGENT_ARCHITECT = "019b793b-7b60-7a6e-8110-d1a4c1150101";
 const AGENT_IMPLEMENTER = "019b793b-7b60-7a6e-8120-d1a4c1150102";
@@ -296,10 +300,8 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   {
     atMs: 2_100,
     kind: "agent.run.context.compacted",
-    // The compaction seam. `usage.context_compacted` has no strict payload variant in
-    // `packages/contracts`, so the beat carries only the two members every run-scoped payload
-    // has, and the seam's boundary position is not here.
-    payload: { sessionId: SESSION_ID, runId: RUN_IMPLEMENTER },
+    // The compaction seam, with no token counts or summary, so the seam draws its bare form.
+    payload: { sessionId: SESSION_ID, runId: RUN_IMPLEMENTER, provider: "claude" },
   },
   // The pause seam; the lane stays parked at the last beat.
   lane.transition(RUN_REVIEWER, {
@@ -399,7 +401,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     // The compaction inside the child folds the provider's context, not the session's log, so
     // the child's summary stays whole across it.
     kind: "agent.run.context.compacted",
-    payload: { sessionId: SESSION_ID, runId: RUN_ARCHITECT_CHILD },
+    payload: { sessionId: SESSION_ID, runId: RUN_ARCHITECT_CHILD, provider: "claude" },
   },
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 2_900,
@@ -439,6 +441,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
       questionId: "019b793b-7b60-7a21-9f14-6b0c2a7d0e11",
       sessionId: SESSION_ID,
       runId: RUN_ARCHITECT,
+      state: "open",
       isAgentWaiting: true,
       questions: [
         {
@@ -487,19 +490,21 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = defineScenario(
         // need no scripted entries (a run this reply does not name gets the fixture's refusal),
         // while the entries are what no beat in this session produces.
         {
-          call: "transcript.reasoningSurfaceRead",
+          call: "transcript.reasoning.read",
           result: {
             availability: "available",
             hasMore: false,
             reasoningEntries: [
               {
                 sequence: 12,
+                rowId: REASONING_ROW_ID,
                 content:
                   "The two storage backends differ in who owns the row, not in what it holds.",
                 timestamp: composeScenarioInstant(startedAtMs, 2_500),
               },
               {
                 sequence: 13,
+                rowId: REASONING_ROW_ID,
                 content: "An answer kept on this machine is reversible; a hosted answer is not.",
                 timestamp: composeScenarioInstant(startedAtMs, 2_520),
               },

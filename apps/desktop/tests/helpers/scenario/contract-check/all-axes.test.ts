@@ -19,7 +19,9 @@ describe("scenario contract — the shipped scenarios", () => {
   });
 
   it("reports an invented call and a second reply to the same call", () => {
-    const [sessionRead] = EMPTY_SESSION_SCENARIO.replies;
+    const sessionRead = EMPTY_SESSION_SCENARIO.replies.find(
+      (reply) => reply.call === "session.read",
+    );
     if (sessionRead === undefined) {
       throw new Error("the empty-session scenario no longer answers session.read");
     }

@@ -18,7 +18,7 @@ import {
   REGISTERED_DAEMON_METHODS,
 } from "#shared/daemon/method-bindings.js";
 import type { ScenarioReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
-import type { ScenarioContractDefect } from "./defect.js";
+import { describeCheckFaults, type ScenarioContractDefect } from "./defect.js";
 import type { Scenario } from "#fixtures/scenario.js";
 
 /**
@@ -74,11 +74,9 @@ function describeResultDefect(reply: ScenarioReply): string | undefined {
   if (check.call({ attachments: [] }, reply.result)) {
     return undefined;
   }
-  const issues = (check.errors ?? [])
-    .map((fault) => `${fault.instancePath || "(root)"}: breaks the "${fault.keyword}" rule`)
-    .join("; ");
   return (
-    `it scripts a value the registered response for "${reply.call}" refuses (${issues}). ` +
+    `it scripts a value the registered response for "${reply.call}" refuses ` +
+    `(${describeCheckFaults(check)}). ` +
     "Served, it would fail the call at runtime or teach a view a frame the daemon cannot " +
     "send. Script the registered shape."
   );

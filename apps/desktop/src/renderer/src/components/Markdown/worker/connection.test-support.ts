@@ -23,8 +23,7 @@ import { appPageParser } from "../parse/page-parser.js";
 import { parseMarkdownTree, serializeMarkdownTree } from "../parse/serialized-tree.js";
 import { readTopLevelChildren } from "../parse/top-level-children.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
-import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
-import { appWorkflowChecks } from "./workflow-checks-load.js";
+import { appFuzzyMatcherLoad, appWorkflowChecks } from "./page-module-load.js";
 
 /** One stand-in worker: the texts it was sent to parse, and the answers a test holds back. */
 export class InThreadMarkdownWorker implements MarkdownWorkerPort {
@@ -197,7 +196,7 @@ export function inThreadMarkdownWorker(view: Window): MarkdownWorkerConnection {
     view,
     appPageParser,
     appTextCompression,
-    appFuzzyMatcher,
+    appFuzzyMatcherLoad,
     appWorkflowChecks,
   );
 }

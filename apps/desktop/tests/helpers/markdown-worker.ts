@@ -27,9 +27,7 @@ vi.mock("#renderer/components/Markdown/worker/connection.js", async (importOrigi
   const { TASKS_AT_ONCE } = await import("#test/helpers/tasks-at-once.js");
   const pageParser = await import("#renderer/components/Markdown/parse/page-parser.js");
   const textCompression = await import("#renderer/lib/text/compression.js");
-  const fuzzyMatcher = await import("#renderer/lib/fuzzy-matcher.js");
-  const workflowChecks =
-    await import("#renderer/components/Markdown/worker/workflow-checks-load.js");
+  const pageModules = await import("#renderer/components/Markdown/worker/page-module-load.js");
   return {
     ...original,
     // Read when a worker starts: the stand-ins' module imports this one, so they are made after it.
@@ -38,8 +36,8 @@ vi.mock("#renderer/components/Markdown/worker/connection.js", async (importOrigi
       TASKS_AT_ONCE,
       pageParser.appPageParser,
       textCompression.appTextCompression,
-      fuzzyMatcher.appFuzzyMatcher,
-      workflowChecks.appWorkflowChecks,
+      pageModules.appFuzzyMatcherLoad,
+      pageModules.appWorkflowChecks,
     ),
   };
 });
