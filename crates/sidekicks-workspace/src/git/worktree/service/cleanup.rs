@@ -4,7 +4,7 @@
 //!
 //! - A retired tree holding what the person could lose is never deleted: it is kept aside whole
 //!   and listed with the removed worktrees, or, on a mount no longer attached, left where it is.
-//! - A tree an agent runs in, or a session stands in, is left for a later pass.
+//! - A tree a run works in, or a session stands in, is left for a later pass.
 //! - Before a folder goes, the processes the daemon started in it are ended through their owners,
 //!   and git's built-in file-watch daemon for the tree is stopped, since nothing else would end it
 //!   once its folder is gone.
@@ -19,7 +19,7 @@ use std::time::Duration;
 use futures::future::BoxFuture;
 use rusqlite::Connection;
 use sidekicks_contracts::place::Place;
-use sidekicks_contracts::repo::mount::{RepoMountState, WorkspaceState};
+use sidekicks_contracts::repo::mount::RepoMountState;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
@@ -84,9 +84,9 @@ static SELECT_SWEEPABLE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// A tree an agent still runs in, or a session still stands in, is deferred, not excluded: a later
-// pass reclaims it once the run ends or the session moves. A live tree at the same folder, one put
-// back there, owns the folder now, so the retired row leaves it alone.
+// Whether a run works in the tree, or a session stands in it, is decided per row by resolved path
+// just before its removal, never here. A live tree at the same folder, one put back there, owns
+// the folder now, so the retired row leaves it alone.
 static SELECT_UNCLEANED_RETIRED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {WORKTREE_ROW_COLUMNS}, mount.place, wt.retired_risk_digest,
@@ -94,19 +94,11 @@ static SELECT_UNCLEANED_RETIRED_SQL: LazyLock<String> = LazyLock::new(|| {
   FROM worktrees AS wt JOIN repo_mounts AS mount ON mount.id = wt.repo_mount_id
  WHERE wt.state = '{retired}' AND wt.cleaned_at IS NULL
    AND NOT EXISTS (
-         SELECT 1 FROM run_execution_contexts AS run
-          WHERE run.released_at IS NULL
-            AND (run.worktree_id = wt.id OR run.execution_root = wt.fs_root))
-   AND NOT EXISTS (
-         SELECT 1 FROM workspaces AS standing
-          WHERE standing.state <> '{archived}' AND standing.fs_root = wt.fs_root)
-   AND NOT EXISTS (
          SELECT 1 FROM worktrees AS live
           WHERE live.fs_root = wt.fs_root AND {live})
  ORDER BY wt.updated_at ASC, wt.id ASC",
         attached = <&'static str>::from(RepoMountState::Attached),
         retired = <&'static str>::from(WorktreeState::Retired),
-        archived = <&'static str>::from(WorkspaceState::Archived),
         live = live_worktree_state_predicate("live"),
     )
 });
@@ -214,8 +206,8 @@ enum RetiredFolderOutcome {
 
 impl WorktreeService {
     /// One sweep: retires live trees on a mount no longer attached, stamping them cleaned so their
-    /// folders stay on disk, then empties each retired folder with no `cleaned_at` while no agent
-    /// runs in it and no session stands in it. A folder whose risk read shows nothing to lose, or
+    /// folders stay on disk, then empties each retired folder with no `cleaned_at` while no run
+    /// works in it and no session stands in it. A folder whose risk read shows nothing to lose, or
     /// the same as its retirement recorded, is deleted: the processes `owners` started in it ended,
     /// then git's record, then the folder, then the stamp. One holding anything more has those
     /// processes ended and goes to `keeper`, or on a mount no longer attached is left where it is,
@@ -356,7 +348,8 @@ impl WorktreeService {
         Ok(RetiredFolderOutcome::Cleaned)
     }
 
-    // An agent runs in the tree, or a session stands in its folder.
+    // A run works in the tree, by the test its removal refuses on, or a session stands in its
+    // folder, by the mount's occupancy read its removal also asks.
     async fn is_folder_in_use(&self, row: &WorktreeRow) -> Result<bool, WorktreeCleanupError> {
         if self.running_session_in(row).await?.is_some() {
             return Ok(true);

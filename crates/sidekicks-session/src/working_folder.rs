@@ -58,6 +58,7 @@ use sidekicks_workspace::execution_root::{
 };
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
 use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
+use sidekicks_workspace::git::worktree::rows::UNRELEASED_RUNS_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::errors::RepoRefusal;
 use sidekicks_workspace::row_guards::CHECKOUT_ROOT_METADATA_PATH;
 use sidekicks_workspace::run_setup_gates::execution_root::SessionFolderMoves;
@@ -69,9 +70,10 @@ use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// The statements the working folders' reads keep prepared on each read connection: a session's
 /// pending move, every pending move, a session's workspace, a mount's workspaces, a mount's root,
-/// a session's live run and the removed tree it works in. The unreleased runs a sweep reads are
-/// the worktree service's statement.
-pub const SESSION_WORKING_FOLDERS_STATEMENT_CAPACITY: usize = 7;
+/// a session's live run, the removed tree it works in, and the unreleased runs a sweep reads, a
+/// read the worktree service shares.
+pub const SESSION_WORKING_FOLDERS_STATEMENT_CAPACITY: usize =
+    7 + UNRELEASED_RUNS_STATEMENT_CAPACITY;
 
 // Why a session with no working folder cannot move.
 const CANNOT_MOVE: &str = "The session works in no folder any more, so it cannot move.";

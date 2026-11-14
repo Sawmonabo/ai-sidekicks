@@ -225,8 +225,8 @@ pub(crate) fn transition_statement(
     }
 }
 
-/// The run contexts of the worktree `@worktree_id` whose run has not ended, matched as stored: an
-/// agent runs in the tree when its context names the tree or roots at its folder or below it,
+/// The run contexts of the worktree `@worktree_id` whose run has not ended, matched as stored: a
+/// run works in the tree when its context names the tree or roots at its folder or below it,
 /// under either platform's separator. The retirement's write checks this inside its transaction;
 /// a run recorded under another spelling of the folder is caught before the write by the
 /// resolved-path test over [`read_unreleased_runs`].
@@ -241,6 +241,10 @@ pub(crate) const UNRELEASED_RUN_IN_WORKTREE_SQL: &str = "SELECT run.session_id
      AND run.released_at IS NULL
    ORDER BY run.created_at ASC
    LIMIT 1";
+
+/// The statements [`read_unreleased_runs`] prepares on a pooled connection: every run context
+/// whose run has not ended.
+pub const UNRELEASED_RUNS_STATEMENT_CAPACITY: usize = 1;
 
 // Every run context whose run has not ended, oldest first, for a resolved-path comparison; its
 // columns are `UnreleasedRunRow`'s, in order.
