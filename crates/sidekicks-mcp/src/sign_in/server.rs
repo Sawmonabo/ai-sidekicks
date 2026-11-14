@@ -1,10 +1,10 @@
 //! The server an MCP sign-in reaches, read from its binding: the provider's declaration, the whole
 //! address the binding's entry declares as its driver reads it, never the stripped one the
 //! inventory serves, the client the server's owner issued with the secret its driver reads for it,
-//! held only in memory, the scopes and the resource the entry
-//! asks for, the `https:` address its authorization server's metadata is read at where the entry
-//! names one, the binding's project root on this computer, the environment rows that fill the
-//! address's variables and each provider's current account.
+//! held only in memory, the scopes and the resource the entry asks for, the `https:` address its
+//! authorization server's metadata is read at where the entry names one, the binding's project
+//! root on this computer, the environment rows that fill the address's variables and each
+//! provider's current account.
 
 use std::collections::HashMap;
 use std::error::Error;

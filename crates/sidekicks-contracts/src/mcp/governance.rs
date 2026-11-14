@@ -166,13 +166,25 @@ pub enum McpReceiptKeyCause {
     ReceiptKeyLost,
 }
 
-/// The `mcp.bindingStoreUnavailable` refusal's `data.fields.cause`: the receipt key's cause, or
-/// the keychain's when it could not be read.
+/// Why the key a signed-in server's address digest is taken under could not be used: one
+/// `mcp.bindingStoreUnavailable` cause.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum McpAddressKeyCause {
+    /// The address key's keychain item holds no key; it is left as it is, since every sign-in is
+    /// filed under its digests, and no MCP change is made until it is repaired or removed.
+    AddressKeyDamaged,
+}
+
+/// The `mcp.bindingStoreUnavailable` refusal's `data.fields.cause`: the receipt key's cause, the
+/// address key's, or the keychain's when it could not be read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum McpBindingStoreUnavailableCause {
     /// The receipt key was lost.
     ReceiptKey(McpReceiptKeyCause),
+    /// The address key could not be used.
+    AddressKey(McpAddressKeyCause),
     /// The keychain holding the receipt key is locked or cannot be used.
     Keychain(KeychainRefusalCause),
 }
@@ -387,6 +399,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<McpServerSignInOutcome>(),
         Definition::read::<McpServerConfigWriteConflictReason>(),
         Definition::read::<McpReceiptKeyCause>(),
+        Definition::read::<McpAddressKeyCause>(),
         Definition::read::<McpBindingStoreUnavailableCause>(),
         Definition::read::<McpServerSignInCompletedPayload>().checked(),
         Definition::read::<McpServerConfigFileInvalidDetails>(),

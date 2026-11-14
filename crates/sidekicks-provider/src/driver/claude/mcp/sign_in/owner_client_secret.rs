@@ -3,13 +3,16 @@
 //! `oauth.clientSecretHelper` names, which overrides the entry's `oauth.clientSecret`, else that
 //! member; else, for any server, the secret `claude mcp add --client-secret` kept in the person's
 //! Claude Code credentials under the key Claude Code files the server's sign-in under. Each is
-//! read only where the entry names `oauth.clientId`, and none is kept here or printed.
+//! read only where the entry names `oauth.clientId`, and none is kept here or printed. A helper is
+//! run only from the administrator's MCP file on this computer: a `managedMcpServers` entry can
+//! come from the organization's remote settings, whose helpers need the person's consent, and
+//! Claude Code records no consent to an MCP entry's helper.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use secrecy::SecretString;
+use secrecy::{ExposeSecret as _, SecretString};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use sha2::Digest as _;
@@ -20,7 +23,7 @@ use zeroize::Zeroizing;
 
 use super::{ClaudeMcpSignInSources, read_sign_in_entry};
 use crate::driver::claude::account::credentials::{
-    ClaudeCredentialReadError, ClaudeSignInReader, ClaudeStoredCredentials, environment_home,
+    ClaudeCredentialReadError, ClaudeSignInReader, ClaudeStoredClientSecrets, environment_home,
     read_claude_credential_file,
 };
 use crate::driver::claude::mcp::config::{ClaudeServerEntryReader, OAUTH_MEMBER, URL_MEMBER};
@@ -70,6 +73,10 @@ pub(crate) enum ClaudeOwnerSecretError {
     /// The helper's output is not exactly one object holding a non-empty `clientSecret`.
     #[error("the client secret helper printed no client secret")]
     HelperOutputUnreadable,
+    /// The helper is named by a `managedMcpServers` entry, which remote settings may deliver, and
+    /// no record shows the person consented to running it, so it is never started.
+    #[error("the client secret helper may come from remote settings and has no recorded consent")]
+    HelperWithoutConsent,
 }
 
 impl From<ClaudeOwnerSecretError> for DriverError {
@@ -110,6 +117,9 @@ pub(crate) async fn read_claude_owner_client_secret(
     // names either is never run or sent, as Claude Code's own schema for it holds neither.
     if matches!(request.binding, McpServerBindingRef::Managed { .. }) {
         if let Some(helper) = non_empty_text(oauth, CLIENT_SECRET_HELPER_MEMBER) {
+            if !is_in_administrator_file(sources, &request.binding) {
+                return Err(ClaudeOwnerSecretError::HelperWithoutConsent.into());
+            }
             let folder = environment_home(environment);
             return Ok(Some(
                 run_client_secret_helper(spawner, Path::new(helper), environment, folder).await?,
@@ -128,6 +138,19 @@ pub(crate) async fn read_claude_owner_client_secret(
         keys.push(as_written);
     }
     Ok(read_stored_client_secret(credentials, environment, &keys).await?)
+}
+
+// Whether `binding`'s entry is the one the administrator's MCP file on this computer declares,
+// as the entry's read takes it before any `managedMcpServers` entry.
+fn is_in_administrator_file(
+    sources: &ClaudeMcpSignInSources<'_>,
+    binding: &McpServerBindingRef,
+) -> bool {
+    sources
+        .managed_mcp_servers
+        .as_ref()
+        .and_then(|servers| servers.get(binding.server_name().as_str()))
+        .is_some_and(Value::is_object)
 }
 
 // The key Claude Code files a server's sign-in and its kept client secret under:
@@ -179,16 +202,14 @@ async fn read_stored_client_secret(
     environment: &[(String, String)],
     keys: &[String],
 ) -> Result<Option<SecretString>, ClaudeOwnerSecretError> {
-    let secret_in = |mut stored: ClaudeStoredCredentials| {
-        keys.iter()
-            .find_map(|key| {
-                stored
-                    .mcp_oauth_client_config
-                    .remove(key)
-                    .and_then(|config| config.client_secret)
-                    .filter(|secret| !secret.is_empty())
-            })
-            .map(SecretString::from)
+    let secret_in = |mut stored: ClaudeStoredClientSecrets| {
+        keys.iter().find_map(|key| {
+            stored
+                .mcp_oauth_client_config
+                .remove(key)
+                .and_then(|config| config.client_secret)
+                .filter(|secret| !secret.expose_secret().is_empty())
+        })
     };
     if let Some(secret) = read_claude_credential_file(environment)
         .await
@@ -289,4 +310,59 @@ fn non_empty_text<'oauth>(oauth: &'oauth Map<String, Value>, member: &str) -> Op
         .get(member)
         .and_then(Value::as_str)
         .filter(|text| !text.trim().is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
+
+    use super::ClaudeOwnerSecretError;
+    use crate::driver::claude::DESCRIPTOR;
+    use crate::driver::claude::session::scripted::driver::ScriptedDriver;
+    use crate::driver::contract::error::DriverError;
+    use crate::driver::contract::sign_in::McpServerAddressRead;
+    use crate::runtime_binding::test_store::test_provider_account_id;
+
+    // A helper an account's `managedMcpServers` entry names, which remote settings can deliver, is
+    // never started with no consent recorded, and the sign-in fails rather than reading no secret.
+    // Killed by running it, which `true` answers with no secret printed.
+    #[tokio::test]
+    async fn a_remotely_delivered_helper_with_no_consent_is_never_started() {
+        let fixture = ScriptedDriver::new();
+        std::fs::create_dir_all(&fixture.driver.sources.home_folder)
+            .expect("the home folder is made");
+        fixture.starts.script_account_servers(
+            json!({ "mcpServers": [] }),
+            json!({ "effective": { "managedMcpServers": { "org-signed": {
+                "type": "http",
+                "url": "https://org-signed.example.com/mcp",
+                "oauth": { "clientId": "client", "clientSecretHelper": "/usr/bin/true" }
+            } } } }),
+        );
+        let request = McpServerAddressRead {
+            binding: McpServerBindingRef::Managed {
+                provider: DESCRIPTOR.provider_id(),
+                server_name: McpServerName::new("org-signed".to_owned()).expect("a server name"),
+            },
+            provider_account_id: Some(test_provider_account_id()),
+            root_folder: None,
+            every_project_rows: Vec::new(),
+            project_rows: Vec::new(),
+        };
+
+        let read = fixture.driver.read_mcp_owner_client_secret(request).await;
+
+        let error = match read {
+            Err(DriverError::Internal(error)) => error,
+            other => panic!("the sign-in fails, not {other:?}"),
+        };
+        assert!(
+            matches!(
+                error.downcast_ref::<ClaudeOwnerSecretError>(),
+                Some(ClaudeOwnerSecretError::HelperWithoutConsent)
+            ),
+            "the helper is refused unstarted, not {error:?}"
+        );
+    }
 }

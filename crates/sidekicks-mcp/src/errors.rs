@@ -196,7 +196,11 @@ fn binding_store_words(cause: Option<&McpBindingStoreUnavailableCause>) -> &'sta
         Some(McpBindingStoreUnavailableCause::ReceiptKey(McpReceiptKeyCause::ReceiptKeyLost)) => {
             "The change was not confirmed."
         }
-        Some(McpBindingStoreUnavailableCause::Keychain(_)) | None => {
+        Some(
+            McpBindingStoreUnavailableCause::AddressKey(_)
+            | McpBindingStoreUnavailableCause::Keychain(_),
+        )
+        | None => {
             "the MCP binding store cannot be reached, so no MCP change can be made until it can"
         }
     }

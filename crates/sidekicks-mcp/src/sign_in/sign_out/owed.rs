@@ -21,6 +21,9 @@
 //!   run that began after its write.
 //! - A record is decided under a lock every removal's count takes, released while the keychain
 //!   signs the server out, then taken again to clear the record unless a removal was counted since.
+//! - A press waits while a settle signs its server out, from the settle's check of the server to
+//!   the keychain's answer, and stamps it after, so no press is ended by a settle that checked
+//!   before it. Nothing is locked across the keychain call; a removal never waits on it.
 //! - No log line names an address, which may hold credentials.
 
 use std::collections::{HashMap, HashSet};
@@ -37,13 +40,15 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 use crate::binding::store::{McpBindingKey, McpBindingStore, McpBindingStoreError};
 use crate::errors::McpRefusal;
 use crate::mutation::service::CONFIG_UNREAD_WORDS;
 use crate::mutation::service::removal_sign_out::{McpRemovalSignOut, McpRemovalSignOutHold};
-use crate::sign_in::address_digest::{ServerAddressDigest, ServerAddressKeyError};
+use crate::sign_in::address_digest::{
+    MovedDigest, ServerAddressDigest, ServerAddressKeyError, ServerDigestRows,
+};
 use crate::sign_in::server::SignInTargetReads;
 use crate::sign_in::service::SignInService;
 
@@ -60,6 +65,16 @@ const RECORD_OWED_SIGN_OUT_SQL: &str = "INSERT INTO mcp_server_owed_sign_outs
 
 const CLEAR_OWED_SIGN_OUT_SQL: &str =
     "DELETE FROM mcp_server_owed_sign_outs WHERE server_address_digest = @server_address_digest";
+
+// The record at a moved sign-in's old digest, owed again at its new one; a record already there
+// is kept as it is.
+const MOVE_OWED_SIGN_OUT_SQL: &str = "INSERT INTO mcp_server_owed_sign_outs (server_address_digest)
+  SELECT @new_digest WHERE EXISTS (SELECT 1 FROM mcp_server_owed_sign_outs
+    WHERE server_address_digest = @old_digest)
+  ON CONFLICT (server_address_digest) DO NOTHING";
+
+const CLEAR_MOVED_OWED_SIGN_OUT_SQL: &str =
+    "DELETE FROM mcp_server_owed_sign_outs WHERE server_address_digest = @old_digest";
 
 /// Why an owed sign-out, or a binding's last declared address, was not read or kept.
 #[derive(Debug, thiserror::Error)]
@@ -158,6 +173,41 @@ impl OwedSignOutStore {
     }
 }
 
+impl ServerDigestRows for OwedSignOutStore {
+    fn rewrite_digests<'a>(
+        &'a self,
+        moved: &'a [MovedDigest],
+    ) -> BoxFuture<'a, Result<(), WriteError>> {
+        let statements = moved
+            .iter()
+            .flat_map(|(old, new)| {
+                [
+                    WriteStatement {
+                        sql: MOVE_OWED_SIGN_OUT_SQL.into(),
+                        bindings: StatementBindings::Named(vec![
+                            text_binding("@old_digest", old.as_str()),
+                            text_binding("@new_digest", new.as_str()),
+                        ]),
+                        expected_row_count: None,
+                    },
+                    WriteStatement {
+                        sql: CLEAR_MOVED_OWED_SIGN_OUT_SQL.into(),
+                        bindings: StatementBindings::Named(vec![text_binding(
+                            "@old_digest",
+                            old.as_str(),
+                        )]),
+                        expected_row_count: None,
+                    },
+                ]
+            })
+            .collect();
+        Box::pin(async move {
+            self.writer.write(statements).await?;
+            Ok(())
+        })
+    }
+}
+
 // The removals between their record and their own settle: how many are counted at each server,
 // and the latest number each server was stamped with, by a removal's count or release or by a
 // press, which a settle compares with the number it began at.
@@ -166,6 +216,23 @@ struct RemovalsInFlight {
     counts: HashMap<ServerAddressDigest, usize>,
     stamped_at: HashMap<ServerAddressDigest, u64>,
     next: u64,
+    // The servers a settle is signing out, each with what wakes a press waiting on it.
+    signing_out: HashMap<ServerAddressDigest, Arc<Notify>>,
+}
+
+// A settle's sign-out of one server, marked from its check until it drops, which wakes every
+// press waiting there, the settle's task ended by the stop among the ways it drops.
+struct SigningOut {
+    in_flight: Arc<Mutex<RemovalsInFlight>>,
+    digest: ServerAddressDigest,
+}
+
+impl Drop for SigningOut {
+    fn drop(&mut self) {
+        if let Some(waiting) = lock(&self.in_flight).signing_out.remove(&self.digest) {
+            waiting.notify_waiters();
+        }
+    }
 }
 
 impl RemovalsInFlight {
@@ -200,7 +267,7 @@ pub struct OwedSignOuts {
     this: Weak<Self>,
     sign_ins: Arc<SignInService>,
     targets: SignInTargetReads,
-    records: OwedSignOutStore,
+    records: Arc<OwedSignOutStore>,
     bindings: McpBindingStore,
     /// The removals in flight, by digest.
     in_flight: Arc<Mutex<RemovalsInFlight>>,
@@ -216,21 +283,26 @@ pub struct OwedSignOuts {
 impl OwedSignOuts {
     /// The owed sign-outs signed out through `sign_ins`, the bindings' addresses read through
     /// `targets`, the records and each binding's last declared address read on `reads` and
-    /// written through `writer`.
+    /// written through `writer`. The records follow a sign-in its custody files under a new
+    /// address key.
     pub fn new(
         sign_ins: Arc<SignInService>,
         targets: SignInTargetReads,
         reads: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,
     ) -> Arc<Self> {
+        let records = Arc::new(OwedSignOutStore {
+            pool: Arc::clone(&reads),
+            writer: Arc::clone(&writer),
+        });
+        sign_ins
+            .custody
+            .follow_moves_with(Arc::clone(&records) as Arc<dyn ServerDigestRows>);
         Arc::new_cyclic(|this| Self {
             this: Weak::clone(this),
             sign_ins,
             targets,
-            records: OwedSignOutStore {
-                pool: Arc::clone(&reads),
-                writer: Arc::clone(&writer),
-            },
+            records,
             bindings: McpBindingStore::new(writer, reads),
             in_flight: Arc::default(),
             deciding: tokio::sync::Mutex::new(()),
@@ -250,9 +322,8 @@ impl OwedSignOuts {
         address: &McpServerAddress,
     ) -> Result<ServerAddressDigest, OwedSignOutError> {
         let digest = self.sign_ins.custody.digest(address).await?;
-        lock(&self.in_flight).stamp(&digest);
-        let last = self.read_last_declared(binding).await?;
-        self.keep_declared(binding, &digest, last.as_ref()).await?;
+        self.stamp_press(&digest).await;
+        self.keep_declared_digest(binding, &digest).await?;
         Ok(digest)
     }
 
@@ -271,9 +342,25 @@ impl OwedSignOuts {
         }
         let last = self.read_last_declared(binding).await?;
         if let Some(last) = &last {
-            lock(&self.in_flight).stamp(last);
+            self.stamp_press(last).await;
         }
         Ok(last)
+    }
+
+    // Stamps `digest`'s server for a press, once no settle is signing it out.
+    async fn stamp_press(&self, digest: &ServerAddressDigest) {
+        loop {
+            let signed_out = {
+                let mut in_flight = lock(&self.in_flight);
+                let Some(waiting) = in_flight.signing_out.get(digest) else {
+                    in_flight.stamp(digest);
+                    return;
+                };
+                // Made under the lock, so the wake of a sign-out that ends next is not missed.
+                Arc::clone(waiting).notified_owned()
+            };
+            signed_out.await;
+        }
     }
 
     /// Asks the one settle task for a run, as a press does once it has answered and the daemon's
@@ -292,6 +379,17 @@ impl OwedSignOuts {
             .read_last_declared_digests(binding.provider())
             .await?
             .remove(&McpBindingKey::of(binding)))
+    }
+
+    // Writes `digest` as `binding`'s last declared one where the one it holds differs, as
+    // `keep_declared` writes it.
+    async fn keep_declared_digest(
+        &self,
+        binding: &McpServerBindingRef,
+        digest: &ServerAddressDigest,
+    ) -> Result<(), OwedSignOutError> {
+        let last = self.read_last_declared(binding).await?;
+        self.keep_declared(binding, digest, last.as_ref()).await
     }
 
     // Writes `digest` as `binding`'s last declared one where `last`, the one it holds, differs,
@@ -336,11 +434,20 @@ impl OwedSignOuts {
                     words: CONFIG_UNREAD_WORDS.to_owned(),
                 }
             })?;
+        // The removal's count stamps its server, and it never waits on a settle's sign-out.
         let digest = match declared {
-            Some(address) => self
-                .note_declared(binding, &address)
-                .await
-                .map_err(McpRefusal::from)?,
+            Some(address) => {
+                let digest = self
+                    .sign_ins
+                    .custody
+                    .digest(&address)
+                    .await
+                    .map_err(McpRefusal::from)?;
+                self.keep_declared_digest(binding, &digest)
+                    .await
+                    .map_err(McpRefusal::from)?;
+                digest
+            }
             None => match self
                 .read_last_declared(binding)
                 .await
@@ -446,36 +553,55 @@ impl OwedSignOuts {
     // clears each record a binding names and signs out and clears each other one, leaving those a
     // removal in flight or counted since the scan began holds and those the keychain refuses.
     async fn settle_records(&self) -> Result<(), SettleError> {
-        if self.records.list().await?.is_empty() {
-            return Ok(());
-        }
         let began = lock(&self.in_flight).next;
+        if !self.records.list().await?.is_empty() {
+            self.settle_listed(began).await?;
+        }
+        // A stamp older than this settle's start holds nothing for a later one.
+        lock(&self.in_flight)
+            .stamped_at
+            .retain(|_digest, stamped| *stamped >= began);
+        Ok(())
+    }
+
+    // Settles each record listed now, as a settle that began at `began`.
+    async fn settle_listed(&self, began: u64) -> Result<(), SettleError> {
         let named = self.read_named_digests().await?;
         for digest in self.records.list().await? {
-            {
+            let is_owed = !named.contains(&digest);
+            let signing_out = {
                 let _deciding = self.deciding.lock().await;
-                if lock(&self.in_flight).holds(&digest, began) {
+                let mut in_flight = lock(&self.in_flight);
+                if in_flight.holds(&digest, began) {
                     continue;
                 }
-            }
-            if !named.contains(&digest)
-                && let Err(refusal) = self.sign_ins.sign_out_at(&digest).await
-            {
-                tracing::warn!(
-                    error = &refusal as &(dyn std::error::Error + 'static),
-                    "the keychain kept an MCP sign-out a removal owes; the next settle tries again"
-                );
-                continue;
+                is_owed.then(|| {
+                    in_flight
+                        .signing_out
+                        .insert(digest.clone(), Arc::new(Notify::new()));
+                    SigningOut {
+                        in_flight: Arc::clone(&self.in_flight),
+                        digest: digest.clone(),
+                    }
+                })
+            };
+            if let Some(signing_out) = signing_out {
+                let signed_out = self.sign_ins.sign_out_at(&digest).await;
+                drop(signing_out);
+                if let Err(refusal) = signed_out {
+                    tracing::warn!(
+                        error = &refusal as &(dyn std::error::Error + 'static),
+                        "the keychain kept an MCP sign-out a removal owes; the next settle tries \
+                         again"
+                    );
+                    continue;
+                }
             }
             let _deciding = self.deciding.lock().await;
             if !lock(&self.in_flight).holds(&digest, began) {
                 self.records.clear(&digest).await?;
             }
         }
-        let mut in_flight = lock(&self.in_flight);
-        in_flight
-            .stamped_at
-            .retain(|_digest, stamped| *stamped >= began);
         Ok(())
     }
 

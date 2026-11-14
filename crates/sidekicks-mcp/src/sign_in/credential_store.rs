@@ -44,7 +44,7 @@ use url::Url;
 
 use crate::sign_in::address_digest::{
     ADDRESS_KEY_ACCOUNT, ServerAddressDigest, ServerAddressKey, ServerAddressKeyError,
-    ServerAddressKeys,
+    ServerAddressKeys, ServerDigestRows,
 };
 
 /// A `DPoP` proof key's 32-byte P-256 scalar, wiped when it drops.
@@ -229,6 +229,12 @@ impl SignInCustody {
         address: &McpServerAddress,
     ) -> Result<ServerAddressDigest, ServerAddressKeyError> {
         self.keys.digest(address).await
+    }
+
+    /// Has `rows` rewritten whenever a lost address key's replacement moves the sign-ins to new
+    /// digests; only the first rows given are kept.
+    pub(crate) fn follow_moves_with(&self, rows: Arc<dyn ServerDigestRows>) {
+        self.keys.follow_moves_with(rows);
     }
 
     /// The address key every server's digest is made with, for a caller that digests many

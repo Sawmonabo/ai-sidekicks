@@ -15,7 +15,8 @@ use std::fmt;
 use std::path::PathBuf;
 
 use secrecy::{ExposeSecret, SecretString};
-use serde::Deserialize;
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Deserializer};
 use sha2::Digest;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::{KeychainItemRefusal, PathRules, SignInMove, Spawner};
@@ -244,13 +245,14 @@ impl ClaudeSignInReader {
         self.keychain.is_some()
     }
 
-    /// The credentials in the keychain item Claude Code started in `environment` files for its
-    /// credential folder; `None` where there is no keychain or no item. Fails as the keychain
-    /// refuses or does not answer in time, or the item is not Claude Code's credentials.
-    pub(crate) async fn read_keychain_record(
+    /// The part `Stored` reads of the credentials in the keychain item Claude Code started in
+    /// `environment` files for its credential folder; `None` where there is no keychain or no
+    /// item. Fails as the keychain refuses or does not answer in time, or the item is not Claude
+    /// Code's credentials.
+    pub(crate) async fn read_keychain_record<Stored: DeserializeOwned>(
         &self,
         environment: &[(String, String)],
-    ) -> Result<Option<ClaudeStoredCredentials>, ClaudeCredentialReadError> {
+    ) -> Result<Option<Stored>, ClaudeCredentialReadError> {
         let Some(keychain) = &self.keychain else {
             return Ok(None);
         };
@@ -317,12 +319,12 @@ impl ClaudeKeychainItems {
     }
 }
 
-/// The credentials in the file Claude Code started in `environment` keeps in its credential
-/// folder; `None` where it names no folder or the file is absent. Fails as the file cannot be read
-/// or is not Claude Code's credentials.
-pub(crate) async fn read_claude_credential_file(
+/// The part `Stored` reads of the credentials in the file Claude Code started in `environment`
+/// keeps in its credential folder; `None` where it names no folder or the file is absent. Fails as
+/// the file cannot be read or is not Claude Code's credentials.
+pub(crate) async fn read_claude_credential_file<Stored: DeserializeOwned>(
     environment: &[(String, String)],
-) -> Result<Option<ClaudeStoredCredentials>, ClaudeCredentialReadError> {
+) -> Result<Option<Stored>, ClaudeCredentialReadError> {
     let Some(folder) = claude_credential_folder(environment) else {
         return Ok(None);
     };
@@ -337,9 +339,8 @@ pub(crate) async fn read_claude_credential_file(
     parse_stored_credentials(&bytes).map(Some)
 }
 
-/// Claude Code's stored credentials as the one parse reads them: the claude.ai record, every MCP
-/// sign-in Claude Code saved and every client secret it keeps for a server's owner-issued client.
-/// It derives no `Debug`, since it holds tokens.
+/// Claude Code's stored credentials as the sign-in reads read them: the claude.ai record and
+/// every MCP sign-in Claude Code saved. It derives no `Debug`, since it holds tokens.
 #[derive(Deserialize)]
 pub(crate) struct ClaudeStoredCredentials {
     #[serde(rename = "claudeAiOauth", default)]
@@ -347,18 +348,32 @@ pub(crate) struct ClaudeStoredCredentials {
     /// Every MCP sign-in Claude Code saved, by a key of its own.
     #[serde(rename = "mcpOAuth", default)]
     pub(crate) mcp_oauth: BTreeMap<String, ClaudeSavedSignIn>,
-    /// The secret `claude mcp add --client-secret` kept for each server, by the same key.
+}
+
+/// The one part of Claude Code's stored credentials the read of an owner-issued client's secret
+/// takes: the secret `claude mcp add --client-secret` kept for each server, by the key Claude
+/// Code files the server's sign-in under. Every other member of the item is skipped unread.
+#[derive(Deserialize)]
+pub(crate) struct ClaudeStoredClientSecrets {
+    /// Each server's client settings, by its key.
     #[serde(rename = "mcpOAuthClientConfig", default)]
     pub(crate) mcp_oauth_client_config: BTreeMap<String, ClaudeStoredClientConfig>,
 }
 
 /// The client settings Claude Code keeps for one server beside its entry: the secret of the
-/// client its owner issued. It derives no `Debug`, since it holds the secret.
+/// client its owner issued, held as a secret from the parse on.
 #[derive(Deserialize)]
 pub(crate) struct ClaudeStoredClientConfig {
     /// The secret, sent with the entry's `oauth.clientId`.
-    #[serde(rename = "clientSecret", default)]
-    pub(crate) client_secret: Option<String>,
+    #[serde(rename = "clientSecret", default, deserialize_with = "read_secret")]
+    pub(crate) client_secret: Option<SecretString>,
+}
+
+// A text member read straight into a secret.
+fn read_secret<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<SecretString>, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.map(SecretString::from))
 }
 
 /// Why Claude Code's stored credentials could not be read. No case carries a stored value.
@@ -530,11 +545,11 @@ struct StoredSignIn {
     client_id: Option<String>,
 }
 
-// `bytes` read as Claude Code's stored credentials, their lone surrogate escapes repaired, the
-// repaired copy wiped when dropped.
-fn parse_stored_credentials(
+// The part `Stored` reads of `bytes` as Claude Code's stored credentials, their lone surrogate
+// escapes repaired, the repaired copy wiped when dropped.
+fn parse_stored_credentials<Stored: DeserializeOwned>(
     bytes: &[u8],
-) -> Result<ClaudeStoredCredentials, ClaudeCredentialReadError> {
+) -> Result<Stored, ClaudeCredentialReadError> {
     let parsed = match decode_inbound_json(bytes) {
         Cow::Borrowed(text) => serde_json::from_str(text),
         Cow::Owned(text) => serde_json::from_str(&Zeroizing::new(text)),

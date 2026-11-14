@@ -14,20 +14,26 @@
 //!   filed under its digests would be lost with it.
 //! - A key that is gone while sign-ins are filed is made again, and each sign-in is filed under
 //!   the new key's digest of the address its secret holds before the new key is written, so a stop
-//!   part-way leaves the key gone and the next life finishes the move.
+//!   part-way leaves the key gone and the next life finishes the move. The rows that follow a
+//!   moved sign-in, the owed sign-outs, are rewritten from each old digest to its new one in the
+//!   same step, before the key is written, so a later life's move takes them on from there.
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
+
+use futures::future::BoxFuture;
 
 use hmac::{Hmac, KeyInit as _, Mac as _};
 use secrecy::{ExposeSecret as _, SecretBox};
 use sha2::Sha256;
-use sidekicks_contracts::mcp::governance::McpBindingStoreUnavailableCause;
+use sidekicks_contracts::mcp::governance::{McpAddressKeyCause, McpBindingStoreUnavailableCause};
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_provider::driver::mcp_server::address::fold_server_address;
 use sidekicks_store::credential_store::seed_item::{
     SEED_LENGTH, Seed, encode_seed, item_seed, random_seed,
 };
 use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
+use sidekicks_store::database::writer::WriteError;
 
 use crate::errors::McpRefusal;
 use crate::sign_in::credential_store::read_held_sign_in;
@@ -92,6 +98,10 @@ pub(crate) enum ServerAddressKeyError {
     /// The key's item holds no key; it is left as it is, so the sign-ins filed under it stay.
     #[error("the MCP address key's keychain item holds no key, so it is left as it is")]
     Damaged,
+    /// The rows naming a moved sign-in's old digest were not rewritten; the key is not written,
+    /// so the next read moves the sign-ins and the rows again.
+    #[error("the rows naming a moved MCP sign-in were not rewritten under the new address key")]
+    Rows(#[source] WriteError),
 }
 
 impl From<ServerAddressKeyError> for McpRefusal {
@@ -101,7 +111,10 @@ impl From<ServerAddressKeyError> for McpRefusal {
             ServerAddressKeyError::Keychain(refusal) => {
                 Some(McpBindingStoreUnavailableCause::Keychain(refusal.cause()))
             }
-            ServerAddressKeyError::Random(_) | ServerAddressKeyError::Damaged => None,
+            ServerAddressKeyError::Damaged => Some(McpBindingStoreUnavailableCause::AddressKey(
+                McpAddressKeyCause::AddressKeyDamaged,
+            )),
+            ServerAddressKeyError::Random(_) | ServerAddressKeyError::Rows(_) => None,
         };
         Self::BindingStoreUnavailable {
             cause,
@@ -110,11 +123,28 @@ impl From<ServerAddressKeyError> for McpRefusal {
     }
 }
 
+/// A sign-in filed under a new address key: the digest it was filed under and its new one.
+pub(crate) type MovedDigest = (ServerAddressDigest, ServerAddressDigest);
+
+/// The rows that name a server by its digest and follow its sign-in to a new address key.
+pub(crate) trait ServerDigestRows: Send + Sync {
+    /// Rewrites each row naming an old digest of `moved` to its new one, in one write. Fails as
+    /// the writer fails, rewriting none.
+    fn rewrite_digests<'a>(
+        &'a self,
+        moved: &'a [MovedDigest],
+    ) -> BoxFuture<'a, Result<(), WriteError>>;
+}
+
 /// The address key kept in the sign-ins' keychain service; see the module doc.
 pub(crate) struct ServerAddressKeys {
     keychain: Arc<dyn SecretKeychain>,
     // The key once read or made; only a success is kept.
     key: tokio::sync::Mutex<Option<Arc<ServerAddressKey>>>,
+    // The rows rewritten when a new key moves the sign-ins, once the daemon has given them.
+    rows: OnceLock<Arc<dyn ServerDigestRows>>,
+    // Whether this life has logged the key's item as damaged, which it does once.
+    is_damage_logged: AtomicBool,
 }
 
 impl ServerAddressKeys {
@@ -124,24 +154,48 @@ impl ServerAddressKeys {
         Self {
             keychain,
             key: tokio::sync::Mutex::new(None),
+            rows: OnceLock::new(),
+            is_damage_logged: AtomicBool::new(false),
         }
     }
 
+    /// Has `rows` rewritten whenever a new key moves the sign-ins; only the first rows given are
+    /// kept.
+    pub(crate) fn follow_moves_with(&self, rows: Arc<dyn ServerDigestRows>) {
+        self.rows.get_or_init(|| rows);
+    }
+
     /// The address key: the one held, else the keychain's item, else a new one, every sign-in
-    /// filed again under it, written and read back. Fails with [`ServerAddressKeyError::Damaged`],
-    /// writing nothing, when the item holds no key, and otherwise as the keychain or the random
-    /// source fails, holding nothing.
+    /// filed again under it and the rows that follow them rewritten, then written and read back.
+    /// Fails with [`ServerAddressKeyError::Damaged`], writing nothing, when the item holds no key,
+    /// and otherwise as the keychain, the random source or the rows' write fails, holding nothing.
     pub(crate) async fn read(&self) -> Result<Arc<ServerAddressKey>, ServerAddressKeyError> {
         let mut held = self.key.lock().await;
         if let Some(key) = held.as_ref() {
             return Ok(Arc::clone(key));
         }
         let key = if let Some(item) = self.keychain.read(ADDRESS_KEY_ACCOUNT).await? {
-            ServerAddressKey::of_seed(&item_seed(&item).ok_or(ServerAddressKeyError::Damaged)?)
+            let Some(seed) = item_seed(&item) else {
+                if !self.is_damage_logged.swap(true, Ordering::Relaxed) {
+                    tracing::error!(
+                        "the MCP address key's keychain item holds no key; it is left as it is, \
+                         and no MCP change is made until it is repaired or removed"
+                    );
+                }
+                return Err(ServerAddressKeyError::Damaged);
+            };
+            ServerAddressKey::of_seed(&seed)
         } else {
             let seed = random_seed()?;
             let key = ServerAddressKey::of_seed(&seed);
-            self.file_sign_ins_under(&key).await?;
+            let moved = self.file_sign_ins_under(&key).await?;
+            if let Some(rows) = self.rows.get()
+                && !moved.is_empty()
+            {
+                rows.rewrite_digests(&moved)
+                    .await
+                    .map_err(ServerAddressKeyError::Rows)?;
+            }
             self.keychain
                 .write_verified(ADDRESS_KEY_ACCOUNT, &encode_seed(&seed))
                 .await?;
@@ -151,9 +205,14 @@ impl ServerAddressKeys {
     }
 
     // Files each sign-in under `key`'s digest of the address its secret holds, written there
-    // before its old item is removed, so a stop part-way leaves it under one account or both. An
-    // item that does not read as a sign-in names no address and is left where it is.
-    async fn file_sign_ins_under(&self, key: &ServerAddressKey) -> Result<(), KeychainRefusal> {
+    // before its old item is removed, so a stop part-way leaves it under one account or both, and
+    // answers each one moved. An item that does not read as a sign-in names no address and is left
+    // where it is.
+    async fn file_sign_ins_under(
+        &self,
+        key: &ServerAddressKey,
+    ) -> Result<Vec<MovedDigest>, KeychainRefusal> {
+        let mut moved = Vec::new();
         for account in self.keychain.accounts().await? {
             if account == ADDRESS_KEY_ACCOUNT {
                 continue;
@@ -178,8 +237,9 @@ impl ServerAddressKeys {
             }
             self.keychain.write_verified(digest.as_str(), &item).await?;
             self.keychain.remove(&account).await?;
+            moved.push((ServerAddressDigest::from_stored(account), digest));
         }
-        Ok(())
+        Ok(moved)
     }
 
     /// The digest of `address` under the address key. Fails as [`Self::read`] fails.

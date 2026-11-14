@@ -20,11 +20,25 @@ use crate::driver::session_control::SessionToolServer;
 #[derive(Debug, thiserror::Error)]
 enum ClaudeSwitchOffClearError {
     /// The edit of the process's config surely did not land.
-    #[error("Claude Code's own switch-off of the server could not be cleared: {0:?}")]
+    #[error("Claude Code's own switch-off of the server could not be cleared: {}", refusal_words(.0))]
     Refused(McpServerWriteRefusal),
     /// The edit may or may not have landed.
     #[error("whether Claude Code's own switch-off of the server was cleared is not known")]
     Unknown,
+}
+
+// Why the config edit was refused, in plain words; a provider's words carry no config value.
+fn refusal_words(refusal: &McpServerWriteRefusal) -> &str {
+    match refusal {
+        McpServerWriteRefusal::Provider { words }
+        | McpServerWriteRefusal::EntryInvalid { words }
+        | McpServerWriteRefusal::ConfigFileInvalid { words } => words.as_str(),
+        McpServerWriteRefusal::StaleVersion { .. } => "the config changed since it was read",
+        McpServerWriteRefusal::ConfigFileChanged | McpServerWriteRefusal::EntryChanged => {
+            "another writer changed the config first"
+        }
+        McpServerWriteRefusal::ConfigFileBusy => "another writer held the config file",
+    }
 }
 
 impl ClaudeDriver {

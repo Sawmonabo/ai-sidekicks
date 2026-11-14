@@ -185,9 +185,8 @@ pub struct RedirectListener {
 impl RedirectListener {
     /// Binds the listener. With no owner-issued `callback_url` it takes a free port on
     /// `127.0.0.1`, or on `[::1]` when IPv4 loopback is unusable; an owner-issued address sets the
-    /// host, port and path, a loopback name binding `127.0.0.1`, and one on `127.0.0.1` that names
-    /// no port takes a free one there, which the redirect then carries (RFC 8252 §7.3). Fails with
-    /// `NotHttp` or
+    /// host, port and path, a loopback name binding `127.0.0.1`, and one that names no port takes
+    /// a free one, which the redirect then carries (RFC 8252 §7.3). Fails with `NotHttp` or
     /// `NotLoopback` for an owner address the receiver must not bind, `UnusablePath` for a path it
     /// cannot route, and `Bind` when the system refuses.
     pub async fn bind(
@@ -310,7 +309,7 @@ async fn bind_free_loopback_port() -> io::Result<TcpListener> {
 
 /// The socket an owner-issued callback address binds: its loopback host as the sign-in judges
 /// loopback, a name (`localhost`, a name under it) as `127.0.0.1` and an IPv4 address an IPv6 one
-/// carries as that address, on its port, or on port 0, a free one, for `127.0.0.1` with no port.
+/// carries as that address, on its port, or on port 0, a free one, where it names no port.
 fn owner_issued_address(callback_url: &Url) -> Result<SocketAddr, RedirectReceiverError> {
     if callback_url.scheme() != "http" {
         return Err(RedirectReceiverError::NotHttp {
@@ -324,19 +323,12 @@ fn owner_issued_address(callback_url: &Url) -> Result<SocketAddr, RedirectReceiv
         Some(Host::Domain(_)) => Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
         None => None,
     };
-    let is_port_free = callback_url.port().is_none()
-        && callback_url.host() == Some(Host::Ipv4(Ipv4Addr::LOCALHOST));
-    let port = if is_port_free {
-        Some(0)
-    } else {
-        callback_url.port_or_known_default()
-    };
-    let (Some(host), Some(port)) = (host, port) else {
+    let Some(host) = host else {
         return Err(RedirectReceiverError::NotLoopback {
             callback_url: callback_url.to_string(),
         });
     };
-    Ok(SocketAddr::new(host, port))
+    Ok(SocketAddr::new(host, callback_url.port().unwrap_or(0)))
 }
 
 /// Whether an owner-issued path can sit beside the result pages in the router, which refuses a

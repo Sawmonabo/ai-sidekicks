@@ -53,9 +53,7 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 use crate::errors::{McpRefusal, SignInLaunchError, SignInUnsupportedReason};
 use crate::oauth::dpop_proof::DpopKey;
 use crate::oauth::pushed_authorization::{AuthorizationRequestEndpoints, PushedAuthorizationError};
-use crate::oauth::redirect_receiver::{
-    CallbackPath, RedirectListener, RedirectReceiver, RedirectReceiverError,
-};
+use crate::oauth::redirect_receiver::{RedirectListener, RedirectReceiver};
 use crate::sign_in::address_digest::ServerAddressDigest;
 use crate::sign_in::admitted_client::AdmittedClientStore;
 use crate::sign_in::authorization_page::{
@@ -71,6 +69,7 @@ use crate::sign_in::redemption::{AttemptRedemption, ExpectedIssuer};
 use crate::sign_in::registration::{
     ClientRequest, RelayAddress, SignInClient, choose_client, classify_pushed_authorization_refusal,
 };
+use crate::sign_in::service::redirect::SignInRedirect;
 
 /// How long an attempt waits for the browser's return before it ends.
 pub(super) const ATTEMPT_LIFETIME: Duration = Duration::from_mins(15);
@@ -394,24 +393,9 @@ impl SignInService {
             &metadata.additional_fields,
         );
         let owner = server.owner_client.as_ref();
-        // The provider's own callback is sent whole, in the form its rule gives for whether the
-        // server returns `iss`; the daemon's own loopback address takes the server's id unless it
-        // does.
-        let owner_callback = owner
-            .and_then(|owner| owner.callback.as_ref())
-            .map(|callback| {
-                if is_issuer_in_response {
-                    &callback.with_issuer
-                } else {
-                    &callback.without_issuer
-                }
-            });
-        let callback_path = if owner_callback.is_some() || is_issuer_in_response {
-            CallbackPath::Shared
-        } else {
-            CallbackPath::PerServer(digest.as_str())
-        };
-        let (mut listener, mut redirect_address) = bind_listener(owner_callback, callback_path)
+        let redirect = SignInRedirect::choose(owner, is_issuer_in_response, &digest);
+        let (mut listener, mut redirect_address) = redirect
+            .bind()
             .await
             .map_err(|error| failed(Box::new(error)))?;
         let owner_client_id = owner.and_then(|owner| owner.client_id.as_deref());
@@ -446,7 +430,8 @@ impl SignInService {
                         .clear_own_client_unfinished(&digest)
                         .await
                         .map_err(|error| failed(Box::new(error)))?;
-                    (listener, redirect_address) = bind_listener(owner_callback, callback_path)
+                    (listener, redirect_address) = redirect
+                        .bind()
                         .await
                         .map_err(|error| failed(Box::new(error)))?;
                     client = choose_client(
@@ -595,8 +580,8 @@ impl SignInService {
 
     /// Marks signed in, on a task that `close` or the service's drop ends, every server the
     /// keychain files a sign-in for, so a keychain call waiting on a prompt never holds the caller.
-    /// A keychain that refuses to list them is logged, and the servers are marked as each is next
-    /// signed in or out.
+    /// A keychain that refuses to list them, or an address key that cannot be read, is logged, and
+    /// the servers are marked as each is next signed in or out.
     pub fn start_signed_in_seed(&self) {
         let custody = Arc::clone(&self.custody);
         let stop = self.revocations.token().clone();
@@ -607,8 +592,8 @@ impl SignInService {
                     if let Err(refusal) = seeded {
                         tracing::warn!(
                             error = &refusal as &(dyn std::error::Error + 'static),
-                            "the MCP sign-ins in the keychain were not listed, so none is marked \
-                             signed in"
+                            "the MCP sign-ins in the keychain were not listed, or their address \
+                             key could not be read, so none is marked signed in"
                         );
                     }
                 }
@@ -864,33 +849,6 @@ fn named_metadata_scopes(metadata: &AuthorizationMetadata) -> Vec<String> {
         )
 }
 
-// Binds the receiver for `owner_callback`, else the daemon's own loopback address at
-// `callback_path`, and answers it with the redirect address the client is chosen with; an owner's
-// callback the receiver never binds answers no receiver and that callback, so the client's order
-// sends it to a provider's flow. Fails as the system refuses the listener.
-async fn bind_listener(
-    owner_callback: Option<&Url>,
-    callback_path: CallbackPath<'_>,
-) -> Result<(Option<RedirectListener>, Url), RedirectReceiverError> {
-    match RedirectListener::bind(owner_callback, callback_path).await {
-        Ok(listener) => {
-            let redirect_address = listener.redirect_url().clone();
-            Ok((Some(listener), redirect_address))
-        }
-        Err(error @ RedirectReceiverError::Bind(_)) => Err(error),
-        Err(
-            RedirectReceiverError::NotHttp { .. }
-            | RedirectReceiverError::NotLoopback { .. }
-            | RedirectReceiverError::UnusablePath { .. },
-        ) => Ok((
-            None,
-            owner_callback
-                .expect("the receiver refuses only an owner-issued callback")
-                .clone(),
-        )),
-    }
-}
-
 /// The target's server when its binding is one a sign-in reaches: an address, never a connector.
 pub(super) fn addressed_server(target: &SignInTarget) -> Option<&AddressedServer> {
     if matches!(target.binding, McpServerBindingRef::Connector { .. }) {
@@ -902,5 +860,6 @@ pub(super) fn addressed_server(target: &SignInTarget) -> Option<&AddressedServer
     }
 }
 
+mod redirect;
 #[cfg(test)]
 mod tests;
