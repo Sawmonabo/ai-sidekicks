@@ -23,6 +23,19 @@ pub async fn git_in_with_input(
     run_trimmed(git, call).await
 }
 
+/// Runs git with `arguments` in `folder` against the index file `index` and answers what it
+/// printed, trimmed. Panics when git fails.
+pub async fn git_in_with_index(
+    git: &GitRunner,
+    folder: &Path,
+    arguments: &[&str],
+    index: &Path,
+) -> String {
+    let call =
+        GitCall::read(in_folder(folder, arguments)).with_environment("GIT_INDEX_FILE", index);
+    run_trimmed(git, call).await
+}
+
 async fn run_trimmed(git: &GitRunner, call: GitCall) -> String {
     let output = git
         .run(None, call)

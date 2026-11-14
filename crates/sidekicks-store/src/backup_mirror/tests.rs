@@ -247,9 +247,21 @@ fn a_root_whose_other_folder_is_away_keeps_its_copy() {
 }
 
 // Runs git from the path with `arguments` in `folder`, under the test's identity and the files ref
-// format, since the store holds no git runner. Answers what git printed.
+// format, since the store holds no git runner. Every inherited `GIT_` variable is dropped, as the
+// runner drops those that point git at another repository, so a call never reaches the caller's.
+// Answers what git printed.
 fn git_in(folder: &Path, arguments: &[&str]) -> String {
-    let output = std::process::Command::new("git")
+    let mut command = std::process::Command::new("git");
+    for (name, _) in std::env::vars_os() {
+        if name
+            .to_string_lossy()
+            .to_ascii_uppercase()
+            .starts_with("GIT_")
+        {
+            command.env_remove(name);
+        }
+    }
+    let output = command
         .args([
             "-c",
             "user.name=Test",

@@ -21,7 +21,9 @@ use sidekicks_store::data_folder::{session_storage_folder, workflow_run_folder};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_workflow::test_rows::{TEST_SESSION_ID, insert_run, insert_workflow_version};
-use sidekicks_workspace::git::process::test_repository::{git_in, git_in_with_input};
+use sidekicks_workspace::git::process::test_repository::{
+    git_in, git_in_with_index, git_in_with_input,
+};
 use sidekicks_workspace::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
 use sidekicks_workspace::git::turn_snapshot::capture::CheckoutCaptureInput;
 use sidekicks_workspace::git::turn_snapshot::capture_folder::CAPTURES_SEGMENT;
@@ -547,19 +549,18 @@ async fn a_deleted_runs_objects_go_and_every_capture_the_store_holds_stays_whole
     let indexed_blob = pack_lone_blob(&git, &folder, "indexed\n").await;
     let indexes = folder.join("indexes");
     fs::create_dir_all(&indexes).expect("the indexes folder is made");
-    let staged = std::process::Command::new("git")
-        .arg("-C")
-        .arg(&folder)
-        .args([
+    git_in_with_index(
+        &git,
+        &folder,
+        &[
             "update-index",
             "--add",
             "--cacheinfo",
             &format!("100644,{indexed_blob},indexed.txt"),
-        ])
-        .env("GIT_INDEX_FILE", indexes.join("ab".repeat(32)))
-        .status()
-        .expect("git runs");
-    assert!(staged.success(), "the blob is staged in the kept index");
+        ],
+        &indexes.join("ab".repeat(32)),
+    )
+    .await;
     age_packs(&folder);
     // A blob only a pack written within the hour holds.
     let fresh_blob = pack_lone_blob(&git, &folder, "fresh\n").await;
