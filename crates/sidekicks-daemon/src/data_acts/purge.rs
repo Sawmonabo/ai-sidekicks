@@ -11,20 +11,24 @@
 //! - Then the files only this session names go: its shells end and stay refused until the rows
 //!   are gone, its tool-server connections start closing and no new one opens, every provider
 //!   leg of the session ends, so no provider runs a turn on what is deleted, then the provider's
-//!   copy of each conversation, a chat's managed workspace folder, the session's own storage
-//!   folder with its runs' capture folders, held while they go so a sweep pass, a pack or a fold
-//!   of one waits and then finds it gone, the copies a restore made of the clones it kept on
-//!   other volumes, its own folders on other volumes whose volume is mounted (each with its user
-//!   folder once that is empty; a folder whose volume is absent is owed instead, in the rows'
-//!   write), and the project rules the session wrote into its project's files. A failure there
-//!   leaves the mark and every row, so purging the session again finishes it.
+//!   copy of each conversation, each managed workspace folder the session is the last chat to
+//!   hold (a folder another chat holds stays), the session's own storage folder with its runs'
+//!   capture folders, held while they go so a sweep pass, a pack or a fold of one waits and then
+//!   finds it gone, the copies a restore made of the clones it kept on other volumes, its own
+//!   folders on other volumes whose volume is mounted (each with its user folder once that is
+//!   empty; a folder whose volume is absent is owed instead, in the rows' write), and the project
+//!   rules the session wrote into its project's files. A failure there leaves the mark and every
+//!   row, so purging the session again finishes it.
 //! - Then one write, under the session's append lock, deletes every row naming the session, its
-//!   plans and the hand-off that made it among them, and appends its `session.event.compacted`
-//!   receipt on the daemon's sentinel session, led by two guards: the session is still marked
-//!   (or still has no row), and no event of it lies past the receipt's range. An append the lock
-//!   let go before its commit can land after the range is read; the range is then read again
-//!   once, since the hold keeps any new append out. The writer's connection runs with
-//!   `secure_delete` on, so a freed page is overwritten.
+//!   plans and the hand-off that made it among them, releases each managed folder it holds (its
+//!   own hold, or the mount with every row on it for the last holder), and appends its
+//!   `session.event.compacted` receipt on the daemon's sentinel session, led by its guards: the
+//!   session is still marked (or still has no row), no event of it lies past the receipt's range,
+//!   and each folder is still held as the files stage read it, so of two holders purged together
+//!   the one whose guard is refused stays marked and its next purge finishes as the last holder.
+//!   An append the lock let go before its commit can land after the range is read; the range is
+//!   then read again once, since the hold keeps any new append out. The writer's connection runs
+//!   with `secure_delete` on, so a freed page is overwritten.
 //! - After the commit the recovery state forgets the session's damage, the stop intent drops its
 //!   name, the session reads let go of its block cuts, the runs' postures forget its level moves,
 //!   the project's other sessions are handed their rules again, the live list loses the session,
@@ -103,11 +107,13 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorkspaceService};
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
+use sidekicks_workspace::repo::mount::service::held_folders::HeldManagedFolder;
 
 use crate::data_acts::purge::rows::{
-    HAND_OFF_GUARD_INDEX, MARK_INDEX, MARKED_GUARD_INDEX, PurgeCaller, PurgeReadError, PurgedRow,
-    UPPER_BOUND_GUARD_INDEX, gone_worktree_ids, mark_statements, read_gone_worktree_candidates,
-    read_purge_targets, read_range_and_links, session_deletion_statements,
+    FOLDER_GUARDS_START_INDEX, HAND_OFF_GUARD_INDEX, MARK_INDEX, MARKED_GUARD_INDEX, PurgeCaller,
+    PurgeReadError, PurgedRow, UPPER_BOUND_GUARD_INDEX, gone_worktree_ids, mark_statements,
+    read_gone_worktree_candidates, read_purge_targets, read_range_and_links,
+    session_deletion_statements,
 };
 use crate::hand_over::remove_session_storage_folder;
 
@@ -129,6 +135,10 @@ pub(crate) enum SessionPurgeError {
     /// to have one.
     #[error("the session's row changed before its rows were deleted")]
     MarkLost,
+    /// The chats holding a managed folder the session holds changed after its files stage read
+    /// them, so its rows stay until it is purged again.
+    #[error("the chats holding the session's managed folder changed during its purge")]
+    FolderHoldersMoved,
     /// Events of the session committed past its range after the range was read again: a fault,
     /// since the session's append lock keeps every new append out.
     #[error("the session's events moved past their range while its append lock was held")]
@@ -339,7 +349,13 @@ impl SessionPurge {
             .await
             .map_err(SessionPurgeError::Legs)?;
         deps.conversations.delete_conversations(session_id).await?;
-        deps.managed_workspaces.delete_folder(session_id).await?;
+        for folder in &targets.held_folders {
+            if !folder.is_held_by_another {
+                deps.managed_workspaces
+                    .delete_folder(folder.founding_session_id)
+                    .await?;
+            }
+        }
         let storage_folder = session_storage_folder(&deps.data_folder, &session_id);
         // Held through the removal, so a pass, a pack or a fold queued on a capture folder finds
         // it gone once the hold drops.
@@ -369,6 +385,7 @@ impl SessionPurge {
                 session_id,
                 row,
                 &targets.workflow_run_ids,
+                &targets.held_folders,
                 &owed_folders,
                 operation_id,
             )
@@ -439,14 +456,15 @@ impl SessionPurge {
         }
     }
 
-    // The one write that deletes every row naming the session with its receipt and owes each of
-    // `owed_folders`, under the session's append lock, while its row is still as `row` says;
-    // answers the sessions it was linked to.
+    // The one write that deletes every row naming the session with its receipt, releases each of
+    // `held_folders` and owes each of `owed_folders`, under the session's append lock, while its
+    // row is still as `row` says; answers the sessions it was linked to.
     async fn delete_rows(
         &self,
         session_id: SessionId,
         row: PurgedRow,
         workflow_run_ids: &[WorkflowRunId],
+        held_folders: &[HeldManagedFolder],
         owed_folders: &[VolumeFolder],
         operation_id: &FreeFormText<EVENT_FIELD_MAX_LEN>,
     ) -> Result<Vec<SessionId>, SessionPurgeError> {
@@ -479,6 +497,7 @@ impl SessionPurge {
                 range.map(|(_first, last)| last),
                 workflow_run_ids,
                 &gone_worktree_ids,
+                held_folders,
                 owed_folders,
             );
             #[cfg(test)]
@@ -510,9 +529,14 @@ impl SessionPurge {
                     }
                 }
             };
+            let folder_guards =
+                FOLDER_GUARDS_START_INDEX..FOLDER_GUARDS_START_INDEX + held_folders.len();
             match refused_at {
                 MARKED_GUARD_INDEX => return Err(SessionPurgeError::MarkLost),
                 UPPER_BOUND_GUARD_INDEX if !has_read_again => has_read_again = true,
+                index if folder_guards.contains(&index) => {
+                    return Err(SessionPurgeError::FolderHoldersMoved);
+                }
                 _ => return Err(SessionPurgeError::RangeMoved),
             }
         }

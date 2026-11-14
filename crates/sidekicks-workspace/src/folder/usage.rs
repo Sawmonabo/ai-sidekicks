@@ -40,29 +40,40 @@ use crate::schema::MountOrigin;
 /// The distinct statements the folder reads keep prepared on each read connection.
 pub const REPO_FOLDER_USAGE_STATEMENT_CAPACITY: usize = 4;
 
-// A mount's row with its origin's facts; for a chat's folder, its earliest live holder: holders
-// marked for purge or not yet born after the rest, then the earliest bound, as the bound sessions
-// read orders them, and a holder not yet bound last.
-static MOUNT_ORIGIN_COLUMNS: LazyLock<String> = LazyLock::new(|| {
+/// The subquery answering the earliest live holder of the chat folder whose mount id the SQL
+/// expression `mount_id` names, leaving out the chat `excluded_session_id` names where given:
+/// holders marked for purge or not yet born after the rest, then the earliest bound, as the bound
+/// sessions read orders them, a holder not yet bound last, then the first by id.
+pub fn earliest_live_holder_sql(mount_id: &str, excluded_session_id: Option<&str>) -> String {
+    let excluded = excluded_session_id
+        .map(|session_id| format!(" AND hold.session_id <> {session_id}"))
+        .unwrap_or_default();
     format!(
-        "mount.id, mount.canonical_root, mount.origin, mount.project_id,
-       (SELECT hold.session_id
+        "(SELECT hold.session_id
           FROM managed_folder_holds AS hold
           LEFT JOIN sessions AS holder ON holder.id = hold.session_id
           LEFT JOIN workspaces AS workspace
             ON workspace.repo_mount_id = hold.repo_mount_id
            AND workspace.session_id = hold.session_id AND workspace.state <> '{archived}'
-         WHERE hold.repo_mount_id = mount.id
+         WHERE hold.repo_mount_id = {mount_id}{excluded}
          GROUP BY hold.session_id
          ORDER BY MAX(coalesce(holder.state = '{purge_requested}', 1)) ASC,
                   MIN(workspace.created_at) IS NULL ASC, MIN(workspace.created_at) ASC,
                   hold.session_id ASC
-         LIMIT 1),
+         LIMIT 1)",
+        archived = <&'static str>::from(WorkspaceState::Archived),
+        purge_requested = <&'static str>::from(SessionState::PurgeRequested),
+    )
+}
+
+// A mount's row with its origin's facts; for a chat's folder, its earliest live holder.
+static MOUNT_ORIGIN_COLUMNS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "mount.id, mount.canonical_root, mount.origin, mount.project_id, {},
        project.name, mount.place
   FROM repo_mounts AS mount
   LEFT JOIN projects AS project ON project.id = mount.project_id",
-        archived = <&'static str>::from(WorkspaceState::Archived),
-        purge_requested = <&'static str>::from(SessionState::PurgeRequested),
+        earliest_live_holder_sql("mount.id", None)
     )
 });
 

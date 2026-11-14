@@ -417,6 +417,7 @@ impl ClaudeDriver {
             context: Arc::clone(&context_readings),
             tool_call_statuses: Arc::clone(&ports.tool_call_statuses),
             tool_traces: Arc::clone(&ports.tool_traces),
+            file_tool_writes: Arc::clone(&ports.file_tool_writes),
             goal_endings: Arc::clone(&goal_endings),
             session_message_readings: Arc::clone(&ports.session_message_readings),
             command_windows: Arc::clone(&command_windows),

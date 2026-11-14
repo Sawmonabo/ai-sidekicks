@@ -1,7 +1,8 @@
 //! `Export all data`: everything the service keeps for the person written into a new folder they
 //! picked, one export at a time. `sessions/<id>.jsonl` holds each session's events in the
 //! canonical shape with every body decoded, then its queue items and interventions as stored;
-//! `files/<session id>/<manifest id>/<name>` each file the session's artifacts hold;
+//! `files/<session id>/<manifest id>/<name>` each file the session's artifacts hold, every version
+//! of a chat folder it holds among them;
 //! `accounts.json` each provider account's provider, name and plan, and no credential;
 //! `README.txt` a line for each part. Sessions are read a page of bounded text at a time and
 //! written as they are read, and a body too long for a page is written a frame at a time, so
@@ -88,10 +89,21 @@ const INTERVENTIONS_SQL: &str = "SELECT intervention.id, intervention.target_run
      JOIN runs AS run ON run.run_id = intervention.target_run_id \
      WHERE run.session_id = ?1 ORDER BY intervention.created_at, intervention.id";
 
+// The session's own manifests and every version of each chat folder it holds, whichever holding
+// chat wrote it, each once.
 static ARTIFACT_FILES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT id, {MANIFEST_FILE_NAME_SQL}, content_hash FROM artifact_manifests \
-         WHERE session_id = ?1 ORDER BY created_at, id"
+        "SELECT id, {MANIFEST_FILE_NAME_SQL}, content_hash, created_at FROM artifact_manifests \
+         WHERE session_id = ?1 \
+         UNION \
+         SELECT manifests.id, {MANIFEST_FILE_NAME_SQL}, manifests.content_hash, \
+                manifests.created_at \
+           FROM managed_folder_holds AS hold \
+           JOIN artifact_manifests AS manifests \
+             ON manifests.repo_mount_id = hold.repo_mount_id \
+            AND manifests.workspace_path IS NOT NULL \
+          WHERE hold.session_id = ?1 \
+         ORDER BY created_at, id"
     )
 });
 

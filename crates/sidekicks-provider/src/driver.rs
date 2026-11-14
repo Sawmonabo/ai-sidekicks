@@ -64,6 +64,7 @@ mod codex;
 pub(crate) mod context_window;
 pub mod contract;
 pub mod daemon_stop;
+pub mod default_model;
 pub(crate) mod delivery_dispatch;
 pub mod diagnostics;
 pub mod error_causes;
