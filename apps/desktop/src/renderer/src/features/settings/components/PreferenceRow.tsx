@@ -24,7 +24,7 @@ export interface PreferenceRowProps {
    */
   readonly controlElementId: string | undefined;
   /** The lines under the label, each its own paragraph, tied to the control as its description. */
-  readonly descriptionLines: readonly string[];
+  readonly descriptionLines: readonly ReactNode[];
   /** The default the changed mark names, or `undefined` while the value is its default. */
   readonly changedFromDefault: ChangedFromDefaultMarkProps | undefined;
   /** Draws the control, handed the ids of the lines that describe it. */

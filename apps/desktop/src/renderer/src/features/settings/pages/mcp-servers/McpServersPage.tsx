@@ -10,8 +10,9 @@
 // The outcome ledger is one entry per control: a binding's own switch keyed by its scope-qualified
 // identity, its switch in one project by that identity and the project's root and distribution,
 // its sign-in, reconnect and removal by that identity and the act's word, each tool's facet by that
-// identity, the tool's name and the facet, and the add form's send by a key no binding's can be.
-// A removal's entry outlives its row, so the pane the removed server stood in still says how the
+// identity, the tool's name and the facet, and each opening of the add form's send by a key no
+// binding's can be, so an answer settles only the form that sent it; the form drops an opening's
+// entry once it has settled and a later opening starts. A removal's entry outlives its row, so the pane the removed server stood in still says how the
 // removal settled. It belongs to the bridge it was produced through: the provider replaces the
 // bridge under a live mount in place, so the map rides the subject-scoped holder with the bridge
 // as subject. It re-seeds during the render that first sees a new bridge, and a publisher
@@ -172,6 +173,16 @@ export function McpServersPage(props: {
   const recordOutcome = (key: string, outcome: McpMutationOutcome): void => {
     publishOutcomes((held) => new Map(held).set(key, outcome));
   };
+  const dropOutcome = (key: string): void => {
+    publishOutcomes((held) => {
+      if (!held.has(key)) {
+        return held;
+      }
+      const kept = new Map(held);
+      kept.delete(key);
+      return kept;
+    });
+  };
   // A settled mutation answers with the row as it now stands; this asks the daemon again rather
   // than patching one row into a list whose fold this page does not own. The binding travels on
   // the outcome so each control renders its own; a refused send settles the control with the
@@ -247,8 +258,12 @@ export function McpServersPage(props: {
     });
   };
   // The declaration travels only inside this send: the outcome keeps the binding alone.
-  const addServer = (binding: McpWritableBindingRef, config: McpServerConfigInput): void => {
-    sendChange(ADD_SERVER_OUTCOME_KEY, binding, async () => ({
+  const addServer = (
+    opening: number,
+    binding: McpWritableBindingRef,
+    config: McpServerConfigInput,
+  ): void => {
+    sendChange(addServerOutcomeKeyOf(opening), binding, async () => ({
       kind: "serverSent",
       binding,
       settlement: settlementOfMutation(
@@ -312,10 +327,10 @@ export function McpServersPage(props: {
   const nowMilliseconds = useRelativeTimesNow(clock, observedStamps);
   const serverAdding = (
     <ServerAdding
-      outcome={outcomes.get(ADD_SERVER_OUTCOME_KEY) ?? IDLE_MCP_MUTATION}
+      outcomeFor={(opening) => outcomes.get(addServerOutcomeKeyOf(opening)) ?? IDLE_MCP_MUTATION}
       onAdd={addServer}
-      onDropOutcome={() => {
-        recordOutcome(ADD_SERVER_OUTCOME_KEY, IDLE_MCP_MUTATION);
+      onDropOutcome={(opening) => {
+        dropOutcome(addServerOutcomeKeyOf(opening));
       }}
       searchRegistry={operations.searchRegistry}
       projects={projects}
@@ -470,8 +485,10 @@ type SettledMcpMutationOutcome = Exclude<
   { readonly kind: "idle" | "sending" | "refused" }
 >;
 
-/** The ledger key of the add form's send, which no binding's key can equal. */
-const ADD_SERVER_OUTCOME_KEY = structuralKey(["addServer"]);
+/** The ledger key of the send of one opening of the add form, which no binding's key can equal. */
+function addServerOutcomeKeyOf(opening: number): string {
+  return structuralKey(["addServer", String(opening)]);
+}
 
 /** What a sign-in whose page the system browser would not open settles with. */
 const SIGN_IN_PAGE_UNOPENED = refuse(

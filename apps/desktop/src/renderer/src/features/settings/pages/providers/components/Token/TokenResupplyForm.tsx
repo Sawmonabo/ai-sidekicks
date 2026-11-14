@@ -4,12 +4,12 @@ import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   IDLE_TOKEN_REGISTRATION,
   submitTokenRegistration,
-  takeWriteOnlyToken,
   type ProviderAccountRegisterCall,
   type TokenRegistrationOutcome,
 } from "../../sign-in/flow.js";
 import { TOKEN_KEPT_WORDS, type SecretsPlace } from "../../secrets-place.js";
 import { RegistrationOutcomeLine } from "../RegistrationOutcomeLine.js";
+import { takeWriteOnlyValue } from "#renderer/features/settings/write-only-field.js";
 
 /**
  * The field a token or API-key account whose login expired takes its freshly minted token in.
@@ -33,7 +33,7 @@ export function TokenResupplyForm(props: {
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    const nonInteractiveToken = takeWriteOnlyToken(tokenInput.current);
+    const nonInteractiveToken = takeWriteOnlyValue(tokenInput.current);
     setOutcome({ kind: "submitting" });
     // The account's own provider and billing mode, which the request carries beside the
     // selector; `accountId` makes it a replacement and never a second account, so the account
@@ -85,7 +85,7 @@ export function TokenResupplyForm(props: {
           className="meridian-settings-page__action meridian-action-button"
           onClick={() => {
             // Leaves the field empty and the slot under it clear; the remedy stays where it is.
-            takeWriteOnlyToken(tokenInput.current);
+            takeWriteOnlyValue(tokenInput.current);
             setOutcome(IDLE_TOKEN_REGISTRATION);
           }}
         >

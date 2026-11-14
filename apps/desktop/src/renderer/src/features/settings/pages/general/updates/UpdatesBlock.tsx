@@ -8,24 +8,19 @@
 // readiness from a percent, and only `downloading` carries one and renders a bar. A failure the
 // updater reports offers `Try again`, which does the failed step again. A control whose call
 // fails draws a fixed sentence for that control under the controls, which stay drawn. Under the
-// read-out sits the switch for the machine setting `updatesAutomatic`, drawn only once the
-// settings file has been read so it never shows a value it does not hold: a refused write leaves
-// the switch where it was and draws the refusal's message, or the screen's fixed sentence for it,
-// in the strip, with `Try again` sending the same change again.
+// read-out sits the switch for the machine setting `updatesAutomatic`, whose row stands with its
+// label from the first frame and shows the switch only once the settings file has been read.
 
 import { useState, type ReactNode } from "react";
-import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine/settings";
 import type { UpdateFailedStep } from "#shared/preload-api.js";
 
-import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
-import type { Clock } from "#renderer/lib/clock.js";
 import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
-import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
+import { MachineSettingSwitchRow } from "#renderer/features/settings/components/MachineSettingSwitchRow.js";
 import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
 import type { UpdaterCalls, UpdateReading } from "#renderer/store/update/reading.js";
 import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/store/update/unreachable.js";
@@ -69,14 +64,6 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
   );
   const status = reading.kind === "state" ? reading.state.status : undefined;
   const [controlRefusal, setControlRefusal] = useState<Refusal | undefined>(undefined);
-  // A read's `Try again` clears the refusal and reopens in one act, so a reopen that throws at once
-  // leaves the same line drawn; the press count says it again. The feed's own reopens after a
-  // wait do not count, so they are not read out one by one.
-  const [readAgainCount, setReadAgainCount] = useState(0);
-  const readAgain = (): void => {
-    setReadAgainCount((count) => count + 1);
-    preferences.readAgain();
-  };
   const press = (request: () => Promise<void>, failedDetail: string): void => {
     setControlRefusal(undefined);
     request().catch(() => {
@@ -146,7 +133,12 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
         />
       )}
 
-      {renderAutomaticCheck(preferences, clock, { readAgain, readAgainCount })}
+      <MachineSettingSwitchRow
+        preferences={preferences}
+        member="updatesAutomatic"
+        control={GENERAL_CONTROLS.checkForUpdatesAutomatically}
+        clock={clock}
+      />
     </section>
   );
 }
@@ -174,53 +166,6 @@ function stepAgain(
         failedDetail: UPDATER_UNREACHABLE_DETAIL.restart,
       };
   }
-}
-
-/**
- * The automatic-check switch once the settings file has been read; before that, the reading line
- * after the short delay, or the failed read with `Try again`.
- */
-function renderAutomaticCheck(
-  preferences: UpdatesBlockProps["preferences"],
-  clock: Clock,
-  readAgainPress: { readonly readAgain: () => void; readonly readAgainCount: number },
-): ReactNode {
-  const { reading, readRefusal } = preferences.snapshot;
-  if (reading === undefined) {
-    return readRefusal === undefined ? (
-      <LoadingNotice clock={clock} placement="inline" title="Loading…" />
-    ) : (
-      <InlineRefusal
-        code={readRefusal.code}
-        detail="Couldn't load settings"
-        onTryAgain={readAgainPress.readAgain}
-        attempt={readAgainPress.readAgainCount}
-      />
-    );
-  }
-  const preferenceRefusal = preferences.refusalFor("updatesAutomatic");
-  return (
-    <>
-      <PreferenceToggleRow
-        control={GENERAL_CONTROLS.checkForUpdatesAutomatically}
-        checked={preferences.settings.updatesAutomatic}
-        checkedByDefault={MACHINE_SETTINGS_DEFAULTS.updatesAutomatic}
-        isPending={preferences.isPending("updatesAutomatic")}
-        onCheckedChange={(checked) => {
-          preferences.choose("updatesAutomatic", checked);
-        }}
-      />
-      {preferenceRefusal === undefined ? null : (
-        <InlineRefusal
-          code={preferenceRefusal.code}
-          detail={preferenceRefusal.detail}
-          onTryAgain={() => {
-            preferences.retry("updatesAutomatic");
-          }}
-        />
-      )}
-    </>
-  );
 }
 
 /**

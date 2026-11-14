@@ -1,18 +1,20 @@
 // The settings page table: each page's note, findable words and controls, and how its body
 // arrives. A page's name, on the list and over the page, is `SETTINGS_PAGE_LABELS`.
 //
-// The screen is a page list and a pane holding the open page. `SETTINGS_PAGES` is the table;
+// The screen is a page list and a pane holding the open page. `settingsPagesOn` is the table;
 // `SettingsPageRegistry` is what one mount of the screen composes from it, so no window inherits
 // another's pages. What search does with the words each page declares is `../search.ts`.
 
 import { createElement } from "react";
+
+import type { SupportedPlatform } from "@ai-sidekicks/contracts/platform";
 
 import { KeyedRegistry } from "#renderer/lib/keyed-registry.js";
 import { LoaderBackedBody, type LazyBodyLoader } from "#renderer/components/LazyBody/loader.js";
 import { AppearancePage } from "./appearance/AppearancePage.js";
 import { APPEARANCE_CONTROLS } from "./appearance/controls.js";
 import { BROWSER_CONTROLS } from "./browser/controls.js";
-import { GENERAL_CONTROLS } from "./general/controls.js";
+import { generalControlListOn } from "./general/controls.js";
 import { GeneralPage } from "./general/GeneralPage.js";
 import { KEYBOARD_CONTROLS } from "./keyboard/controls.js";
 import { KeyboardPage } from "./keyboard/KeyboardPage.js";
@@ -166,135 +168,140 @@ export class SettingsPageRegistry {
 // composition fills it before any screen mounts, and the page that draws it imports no body.
 
 /**
- * A registry holding every page of the table, composed for one mount of the screen.
+ * A registry holding every page of the table on `platform`, composed for one mount of the screen.
  *
  * A fresh registry per call, so a second window composes its own set and a suite renders
  * against a registry it owns.
  */
-export function composeSettingsPages(): SettingsPageRegistry {
+export function composeSettingsPages(platform: SupportedPlatform): SettingsPageRegistry {
   const registry = new SettingsPageRegistry();
-  for (const page of SETTINGS_PAGES) {
+  for (const page of settingsPagesOn(platform)) {
     registry.register(page);
   }
   return registry;
 }
 
-/** The settings pages, in page-list order. */
-export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
-  {
-    pageId: "general",
-    keywords: ["version", "about", "build", "update", "upgrade"],
-    note: "What this install is, how it updates itself, and what a new session starts from.",
-    controls: Object.values(GENERAL_CONTROLS),
-    render: (context) => createElement(GeneralPage, { context }),
-  },
-  {
-    pageId: "providers",
-    keywords: [
-      "provider",
-      "credentials",
-      "sign in",
-      "login",
-      "billing",
-      "quota",
-      "rate limit",
-      "default account",
-      "readiness",
-    ],
-    note:
-      "Sign in to Claude Code and Codex, choose which account new work runs on, and set what " +
-      "each provider does on its own. Every sign-in and pasted token stays on this computer.",
-    body: () => import("./providers/body.js"),
-  },
-  {
-    pageId: "mcp-servers",
-    keywords: [
-      "tools",
-      "servers",
-      "model context protocol",
-      "governance",
-      "overrides",
-      "reconnect",
-      "authorize",
-    ],
-    note:
-      "The tool servers Claude Code and Codex connect to, and what each is allowed to do. " +
-      "Read live from the background service.",
-    body: () => import("./mcp-servers/body.js"),
-  },
-  {
-    pageId: "projects",
-    keywords: ["repositories", "clone", "worktree", "environment variables", "branch names"],
-    note:
-      "Where cloned repositories go, every project attached to this computer, what happens " +
-      "after a worktree is made, and the environment rows every process starts with.",
-    render: () => createElement(RegisteredBodyPage, { pageId: "projects" }),
-  },
-  {
-    // A loader, so the page and its sheet stay off the initial import graph: the note and
-    // keywords stay here because the pane and search read them before the page's chunk has
-    // loaded.
-    pageId: "browser",
-    keywords: ["web", "site data", "cookies", "storage", "clear"],
-    note:
-      "What the browser inside the app remembers, and whether sidekicks can drive it. One set " +
-      "of site data for this computer.",
-    controls: Object.values(BROWSER_CONTROLS),
-    body: () => import("./browser/body.js"),
-  },
-  {
-    pageId: "keyboard",
-    keywords: [
-      "shortcut",
-      "chord",
-      "hotkey",
-      "binding",
-      "keys",
-      "palette",
-      "accelerator",
-      "rebind",
-    ],
-    note: "Every key the app answers to. Change any of them.",
-    controls: Object.values(KEYBOARD_CONTROLS),
-    render: () => createElement(KeyboardPage),
-  },
-  {
-    pageId: "appearance",
-    keywords: ["theme", "dark", "light", "color", "scheme", "contrast", "display"],
-    note: "How the app looks.",
-    controls: Object.values(APPEARANCE_CONTROLS),
-    render: (context) => createElement(AppearancePage, { chooseScheme: context.chooseScheme }),
-  },
-  {
-    pageId: "notifications",
-    keywords: [
-      "alerts",
-      "toasts",
-      "mute",
-      "attention",
-      "interruptions",
-      "badges",
-      "do not disturb",
-    ],
-    note: "When the app tells you something is waiting.",
-    render: () => createElement(RegisteredBodyPage, { pageId: "notifications" }),
-  },
-  {
-    pageId: "runtime",
-    keywords: ["background service", "runtime", "restart", "stop", "connection"],
-    note:
-      "The background service that runs sidekicks, the folders it can reach, what it keeps, " +
-      "and the port it listens on.",
-    controls: Object.values(RUNTIME_CONTROLS),
-    render: (context) => createElement(RuntimePage, { context }),
-  },
-  {
-    pageId: "devices",
-    keywords: ["remote control", "phone", "link a device", "passkeys", "shared ports"],
-    note: "Computers and devices linked to reach sessions remotely.",
-    render: () => createElement(RegisteredBodyPage, { pageId: "devices" }),
-  },
-];
+/**
+ * The settings pages on `platform`, in page-list order: a control a page words by the platform
+ * is found in the words the page draws there.
+ */
+export function settingsPagesOn(platform: SupportedPlatform): readonly SettingsPageRegistration[] {
+  return [
+    {
+      pageId: "general",
+      keywords: ["version", "about", "build", "update", "upgrade"],
+      note: "What this install is, how it updates itself, and what a new session starts from.",
+      controls: generalControlListOn(platform),
+      render: (context) => createElement(GeneralPage, { context }),
+    },
+    {
+      pageId: "providers",
+      keywords: [
+        "provider",
+        "credentials",
+        "sign in",
+        "login",
+        "billing",
+        "quota",
+        "rate limit",
+        "default account",
+        "readiness",
+      ],
+      note:
+        "Sign in to Claude Code and Codex, choose which account new work runs on, and set what " +
+        "each provider does on its own. Every sign-in and pasted token stays on this computer.",
+      body: () => import("./providers/body.js"),
+    },
+    {
+      pageId: "mcp-servers",
+      keywords: [
+        "tools",
+        "servers",
+        "model context protocol",
+        "governance",
+        "overrides",
+        "reconnect",
+        "authorize",
+      ],
+      note:
+        "The tool servers Claude Code and Codex connect to, and what each is allowed to do. " +
+        "Read live from the background service.",
+      body: () => import("./mcp-servers/body.js"),
+    },
+    {
+      pageId: "projects",
+      keywords: ["repositories", "clone", "worktree", "environment variables", "branch names"],
+      note:
+        "Where cloned repositories go, every project attached to this computer, what happens " +
+        "after a worktree is made, and the environment rows every process starts with.",
+      render: () => createElement(RegisteredBodyPage, { pageId: "projects" }),
+    },
+    {
+      // A loader, so the page and its sheet stay off the initial import graph: the note and
+      // keywords stay here because the pane and search read them before the page's chunk has
+      // loaded.
+      pageId: "browser",
+      keywords: ["web", "site data", "cookies", "storage", "clear"],
+      note:
+        "What the browser inside the app remembers, and whether sidekicks can drive it. One set " +
+        "of site data for this computer.",
+      controls: Object.values(BROWSER_CONTROLS),
+      body: () => import("./browser/body.js"),
+    },
+    {
+      pageId: "keyboard",
+      keywords: [
+        "shortcut",
+        "chord",
+        "hotkey",
+        "binding",
+        "keys",
+        "palette",
+        "accelerator",
+        "rebind",
+      ],
+      note: "Every key the app answers to. Change any of them.",
+      controls: Object.values(KEYBOARD_CONTROLS),
+      render: () => createElement(KeyboardPage),
+    },
+    {
+      pageId: "appearance",
+      keywords: ["theme", "dark", "light", "color", "scheme", "contrast", "display"],
+      note: "How the app looks.",
+      controls: Object.values(APPEARANCE_CONTROLS),
+      render: (context) => createElement(AppearancePage, { chooseScheme: context.chooseScheme }),
+    },
+    {
+      pageId: "notifications",
+      keywords: [
+        "alerts",
+        "toasts",
+        "mute",
+        "attention",
+        "interruptions",
+        "badges",
+        "do not disturb",
+      ],
+      note: "When the app tells you something is waiting.",
+      render: () => createElement(RegisteredBodyPage, { pageId: "notifications" }),
+    },
+    {
+      pageId: "runtime",
+      keywords: ["background service", "runtime", "restart", "stop", "connection"],
+      note:
+        "The background service that runs sidekicks, the folders it can reach, what it keeps, " +
+        "and the port it listens on.",
+      controls: Object.values(RUNTIME_CONTROLS),
+      render: (context) => createElement(RuntimePage, { context }),
+    },
+    {
+      pageId: "devices",
+      keywords: ["remote control", "phone", "link a device", "passkeys", "shared ports"],
+      note: "Computers and devices linked to reach sessions remotely.",
+      render: () => createElement(RegisteredBodyPage, { pageId: "devices" }),
+    },
+  ];
+}
 
 /** What every registration carries, whichever form it takes. */
 interface SettingsPageRegistrationBase {

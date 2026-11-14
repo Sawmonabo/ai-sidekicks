@@ -158,18 +158,6 @@ export function flowAfterSignInCompleted(
     : IDLE_PROVIDER_SIGN_IN_FLOW;
 }
 
-/**
- * Read a write-only token field once and clear it in the same step, so the value lives only in
- * the submit handler that sends it: never in component state, a `FormData` entry or the field.
- */
-export function takeWriteOnlyToken(tokenInput: HTMLInputElement | null): string {
-  const token = tokenInput?.value ?? "";
-  if (tokenInput !== null) {
-    tokenInput.value = "";
-  }
-  return token;
-}
-
 /** The outcome a form starts in and returns to. Shared so it has one spelling. */
 export const IDLE_TOKEN_REGISTRATION: TokenRegistrationOutcome = { kind: "idle" };
 

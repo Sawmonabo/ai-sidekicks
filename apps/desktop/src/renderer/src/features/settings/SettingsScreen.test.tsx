@@ -17,7 +17,7 @@ import { settingsRoute } from "#renderer/routing/readers.js";
 import { SETTINGS_CONTROL_ATTRIBUTE } from "./control/anchor.js";
 import type { SettingsControl } from "./types.js";
 import { APPEARANCE_CONTROLS } from "./pages/appearance/controls.js";
-import { SETTINGS_PAGES, SettingsPageRegistry } from "./pages/registry.js";
+import { SettingsPageRegistry, settingsPagesOn } from "./pages/registry.js";
 import {
   CHUNK_WARM_TIMEOUT_MS,
   renderRoutedSettingsScreen,
@@ -130,7 +130,7 @@ describe("arriving on a control", () => {
       ),
       [{ id: "folded-control", label: "Folded control" }],
     );
-    const appearancePage = SETTINGS_PAGES.find((page) => page.pageId === "appearance");
+    const appearancePage = settingsPagesOn("darwin").find((page) => page.pageId === "appearance");
     if (appearancePage === undefined) {
       throw new Error("the Appearance page is not registered");
     }

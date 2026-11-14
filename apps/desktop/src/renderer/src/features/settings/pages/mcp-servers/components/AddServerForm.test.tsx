@@ -79,19 +79,19 @@ describe("AddServerForm", () => {
       await settleScheduledRead(fixture.scenarioEngine.clock);
 
       fireEvent.click(screen.getByRole("button", { name: "Add a server" }));
-      const [nameField] = screen.getAllByRole("textbox", { name: "Name" });
-      if (nameField === undefined) {
-        throw new Error("the add form drew no Name field");
-      }
-      fireEvent.change(nameField, { target: { value: "notes" } });
+      fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+        target: { value: "notes" },
+      });
       fireEvent.change(screen.getByRole("textbox", { name: "Command" }), {
         target: { value: "notes-mcp" },
       });
       const variables = within(screen.getByRole("group", { name: "Environment variables" }));
-      fireEvent.change(variables.getByRole("textbox", { name: "Name" }), {
+      fireEvent.change(variables.getByRole("textbox", { name: "Environment variable name" }), {
         target: { value: "NOTES_TOKEN" },
       });
-      fireEvent.change(variables.getByLabelText("Value"), { target: { value: TYPED_VALUE } });
+      fireEvent.change(variables.getByLabelText("Environment variable value"), {
+        target: { value: TYPED_VALUE },
+      });
       fireEvent.click(variables.getByRole("button", { name: "Add" }));
       fireEvent.click(screen.getByRole("button", { name: "Add the server" }));
       await settle();

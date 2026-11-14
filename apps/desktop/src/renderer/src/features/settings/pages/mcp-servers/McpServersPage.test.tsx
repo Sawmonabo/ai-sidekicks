@@ -838,3 +838,48 @@ describe("McpServersPage — a bridge replaced under a mounted page", () => {
     expect(container.textContent).toContain(HELD_MUTATION_OUTCOME_TEXT);
   });
 });
+
+describe("McpServersPage — Add a server", () => {
+  it("settles a send only in the form that sent it, and sends no second while it is on its way", async () => {
+    let refuseFirstSend: (reason: unknown) => void = () => undefined;
+    const sendUpsert = vi.fn(
+      async () =>
+        await new Promise<McpServerMutationResponse>((_resolve, reject) => {
+          refuseFirstSend = reject;
+        }),
+    );
+    const { container } = await renderSettledMcpPage(
+      operationsServing([FILESYSTEM], { sendUpsert }),
+    );
+    const press = (name: string): void => {
+      fireEvent.click(screen.getByRole("button", { name }));
+    };
+    press("Add a server");
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "notes" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Command" }), {
+      target: { value: "notes-mcp" },
+    });
+    press("Add the server");
+    press("Cancel");
+    press("Add a server");
+    expect(screen.getByRole("button", { name: "Add the server" })).toHaveProperty("disabled", true);
+
+    await act(async () => {
+      refuseFirstSend(
+        new RefusalError(refuse("mcp-test", "mcp.server.configInvalid", "The first send failed.")),
+      );
+      await crossMacrotaskBoundary();
+    });
+    const form = container.querySelector("form.meridian-mcp__add-form");
+    expect(form).not.toBeNull();
+    expect(form?.querySelector("[data-refusal-code]")).toBeNull();
+    expect(form?.textContent).not.toContain("The first send failed.");
+    expect(screen.getByRole("button", { name: "Add the server" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    expect(sendUpsert).toHaveBeenCalledTimes(1);
+  });
+});

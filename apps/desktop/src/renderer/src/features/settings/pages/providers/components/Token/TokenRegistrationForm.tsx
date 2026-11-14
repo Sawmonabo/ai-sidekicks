@@ -9,11 +9,11 @@ import {
   nameRefusalLine,
   readRegistrationFields,
   submitTokenRegistration,
-  takeWriteOnlyToken,
   type ProviderAccountRegisterCall,
   type TokenRegistrationOutcome,
 } from "../../sign-in/flow.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
+import { takeWriteOnlyValue } from "#renderer/features/settings/write-only-field.js";
 import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 
 /**
@@ -74,7 +74,7 @@ export function TokenRegistrationForm(props: {
     }
     // Read once, sent once, cleared immediately, and only on the path that dispatches; nothing
     // above this handler holds the value.
-    const nonInteractiveToken = takeWriteOnlyToken(tokenInput.current);
+    const nonInteractiveToken = takeWriteOnlyValue(tokenInput.current);
     setOutcome({ kind: "submitting" });
     void submitTokenRegistration(register, { ...reading.fields, nonInteractiveToken }).then(
       setOutcome,

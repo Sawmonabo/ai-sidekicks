@@ -1,7 +1,10 @@
 // `Editor that opens files`: `System default`, then every editor the app looks for. One this
 // machine lacks keeps its place, dimmed, cannot be picked and reads `(not installed)` after its
-// name. A chosen editor this machine no longer has stays the row's value and draws the line that
-// says files open in the system default, which is where main opens them.
+// name. A chosen editor this machine does not have draws the line that says files open in the
+// system default, which is where main opens them; one the list no longer names at all stands as
+// the value with no words in the choice, since no name is known for it, so `System default` can
+// still be picked. The row stands with its label from the first frame, as every settings-file
+// control's does, and the editors are read once the file has been.
 
 import { useState, type ReactNode } from "react";
 
@@ -14,6 +17,7 @@ import {
   PreferenceChoiceRow,
   type PreferenceChoiceOption,
 } from "#renderer/features/settings/components/PreferenceChoiceRow.js";
+import { MachineSettingRow } from "#renderer/features/settings/components/MachineSettingRow.js";
 import { PreferenceRow } from "#renderer/features/settings/components/PreferenceRow.js";
 import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
 import { GENERAL_CONTROLS } from "../controls.js";
@@ -23,56 +27,62 @@ import { useEditorList } from "./hooks/useEditorList.js";
 export interface EditorChoiceRowProps {
   /** The bridge main's editor list is read through. */
   readonly bridge: PlatformBridge;
-  /** The machine settings the choice reads and writes; the file has been read. */
+  /** The machine settings the choice reads and writes. */
   readonly preferences: Pick<
     MachineSettingsBinding,
-    "settings" | "isPending" | "refusalFor" | "choose" | "retry"
+    "snapshot" | "settings" | "isPending" | "refusalFor" | "choose" | "retry" | "readAgain"
   >;
   /** The window's clock, which the list's reads and the reading line's delay run on. */
   readonly clock: Clock;
 }
 
-/** The editor choice once main has listed the editors; before that, its reading or failed line. */
+/**
+ * The editor row: its label with the settings file's reading or failed line until the file is
+ * read, then the choice once main has listed the editors, or the list's own reading or failed line.
+ */
 export function EditorChoiceRow(props: EditorChoiceRowProps): ReactNode {
+  return (
+    <MachineSettingRow
+      preferences={props.preferences}
+      member="editorId"
+      control={GENERAL_CONTROLS.editor}
+      descriptionLines={[]}
+      clock={props.clock}
+      renderControlRow={() => <EditorChoice {...props} />}
+    />
+  );
+}
+
+/** `System default`, the first entry and the value `null` stands for. */
+const SYSTEM_DEFAULT_OPTION: PreferenceChoiceOption = { value: "", label: "System default" };
+
+/** The code the line for a chosen editor this machine does not have is drawn under. */
+const EDITOR_NOT_FOUND_CODE = "editor-not-found";
+
+/** The line for a chosen editor this machine does not have. */
+const EDITOR_NOT_FOUND_LINE =
+  "That editor could not be found. Pick another, or files open in the system default.";
+
+// The choice over the editors main lists, mounted once the settings file has been read.
+function EditorChoice(props: EditorChoiceRowProps): ReactNode {
   const { preferences } = props;
   const editors = useEditorList(props.bridge, props.clock);
   // A read's `Try again` can end in the same words; the press count says them again.
   const [readAgainCount, setReadAgainCount] = useState(0);
   const chosenEditorId = preferences.settings.editorId;
-  const changedFromDefault =
-    chosenEditorId === null
-      ? undefined
-      : { defaultDescription: `${SYSTEM_DEFAULT_OPTION.label} by default` };
-  const writeRefusal = preferences.refusalFor("editorId");
-
-  let row: ReactNode;
-  let isChosenEditorMissing = false;
-  if (editors.state.kind === "loaded") {
-    const entries = editors.state.value;
-    isChosenEditorMissing =
-      chosenEditorId !== null &&
-      !entries.some((entry) => entry.id === chosenEditorId && entry.installed);
-    row = (
-      <PreferenceChoiceRow
-        control={GENERAL_CONTROLS.editor}
-        options={editorOptions(entries, chosenEditorId)}
-        value={chosenEditorId ?? SYSTEM_DEFAULT_OPTION.value}
-        defaultOption={SYSTEM_DEFAULT_OPTION}
-        isPending={preferences.isPending("editorId")}
-        onChoose={(value) => {
-          preferences.choose("editorId", value === SYSTEM_DEFAULT_OPTION.value ? null : value);
-        }}
-      />
-    );
-  } else {
+  if (editors.state.kind !== "loaded") {
     const { state } = editors;
-    row = (
+    return (
       <>
         <PreferenceRow
           control={GENERAL_CONTROLS.editor}
           controlElementId={undefined}
           descriptionLines={[]}
-          changedFromDefault={changedFromDefault}
+          changedFromDefault={
+            chosenEditorId === null
+              ? undefined
+              : { defaultDescription: `${SYSTEM_DEFAULT_OPTION.label} by default` }
+          }
           renderControl={() =>
             state.kind === "not-loaded" ? (
               <LoadingNotice clock={props.clock} placement="inline" title="Loading…" />
@@ -93,39 +103,32 @@ export function EditorChoiceRow(props: EditorChoiceRowProps): ReactNode {
       </>
     );
   }
-
+  const entries = editors.state.value;
+  const isChosenEditorMissing =
+    chosenEditorId !== null &&
+    !entries.some((entry) => entry.id === chosenEditorId && entry.installed);
   return (
     <>
-      {row}
+      <PreferenceChoiceRow
+        control={GENERAL_CONTROLS.editor}
+        options={editorOptions(entries, chosenEditorId)}
+        value={chosenEditorId ?? SYSTEM_DEFAULT_OPTION.value}
+        defaultOption={SYSTEM_DEFAULT_OPTION}
+        isPending={preferences.isPending("editorId")}
+        onChoose={(value) => {
+          preferences.choose("editorId", value === SYSTEM_DEFAULT_OPTION.value ? null : value);
+        }}
+      />
       {isChosenEditorMissing ? (
-        <InlineRefusal
-          code={EDITOR_NOT_FOUND_CODE}
-          detail="That editor could not be found. Pick another, or files open in the system default."
-          isStanding
-        />
+        <InlineRefusal code={EDITOR_NOT_FOUND_CODE} detail={EDITOR_NOT_FOUND_LINE} isStanding />
       ) : null}
-      {writeRefusal === undefined ? null : (
-        <InlineRefusal
-          code={writeRefusal.code}
-          detail={writeRefusal.detail}
-          onTryAgain={() => {
-            preferences.retry("editorId");
-          }}
-        />
-      )}
     </>
   );
 }
 
-/** `System default`, the first entry and the value `null` stands for. */
-const SYSTEM_DEFAULT_OPTION: PreferenceChoiceOption = { value: "", label: "System default" };
-
-/** The code the line for a chosen editor this machine does not have is drawn under. */
-const EDITOR_NOT_FOUND_CODE = "editor-not-found";
-
 /**
  * `System default`, then each listed editor, one this machine lacks dimmed and unpickable. A
- * chosen id the list does not hold keeps its place as the value, last and unpickable.
+ * chosen id the list does not name stands as the value, blank and never listed.
  */
 function editorOptions(
   entries: readonly EditorEntry[],
@@ -142,6 +145,6 @@ function editorOptions(
   return [
     SYSTEM_DEFAULT_OPTION,
     ...listed,
-    { value: chosenEditorId, label: `${chosenEditorId} (not installed)`, isDisabled: true },
+    { value: chosenEditorId, label: "", isDisabled: true, isHidden: true },
   ];
 }

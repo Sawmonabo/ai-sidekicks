@@ -16,12 +16,12 @@ import { composeSettingsPages } from "./pages/registry.js";
 import { SettingsScreen } from "./SettingsScreen.js";
 
 /**
- * The Settings screen, with its pages composed for this mount.
+ * The Settings screen, with its pages composed for this mount on the platform the app runs on.
  *
  * `useState` with a lazy initializer, so the registry is built once per mount and never in
  * a render body.
  */
 export function Body(context: ScreenContext): React.ReactNode {
-  const [pages] = useState(composeSettingsPages);
+  const [pages] = useState(() => composeSettingsPages(context.bridge.app.platform));
   return createElement(SettingsScreen, { context, pages });
 }

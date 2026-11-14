@@ -1,30 +1,23 @@
 // The browser's page in settings: the machine's three browser switches, each written to the
 // settings file as it changes.
 //
-// The switches are drawn only once the settings file has been read, so none shows a value the
-// file does not hold. A refused write leaves its switch where it was and draws the refusal in the
-// strip under it, with `Try again` sending the same change again.
+// Each switch's row stands with its label from the first frame and shows the switch only once the
+// settings file has been read, so none shows a value the file does not hold. A refused write
+// leaves its switch where it was and draws the refusal in the strip under it, with `Try again`
+// sending the same change again.
 
-import { Fragment, useState, type ReactNode } from "react";
-import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine/settings";
-
-import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
-import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
-import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
+import {
+  MachineSettingSwitchRow,
+  type MachineSettingSwitchRowProps,
+  type MachineSettingsSwitchMember,
+} from "#renderer/features/settings/components/MachineSettingSwitchRow.js";
 import type { SettingsControl } from "../../types.js";
 import { BROWSER_CONTROLS } from "./controls.js";
 
-/** The settings members this page writes. */
-type BrowserSettingsMember =
-  | "rememberSiteData"
-  | "browserToolsForAgents"
-  | "sandboxBackgroundBrowser";
-
 /** One switch: the member it writes, the control search finds, and the lines under it. */
 interface BrowserSwitchRow {
-  readonly member: BrowserSettingsMember;
+  readonly member: MachineSettingsSwitchMember;
   readonly control: SettingsControl;
   readonly descriptionLines: readonly string[];
 }
@@ -63,75 +56,28 @@ const BROWSER_SWITCH_ROWS: readonly BrowserSwitchRow[] = [
 /** What the Browser page is handed. */
 export interface BrowserPageProps {
   /** The machine settings the switches read and write. */
-  readonly preferences: Pick<
-    MachineSettingsBinding,
-    "snapshot" | "settings" | "isPending" | "refusalFor" | "choose" | "retry" | "readAgain"
-  >;
+  readonly preferences: MachineSettingSwitchRowProps["preferences"];
   /** The window's clock, which the reading line's delay runs on. */
   readonly clock: Clock;
 }
 
-/** The Browser settings page: the machine's browser switches once the settings file is read. */
+/** The Browser settings page: the machine's browser switches, each standing from the first frame. */
 export function BrowserPage(props: BrowserPageProps): React.JSX.Element {
   const { preferences, clock } = props;
-  // A read's `Try again` clears the refusal and reopens in one act, so a reopen that fails at once
-  // leaves the same line drawn; the press count says it again.
-  const [readAgainCount, setReadAgainCount] = useState(0);
-  const { reading, readRefusal } = preferences.snapshot;
-  let content: ReactNode;
-  if (reading !== undefined) {
-    content = BROWSER_SWITCH_ROWS.map((row) => renderSwitchRow(row, preferences));
-  } else if (readRefusal === undefined) {
-    content = <LoadingNotice clock={clock} placement="inline" title="Loading…" />;
-  } else {
-    content = (
-      <InlineRefusal
-        code={readRefusal.code}
-        detail="Couldn't load settings"
-        onTryAgain={() => {
-          setReadAgainCount((count) => count + 1);
-          preferences.readAgain();
-        }}
-        attempt={readAgainCount}
-      />
-    );
-  }
   return (
     <div className="meridian-settings-page">
       <section className="meridian-settings-page__block" aria-label="Browser">
-        {content}
+        {BROWSER_SWITCH_ROWS.map((row) => (
+          <MachineSettingSwitchRow
+            key={row.member}
+            preferences={preferences}
+            member={row.member}
+            control={row.control}
+            descriptionLines={row.descriptionLines}
+            clock={clock}
+          />
+        ))}
       </section>
     </div>
-  );
-}
-
-/** One switch and, under it while its last write was refused, the refusal with `Try again`. */
-function renderSwitchRow(
-  row: BrowserSwitchRow,
-  preferences: BrowserPageProps["preferences"],
-): React.JSX.Element {
-  const refusal = preferences.refusalFor(row.member);
-  return (
-    <Fragment key={row.member}>
-      <PreferenceToggleRow
-        control={row.control}
-        descriptionLines={row.descriptionLines}
-        checked={preferences.settings[row.member]}
-        checkedByDefault={MACHINE_SETTINGS_DEFAULTS[row.member]}
-        isPending={preferences.isPending(row.member)}
-        onCheckedChange={(checked) => {
-          preferences.choose(row.member, checked);
-        }}
-      />
-      {refusal === undefined ? null : (
-        <InlineRefusal
-          code={refusal.code}
-          detail={refusal.detail}
-          onTryAgain={() => {
-            preferences.retry(row.member);
-          }}
-        />
-      )}
-    </Fragment>
   );
 }

@@ -3,7 +3,7 @@
 // from the platform. The row never decides whether a setting may change; `value` and `isPending`
 // come from the page.
 
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 
 import type { SettingsControl } from "../types.js";
 import { PreferenceRow } from "./PreferenceRow.js";
@@ -14,6 +14,8 @@ export interface PreferenceChoiceOption {
   readonly label: string;
   /** Drawn in its place but cannot be picked. */
   readonly isDisabled?: boolean | undefined;
+  /** Never listed, so it can only stand as the value already held; it reads blank there. */
+  readonly isHidden?: boolean | undefined;
 }
 
 /** Props for {@link PreferenceChoiceRow}. */
@@ -21,7 +23,7 @@ export interface PreferenceChoiceRowProps {
   /** The findable control the row draws, whose label it shows. */
   readonly control: SettingsControl;
   /** The lines under the label, each its own paragraph, tied to the choice as its description. */
-  readonly descriptionLines?: readonly string[] | undefined;
+  readonly descriptionLines?: readonly ReactNode[] | undefined;
   /** Every entry, in the order the choice lists them. */
   readonly options: readonly PreferenceChoiceOption[];
   /** The value picked now; one of `options`. */
@@ -58,7 +60,12 @@ export function PreferenceChoiceRow(props: PreferenceChoiceRowProps): React.JSX.
           }}
         >
           {props.options.map((option) => (
-            <option key={option.value} value={option.value} disabled={option.isDisabled ?? false}>
+            <option
+              key={option.value}
+              value={option.value}
+              disabled={option.isDisabled ?? false}
+              hidden={option.isHidden ?? false}
+            >
               {option.label}
             </option>
           ))}

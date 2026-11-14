@@ -13,7 +13,8 @@ import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
-import { takeWriteOnlyToken } from "../../providers/sign-in/flow.js";
+import { takeWriteOnlyValue } from "#renderer/features/settings/write-only-field.js";
+import { HeldPairValues } from "../held-pair-values.js";
 import type { McpMutationOutcome } from "../mutation.js";
 import { MCP_SCOPE_WORDS, WRITABLE_MCP_SCOPES, type McpWritableScope } from "../scope-words.js";
 import type { McpAddressTransport, McpServerRunKind, ServerDraft } from "../server-draft.js";
@@ -33,10 +34,12 @@ import {
  * and its declaration to `onSend`, and `Cancel` to `onCancel`.
  *
  * A typed value is held only by this form, and only until `Add the server`: each pair's value from
- * its `Add`, outside any React state, and the address in its own field. The submit reads every one,
- * clears every one in the same step, and only then sends, so whether the send lands or is refused
- * the form holds none. Only what the provider's driver declares is offered; nothing here names a
- * provider.
+ * its `Add` or in its own field, outside any React state, and the address in its own field. The
+ * submit reads every one, a pair row typed whole as though it had been added, clears every field
+ * in the same step, and only then sends, so whether the send lands or is refused the form holds
+ * none. `Add the server` is not pressable until the form names where the server goes, nor while
+ * this form's send or another opening's is on its way. Only what the provider's driver declares is
+ * offered; nothing here names a provider.
  */
 export function AddServerForm(props: {
   /** What the form opens with. */
@@ -45,6 +48,8 @@ export function AddServerForm(props: {
   readonly outcome: McpMutationOutcome;
   /** The service's projects, which the project chooser offers. */
   readonly projects: ProjectListReading;
+  /** True while a send from an earlier opening of the form is on its way. */
+  readonly isAnotherSendInFlight: boolean;
   readonly onSend: (binding: McpWritableBindingRef, config: McpServerConfigInput) => void;
   readonly onCancel: () => void;
   readonly sessionDirectory: SessionDirectoryState;
@@ -64,8 +69,11 @@ export function AddServerForm(props: {
   const [mustStart, setMustStart] = useState(false);
   const [addedEnvironmentNames, setAddedEnvironmentNames] = useState<readonly string[]>([]);
   const [addedHeaderNames, setAddedHeaderNames] = useState<readonly string[]>([]);
-  // The pairs' values, by name: never React state, so no render or inspection of it holds one.
-  const heldValues = useRef<HeldPairValues>({ environment: new Map(), headers: new Map() });
+  // The pairs' values: never React state, so no render or inspection of it holds one.
+  const [heldValues] = useState(() => ({
+    environment: new HeldPairValues(),
+    headers: new HeldPairValues(),
+  }));
   const addressInput = useRef<HTMLInputElement>(null);
 
   const section =
@@ -78,31 +86,39 @@ export function AddServerForm(props: {
   const attachedProjects = attachedProjectsOf(projects.state);
   const project =
     attachedProjects.find((candidate) => candidate.projectId === projectId) ?? attachedProjects[0];
-  const isSending = outcome.kind === "sending";
+  const binding =
+    section === undefined
+      ? undefined
+      : bindingOf(section.provider, scope, serverName.trim(), project);
+  // A command runs over `stdio`; an address over the transport the provider takes for one.
+  const transport =
+    runKind === "command" ? "stdio" : runKind === "address" ? addressTransport : undefined;
+  const isSendHeld =
+    binding === undefined ||
+    transport === undefined ||
+    outcome.kind === "sending" ||
+    props.isAnotherSendInFlight;
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    // Every typed value is read and cleared here, before anything is judged or sent, so no path
-    // out of this handler leaves one in the form.
-    const environment = takeHeldValues(heldValues.current.environment);
-    const headers = takeHeldValues(heldValues.current.headers);
-    const address = takeWriteOnlyToken(addressInput.current).trim();
+    // `Add the server` is not pressable while the send is held, so the form is never sent then.
+    if (isSendHeld || binding === undefined || transport === undefined) {
+      return;
+    }
+    // Every typed value is read and cleared here, before anything is sent, so no path out of this
+    // handler leaves one in the form.
+    const environment = heldValues.environment.take();
+    const headers = heldValues.headers.take();
+    const address = takeWriteOnlyValue(addressInput.current).trim();
     setAddedEnvironmentNames([]);
     setAddedHeaderNames([]);
-    if (section === undefined || runKind === undefined) {
-      return;
-    }
-    const binding = bindingOf(section.provider, scope, serverName.trim(), project);
-    if (binding === undefined) {
-      return;
-    }
     const memberValues = {
       ...(declares("startupTimeoutSec") && startupTimeout !== ""
         ? { startupTimeoutSec: Number(startupTimeout) }
         : {}),
       ...(declares("required") ? { required: mustStart } : {}),
     };
-    if (runKind === "command") {
+    if (transport === "stdio") {
       const commandArguments = argumentLines
         .split("\n")
         .map((line) => line.trim())
@@ -116,11 +132,8 @@ export function AddServerForm(props: {
       });
       return;
     }
-    if (addressTransport === undefined) {
-      return;
-    }
     onSend(binding, {
-      transport: addressTransport,
+      transport,
       url: address,
       ...(Object.keys(headers).length === 0 ? {} : { headers }),
       ...memberValues,
@@ -255,7 +268,7 @@ export function AddServerForm(props: {
               fieldClassName="meridian-form__text-area"
               rows={2}
               maxRows={8}
-              placeholder="One per line"
+              placeholder="One per line, in order"
               spellCheck={false}
               value={argumentLines}
               onChange={(event) => {
@@ -312,21 +325,21 @@ export function AddServerForm(props: {
       ) : null}
       {runKind === "command" ? (
         <NameValuePairs
-          heading="Environment variables"
+          kind="environment"
           askedNames={draft.environmentVariables}
           addedNames={addedEnvironmentNames}
-          onAdd={(name, value) => {
-            heldValues.current.environment.set(name, value);
+          heldValues={heldValues.environment}
+          onNameAdded={(name) => {
             setAddedEnvironmentNames((held) => (held.includes(name) ? held : [...held, name]));
           }}
         />
       ) : (
         <NameValuePairs
-          heading="Headers"
+          kind="headers"
           askedNames={draft.headers}
           addedNames={addedHeaderNames}
-          onAdd={(name, value) => {
-            heldValues.current.headers.set(name, value);
+          heldValues={heldValues.headers}
+          onNameAdded={(name) => {
             setAddedHeaderNames((held) => (held.includes(name) ? held : [...held, name]));
           }}
         />
@@ -342,7 +355,7 @@ export function AddServerForm(props: {
             "meridian-settings-page__action " +
             "meridian-settings-page__action--primary meridian-action-button"
           }
-          disabled={isSending}
+          disabled={isSendHeld}
         >
           Add the server
         </button>
@@ -357,12 +370,6 @@ export function AddServerForm(props: {
       <MutationOutcomeLine outcome={outcome} sessionDirectory={sessionDirectory} clock={clock} />
     </form>
   );
-}
-
-/** The values the pairs' `Add` handed over, by name, until the form sends or drops them. */
-interface HeldPairValues {
-  readonly environment: Map<string, string>;
-  readonly headers: Map<string, string>;
 }
 
 /** The words `How it runs` offers each run kind in. */
@@ -417,11 +424,4 @@ function bindingOf(
     ...(typeof project.place === "object" ? { place: project.place } : {}),
     serverName,
   };
-}
-
-/** Every held value as the request's record, the held map emptied in the same step. */
-function takeHeldValues(held: Map<string, string>): Record<string, string> {
-  const values = Object.fromEntries(held);
-  held.clear();
-  return values;
 }

@@ -10,6 +10,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { useSubjectRead } from "#renderer/hooks/useSubjectRead.js";
 import type { Clock } from "#renderer/lib/clock.js";
+import { refusalWords } from "#renderer/lib/code-words.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { DaemonReply } from "#renderer/services/daemon/reply.js";
 import { useTypingPause } from "../hooks/useTypingPause.js";
@@ -22,11 +23,18 @@ import { registryRunWords } from "../server-draft.js";
  */
 const REGISTRY_SEARCH_PAUSE_MS = 300;
 
+/** The line under the search field, saying where the words typed go. */
+const REGISTRY_SEARCH_LINE =
+  "Searches the public MCP Registry. Anyone can publish there; check a server's source before " +
+  "adding it.";
+
 /**
  * `Browse servers`: a search over the public MCP Registry, sent through the service only once the
- * person has typed, a newer search replacing the answer an older one would give. Each result reads
- * its title or name, its description, its version and how it runs, and a press on one hands it to
- * `onPick`; `Cancel` hands over to `onCancel`. Only the first page of results is drawn.
+ * person has typed, a newer search replacing the answer an older one would give: `Searching…` while
+ * it waits, and `Search failed` with its cause and `Try again` when it failed: the words of a code
+ * the service registered, or the sentence of a refusal the app wrote. Each result
+ * reads its title or name, its description, its version and how it runs, and a press on one hands
+ * it to `onPick`; `Cancel` hands over to `onCancel`. Only the first page of results is drawn.
  */
 export function BrowseServers(props: {
   readonly searchRegistry: SearchMcpRegistry;
@@ -35,6 +43,7 @@ export function BrowseServers(props: {
   readonly onCancel: () => void;
 }): ReactNode {
   const { searchRegistry, clock, onPick, onCancel } = props;
+  const fieldId = useId();
   const lineId = useId();
   const [typed, setTyped] = useState("");
   const [readRevision, setReadRevision] = useState(0);
@@ -55,10 +64,13 @@ export function BrowseServers(props: {
   return (
     <section className="meridian-mcp__browse" aria-label="Browse servers">
       <h4 className="meridian-settings-page__section-head">Browse servers</h4>
+      <label className="meridian-form__label" htmlFor={fieldId}>
+        Search
+      </label>
       <input
+        id={fieldId}
         className="meridian-form__input"
         type="search"
-        aria-label="Search the MCP Registry"
         aria-describedby={lineId}
         autoComplete="off"
         spellCheck={false}
@@ -68,16 +80,15 @@ export function BrowseServers(props: {
         }}
       />
       <p id={lineId} className="meridian-settings-page__aside">
-        Searches the public MCP Registry. Anyone can publish there; check a server&rsquo;s source
-        before adding it.
+        {REGISTRY_SEARCH_LINE}
       </p>
       {search.kind === "searching" ? (
-        <LoadingNotice clock={clock} placement="block" title="Loading…" />
+        <LoadingNotice clock={clock} placement="block" title="Searching…" />
       ) : null}
       {search.kind === "failed" ? (
         <InlineRefusal
           code={search.refusal.code}
-          detail="Couldn't load servers"
+          detail={`Search failed · ${refusalWords(search.refusal.code) ?? search.refusal.detail}`}
           onTryAgain={() => {
             setReadRevision((revision) => revision + 1);
           }}

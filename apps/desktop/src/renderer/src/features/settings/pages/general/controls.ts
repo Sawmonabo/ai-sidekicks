@@ -1,9 +1,11 @@
+import type { SupportedPlatform } from "@ai-sidekicks/contracts/platform";
+
 import type { SettingsControl } from "../../types.js";
 
 /** The section head the update block's rows sit under. */
 export const UPDATES_HEADING = "Updates";
 
-/** The rows the General page draws that search finds, in the order the page draws them. */
+/** The rows the General page draws that search finds and read alike on every platform. */
 export const GENERAL_CONTROLS: Readonly<
   Record<
     | "version"
@@ -13,7 +15,6 @@ export const GENERAL_CONTROLS: Readonly<
     | "checkForUpdatesAutomatically"
     | "keepCrashReports"
     | "startOnLastModel"
-    | "keepAwake"
     | "editor"
     | "defaultCheckout",
     SettingsControl
@@ -40,12 +41,6 @@ export const GENERAL_CONTROLS: Readonly<
       "The permission level is never carried over. A new session starts at the level the " +
       "provider's own settings give for its project, or at YOLO when they set none.",
   },
-  // A Mac's wording; the page draws the other systems' own label in its place.
-  keepAwake: {
-    id: "keep-awake",
-    label: "Keep this Mac awake while a sidekick is working",
-    hint: "Closing the lid still puts it to sleep.",
-  },
   editor: { id: "editor", label: "Editor that opens files" },
   defaultCheckout: {
     id: "default-checkout",
@@ -53,3 +48,31 @@ export const GENERAL_CONTROLS: Readonly<
     hint: "A choice made when a session is created always wins.",
   },
 };
+
+/** The keep-awake switch as `platform` words it: a Mac by its name, any other computer as one. */
+export function keepAwakeControlOn(platform: SupportedPlatform): SettingsControl {
+  return {
+    id: "keep-awake",
+    label:
+      platform === "darwin"
+        ? "Keep this Mac awake while a sidekick is working"
+        : "Keep this computer awake while a sidekick is working",
+    hint: "Closing the lid still puts it to sleep.",
+  };
+}
+
+/** Every row the General page draws on `platform` that search finds, in the page's order. */
+export function generalControlListOn(platform: SupportedPlatform): readonly SettingsControl[] {
+  return [
+    GENERAL_CONTROLS.version,
+    GENERAL_CONTROLS.platform,
+    GENERAL_CONTROLS.architecture,
+    GENERAL_CONTROLS.language,
+    GENERAL_CONTROLS.checkForUpdatesAutomatically,
+    GENERAL_CONTROLS.keepCrashReports,
+    GENERAL_CONTROLS.startOnLastModel,
+    keepAwakeControlOn(platform),
+    GENERAL_CONTROLS.editor,
+    GENERAL_CONTROLS.defaultCheckout,
+  ];
+}

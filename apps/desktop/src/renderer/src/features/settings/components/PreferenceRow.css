@@ -4,6 +4,8 @@
 /* --- One preference row -------------------------------------------------- */
 
 .meridian-settings-row {
+  /* A failed read's strip drawn in the control's place sits on the label's line. */
+  --meridian-refusal-inline-margin-block-start: 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;

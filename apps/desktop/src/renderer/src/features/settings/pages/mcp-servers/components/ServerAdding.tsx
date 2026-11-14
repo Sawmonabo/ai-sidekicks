@@ -16,38 +16,59 @@ import type { ProjectListReading } from "./ProjectListStatus.js";
 /**
  * `Add a server` and `Browse servers` under the page's one line about them, and whichever of the
  * two is open: the registry search, or the add form, empty or filled in from the registry result
- * picked. A server the service took closes the form, and its settle lines stand under the line
- * until the next `Add a server` or `Browse servers`; any other outcome of a send whose form was
- * closed stands there too.
+ * picked. Each opening of the form has its own outcome, so an answer settles only the form that
+ * sent it. A server the service took closes its form, and its settle lines stand under the line
+ * until the next `Add a server` or `Browse servers`; a send still on its way when its form closed
+ * stands there too, and no form sends again until it settles.
  */
 export function ServerAdding(props: {
-  /** The last send's outcome. */
-  readonly outcome: McpMutationOutcome;
-  readonly onAdd: (binding: McpWritableBindingRef, config: McpServerConfigInput) => void;
-  /** Returns the last send's outcome to idle, so a form opened afresh carries none. */
-  readonly onDropOutcome: () => void;
+  /** The outcome of the send made from one opening of the form. */
+  readonly outcomeFor: (opening: number) => McpMutationOutcome;
+  readonly onAdd: (
+    opening: number,
+    binding: McpWritableBindingRef,
+    config: McpServerConfigInput,
+  ) => void;
+  /** Lets go of the outcome of an opening whose send has settled or was never made. */
+  readonly onDropOutcome: (opening: number) => void;
   readonly searchRegistry: SearchMcpRegistry;
   readonly projects: ProjectListReading;
   readonly sessionDirectory: SessionDirectoryState;
   readonly clock: Clock;
 }): ReactNode {
-  const { outcome, onAdd, onDropOutcome, searchRegistry, projects, sessionDirectory, clock } =
+  const { outcomeFor, onAdd, onDropOutcome, searchRegistry, projects, sessionDirectory, clock } =
     props;
-  const [opened, setOpened] = useState<OpenedAdding>({ kind: "closed" });
+  const [adding, setAdding] = useState<ServerAddingState>(CLOSED_ADDING);
+  const { opened, formOpening, standingOpening } = adding;
+  // The outcomes held are the latest opening's and, while its send is on its way or until the
+  // next opening once it settled, one earlier opening's that closed mid-send.
+  const retire = (): number | undefined => {
+    let standing: number | undefined;
+    for (const opening of new Set([standingOpening, formOpening])) {
+      if (opening === undefined) {
+        continue;
+      }
+      if (outcomeFor(opening).kind === "sending") {
+        standing = opening;
+      } else {
+        onDropOutcome(opening);
+      }
+    }
+    return standing;
+  };
   const openForm = (draft: ServerDraft): void => {
-    onDropOutcome();
-    // A new opening ordinal remounts the form, so nothing an earlier form held is carried over.
-    setOpened((held) => ({
-      kind: "form",
-      draft,
-      opening: (held.kind === "form" ? held.opening : 0) + 1,
-    }));
+    const standing = retire();
+    // A new opening remounts the form, so nothing an earlier form held is carried over.
+    const opening = (formOpening ?? 0) + 1;
+    setAdding({ opened: { kind: "form", draft }, formOpening: opening, standingOpening: standing });
   };
-  const close = (): void => {
-    onDropOutcome();
-    setOpened({ kind: "closed" });
+  const show = (shown: OpenedAdding): void => {
+    const standing = retire();
+    setAdding({ opened: shown, formOpening, standingOpening: standing });
   };
-  const isFormShown = opened.kind === "form" && outcome.kind !== "serverSent";
+  const formOutcome = formOpening === undefined ? undefined : outcomeFor(formOpening);
+  const isFormShown = opened.kind === "form" && formOutcome?.kind !== "serverSent";
+  const standingOutcome = standingOpening === undefined ? undefined : outcomeFor(standingOpening);
   return (
     <section className="meridian-mcp__adding" aria-label="Add a server">
       <div className="meridian-mcp__adding-head">
@@ -68,14 +89,20 @@ export function ServerAdding(props: {
             type="button"
             className="meridian-settings-page__action meridian-action-button"
             onClick={() => {
-              onDropOutcome();
-              setOpened({ kind: "browsing" });
+              show({ kind: "browsing" });
             }}
           >
             Browse servers
           </button>
         </span>
       </div>
+      {standingOutcome === undefined ? null : (
+        <MutationOutcomeLine
+          outcome={standingOutcome}
+          sessionDirectory={sessionDirectory}
+          clock={clock}
+        />
+      )}
       {opened.kind === "browsing" ? (
         <BrowseServers
           searchRegistry={searchRegistry}
@@ -83,23 +110,36 @@ export function ServerAdding(props: {
           onPick={(server) => {
             openForm(serverDraftOf(server));
           }}
-          onCancel={close}
+          onCancel={() => {
+            show({ kind: "closed" });
+          }}
         />
       ) : null}
-      {isFormShown ? (
-        <AddServerForm
-          key={opened.opening}
-          draft={opened.draft}
-          outcome={outcome}
-          projects={projects}
-          onSend={onAdd}
-          onCancel={close}
-          sessionDirectory={sessionDirectory}
-          clock={clock}
-        />
-      ) : (
-        <MutationOutcomeLine outcome={outcome} sessionDirectory={sessionDirectory} clock={clock} />
-      )}
+      {opened.kind === "form" && formOpening !== undefined && formOutcome !== undefined ? (
+        isFormShown ? (
+          <AddServerForm
+            key={formOpening}
+            draft={opened.draft}
+            outcome={formOutcome}
+            projects={projects}
+            isAnotherSendInFlight={standingOutcome?.kind === "sending"}
+            onSend={(binding, config) => {
+              onAdd(formOpening, binding, config);
+            }}
+            onCancel={() => {
+              show({ kind: "closed" });
+            }}
+            sessionDirectory={sessionDirectory}
+            clock={clock}
+          />
+        ) : (
+          <MutationOutcomeLine
+            outcome={formOutcome}
+            sessionDirectory={sessionDirectory}
+            clock={clock}
+          />
+        )
+      ) : null}
     </section>
   );
 }
@@ -108,4 +148,21 @@ export function ServerAdding(props: {
 type OpenedAdding =
   | { readonly kind: "closed" }
   | { readonly kind: "browsing" }
-  | { readonly kind: "form"; readonly draft: ServerDraft; readonly opening: number };
+  | { readonly kind: "form"; readonly draft: ServerDraft };
+
+/**
+ * What is open, the latest opening of the form, and an earlier opening whose outcome stands under
+ * the line because its form closed while its send was on its way.
+ */
+interface ServerAddingState {
+  readonly opened: OpenedAdding;
+  readonly formOpening: number | undefined;
+  readonly standingOpening: number | undefined;
+}
+
+/** Nothing open, and no form opened yet. */
+const CLOSED_ADDING: ServerAddingState = {
+  opened: { kind: "closed" },
+  formOpening: undefined,
+  standingOpening: undefined,
+};

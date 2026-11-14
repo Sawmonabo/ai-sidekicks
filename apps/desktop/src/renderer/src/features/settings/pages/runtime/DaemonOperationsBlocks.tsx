@@ -34,6 +34,7 @@ import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
+import { UNREPORTED_DAEMON_NOTICE } from "#renderer/store/window/main-process-state.js";
 import {
   formatExactPercent,
   formatByteQuantity,
@@ -193,7 +194,9 @@ function renderStatusRegion(
 ): ReactNode {
   switch (reading.phase) {
     case "reading":
-      return <LoadingNotice clock={clock} placement="block" title="Loading background service…" />;
+      return (
+        <LoadingNotice clock={clock} placement="block" title={UNREPORTED_DAEMON_NOTICE.title} />
+      );
     case "read":
       return (
         <>

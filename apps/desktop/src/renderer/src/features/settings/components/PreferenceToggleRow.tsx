@@ -5,7 +5,7 @@
 // a real `<label>` to it and gets keyboard, label and focus-visible behavior for free. The row
 // never decides whether a setting may change; `checked` and `isPending` come from the page.
 
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 
 import { Switch } from "#renderer/components/Switch/Switch.js";
 import type { SettingsControl } from "../types.js";
@@ -16,7 +16,7 @@ export interface PreferenceToggleRowProps {
   /** The findable control the row draws, whose label it shows. */
   readonly control: SettingsControl;
   /** The lines under the label, each its own paragraph, tied to the switch as its description. */
-  readonly descriptionLines?: readonly string[] | undefined;
+  readonly descriptionLines?: readonly ReactNode[] | undefined;
   readonly checked: boolean;
   /** The position the setting ships in; any other position draws the changed mark. */
   readonly checkedByDefault: boolean;
