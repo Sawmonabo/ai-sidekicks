@@ -11,6 +11,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { type PaneDescriptor } from "#renderer/registries/panes/registry.js";
+import { paneEntityKey } from "#renderer/routing/panes/entity-record.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 
 /**
@@ -44,6 +45,8 @@ export function PaneBody(props: {
   }
   return (
     <ErrorBoundary
+      // A failure line leaves with the subject that threw; a re-pointed body drawing well stays.
+      subjectKey={paneEntityKey(entity)}
       regionName={TITLE_BY_PANE_KIND[descriptor.kind]}
       clock={clock}
       frame={(line) => (
@@ -52,9 +55,17 @@ export function PaneBody(props: {
         </PaneFrame>
       )}
     >
-      {descriptor.render(context)}
+      <RegisteredBody descriptor={descriptor} context={context} />
     </ErrorBoundary>
   );
+}
+
+/** The registered body, drawn from its own render so a throw in `render` lands in the boundary. */
+function RegisteredBody(props: {
+  readonly descriptor: PaneDescriptor;
+  readonly context: PaneContext;
+}): React.ReactNode {
+  return props.descriptor.render(props.context);
 }
 
 /** Whether what the pane layout resolved for a pane is an address or a refusal. */

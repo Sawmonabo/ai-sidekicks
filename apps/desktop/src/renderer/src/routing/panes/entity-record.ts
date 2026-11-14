@@ -50,7 +50,15 @@ export function paneEntitiesAreEqual(
   if (left === undefined || right === undefined) {
     return left === right;
   }
-  return JSON.stringify(encodePaneEntity(left)) === JSON.stringify(encodePaneEntity(right));
+  return paneEntityKey(left) === paneEntityKey(right);
+}
+
+/**
+ * One string per entity, equal exactly where `paneEntitiesAreEqual` holds; the empty string for a
+ * session-scoped pane, which has none.
+ */
+export function paneEntityKey(entity: EntityRef | undefined): string {
+  return entity === undefined ? "" : JSON.stringify(encodePaneEntity(entity));
 }
 
 /**

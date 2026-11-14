@@ -150,13 +150,16 @@ export class RunCallWindows {
   }
 
   /**
-   * Hold the newest calls again in every window a find step or a link kept the end of: the reader
-   * pinned the follow, so the tail followed is each run's newest call. Answers whether any moved.
+   * Hold the newest calls again in every window that stops short of its run's newest call, whether
+   * an earlier stretch, a later one that did not reach the newest, a find step or a link moved it:
+   * the reader pinned the follow, so the tail followed is each run's newest call. Answers whether
+   * any moved.
    */
   public releaseKeptEnds(): boolean {
     let hasReleased = false;
     for (const [runGroupKey, held] of this.#heldByKey) {
-      if (held.isEndKept) {
+      // A window holding the newest call holds no last call, so it grows with the run already.
+      if (held.lastCallRowId !== undefined) {
         this.#heldByKey.delete(runGroupKey);
         hasReleased = true;
       }

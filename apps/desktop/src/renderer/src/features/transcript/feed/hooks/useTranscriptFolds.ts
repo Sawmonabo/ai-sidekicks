@@ -46,7 +46,7 @@ export interface TranscriptFolds {
    */
   readonly openRunStretchAt: (runGroup: RunGroup, rowId: string, measure: RunWindowMeasure) => void;
   /**
-   * Hold the newest calls again in each long run's window a find step or a link kept the end of:
+   * Hold the newest calls again in each long run's window that stops short of its newest call:
    * asked once the reader pins the follow again.
    */
   readonly releaseKeptRunWindowEnds: () => void;
@@ -55,9 +55,8 @@ export interface TranscriptFolds {
 /**
  * Hold one session's folds and long-run windows. `TranscriptFoldState` owns the folds and
  * `RunCallWindows` the windows; this hook publishes copies of the three fold sets, and a count of
- * the window moves, so a press repaints. Both are held per session, because moving between open
- * sessions re-renders this pane instead of unmounting it, and a fold belongs to its own session's
- * rows.
+ * the window moves, so a press repaints. Both are held per session and bridge, since a fold belongs
+ * to its own session's rows.
  */
 export function useTranscriptFolds(sessionId: string): TranscriptFolds {
   const bridge = usePlatformBridge();

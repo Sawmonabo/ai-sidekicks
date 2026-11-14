@@ -13,7 +13,7 @@ import { RereadableRefusalError } from "#renderer/lib/refusal/contract.js";
 import { reportTripwire } from "#renderer/lib/tripwires/registry.js";
 import { wireRejectionToError } from "#renderer/lib/wire/errors.js";
 
-/** What a boundary wraps, what to call it when it fails, and what its line stands in. */
+/** What a boundary wraps, what to call it when it fails, and the chrome its failure line wears. */
 export interface ErrorBoundaryProps {
   /** What failed, in the person's words: "The transcript", "The inspector". */
   readonly regionName: string;
@@ -25,6 +25,12 @@ export interface ErrorBoundaryProps {
   readonly frame?: (line: ReactNode) => ReactNode;
   /** The window's clock, from `useClock()`, which delays a read asked again's loading line. */
   readonly clock: Clock;
+  /**
+   * What the region draws, for a region that moves between subjects while mounted: a failure line
+   * is dropped when it changes, so it never outlives the subject that threw, and a region drawing
+   * well is not remounted by the change.
+   */
+  readonly subjectKey?: string;
 }
 
 /**
@@ -37,11 +43,41 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   public constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { error: undefined, attempt: 0, isReadingAgain: false };
+    this.state = {
+      error: undefined,
+      attempt: 0,
+      isReadingAgain: false,
+      subjectKey: props.subjectKey,
+    };
   }
 
   public static getDerivedStateFromError(error: unknown): Partial<ErrorBoundaryState> {
     return { error: wireRejectionToError(error) };
+  }
+
+  public static getDerivedStateFromProps(
+    props: ErrorBoundaryProps,
+    state: ErrorBoundaryState,
+  ): Partial<ErrorBoundaryState> | null {
+    if (props.subjectKey === state.subjectKey) {
+      return null;
+    }
+    // A new subject draws afresh: the failure line, and any read asked again, were the last one's.
+    return state.error === undefined
+      ? { subjectKey: props.subjectKey }
+      : {
+          subjectKey: props.subjectKey,
+          error: undefined,
+          attempt: state.attempt + 1,
+          isReadingAgain: false,
+        };
+  }
+
+  public override componentDidUpdate(previousProps: ErrorBoundaryProps): void {
+    if (previousProps.subjectKey !== this.props.subjectKey) {
+      this.#stopReadingAgain?.();
+      this.#stopReadingAgain = undefined;
+    }
   }
 
   public override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
@@ -127,6 +163,8 @@ interface ErrorBoundaryState {
   readonly attempt: number;
   /** Whether a failed read was asked again and has not answered yet. */
   readonly isReadingAgain: boolean;
+  /** The subject the state was derived for, from `subjectKey`. */
+  readonly subjectKey: string | undefined;
 }
 
 /** The innermost component from React's stack, or nothing; the report is read in a list. */

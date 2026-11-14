@@ -1,8 +1,8 @@
-// The comparand a guarded run call carries: `expectedRunVersion` is mandatory on `run.intervene`,
-// `run.pause` and `run.resume`. Each answer carries the run's version after the call, and the run
-// also advances through the state stream with no call. Neither reading is always fresher, so the
-// larger (both are monotonic per run) is used, and a run with neither reading has no comparand
-// rather than an invented zero.
+// The comparand a guarded run call carries: `expectedRunVersion` is mandatory on
+// `agent.run.intervene`, `agent.run.pause` and `agent.run.resume`. Each answer carries the run's
+// version after the call, and the run also advances through the state stream with no call. Neither
+// reading is always fresher, so the larger (both are monotonic per run) is used, and a run with
+// neither reading has no comparand rather than an invented zero.
 
 /** The newest run version the daemon has answered for each run, used as the comparand. */
 export class AnsweredRunVersions {

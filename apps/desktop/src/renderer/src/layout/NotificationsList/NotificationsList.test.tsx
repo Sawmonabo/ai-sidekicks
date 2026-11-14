@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -73,7 +74,7 @@ describe("what makes the attention read run again", () => {
         sessionId,
         sequence: 1,
         cursor: "cursor-at-1",
-        kind: "run.queued",
+        kind: "agent.run.queued" satisfies SessionEventType,
         occurredAt: "2026-01-01T10:06:00.000Z",
       },
     ]);

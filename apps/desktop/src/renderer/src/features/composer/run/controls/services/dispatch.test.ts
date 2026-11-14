@@ -118,7 +118,7 @@ describe("the comparand is the newer of the two readings", () => {
   it("sends the stream's reading once it has passed the cached one", async () => {
     const { dispatcher, calls } = dispatcherOver(async () => STUB_ACK);
     await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 });
-    // The run then advances on `run.subscribeState`, which no control caused.
+    // The run then advances on `agent.run.subscribe`, which no control caused.
     const comparand = dispatcher.comparandFor(RUN_ID, 8);
     await dispatcher.resume({ runId: RUN_ID, expectedRunVersion: comparand });
     expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 8 });

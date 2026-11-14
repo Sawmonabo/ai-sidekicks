@@ -1,6 +1,7 @@
 // The matcher behind the find field. It runs over every row the window holds, folded away or not,
 // and searches the text a row draws, read on demand from what the window already holds: a
-// person's whole message, a tool row's heading with its result chip, and a system message's line.
+// person's whole message, a tool row's heading with its result chip, and a system message's line
+// with the last lines a process printed under it.
 // Every match is counted, and a window of them around the selection is held for the walk, which
 // moves with the selection, so a step reaches every match however many there are. While a query is
 // set the log moves under it on every admitted event, so a held search reads only the rows that
@@ -262,7 +263,10 @@ function drawnTextOf(
 ): string | undefined {
   const systemMessage = systemMessageByRowId.get(row.id);
   if (systemMessage !== undefined) {
-    return systemMessage.label;
+    // A system message as it is drawn: its line, and under it any last lines a process printed.
+    return systemMessage.lastLines === undefined
+      ? systemMessage.label
+      : `${systemMessage.label}\n${systemMessage.lastLines}`;
   }
   switch (classifyTranscriptRow(row)?.kind) {
     case "user-message":

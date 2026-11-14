@@ -1,10 +1,11 @@
-// The seam between a chord and a mounted feed. Commands are contributed before any feed
-// exists, so a feed adopts this holder while mounted and commands resolve their target at
-// press time. The newest mount is the target; release is by identity, so a strict-mode double
-// mount or route change cannot leave a gone feed adopted. One holder serves every window, so
-// each mount names the document it is drawn in and a command acts on its own window's newest.
-// Each mount also says whether its transcript holds a run group, which the palette's `when`
-// context reads so the fold rows are offered only where there is something to fold.
+// The seam between a mounted feed and what acts on it from outside the transcript: a chord, and
+// the composer's send, which pins the follow. Commands are contributed before any feed exists, so
+// a feed adopts this holder while mounted and an act resolves its target at press time. The newest
+// mount is the target; release is by identity, so a strict-mode double mount or route change
+// cannot leave a gone feed adopted. One holder serves every window, so each mount names the
+// document it is drawn in and an act reaches its own window's newest. Each mount also says whether
+// its transcript holds a run group, which the palette's `when` context reads so the fold rows are
+// offered only where there is something to fold.
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { Unsubscribe } from "#shared/preload-api.js";

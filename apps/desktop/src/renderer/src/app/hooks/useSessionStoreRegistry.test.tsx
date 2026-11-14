@@ -5,6 +5,7 @@
 import { act, render } from "@testing-library/react";
 import { type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { type BridgeComposition } from "#renderer/services/platform/bridge-context.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
@@ -33,7 +34,7 @@ function queuedRunEvent(sessionId: string, sequence: number, runId: string): Pro
     sessionId,
     sequence,
     cursor: `cursor-at-${String(sequence)}`,
-    kind: "run.queued",
+    kind: "agent.run.queued" satisfies SessionEventType,
     occurredAt: new Date(sequence).toISOString(),
     payload: { sessionId, runId, runVersion: 1, newState: "queued", agentId: AGENT_ID },
   };

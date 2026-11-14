@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { INTERVENTION_STATES } from "@ai-sidekicks/contracts/run/intervention";
 
 import { WaitingOnPersonRegister, type WaitingOnPersonRecords } from "./register.js";
@@ -15,7 +16,7 @@ const SESSION_ID = "session-waiting-on-person";
 
 function rowOf(
   sequence: number,
-  kind: string,
+  kind: SessionEventType,
   payload?: Readonly<Record<string, unknown>>,
   actorId?: string,
 ): ProjectedSessionEvent {
@@ -90,7 +91,7 @@ describe("WaitingOnPersonRegister — rows in any order", () => {
 
   it("closes an intervention's ask on every outcome the contract registers", () => {
     for (const state of INTERVENTION_STATES.filter((state) => state !== "requested")) {
-      const outcome = `agent.intervention.${state}`;
+      const outcome = `agent.intervention.${state}` as const;
       const register = new WaitingOnPersonRegister();
       register.admit([
         rowOf(1, "agent.intervention.requested", { interventionId: "int-1" }),
@@ -119,8 +120,8 @@ describe("SessionStore — the register outlives the window", () => {
     store.initialize({ shape: "project", cursor: 0, entities: [] });
     const rows = [
       rowOf(1, "approval.requested", { approvalRequestId: "req-1" }, "agent-scout"),
-      rowOf(2, "tool.invoked", { runId: "run-a" }, "agent-scout"),
-      rowOf(3, "tool.result", { runId: "run-a" }, "agent-scout"),
+      rowOf(2, "agent.toolCall.invoked", { runId: "run-a" }, "agent-scout"),
+      rowOf(3, "agent.toolCall.completed", { runId: "run-a" }, "agent-scout"),
     ];
     store.applyBatch(rows);
     store.releaseOutside(heldRowCursor(rows[1]!), heldRowCursor(rows[2]!));

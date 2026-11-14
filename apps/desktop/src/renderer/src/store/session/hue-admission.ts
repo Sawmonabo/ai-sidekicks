@@ -15,7 +15,7 @@ import { SESSION_CREATED_EVENT_KIND } from "./standing-events.js";
 
 /**
  * Admit to `allocator` the agent the event brings into the session, if any: the lead on
- * `session.created`, the agent a `run.queued` resolved from its definition, on the step that
+ * `session.created`, the agent an `agent.run.queued` resolved from its definition, on the step that
  * definition chose where it chose one.
  */
 export function admitToHueWheel(allocator: AgentHueAllocator, event: ProjectedSessionEvent): void {

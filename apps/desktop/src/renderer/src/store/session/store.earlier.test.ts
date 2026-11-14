@@ -1,6 +1,7 @@
 // The store's way to grow its window at the head, `prependEarlierEvents`: the page's rows land in
 // front of the window and the head takes the page's own edge.
 
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import { describe, expect, it } from "vitest";
 
@@ -10,6 +11,9 @@ import { eventOfKind } from "#test/helpers/session/events.js";
 
 const SESSION_ID = "session-earlier-store";
 
+/** The kind every row here carries: a kind the wire sends, which no projector reads in these. */
+const RUNNING_KIND: SessionEventType = "agent.run.running";
+
 /** The edge of a backward page whose oldest row sits at 15. */
 const EARLIER_EDGE: TranscriptWindowEdge = {
   cursor: "cursor-at-14" as EventCursor,
@@ -17,7 +21,7 @@ const EARLIER_EDGE: TranscriptWindowEdge = {
 };
 
 function eventsAt(sequences: readonly number[]): ReturnType<typeof eventOfKind>[] {
-  return sequences.map((sequence) => eventOfKind(SESSION_ID, "run.running", sequence));
+  return sequences.map((sequence) => eventOfKind(SESSION_ID, RUNNING_KIND, sequence));
 }
 
 function openStore(): SessionStore {
@@ -51,7 +55,7 @@ describe("SessionStore.prependEarlierEvents — growing the log at its head", ()
   it("refuses an event belonging to another session", () => {
     const store = openStore();
     const merge = store.prependEarlierEvents({
-      events: [eventOfKind("some-other-session", "run.running", 5)],
+      events: [eventOfKind("some-other-session", RUNNING_KIND, 5)],
       edge: EARLIER_EDGE,
       runs: [],
     });

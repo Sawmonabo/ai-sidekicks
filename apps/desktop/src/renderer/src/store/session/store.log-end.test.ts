@@ -2,6 +2,7 @@
 // `replaceWithLogEndPage`: Home's first page closes the head, and End's newest page goes live only
 // when it reaches what the stream has delivered, so no row the stream sent is skipped or doubled.
 
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import { describe, expect, it } from "vitest";
 
@@ -10,11 +11,14 @@ import { eventOfKind } from "#test/helpers/session/events.js";
 
 const SESSION_ID = "session-log-end-store";
 
+/** The kind every row here carries: a kind the wire sends, which no projector reads in these. */
+const RUNNING_KIND: SessionEventType = "agent.run.running";
+
 /** The sequence the stream has delivered up to. */
 const STREAM_SEQUENCE = 40;
 
 function eventsAt(sequences: readonly number[]): ReturnType<typeof eventOfKind>[] {
-  return sequences.map((sequence) => eventOfKind(SESSION_ID, "run.running", sequence));
+  return sequences.map((sequence) => eventOfKind(SESSION_ID, RUNNING_KIND, sequence));
 }
 
 /** A store reading the middle of a long log: rows 20 to 22 held, both edges with more past them. */
@@ -83,7 +87,7 @@ describe("SessionStore.replaceWithLogEndPage — an end page replaces the window
   it("moves nothing on a page of another session's rows", () => {
     const store = storeInTheMiddle();
     store.replaceWithLogEndPage("start", {
-      events: [eventOfKind("some-other-session", "run.running", 0)],
+      events: [eventOfKind("some-other-session", RUNNING_KIND, 0)],
       edge: { cursor: undefined, hasMore: false },
       runs: [],
     });

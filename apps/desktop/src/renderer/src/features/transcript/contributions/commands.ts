@@ -13,7 +13,7 @@ import {
   type TranscriptActName,
   type TranscriptActs,
   type MountedTranscript,
-} from "../mounted-transcript.js";
+} from "#renderer/registries/transcript/registry.js";
 import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/when-clause/vocabulary.js";
 import { TRANSCRIPT_KEY_BINDINGS } from "./keybindings.js";
 import { TRANSCRIPT_OWNER } from "./screens.js";

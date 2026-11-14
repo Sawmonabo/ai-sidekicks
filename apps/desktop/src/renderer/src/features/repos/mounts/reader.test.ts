@@ -3,6 +3,7 @@
 // clock.
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
@@ -211,7 +212,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
         sessionId: SESSION_ID,
         sequence: 2,
         cursor: "cursor-at-2",
-        kind: "run.queued",
+        kind: "agent.run.queued" satisfies SessionEventType,
         occurredAt: "2026-01-01T09:05:02.000Z",
       },
     ]);

@@ -10,7 +10,10 @@ import { CommandRegistry, commandRegistry } from "#renderer/registries/commands/
 import { keybindingOverrides } from "#renderer/registries/keybindings/overrides/store.js";
 import { publishCommandRefusalSink } from "#renderer/registries/commands/refusal.js";
 import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
-import { MountedTranscript, type TranscriptActs } from "../mounted-transcript.js";
+import {
+  MountedTranscript,
+  type TranscriptActs,
+} from "#renderer/registries/transcript/registry.js";
 import { createTranscriptCommands, registerTranscriptCommands } from "./commands.js";
 import { TRANSCRIPT_OWNER } from "./screens.js";
 import { publishCommandWindow } from "#renderer/registries/commands/command-window.js";

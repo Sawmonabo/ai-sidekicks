@@ -348,8 +348,9 @@ export function useTranscriptFeedWindows(
     ],
   );
   const viewport = useTranscriptViewport(viewportOptions);
-  // The reader pinning the follow again (Jump to latest, arriving at the tail) puts each long run's
-  // window a find step or a link kept back on its newest calls, so the tail followed is the run's.
+  // The reader pinning the follow again (Jump to latest, arriving at the tail, a send) puts each
+  // long run's window that stops short of its newest calls back on them, so the tail followed is
+  // the run's.
   // Keyed on the mode, so a step taken while following keeps its window until the next pin.
   const isFollowing = viewport.snapshot.reading.mode === "following";
   const releaseKeptRunWindowEnds = folds.releaseKeptRunWindowEnds;

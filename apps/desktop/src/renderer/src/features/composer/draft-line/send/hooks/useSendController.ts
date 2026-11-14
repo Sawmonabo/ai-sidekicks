@@ -10,10 +10,14 @@
 //
 // The history walk is held here, and the unsent body lives only in the supplied `DraftStore`; what
 // rides with it is the supplied held draft's, read at the press and dropped when the send is taken.
+// A send handed off, a message or a console word alike, pins the follow of the transcript mounted
+// in this composer's window, so the reader is taken to the bottom whatever they had scrolled to.
 
 import { useCallback, useMemo } from "react";
 
 import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+import { mountedTranscript } from "#renderer/registries/transcript/registry.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import { CALL_REJECTED_FALLBACK } from "#renderer/services/daemon/reply.js";
 import { composerDraftKey } from "../../draft-key.js";
@@ -21,7 +25,7 @@ import { useComposerActState } from "../../hooks/useComposerActState.js";
 import { useSettlementIdentities } from "../../hooks/useSettlementIdentities.js";
 import { composerRefusal, DAEMON_REFUSAL_ORIGIN } from "../refusals.js";
 import { useSentMessageRecall } from "../../hooks/useSentMessageRecall.js";
-import { visitOperationKey } from "../settlement.js";
+import { visitOperationKey, type ComposerSettlementIdentity } from "../settlement.js";
 import { ComposerSendRouter, carriesNothing } from "../router.js";
 import type { SendController, SendControllerDependencies } from "../controller-contract.js";
 
@@ -45,6 +49,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   // Claimed before the await and released in `finally`, so every settlement releases the round
   // on one path.
   const operationLatch = useGenerationLatch();
+  const ownerDocument = useOwnerWindow().document;
 
   const draftKey = composerDraftKey(target.sessionId);
   // Which stay at this session the composer is on, and the newest attempt of each act.
@@ -59,6 +64,18 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     draftKey,
     draftStore,
     isCurrent,
+  );
+
+  // A send handed off from this visit takes its window's transcript to the bottom and pins the
+  // follow there. A late settlement leaves the session now in view where its reader is, and a
+  // window with no transcript mounted has no follow to pin, so the holder's refusal says nothing.
+  const pinFollow = useCallback(
+    (identity: ComposerSettlementIdentity) => {
+      if (isCurrent(identity)) {
+        mountedTranscript.perform("jumpToLatest", ownerDocument);
+      }
+    },
+    [isCurrent, ownerDocument],
   );
 
   // Read at press time rather than subscribed: nothing here renders the text.
@@ -128,6 +145,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
             // happened, on the same terms as the sent arm.
             clearSentDraft(identity, draftKey);
             settle(identity, undefined);
+            pinFollow(identity);
             return;
           case "send-as-typed":
             break;
@@ -145,6 +163,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
           clearSentDraft(identity, draftKey);
           heldDraft.clearSent(extras);
           settle(identity, undefined);
+          pinFollow(identity);
           return;
         case "refused":
           settle(identity, outcome.refusal);
@@ -182,6 +201,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     history,
     issueSettlementIdentity,
     operationLatch,
+    pinFollow,
     publishStatus,
     readDraftText,
     settle,

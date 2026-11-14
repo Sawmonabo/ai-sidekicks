@@ -8,7 +8,7 @@ import {
   type MountedTranscript,
   type TranscriptActs,
   type TranscriptAdoption,
-} from "../mounted-transcript.js";
+} from "#renderer/registries/transcript/registry.js";
 
 /**
  * Makes this feed its window's mounted transcript while the component is mounted, and keeps the

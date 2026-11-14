@@ -9,8 +9,8 @@ import {
   TRANSCRIPT_NOT_MOUNTED_REFUSAL,
   MountedTranscript,
   type TranscriptActs,
-} from "./mounted-transcript.js";
-import { useMountedTranscript } from "./hooks/useMountedTranscript.js";
+} from "./registry.js";
+import { useMountedTranscript } from "#renderer/features/transcript/hooks/useMountedTranscript.js";
 
 function namedActs(name: string, fired: string[]): TranscriptActs {
   return {

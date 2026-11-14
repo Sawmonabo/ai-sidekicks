@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-run-summary";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
@@ -111,7 +112,11 @@ describe("child-run entries — one card per child, at the row that first named 
   it("admits a child summarized onto a non-run row, which carries no attribution", () => {
     const entries = childRunEntriesOf([
       {
-        ...generalRow({ id: "g1", sequence: 1, type: "session.note" }),
+        ...generalRow({
+          id: "g1",
+          sequence: 1,
+          type: "session.renamed" satisfies SessionEventType,
+        }),
         childRunSummary: completeSummary("run-child", 2),
       } as ProjectedTranscriptRow,
     ]);

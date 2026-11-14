@@ -56,6 +56,15 @@ export function DraftLine(props: DraftLineProps): React.JSX.Element {
       }),
     [],
   );
+  // Entering the session puts the caret here, once: a session come back to has claimed it already.
+  // The screen mounts with the session, so no shell of it can hold the caret yet. Claimed at mount
+  // only, so a store handed to a line already drawn never pulls the caret mid-session.
+  const entryCaretAtMount = useRef(props.sessionStore.entryCaret);
+  useEffect(() => {
+    if (entryCaretAtMount.current.claim()) {
+      lineRef.current?.focus();
+    }
+  }, []);
 
   return (
     <div className="meridian-composer__send">

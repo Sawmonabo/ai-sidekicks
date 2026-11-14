@@ -2,10 +2,11 @@
 // height each kind starts from. A kind splits the row kinds `kind.ts` names where cards of one
 // kind differ in height by more than their text (a tool row by its density, an open one by whether
 // its output was opened whole), and adds the rows the feed draws itself: a run group's header, the
-// line at an edge of a long run's window, a system message and the line a row the window no longer
-// holds draws. Each seed is built from the type and space scales, so it moves with them, and so is
-// the height an open call with its output cut is drawn at: no estimate of such a call passes it,
-// and none of a call whose output was opened, which was cut before it was opened, falls short.
+// line at an edge of a long run's window, a system message alone or over the last lines a process
+// printed, and the line a row the window no longer holds draws. Each seed is built from the type
+// and space scales, so it moves with them, and so is the height an open call with its output cut
+// is drawn at: no estimate of such a call passes it, and none of a call whose output was opened,
+// which was cut before it was opened, falls short.
 
 import {
   BODY_LINE_HEIGHT,
@@ -24,6 +25,7 @@ export const ROW_HEIGHT_KINDS = [
   "tool-call-expanded",
   "tool-call-output-opened",
   "system-message",
+  "system-message-last-lines",
   "run-group-header",
   "run-window-edge",
   "not-loaded",
@@ -43,6 +45,9 @@ const FIGURE_LINE_REM = scaleStep(TYPE_SCALE_REM, "text-xs") * BODY_LINE_HEIGHT;
 
 /** The gutter of a row that names its author: the author over the time. */
 const AUTHORED_GUTTER_REM = AUTHOR_LINE_REM + FIGURE_LINE_REM;
+
+/** One line of a process's printed output: `text-xs` mono at the reading line height. */
+const PRINTED_LINE_REM = scaleStep(TYPE_SCALE_REM, "text-xs") * READING_LINE_HEIGHT;
 
 /** An open call's header line over six lines of output. */
 const OPEN_CALL_SEED_REM = 7 * READING_LINE_REM + TRANSCRIPT_ROW_GAP_REM;
@@ -67,6 +72,10 @@ export const ROW_HEIGHT_SEED_REM: Readonly<Record<RowHeightKind, number>> = {
   "tool-call-output-opened": OPEN_CALL_SEED_REM,
   // One line naming the act, beside the time alone.
   "system-message": Math.max(FIGURE_LINE_REM, READING_LINE_REM) + TRANSCRIPT_ROW_GAP_REM,
+  // The line naming the act over ten lines a dead process printed; the tail is cut by size, not
+  // by lines, so ten is a start the measured height replaces.
+  "system-message-last-lines":
+    Math.max(FIGURE_LINE_REM, READING_LINE_REM) + 10 * PRINTED_LINE_REM + TRANSCRIPT_ROW_GAP_REM,
   // One line of header, padded by half a gap above and below.
   "run-group-header": AUTHOR_LINE_REM + TRANSCRIPT_ROW_GAP_REM,
   // One line of figure text, padded by `space-1` above and below.

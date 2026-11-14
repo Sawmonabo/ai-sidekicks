@@ -1,7 +1,8 @@
 // A whole row's text, read from the source the row is drawn from rather than from its drawing, so
 // a selection copies the rows the window let go between its ends. Each kind gives what its card
 // draws: a message row its body alone; a tool row and a system message their author, time and
-// line, as their layout lays them out; a run group header its line.
+// line, as their layout lays them out, a system message with any last lines a process printed
+// under it; a run group header its line.
 //   - A reply's body is its live lane, else what it drew while the log held it, else the body the
 //     log stores for it; an open tool row's output is its live lane, else its stored body.
 //   - A body the log holds as its size alone is copied whole, as a copy reads it in full before it
@@ -153,6 +154,8 @@ function readRowTextAtOnce(rowKey: string, sources: RowTextSources): SelectedPar
       clockTimeOf(systemMessage.timestamp, sources),
       ...supersededMark(transcriptWindow.supersededRowIds.has(row.id)),
       systemMessage.label,
+      // The last lines a dead provider process printed are part of the row as it is drawn.
+      ...(systemMessage.lastLines === undefined ? [] : [systemMessage.lastLines]),
     ]);
   }
   switch (classifyTranscriptRow(row)?.kind) {

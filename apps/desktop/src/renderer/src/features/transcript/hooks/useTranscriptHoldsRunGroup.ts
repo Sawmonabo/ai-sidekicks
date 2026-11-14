@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 
-import { mountedTranscript } from "../mounted-transcript.js";
+import { mountedTranscript } from "#renderer/registries/transcript/registry.js";
 
 /**
  * Whether the transcript mounted in the window `ownerDocument` belongs to holds a run group, kept

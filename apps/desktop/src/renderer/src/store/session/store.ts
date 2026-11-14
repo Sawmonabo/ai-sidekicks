@@ -75,6 +75,7 @@ import { mergeStandingEvents } from "./standing-events.js";
 import { admitToHueWheel } from "./hue-admission.js";
 import { FailedDependentReads } from "./failed-dependent-reads.js";
 import { RememberedRowHeights } from "./remembered-row-heights.js";
+import { EntryCaret } from "./entry-caret.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
 import { RepairReplay } from "./repair-replay.js";
 import {
@@ -124,6 +125,8 @@ export class SessionStore {
    * so a transcript mounted again lays its rows out at the heights they had.
    */
   public readonly rememberedRowHeights: RememberedRowHeights = new RememberedRowHeights();
+  /** Whether entering this session has put the caret in its message box yet. */
+  public readonly entryCaret: EntryCaret = new EntryCaret();
   readonly #sessionId: string;
   readonly #store: StoreApi<SessionStoreState>;
   readonly #hueAllocator = new AgentHueAllocator();

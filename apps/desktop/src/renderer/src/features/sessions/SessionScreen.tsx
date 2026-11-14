@@ -10,13 +10,14 @@
 // opens. A pane another screen asked this session for (Review from a workflow run's page) opens
 // once the restore has landed. A save that failed raises one banner under the header, beside the
 // banners the session's standing notices raise; its code goes to the window's diagnostic capture,
-// as does every part of a saved arrangement the restore left closed. The screen is not remounted
-// between two open sessions, so banners are scoped to (bridge, session): the arriving session reads
-// an empty column, and a bridge replacement clears it too.
+// as does every part of a saved arrangement the restore left closed. The router keys the screen by
+// session, so the arriving session mounts its own screen and reads an empty column; banners are
+// scoped to the bridge too, so a bridge replacement clears the column.
 //
-// Each region draws under its own error boundary: the header, the banners, the catching-up line
-// and the composer here, the transcript and every pane in their pane bodies. A region that throws
-// while drawing reads as one line with `Retry` where it stood, and the rest keep drawing.
+// Each region draws under its own error boundary: the header, the save-failure banners, the notice
+// banners, the catching-up line and the composer here, the transcript and every pane in their pane
+// bodies. A region that throws while drawing reads as one line with `Retry` where it stood, and the
+// rest keep drawing.
 //
 // The screen carries the height the transcript and the composer share as a custom property, so the
 // composer's draft can cap itself at a share of the conversation's. It is measured on resize only:
@@ -57,7 +58,11 @@ import { usePaneLayoutStore } from "./pane-layout/hooks/usePaneLayoutStore.js";
 import type { SessionPane } from "./pane-layout/state.js";
 import { usePaneLayoutPersistence } from "./pane-layout/hooks/usePaneLayoutPersistence.js";
 import { usePaneOpenRequests } from "./pane-layout/hooks/usePaneOpenRequests.js";
-import { findComposerRenderers } from "#renderer/registries/composer/registry.js";
+import {
+  findComposerRenderers,
+  type ComposerProps,
+  type ComposerRenderer,
+} from "#renderer/registries/composer/registry.js";
 import { parsePaneAddress } from "#renderer/routing/panes/parse-address.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type PaneContext } from "#renderer/registries/panes/context.js";
@@ -255,9 +260,11 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
               }}
             />
           ))}
-          {props.sessionStore === undefined ||
-          sessionId === undefined ||
-          dismissedNotices === undefined ? null : (
+        </ErrorBoundary>
+        {props.sessionStore === undefined ||
+        sessionId === undefined ||
+        dismissedNotices === undefined ? null : (
+          <ErrorBoundary regionName="The banners" clock={clock}>
             <SessionNoticeBanners
               bridge={props.bridge}
               sessionId={sessionId}
@@ -265,8 +272,8 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
               dismissed={dismissedNotices}
               onFolderReadRefused={folderReadRefused}
             />
-          )}
-        </ErrorBoundary>
+          </ErrorBoundary>
+        )}
         {props.sessionStore === undefined ? null : (
           <ErrorBoundary regionName="The catching-up line" clock={clock}>
             <SessionCatchUpLine sessionStore={props.sessionStore} onTryAgain={tryAgain} />
@@ -290,13 +297,14 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
       ) : (
         <div className="meridian-session-screen__composer">
           <ErrorBoundary regionName="The composer" clock={clock}>
-            {composer.open({
-              sessionStore: props.sessionStore,
-              bridge: props.bridge,
-              frameStore: props.frameStore,
-              draftStore: props.draftStore,
-              route: props.route,
-            })}
+            <OpenComposer
+              renderOpen={composer.open}
+              sessionStore={props.sessionStore}
+              bridge={props.bridge}
+              frameStore={props.frameStore}
+              draftStore={props.draftStore}
+              route={props.route}
+            />
           </ErrorBoundary>
         </div>
       )}
@@ -321,6 +329,14 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
 
 /** The transcript's identity as a pane, the one the conversation mounts. */
 const CONVERSATION_PANE_ID = "conversation";
+
+/** The open composer, drawn from its own render so a throw in the renderer lands in its boundary. */
+function OpenComposer(
+  props: ComposerProps & { readonly renderOpen: ComposerRenderer },
+): React.ReactNode {
+  const { renderOpen, ...composerProps } = props;
+  return renderOpen(composerProps);
+}
 
 /**
  * Write the height the transcript and the composer share onto the screen as

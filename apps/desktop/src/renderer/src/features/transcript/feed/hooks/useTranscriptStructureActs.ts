@@ -6,7 +6,7 @@ import { useMemo } from "react";
 
 import { type FindStepDirection } from "../../find/matcher.js";
 import { useMountedTranscript } from "../../hooks/useMountedTranscript.js";
-import { type TranscriptActs } from "../../mounted-transcript.js";
+import { type TranscriptActs } from "#renderer/registries/transcript/registry.js";
 
 /**
  * Fill the mounted-transcript holder the palette reads, for as long as the feed is mounted, and

@@ -95,8 +95,10 @@ export function rowHeightKindOf(
   if (row === undefined) {
     return "not-loaded";
   }
-  if (transcriptWindow.systemMessageByRowId.has(row.id)) {
-    return "system-message";
+  const systemMessage = transcriptWindow.systemMessageByRowId.get(row.id);
+  if (systemMessage !== undefined) {
+    // The last lines a dead process printed draw under the line, so the row starts taller.
+    return systemMessage.lastLines === undefined ? "system-message" : "system-message-last-lines";
   }
   const kind = classifyTranscriptRow(row)?.kind;
   if (kind === undefined) {
