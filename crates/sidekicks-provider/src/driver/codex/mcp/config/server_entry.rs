@@ -162,15 +162,10 @@ pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclar
     let sign_in_settings = entry
         .oauth
         .as_ref()
-        .filter(|oauth| {
-            oauth.client_id.is_some()
-                || oauth.callback_url.is_some()
-                || oauth.callback_port.is_some()
-        })
+        .filter(|oauth| oauth.client_id.is_some() || oauth.callback_url.is_some())
         .map(|oauth| McpServerSignInSettings {
             client_id: oauth.client_id.clone(),
             callback_url: oauth.callback_url.clone(),
-            callback_port: oauth.callback_port,
             // Codex names no metadata address and asks for the entry's scopes exactly.
             authorization_server_metadata_url: None,
             asks_offline_access_where_listed: false,
@@ -405,14 +400,11 @@ impl CodexEnvVar {
     }
 }
 
-// The sign-in client's id, callback address and fixed callback port; a plugin's file spells them
-// in camel case.
+// The sign-in client's id and callback address; a plugin's file spells them in camel case.
 #[derive(Deserialize)]
 struct CodexSignInClient {
     #[serde(default, alias = "clientId")]
     client_id: Option<String>,
     #[serde(default, alias = "callbackUrl")]
     callback_url: Option<String>,
-    #[serde(default, alias = "callbackPort")]
-    callback_port: Option<u16>,
 }

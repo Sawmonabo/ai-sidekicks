@@ -34,7 +34,7 @@ use crate::command::helper_background::{HelperBackgroundParams, helper_move_unsu
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::mcp::compose_codex_mcp_entry;
 use crate::driver::codex::mcp::sign_in::{
-    read_codex_owner_client_secret, read_codex_server_addresses,
+    read_codex_owner_client_secret, read_codex_server_addresses, read_codex_sign_in_callback,
 };
 use crate::driver::codex::permission_level::list_codex_modes;
 #[cfg(any(test, feature = "test-support"))]
@@ -54,7 +54,7 @@ use crate::driver::contract::plan_verdict::{
     AnswerPlanParams, PlanVerdictAnswer, answer_plan_holding_no_request,
 };
 use crate::driver::contract::sign_in::{
-    McpServerAddressRead, McpServerAddressReading, ProviderSignInTakeover,
+    McpServerAddressRead, McpServerAddressReading, McpSignInCallback, ProviderSignInTakeover,
     ProviderSignInTakeoverRequest,
 };
 use crate::driver::daemon_stop::{DaemonStopIntent, RecordedServicesStopError};
@@ -788,6 +788,14 @@ impl ProviderDriver for CodexDriver {
         request: McpServerAddressRead,
     ) -> BoxFuture<'_, Result<Option<SecretString>, DriverError>> {
         read_codex_owner_client_secret(&self.registry, &self.project_rules.home_folder, request)
+            .boxed()
+    }
+
+    fn read_mcp_sign_in_callback(
+        &self,
+        request: McpServerAddressRead,
+    ) -> BoxFuture<'_, Result<Option<McpSignInCallback>, DriverError>> {
+        read_codex_sign_in_callback(&self.registry, &self.project_rules.home_folder, request)
             .boxed()
     }
 }

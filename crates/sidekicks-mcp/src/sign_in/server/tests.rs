@@ -199,6 +199,13 @@ pub(crate) fn answer_address_read(
         .return_once(move |_requests| Box::pin(ready(vec![answer])));
 }
 
+/// Has `driver` answer every callback read with none, so the entry's declared callback stands.
+pub(crate) fn answer_no_callback_read(driver: &mut MockProviderDriver) {
+    driver
+        .expect_read_mcp_sign_in_callback()
+        .returning(|_request| Box::pin(ready(Ok(None))));
+}
+
 fn declared(address: &str) -> McpServerAddressReading {
     McpServerAddressReading::Declared(McpServerAddress::new(address).expect("a server address"))
 }
@@ -213,6 +220,7 @@ async fn a_remote_binding_is_read_at_the_address_its_entry_declares() {
         "https://docs.example.test/",
     )]);
     answer_address_read(&mut driver, Ok(declared(DECLARED_ADDRESS)));
+    answer_no_callback_read(&mut driver);
     let sources = test_sources(vec![Arc::new(driver)]).await;
 
     let read = sources
@@ -250,11 +258,11 @@ async fn the_sign_in_settings_of_an_entry_reach_its_target(
         client_id: Some("owner-client".to_owned()),
         callback_url: Some("http://localhost:8080/callback".to_owned()),
         authorization_server_metadata_url: Some(metadata_address.to_owned()),
-        callback_port: None,
         asks_offline_access_where_listed: true,
     });
     let mut driver = driver_declaring(vec![declaration]);
     answer_address_read(&mut driver, Ok(declared(DECLARED_ADDRESS)));
+    answer_no_callback_read(&mut driver);
     driver
         .expect_read_mcp_owner_client_secret()
         .return_once(|_request| Box::pin(ready(Ok(None))));
@@ -288,8 +296,14 @@ async fn the_sign_in_settings_of_an_entry_reach_its_target(
     let owner_client = server.owner_client.as_ref().expect("the owner's client");
     assert_eq!(owner_client.client_id.as_deref(), Some("owner-client"));
     assert_eq!(
-        owner_client.callback_url.as_ref().map(Url::as_str),
-        Some("http://localhost:8080/callback")
+        owner_client.callback.as_ref().map(|callback| (
+            callback.with_issuer.as_str(),
+            callback.without_issuer.as_str()
+        )),
+        Some((
+            "http://localhost:8080/callback",
+            "http://localhost:8080/callback"
+        ))
     );
     assert_eq!(read.scopes, ["read"]);
 }
@@ -417,6 +431,7 @@ async fn a_target_read_carries_its_bindings_environment_rows(
             *asked_by_driver.lock().expect("never poisoned") = requests.pop();
             Box::pin(ready(vec![Ok(declared(DECLARED_ADDRESS))]))
         });
+    answer_no_callback_read(&mut driver);
     let sources = test_sources(vec![Arc::new(driver)]).await;
     let connection = sources.database.reader();
     for row in project_and_mount_rows(PROJECT_ID, None) {

@@ -171,11 +171,9 @@ impl McpServerToolDefaults {
 pub struct McpServerSignInSettings {
     /// The client's id, presented at sign-in.
     pub client_id: Option<String>,
-    /// The callback address registered for the client.
+    /// The callback address registered for the client, whole; a driver whose provider derives
+    /// its callback from more than the entry answers it at the sign-in in place of this.
     pub callback_url: Option<String>,
-    /// The fixed loopback port the callback is bound on where no callback address is registered,
-    /// its path the daemon's own for the server.
-    pub callback_port: Option<u16>,
     /// The address of the authorization server's metadata, read in place of discovery, as the
     /// entry writes it; `Debug` says only whether one is set, since it may carry a secret.
     pub authorization_server_metadata_url: Option<String>,
@@ -190,7 +188,6 @@ impl fmt::Debug for McpServerSignInSettings {
             .debug_struct("McpServerSignInSettings")
             .field("client_id", &self.client_id)
             .field("callback_url", &self.callback_url)
-            .field("callback_port", &self.callback_port)
             .field(
                 "has_authorization_server_metadata_url",
                 &self.authorization_server_metadata_url.is_some(),

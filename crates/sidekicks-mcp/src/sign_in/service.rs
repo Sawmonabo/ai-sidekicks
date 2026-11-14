@@ -43,6 +43,7 @@ use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::web_address::WebAddress;
+use sidekicks_provider::driver::contract::sign_in::McpSignInCallback;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -175,11 +176,10 @@ pub(crate) struct OwnerIssuedClient {
     /// The secret issued with `client_id`, as the provider's driver read it for this sign-in; held
     /// only in memory, and in the keychain with the sign-in it gets.
     pub(crate) client_secret: Option<SecretString>,
-    /// The callback address registered with the client; `None` listens on `callback_port`.
-    pub(crate) callback_url: Option<Url>,
-    /// The fixed loopback port listened on where no callback address is registered, at the
-    /// server's own path; `None` listens on a free one.
-    pub(crate) callback_port: Option<u16>,
+    /// The callback the provider's own client sends, in the form for a server that returns `iss`
+    /// and the one for a server that does not, each taken whole; `None` listens on the daemon's
+    /// own loopback address.
+    pub(crate) callback: Option<McpSignInCallback>,
 }
 
 /// The account each provider's flow runs for, by provider; a provider with no account here offers
@@ -394,56 +394,36 @@ impl SignInService {
             &metadata.additional_fields,
         );
         let owner = server.owner_client.as_ref();
-        let fixed_port_callback = owner
-            .filter(|owner| owner.callback_url.is_none())
-            .and_then(|owner| owner.callback_port)
-            .map(|port| {
-                Url::parse(&format!("http://127.0.0.1:{port}/callback"))
-                    .expect("a loopback port and a fixed path form an http address")
-            });
-        let is_owner_callback_registered = owner.is_some_and(|owner| owner.callback_url.is_some());
+        // The provider's own callback is sent whole, in the form its rule gives for whether the
+        // server returns `iss`; the daemon's own loopback address takes the server's id unless it
+        // does.
         let owner_callback = owner
-            .and_then(|owner| owner.callback_url.as_ref())
-            .or(fixed_port_callback.as_ref());
-        // An owner-issued callback is registered as it is, so it never takes the server's id; the
-        // daemon's own loopback address, on a fixed port or a free one, takes it unless the server
-        // returns `iss`.
-        let callback_path = if is_owner_callback_registered || is_issuer_in_response {
+            .and_then(|owner| owner.callback.as_ref())
+            .map(|callback| {
+                if is_issuer_in_response {
+                    &callback.with_issuer
+                } else {
+                    &callback.without_issuer
+                }
+            });
+        let callback_path = if owner_callback.is_some() || is_issuer_in_response {
             CallbackPath::Shared
         } else {
             CallbackPath::PerServer(digest.as_str())
         };
-        let (listener, redirect_address) =
-            match RedirectListener::bind(owner_callback, callback_path).await {
-                Ok(listener) => {
-                    let redirect_address = listener.redirect_url().clone();
-                    (Some(listener), redirect_address)
-                }
-                Err(error @ RedirectReceiverError::Bind(_)) => {
-                    return Err(failed(Box::new(error)));
-                }
-                // An owner's callback the receiver never binds: the client is still chosen in its
-                // order, which sends such a callback to a provider's flow.
-                Err(
-                    RedirectReceiverError::NotHttp { .. }
-                    | RedirectReceiverError::NotLoopback { .. }
-                    | RedirectReceiverError::UnusablePath { .. },
-                ) => (
-                    None,
-                    owner_callback
-                        .expect("the receiver refuses only an owner-issued callback")
-                        .clone(),
-                ),
-            };
-        let request = ClientRequest {
-            server_digest: &digest,
-            redirect_address: &redirect_address,
-            owner_client_id: owner.and_then(|owner| owner.client_id.as_deref()),
-            owner_client_secret: owner.and_then(|owner| owner.client_secret.as_ref()),
-            scopes: &scopes,
-        };
+        let (mut listener, mut redirect_address) = bind_listener(owner_callback, callback_path)
+            .await
+            .map_err(|error| failed(Box::new(error)))?;
+        let owner_client_id = owner.and_then(|owner| owner.client_id.as_deref());
+        let owner_client_secret = owner.and_then(|owner| owner.client_secret.as_ref());
         let mut client = choose_client(
-            &request,
+            &ClientRequest {
+                server_digest: &digest,
+                redirect_address: &redirect_address,
+                owner_client_id,
+                owner_client_secret,
+                scopes: &scopes,
+            },
             &self.admitted_clients,
             self.relay,
             &mut manager,
@@ -454,6 +434,8 @@ impl SignInService {
         .await;
         let mut tried = ProviderFlowsTried::No;
         if matches!(client, SignInClient::OwnClientUnfinished) {
+            // A provider's own client may listen on the same fixed port, so it is let go first.
+            drop(listener.take());
             match self
                 .run_provider_flow(target, server, &digest, None, provider_accounts)
                 .await?
@@ -464,8 +446,17 @@ impl SignInService {
                         .clear_own_client_unfinished(&digest)
                         .await
                         .map_err(|error| failed(Box::new(error)))?;
+                    (listener, redirect_address) = bind_listener(owner_callback, callback_path)
+                        .await
+                        .map_err(|error| failed(Box::new(error)))?;
                     client = choose_client(
-                        &request,
+                        &ClientRequest {
+                            server_digest: &digest,
+                            redirect_address: &redirect_address,
+                            owner_client_id,
+                            owner_client_secret,
+                            scopes: &scopes,
+                        },
                         &self.admitted_clients,
                         self.relay,
                         &mut manager,
@@ -485,6 +476,11 @@ impl SignInService {
                     tried = ProviderFlowsTried::NoneAdmitted(failure);
                 }
             }
+        }
+        // Every client but the daemon's own ends the launch, a provider's flow among them, which
+        // may listen on the same fixed port.
+        if !matches!(client, SignInClient::OwnClient(_)) {
+            drop(listener.take());
         }
         let own_client = match self
             .answer_other_client(
@@ -544,6 +540,8 @@ impl SignInService {
             Err(AuthorizationPageError::Browser(BrowserAddressError::Push(
                 PushedAuthorizationError::Refused(refusal),
             ))) => {
+                // A provider's flow may listen on the same fixed port.
+                drop(listener);
                 let client = classify_pushed_authorization_refusal(refusal);
                 return match self
                     .answer_other_client(
@@ -864,6 +862,33 @@ fn named_metadata_scopes(metadata: &AuthorizationMetadata) -> Vec<String> {
             || metadata.scopes_supported.clone().unwrap_or_default(),
             |scope| scope.split_whitespace().map(str::to_owned).collect(),
         )
+}
+
+// Binds the receiver for `owner_callback`, else the daemon's own loopback address at
+// `callback_path`, and answers it with the redirect address the client is chosen with; an owner's
+// callback the receiver never binds answers no receiver and that callback, so the client's order
+// sends it to a provider's flow. Fails as the system refuses the listener.
+async fn bind_listener(
+    owner_callback: Option<&Url>,
+    callback_path: CallbackPath<'_>,
+) -> Result<(Option<RedirectListener>, Url), RedirectReceiverError> {
+    match RedirectListener::bind(owner_callback, callback_path).await {
+        Ok(listener) => {
+            let redirect_address = listener.redirect_url().clone();
+            Ok((Some(listener), redirect_address))
+        }
+        Err(error @ RedirectReceiverError::Bind(_)) => Err(error),
+        Err(
+            RedirectReceiverError::NotHttp { .. }
+            | RedirectReceiverError::NotLoopback { .. }
+            | RedirectReceiverError::UnusablePath { .. },
+        ) => Ok((
+            None,
+            owner_callback
+                .expect("the receiver refuses only an owner-issued callback")
+                .clone(),
+        )),
+    }
 }
 
 /// The target's server when its binding is one a sign-in reaches: an address, never a connector.

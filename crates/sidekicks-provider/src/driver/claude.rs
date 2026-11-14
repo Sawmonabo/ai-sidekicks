@@ -46,7 +46,7 @@ use crate::driver::contract::params_and_results::{
 };
 use crate::driver::contract::plan_verdict::{AnswerPlanParams, PlanVerdictAnswer};
 use crate::driver::contract::sign_in::{
-    McpServerAddressRead, McpServerAddressReading, ProviderSignInTakeover,
+    McpServerAddressRead, McpServerAddressReading, McpSignInCallback, ProviderSignInTakeover,
     ProviderSignInTakeoverRequest,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
@@ -701,6 +701,14 @@ impl ProviderDriver for ClaudeDriver {
         request: McpServerAddressRead,
     ) -> BoxFuture<'_, Result<Option<SecretString>, DriverError>> {
         self.read_mcp_owner_client_secret(request).boxed()
+    }
+
+    fn read_mcp_sign_in_callback(
+        &self,
+        _request: McpServerAddressRead,
+    ) -> BoxFuture<'_, Result<Option<McpSignInCallback>, DriverError>> {
+        // Claude Code's declaration names its whole callback, so its sign-in adds nothing.
+        Box::pin(async { Ok(None) })
     }
 }
 

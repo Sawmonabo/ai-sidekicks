@@ -210,8 +210,8 @@ mod tests {
     use crate::mutation::receipts::tests::idempotency_key;
     use crate::mutation::service::{McpMutationService, McpMutationSources};
     use crate::sign_in::server::tests::{
-        TestSources, answer_address_read, docs_binding, driver_declaring, program_declaration,
-        remote_declaration, test_sources,
+        TestSources, answer_address_read, answer_no_callback_read, docs_binding, driver_declaring,
+        program_declaration, remote_declaration, test_sources,
     };
     use crate::sign_in::service::SignInService;
     use crate::sign_in::sign_out::owed::OwedSignOuts;
@@ -271,6 +271,7 @@ mod tests {
             &mut driver,
             Ok(McpServerAddressReading::Declared(address(server))),
         );
+        answer_no_callback_read(&mut driver);
         Arc::new(driver)
     }
 
@@ -495,7 +496,6 @@ mod tests {
         declaration.sign_in_settings = Some(McpServerSignInSettings {
             client_id: None,
             callback_url: None,
-            callback_port: None,
             authorization_server_metadata_url: Some("http://metadata.example.test/".to_owned()),
             asks_offline_access_where_listed: false,
         });

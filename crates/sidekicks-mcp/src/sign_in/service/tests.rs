@@ -7,6 +7,7 @@ use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_provider::captured_logs::CapturedLogs;
+use sidekicks_provider::driver::contract::sign_in::McpSignInCallback;
 use sidekicks_std::mutex_lock::lock;
 
 use super::{
@@ -241,26 +242,38 @@ async fn a_binding_no_sign_in_reaches_is_refused_before_anything_is_sent(
     assert!(super::lock(&harness.service.attempts).by_server.is_empty());
 }
 
-/// An entry naming only its owner's client id signs in as that client with no registration, the
-/// browser returning to the daemon's own loopback receiver on the server's own path, on the fixed
-/// port the entry names where it names one. Killed by registering anyway (the fake refuses every
-/// registration, which refuses the launch), by the shared path taken for a client id alone, and by
-/// the fixed port not listened on (`fixed_port`).
+/// An entry naming only its owner's client id signs in as that client with no registration: the
+/// browser returns to the daemon's own loopback receiver on the server's own path, or, where the
+/// provider's own client sends a callback of its own, to that callback whole, in its form for
+/// whether the server returns `iss`. Killed by registering anyway (the fake refuses every
+/// registration, which refuses the launch), by the shared path taken for a client id alone, by
+/// the provider's callback given the server's id or not listened on, and by the form picked
+/// against `iss`.
 #[rstest]
-#[case::free_port(false)]
-#[case::fixed_port(true)]
+#[case::own_address(false, false)]
+#[case::provider_callback_without_issuer(true, false)]
+#[case::provider_callback_with_issuer(true, true)]
 #[tokio::test]
 async fn a_client_id_alone_signs_in_as_that_client_with_no_registration(
-    #[case] is_port_fixed: bool,
+    #[case] has_provider_callback: bool,
+    #[case] is_issuer_in_response: bool,
 ) {
     let server = serve_authorization_server(FakeServerAnswers {
         is_registration_refused: true,
+        is_issuer_in_response,
         ..FakeServerAnswers::default()
     })
     .await;
     let harness = harness().await;
-    let fixed_port = if is_port_fixed {
-        Some(free_port().await)
+    let callback = if has_provider_callback {
+        let port = free_port().await;
+        let form = |path: &str| {
+            Url::parse(&format!("http://127.0.0.1:{port}{path}")).expect("a callback address")
+        };
+        Some(McpSignInCallback {
+            with_issuer: form("/callback"),
+            without_issuer: form("/callback/provider-id"),
+        })
     } else {
         None
     };
@@ -269,8 +282,7 @@ async fn a_client_id_alone_signs_in_as_that_client_with_no_registration(
         Some(OwnerIssuedClient {
             client_id: Some(OWNER_CLIENT_ID.to_owned()),
             client_secret: None,
-            callback_url: None,
-            callback_port: fixed_port,
+            callback: callback.clone(),
         }),
         None,
     );
@@ -278,17 +290,23 @@ async fn a_client_id_alone_signs_in_as_that_client_with_no_registration(
     let browser_url = launch_to_browser(&harness, &target).await;
 
     assert_eq!(parameters(&browser_url, "client_id"), [OWNER_CLIENT_ID]);
-    if let Some(port) = fixed_port {
-        assert_eq!(receiver_port(&browser_url), port);
-    }
     let redirect_uri =
         Url::parse(&parameters(&browser_url, "redirect_uri")[0]).expect("the redirect is a URL");
-    let segments: Vec<&str> = redirect_uri
-        .path_segments()
-        .expect("the redirect has a path")
-        .collect();
-    assert_eq!(segments[0], "callback");
-    assert_eq!(segments.len(), 2, "the server's own path carries its id");
+    if let Some(callback) = callback {
+        let sent = if is_issuer_in_response {
+            callback.with_issuer
+        } else {
+            callback.without_issuer
+        };
+        assert_eq!(redirect_uri, sent);
+    } else {
+        let segments: Vec<&str> = redirect_uri
+            .path_segments()
+            .expect("the redirect has a path")
+            .collect();
+        assert_eq!(segments[0], "callback");
+        assert_eq!(segments.len(), 2, "the server's own path carries its id");
+    }
     assert!(is_listening(receiver_port(&browser_url)).await);
 }
 
@@ -307,8 +325,10 @@ async fn a_callback_alone_is_listened_on_and_registered() {
         Some(OwnerIssuedClient {
             client_id: None,
             client_secret: None,
-            callback_url: Some(callback_url.clone()),
-            callback_port: None,
+            callback: Some(McpSignInCallback {
+                with_issuer: callback_url.clone(),
+                without_issuer: callback_url.clone(),
+            }),
         }),
         None,
     );
@@ -376,8 +396,10 @@ async fn a_page_that_is_no_web_address_keeps_no_attempt() {
         Some(OwnerIssuedClient {
             client_id: None,
             client_secret: None,
-            callback_url: Some(callback_url),
-            callback_port: None,
+            callback: Some(McpSignInCallback {
+                with_issuer: callback_url.clone(),
+                without_issuer: callback_url,
+            }),
         }),
         None,
     );

@@ -179,3 +179,16 @@ impl fmt::Debug for McpServerAddressReading {
         })
     }
 }
+
+/// The redirect a provider's own client sends at a sign-in to one server, in the two forms its
+/// rule picks between by whether the authorization server says it returns `iss` (RFC 9207), so
+/// an owner who registered the provider's redirect finds the daemon's identical. A form on a
+/// loopback IP literal with no port is sent with the port of a free loopback listener in it, as
+/// RFC 8252 §7.3 has a server accept.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct McpSignInCallback {
+    /// The redirect sent where the server returns `iss`.
+    pub with_issuer: Url,
+    /// The redirect sent where it does not.
+    pub without_issuer: Url,
+}

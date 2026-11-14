@@ -79,20 +79,22 @@ pub enum RedirectReceiverError {
     Bind(#[source] io::Error),
 }
 
-/// Which path the browser returns to, from what the authorization server advertises.
+/// Which path the daemon's own loopback address takes, from what the authorization server
+/// advertises; an owner's or a provider's callback is always taken whole, as `Shared`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CallbackPath<'a> {
-    /// `/callback`, for a server that advertises `authorization_response_iss_parameter_supported`:
-    /// the `iss` it returns tells its responses apart.
+    /// The callback as given, `/callback` on the daemon's own address, for a server that
+    /// advertises `authorization_response_iss_parameter_supported`: the `iss` it returns tells
+    /// its responses apart.
     Shared,
-    /// `/callback/<id>`, the id derived from the MCP server's keyed digest, so a response
-    /// arriving at one server's path cannot be taken for another's.
+    /// `/callback/<id>` on the daemon's own address, the id derived from the MCP server's keyed
+    /// digest, so a response arriving at one server's path cannot be taken for another's.
     PerServer(&'a str),
 }
 
 impl CallbackPath<'_> {
-    /// The path segment appended for a server-specific callback: the first 16 hex digits of a
-    /// `blake3` hash over the server's digest, the same for every attempt.
+    /// The path segment the daemon appends for its own server-specific callback: the first 16 hex
+    /// digits of a `blake3` hash over the server's digest, the same for every attempt.
     fn segment(self) -> Option<String> {
         match self {
             Self::Shared => None,
@@ -183,7 +185,9 @@ pub struct RedirectListener {
 impl RedirectListener {
     /// Binds the listener. With no owner-issued `callback_url` it takes a free port on
     /// `127.0.0.1`, or on `[::1]` when IPv4 loopback is unusable; an owner-issued address sets the
-    /// host, port and path, a loopback name binding `127.0.0.1`. Fails with `NotHttp` or
+    /// host, port and path, a loopback name binding `127.0.0.1`, and one on `127.0.0.1` that names
+    /// no port takes a free one there, which the redirect then carries (RFC 8252 §7.3). Fails with
+    /// `NotHttp` or
     /// `NotLoopback` for an owner address the receiver must not bind, `UnusablePath` for a path it
     /// cannot route, and `Bind` when the system refuses.
     pub async fn bind(
@@ -210,7 +214,17 @@ impl RedirectListener {
                 let listener = TcpListener::bind(address)
                     .await
                     .map_err(RedirectReceiverError::Bind)?;
-                (listener, callback_url.clone())
+                let mut redirect_url = callback_url.clone();
+                if redirect_url.port().is_none() && address.port() == 0 {
+                    let port = listener
+                        .local_addr()
+                        .map_err(RedirectReceiverError::Bind)?
+                        .port();
+                    redirect_url
+                        .set_port(Some(port))
+                        .expect("an http address takes a port");
+                }
+                (listener, redirect_url)
             }
         };
         if let Some(segment) = path.segment() {
@@ -296,7 +310,7 @@ async fn bind_free_loopback_port() -> io::Result<TcpListener> {
 
 /// The socket an owner-issued callback address binds: its loopback host as the sign-in judges
 /// loopback, a name (`localhost`, a name under it) as `127.0.0.1` and an IPv4 address an IPv6 one
-/// carries as that address, on its port.
+/// carries as that address, on its port, or on port 0, a free one, for `127.0.0.1` with no port.
 fn owner_issued_address(callback_url: &Url) -> Result<SocketAddr, RedirectReceiverError> {
     if callback_url.scheme() != "http" {
         return Err(RedirectReceiverError::NotHttp {
@@ -310,7 +324,14 @@ fn owner_issued_address(callback_url: &Url) -> Result<SocketAddr, RedirectReceiv
         Some(Host::Domain(_)) => Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
         None => None,
     };
-    let (Some(host), Some(port)) = (host, callback_url.port_or_known_default()) else {
+    let is_port_free = callback_url.port().is_none()
+        && callback_url.host() == Some(Host::Ipv4(Ipv4Addr::LOCALHOST));
+    let port = if is_port_free {
+        Some(0)
+    } else {
+        callback_url.port_or_known_default()
+    };
+    let (Some(host), Some(port)) = (host, port) else {
         return Err(RedirectReceiverError::NotLoopback {
             callback_url: callback_url.to_string(),
         });

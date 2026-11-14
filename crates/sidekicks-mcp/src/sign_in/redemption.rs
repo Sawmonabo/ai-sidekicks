@@ -558,8 +558,7 @@ mod tests {
                 Some(OwnerIssuedClient {
                     client_id: Some("owner-client".to_owned()),
                     client_secret: Some(SecretString::from(OWNER_CLIENT_SECRET)),
-                    callback_url: None,
-                    callback_port: None,
+                    callback: None,
                 }),
                 None,
                 None,

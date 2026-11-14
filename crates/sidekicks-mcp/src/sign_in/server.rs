@@ -21,7 +21,7 @@ use sidekicks_platforms::DistributionPath;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::sign_in::{
-    McpServerAddressRead, McpServerAddressReading,
+    McpServerAddressRead, McpServerAddressReading, McpSignInCallback,
 };
 use sidekicks_provider::driver::mcp_server::read::McpServerSignInSettings;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -78,14 +78,15 @@ impl SignInTargetReads {
         }
     }
 
-    /// The target of a sign-in to `binding`, the secret of a client its owner issued read through
-    /// the provider's driver. Refuses `mcp.server.signInUnsupported` for a
-    /// connector, whose sign-in is its account's own, for a server whose declared address does
-    /// not read, for an owner's callback that is no address and for a metadata address that is no
-    /// `https:` address (`unusableMetadata`), and `mcp.server.notFound` when no
-    /// provider declares the binding; answers an inventory or driver failure, a secret that does
-    /// not read among them, as each answers a call, and an accounts, settings or project read that
-    /// fails, or a stored project root that is no path, as a fault.
+    /// The target of a sign-in to `binding`, the callback the provider's own client sends and the
+    /// secret of a client its owner issued read through the provider's driver. Refuses
+    /// `mcp.server.signInUnsupported` for a connector, whose sign-in is its account's own, for a
+    /// server whose declared address does not read, for an owner's callback that is no address
+    /// and for a metadata address that is no `https:` address (`unusableMetadata`), and
+    /// `mcp.server.notFound` when no provider declares the binding; answers an inventory or driver
+    /// failure, a secret or a callback that does not read among them, as each answers a call, and
+    /// an accounts, settings or project read that fails, or a stored project root that is no
+    /// path, as a fault.
     pub(crate) async fn read(
         &self,
         binding: &McpServerBindingRef,
@@ -174,7 +175,20 @@ impl SignInTargetReads {
                 let asks_offline_access_where_listed = settings
                     .as_ref()
                     .is_some_and(|settings| settings.asks_offline_access_where_listed);
-                let mut owner_client = match owner_client_of(settings) {
+                let address_read = McpServerAddressRead {
+                    binding: binding.clone(),
+                    provider_account_id: provider_accounts.get(provider).cloned(),
+                    root_folder: root_folder.clone(),
+                    every_project_rows: every_project_rows.clone(),
+                    project_rows: project_rows.clone(),
+                };
+                let provider_callback =
+                    match driver.read_mcp_sign_in_callback(address_read.clone()).await {
+                        Ok(callback) => callback,
+                        Err(DriverError::NoPersonServerEntry(_)) => return Err(not_found()),
+                        Err(error) => return Err(HandlerError::from(error)),
+                    };
+                let mut owner_client = match owner_client_of(settings, provider_callback) {
                     Ok(owner_client) => owner_client,
                     Err(OwnerCallbackUnparsed) => {
                         return Err(unsupported(SignInUnsupportedReason::OwnerCallbackUnserved));
@@ -185,20 +199,12 @@ impl SignInTargetReads {
                     .as_mut()
                     .filter(|owner| owner.client_id.is_some())
                 {
-                    owner.client_secret = match driver
-                        .read_mcp_owner_client_secret(McpServerAddressRead {
-                            binding: binding.clone(),
-                            provider_account_id: provider_accounts.get(provider).cloned(),
-                            root_folder: root_folder.clone(),
-                            every_project_rows: every_project_rows.clone(),
-                            project_rows: project_rows.clone(),
-                        })
-                        .await
-                    {
-                        Ok(secret) => secret,
-                        Err(DriverError::NoPersonServerEntry(_)) => return Err(not_found()),
-                        Err(error) => return Err(HandlerError::from(error)),
-                    };
+                    owner.client_secret =
+                        match driver.read_mcp_owner_client_secret(address_read).await {
+                            Ok(secret) => secret,
+                            Err(DriverError::NoPersonServerEntry(_)) => return Err(not_found()),
+                            Err(error) => return Err(HandlerError::from(error)),
+                        };
                 }
                 (
                     SignInServer::Address(Box::new(AddressedServer::new(
@@ -525,32 +531,35 @@ impl EnvironmentRowReads {
 /// An owner's callback that does not parse as an address.
 struct OwnerCallbackUnparsed;
 
-// The owner's client, built from whichever of its id and its callback the entry gives; an entry
-// that gives neither builds none, and a callback that does not parse is refused.
+// The owner's client, built from whichever of its id and its callback the entry gives: the
+// callback the provider's own client sends where its driver read one, else the entry's whole one
+// in both forms. An entry that gives neither builds none, and a callback that does not parse is
+// refused.
 fn owner_client_of(
     sign_in_settings: Option<McpServerSignInSettings>,
+    provider_callback: Option<McpSignInCallback>,
 ) -> Result<Option<OwnerIssuedClient>, OwnerCallbackUnparsed> {
-    let Some(McpServerSignInSettings {
-        client_id,
-        callback_url,
-        callback_port,
-        ..
-    }) = sign_in_settings
-    else {
-        return Ok(None);
+    let (client_id, callback_url) = sign_in_settings
+        .map(|settings| (settings.client_id, settings.callback_url))
+        .unwrap_or_default();
+    let callback = match provider_callback {
+        Some(callback) => Some(callback),
+        None => callback_url
+            .map(|callback_url| Url::parse(&callback_url))
+            .transpose()
+            .map_err(|_error| OwnerCallbackUnparsed)?
+            .map(|callback_url| McpSignInCallback {
+                with_issuer: callback_url.clone(),
+                without_issuer: callback_url,
+            }),
     };
-    let callback_url = callback_url
-        .map(|callback_url| Url::parse(&callback_url))
-        .transpose()
-        .map_err(|_error| OwnerCallbackUnparsed)?;
-    if client_id.is_none() && callback_url.is_none() && callback_port.is_none() {
+    if client_id.is_none() && callback.is_none() {
         return Ok(None);
     }
     Ok(Some(OwnerIssuedClient {
         client_id,
         client_secret: None,
-        callback_url,
-        callback_port,
+        callback,
     }))
 }
 

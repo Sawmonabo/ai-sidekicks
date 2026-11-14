@@ -6,8 +6,10 @@
 //! saved sign-in is read back from the folder's file; the service is stopped and the folder
 //! removed whatever the outcome, a dropped sign-in's included. The person's own Codex home is only
 //! read, for the entry, through Codex's config read; no sign-in of theirs is read or written. The
-//! same entry read answers the whole address the entry declares.
+//! same entry read answers the whole address the entry declares and the redirect Codex's own
+//! client sends for it.
 
+mod callback;
 mod login_failure;
 
 use std::collections::{BTreeMap, HashMap};
@@ -28,6 +30,7 @@ use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::oneshot;
 use url::Url;
 
+use self::callback::{CodexCallbackSettings, resolve_codex_sign_in_callback};
 use self::login_failure::read_codex_login_failure;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::McpServerOauthLoginParams;
@@ -42,8 +45,9 @@ use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::codex::transport::login_notices::{LoginNotice, LoginNotices};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
-    BEARER_TOKEN_TYPE, McpServerAddressRead, McpServerAddressReading, NoPersonServerEntry,
-    ProviderSignInFailure, ProviderSignInTakeover, ProviderSignInTakeoverRequest,
+    BEARER_TOKEN_TYPE, McpServerAddressRead, McpServerAddressReading, McpSignInCallback,
+    NoPersonServerEntry, ProviderSignInFailure, ProviderSignInTakeover,
+    ProviderSignInTakeoverRequest,
 };
 use crate::driver::error_causes::provider_failure_refusal;
 use crate::driver::mcp_server::address::names_server_at;
@@ -148,7 +152,8 @@ impl From<CodexSignInError> for DriverError {
 
 /// Signs in to `request`'s server through Codex's own client on a throwaway service of
 /// `registry`'s, the server's entry read from the person's config at the binding's root, else at
-/// `home_folder`, or from the plugin that carries it; `request`'s environment rows are not read,
+/// `home_folder`, or from the plugin that carries it, beside the global callback settings that
+/// config sets; `request`'s environment rows are not read,
 /// since Codex fills no variable in an entry's address. Fails with
 /// [`DriverError::NoPersonServerEntry`] for a connector or a binding whose entry is gone or
 /// declares another address, as the entry's read, the service's start or a request fails, and
@@ -160,7 +165,8 @@ pub(crate) async fn sign_in_with_codex_client(
     request: ProviderSignInTakeoverRequest,
 ) -> Result<ProviderSignInTakeover, DriverError> {
     let name = request.binding.server_name().clone();
-    let entry = CodexServerEntryReader::new(registry, home_folder)
+    let mut entries = CodexServerEntryReader::new(registry, home_folder);
+    let entry = entries
         .read(&request.binding, request.root_folder.as_deref())
         .await?
         .filter(|entry| {
@@ -177,7 +183,10 @@ pub(crate) async fn sign_in_with_codex_client(
     // Codex keeps no client secret in its saved sign-in, so the one its entry configures is kept.
     let configured_client_secret =
         read_owner_client_secret(&entry).map(|secret| secret.expose_secret().to_owned());
-    let settings = compose_sign_in_settings(&name, entry)
+    let callback_settings = entries
+        .read_callback_settings(request.root_folder.as_deref())
+        .await?;
+    let settings = compose_sign_in_settings(&name, entry, callback_settings)
         .map_err(|error| CodexSignInError::FolderUnmade(Box::new(error)))?;
     let folder = SignInFolder::make(
         &registry.mcp_sign_in_folder(),
@@ -269,13 +278,38 @@ pub(crate) async fn read_codex_owner_client_secret(
     Ok(read_owner_client_secret(&entry))
 }
 
+/// The redirect Codex's own client sends at a sign-in to `request`'s server, from the entry its
+/// config or the plugin's file declares and the global callback settings its config at the
+/// binding's root, else at `home_folder`, sets; `None` where Codex listens on a free port at a
+/// path it registers itself. Fails with [`DriverError::NoPersonServerEntry`] for a connector and
+/// an entry that is gone, and as a config read fails.
+pub(crate) async fn read_codex_sign_in_callback(
+    registry: &CodexServiceRegistry,
+    home_folder: &Path,
+    request: McpServerAddressRead,
+) -> Result<Option<McpSignInCallback>, DriverError> {
+    let mut entries = CodexServerEntryReader::new(registry, home_folder);
+    let entry = entries
+        .read(&request.binding, request.root_folder.as_deref())
+        .await?
+        .ok_or_else(|| {
+            DriverError::from(NoPersonServerEntry {
+                binding: request.binding.clone(),
+            })
+        })?;
+    let settings = entries
+        .read_callback_settings(request.root_folder.as_deref())
+        .await?;
+    Ok(resolve_codex_sign_in_callback(&entry, settings))
+}
+
 // Reads server entries for one sign-in or one batch of address reads, Codex's config read once at
 // each root and the plugins' files once, however many entries they hold.
 struct CodexServerEntryReader<'sources> {
     registry: &'sources CodexServiceRegistry,
     home_folder: &'sources Path,
-    // Each root's merged `mcp_servers`, by the root it was read at.
-    configs: HashMap<PathBuf, Option<Map<String, Value>>>,
+    // Each root's merged config as a sign-in reads it, by the root it was read at.
+    configs: HashMap<PathBuf, CodexSignInConfig>,
     plugins: Option<Vec<CodexPluginServer>>,
 }
 
@@ -325,19 +359,14 @@ impl<'sources> CodexServerEntryReader<'sources> {
             McpServerBindingRef::User { .. }
             | McpServerBindingRef::Project { .. }
             | McpServerBindingRef::Local { .. }
-            | McpServerBindingRef::Managed { .. } => {
-                let cwd = root_folder.unwrap_or(self.home_folder);
-                if !self.configs.contains_key(cwd) {
-                    let servers = self.read_person_servers(cwd).await?;
-                    self.configs.insert(cwd.to_path_buf(), servers);
-                }
-                self.configs
-                    .get(cwd)
-                    .and_then(Option::as_ref)
-                    .and_then(|servers| servers.get(name.as_str()))
-                    .and_then(Value::as_object)
-                    .cloned()
-            }
+            | McpServerBindingRef::Managed { .. } => self
+                .read_config(root_folder)
+                .await?
+                .servers
+                .as_ref()
+                .and_then(|servers| servers.get(name.as_str()))
+                .and_then(Value::as_object)
+                .cloned(),
         };
         Ok(entry.map(|mut entry| {
             entry.remove(ENTRY_SWITCH_MEMBER);
@@ -345,33 +374,62 @@ impl<'sources> CodexServerEntryReader<'sources> {
         }))
     }
 
-    // The person's own servers, as Codex's config read at `cwd` merges them; `None` where it
-    // declares none.
-    async fn read_person_servers(
-        &self,
-        cwd: &Path,
-    ) -> Result<Option<Map<String, Value>>, DriverError> {
-        let read = self
-            .registry
-            .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
-                let connection = service.connection()?;
-                read_codex_config::<Map<String, Value>>(&connection, Some(cwd), false).await
-            })
-            .await?;
-        Ok(read
-            .config
-            .get(MCP_SERVERS_KEY)
-            .and_then(Value::as_object)
-            .cloned())
+    // The global callback settings Codex's config read at `root_folder`, else at the home folder,
+    // sets, which a plugin's server takes as every other server does.
+    async fn read_callback_settings(
+        &mut self,
+        root_folder: Option<&Path>,
+    ) -> Result<&CodexCallbackSettings, DriverError> {
+        Ok(&self.read_config(root_folder).await?.callback_settings)
+    }
+
+    // The person's config as Codex's read at `root_folder`, else at the home folder, merges it,
+    // read once per folder.
+    async fn read_config(
+        &mut self,
+        root_folder: Option<&Path>,
+    ) -> Result<&CodexSignInConfig, DriverError> {
+        let cwd = root_folder.unwrap_or(self.home_folder).to_path_buf();
+        if !self.configs.contains_key(&cwd) {
+            let folder = cwd.as_path();
+            let read = self
+                .registry
+                .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
+                    let connection = service.connection()?;
+                    read_codex_config::<Map<String, Value>>(&connection, Some(folder), false).await
+                })
+                .await?;
+            let config = CodexSignInConfig {
+                servers: read
+                    .config
+                    .get(MCP_SERVERS_KEY)
+                    .and_then(Value::as_object)
+                    .cloned(),
+                callback_settings: CodexCallbackSettings::read(&read.config),
+            };
+            self.configs.insert(cwd.clone(), config);
+        }
+        Ok(self
+            .configs
+            .get(&cwd)
+            .expect("the folder's config was read just above"))
     }
 }
 
-/// The settings of a sign-in's own Codex home: sign-ins kept in a file, and `entry` as the one
-/// server `name`, its `null` members dropped since TOML has none. Fails when the entry holds a
-/// value TOML cannot write.
+// What a sign-in reads of the person's merged config at one folder: the servers it declares,
+// `None` where it declares none, and the global callback settings.
+struct CodexSignInConfig {
+    servers: Option<Map<String, Value>>,
+    callback_settings: CodexCallbackSettings,
+}
+
+/// The settings of a sign-in's own Codex home: sign-ins kept in a file, the person's global
+/// `callback_settings`, and `entry` as the one server `name`, its `null` members dropped since
+/// TOML has none. Fails when the entry holds a value TOML cannot write.
 fn compose_sign_in_settings(
     name: &McpServerName,
     entry: Map<String, Value>,
+    callback_settings: &CodexCallbackSettings,
 ) -> Result<String, toml::ser::Error> {
     let entry = drop_nulls(Value::Object(entry));
     let mut servers = toml::Table::new();
@@ -379,6 +437,7 @@ fn compose_sign_in_settings(
     let mut settings = toml::Table::new();
     let (store_setting, store_value) = CREDENTIALS_STORE_SETTING;
     settings.insert(store_setting.to_owned(), toml::Value::from(store_value));
+    callback_settings.write_into(&mut settings);
     settings.insert(MCP_SERVERS_KEY.to_owned(), toml::Value::Table(servers));
     toml::to_string(&settings)
 }
