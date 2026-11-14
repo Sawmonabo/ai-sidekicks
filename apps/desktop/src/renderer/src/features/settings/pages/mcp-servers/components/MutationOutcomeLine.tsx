@@ -6,6 +6,7 @@ import type { SessionListEntry } from "@ai-sidekicks/contracts/session/directory
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import {
   listedSessionOf,
@@ -17,7 +18,6 @@ import { settleLineFor } from "../change-settle-words.js";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
 import { SIGN_IN_UNFINISHED_WORDS, type McpMutationOutcome } from "../mutation.js";
 import { SessionName, sessionNameWords } from "./SessionName.js";
-import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 
 /**
  * What the last change to one control did, in place: `Sending…` while it is on its way, once past

@@ -106,6 +106,8 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
           <button
             type="button"
             className="meridian-settings-page__action meridian-action-button"
+            // A check in flight is not asked for twice.
+            disabled={status === "checking"}
             onClick={() => {
               press(() => updater.requestCheck(), UPDATER_UNREACHABLE_DETAIL.check);
             }}

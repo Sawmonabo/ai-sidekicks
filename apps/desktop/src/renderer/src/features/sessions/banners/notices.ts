@@ -56,12 +56,12 @@ export type SessionNoticeBanner =
     };
 
 /**
- * Where a settings file the session's provider ignored is named from: inside the session's folder
- * by its path there, inside the home folder from `~`, anywhere else whole. A place whose read was
- * refused is absent, so a file in it reads whole.
+ * Where a settings file the session's provider ignored is named from: inside one of the session's
+ * folders by its path there, inside the home folder from `~`, anywhere else whole. A place whose
+ * read was refused is absent, so a file in it reads whole.
  */
 export interface SettingsFilePlaces {
-  readonly sessionFolder?: string;
+  readonly sessionFolders: readonly string[];
   readonly homeFolder?: string;
 }
 
@@ -76,36 +76,34 @@ export function foldSessionNoticeBanners(
 ): readonly SessionNoticeBanner[] {
   const restartedAtByProvider = new Map<string, number>();
   let newestMountHealthSequence = -1;
+  // Each payload is read once: the first pass keeps what it raised beside the event's place.
+  const raised: { readonly banner: SessionNoticeBanner; readonly sequence: number }[] = [];
   for (const event of standingEvents) {
+    let banner: SessionNoticeBanner | undefined;
     if (event.kind === MOUNT_HEALTH_EVENT_KIND) {
       newestMountHealthSequence = Math.max(newestMountHealthSequence, event.sequence);
-    }
-    const notice =
-      event.kind === SESSION_NOTICE_EVENT_KIND
-        ? readSessionNoticePostedPayload(event.payload)
-        : undefined;
-    if (notice?.kind === "providerRestarted") {
-      restartedAtByProvider.set(
-        notice.provider,
-        Math.max(restartedAtByProvider.get(notice.provider) ?? -1, event.sequence),
-      );
-    }
-  }
-  const banners: SessionNoticeBanner[] = [];
-  for (const event of standingEvents) {
-    const banner = readNoticeBanner(event);
-    if (
-      (banner?.kind === "crashLoop" &&
-        (restartedAtByProvider.get(banner.provider) ?? -1) > event.sequence) ||
-      (banner?.kind === "folderLost" && event.sequence < newestMountHealthSequence)
-    ) {
-      continue;
+      banner = readFolderLostBanner(event);
+    } else if (event.kind === SESSION_NOTICE_EVENT_KIND) {
+      const notice = readSessionNoticePostedPayload(event.payload);
+      if (notice?.kind === "providerRestarted") {
+        restartedAtByProvider.set(
+          notice.provider,
+          Math.max(restartedAtByProvider.get(notice.provider) ?? -1, event.sequence),
+        );
+      }
+      banner = notice === undefined ? undefined : noticeBannerOf(event, notice);
     }
     if (banner !== undefined) {
-      banners.push(banner);
+      raised.push({ banner, sequence: event.sequence });
     }
   }
-  return banners;
+  return raised.flatMap(({ banner, sequence }) =>
+    (banner.kind === "crashLoop" &&
+      (restartedAtByProvider.get(banner.provider) ?? -1) > sequence) ||
+    (banner.kind === "folderLost" && sequence < newestMountHealthSequence)
+      ? []
+      : [banner],
+  );
 }
 
 /**
@@ -139,28 +137,28 @@ export function refusedLine(refusal: ExtendedRefusal): string {
   return refusalSentence(refusal.code, refusal.reason, formatWireString(refusal.detail));
 }
 
-function readNoticeBanner(event: ProjectedSessionEvent): SessionNoticeBanner | undefined {
-  if (event.kind === MOUNT_HEALTH_EVENT_KIND) {
-    const changed = readRepoMountHealthChangedPayload(event.payload);
-    if (changed === undefined) {
-      return undefined;
-    }
-    const { health } = changed;
-    return health.status === "healthy"
-      ? undefined
-      : {
-          kind: "folderLost",
-          eventId: event.id,
-          repoMountId: changed.repoMountId,
-          health: health.status,
-          isRepository: health.status === "identityMismatch" && health.isRepository,
-        };
+function readFolderLostBanner(event: ProjectedSessionEvent): SessionNoticeBanner | undefined {
+  const changed = readRepoMountHealthChangedPayload(event.payload);
+  if (changed === undefined) {
+    return undefined;
   }
-  const notice =
-    event.kind === SESSION_NOTICE_EVENT_KIND
-      ? readSessionNoticePostedPayload(event.payload)
-      : undefined;
-  switch (notice?.kind) {
+  const { health } = changed;
+  return health.status === "healthy"
+    ? undefined
+    : {
+        kind: "folderLost",
+        eventId: event.id,
+        repoMountId: changed.repoMountId,
+        health: health.status,
+        isRepository: health.status === "identityMismatch" && health.isRepository,
+      };
+}
+
+function noticeBannerOf(
+  event: ProjectedSessionEvent,
+  notice: SessionNoticePostedPayload,
+): SessionNoticeBanner | undefined {
+  switch (notice.kind) {
     case "providerCrashLoop": {
       const cause = readCrashLoopCause(notice);
       return cause === undefined
@@ -247,11 +245,14 @@ function settingsIgnoredWords(
   return [`${providerName} ignored its settings`, ...(named === undefined ? [] : [named])];
 }
 
-// A settings file's path from the session's folder, else from `~` for the home folder, else whole.
+// A settings file's path from the session folder holding it, else from `~` for the home folder,
+// else whole.
 function shownSettingsPath(file: string, places: SettingsFilePlaces): string {
-  const inSession = pathInside(file, places.sessionFolder);
-  if (inSession !== undefined) {
-    return inSession.rest;
+  for (const sessionFolder of places.sessionFolders) {
+    const inSession = pathInside(file, sessionFolder);
+    if (inSession !== undefined) {
+      return inSession.rest;
+    }
   }
   const inHome = pathInside(file, places.homeFolder);
   return inHome === undefined ? file : `~${inHome.separator}${inHome.rest}`;

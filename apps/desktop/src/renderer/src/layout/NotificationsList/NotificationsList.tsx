@@ -28,8 +28,9 @@ export interface NotificationsListProps {
  */
 export function NotificationsList(props: NotificationsListProps): React.JSX.Element {
   const { reading } = props;
+  const clock = useClock();
   const nowMilliseconds = useAgesNow(
-    useClock(),
+    clock,
     reading.phase === "read" ? reading.summary.liveItems.map((item) => item.createdAt) : [],
   );
   return (
@@ -39,6 +40,7 @@ export function NotificationsList(props: NotificationsListProps): React.JSX.Elem
       </header>
       <NotificationsListBody
         reading={reading}
+        clock={clock}
         nowMilliseconds={nowMilliseconds}
         onOpen={props.onOpen}
       />

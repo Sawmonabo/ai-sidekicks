@@ -7,7 +7,11 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { type PaneAddressOf } from "#renderer/routing/panes/address.js";
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
-import { callDaemon, type DaemonReply } from "#renderer/services/daemon/reply.js";
+import {
+  callDaemon,
+  type DaemonCallOptions,
+  type DaemonReply,
+} from "#renderer/services/daemon/reply.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 
 /** The checkout the inspector opens on. */
@@ -21,11 +25,11 @@ export async function readSessionWorkspace(
   bridge: PlatformBridge,
   sessionId: string,
 ): Promise<DaemonReply<InspectedCheckout | undefined>> {
-  const reply = await readWorkspaceEntry(bridge, sessionId);
+  const reply = await readWorkspaceEntries(bridge, sessionId);
   if (reply.status === "refused") {
     return reply;
   }
-  const workspace = reply.value;
+  const workspace = pickWorkspace(reply.value);
   return {
     status: "served",
     value: workspace === undefined ? undefined : { kind: "workspace", id: workspace.id },
@@ -33,33 +37,44 @@ export async function readSessionWorkspace(
 }
 
 /**
- * Reads the folder the session's workspace works in, picked as {@link readSessionWorkspace} picks
- * it; `undefined` when the session is bound to none or its folder is not made yet. Resolves
- * `served` or `refused` and never rejects.
+ * Reads the folders the session's workspaces work in: every ready one's, else the one
+ * {@link readSessionWorkspace} picks; empty when the session is bound to none or no folder is made
+ * yet. Resolves `served` or `refused` and never rejects; `signal` abandons the read.
  */
-export async function readSessionFolder(
+export async function readSessionFolders(
   bridge: PlatformBridge,
   sessionId: string,
-): Promise<DaemonReply<string | undefined>> {
-  const reply = await readWorkspaceEntry(bridge, sessionId);
-  return reply.status === "refused" ? reply : { status: "served", value: reply.value?.fsRoot };
-}
-
-async function readWorkspaceEntry(
-  bridge: PlatformBridge,
-  sessionId: string,
-): Promise<DaemonReply<WorkspaceListEntry | undefined>> {
-  const reply = await callDaemon(bridge, "workspace.list", {
-    sessionId: heldIdAsWireId<SessionId>(sessionId),
-  });
+  signal: AbortSignal,
+): Promise<DaemonReply<readonly string[]>> {
+  const reply = await readWorkspaceEntries(bridge, sessionId, { signal });
   if (reply.status === "refused") {
     return reply;
   }
-  const { workspaces } = reply.value;
-  return {
-    status: "served",
-    value:
-      workspaces.find((candidate) => candidate.state === "ready") ??
-      workspaces.find((candidate) => candidate.state !== "archived"),
-  };
+  const ready = reply.value.filter((candidate) => candidate.state === "ready");
+  const picked = pickWorkspace(reply.value);
+  const folders = (ready.length > 0 ? ready : picked === undefined ? [] : [picked]).flatMap(
+    (workspace) => (workspace.fsRoot === undefined ? [] : [workspace.fsRoot]),
+  );
+  return { status: "served", value: folders };
+}
+
+async function readWorkspaceEntries(
+  bridge: PlatformBridge,
+  sessionId: string,
+  options: DaemonCallOptions = {},
+): Promise<DaemonReply<readonly WorkspaceListEntry[]>> {
+  const reply = await callDaemon(
+    bridge,
+    "workspace.list",
+    { sessionId: heldIdAsWireId<SessionId>(sessionId) },
+    options,
+  );
+  return reply.status === "refused" ? reply : { status: "served", value: reply.value.workspaces };
+}
+
+function pickWorkspace(workspaces: readonly WorkspaceListEntry[]): WorkspaceListEntry | undefined {
+  return (
+    workspaces.find((candidate) => candidate.state === "ready") ??
+    workspaces.find((candidate) => candidate.state !== "archived")
+  );
 }

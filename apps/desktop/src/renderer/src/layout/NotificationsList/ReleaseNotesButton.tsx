@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 
@@ -19,9 +20,13 @@ export function ReleaseNotesButton(props: { readonly address: string }): React.J
         onClick={() => {
           setRefusal(undefined);
           // The rejection's own message crosses IPC with the channel's name in it, so it goes to
-          // the console for diagnosis and the screen shows the refusal instead.
+          // the window's diagnostics and the screen shows the refusal instead.
           bridge.native.openExternal(props.address).catch((failure: unknown) => {
-            console.error("[ai-sidekicks/desktop] the release notes did not open:", failure);
+            recordRejectedRequest(
+              RELEASE_NOTES_UNOPENED.origin,
+              RELEASE_NOTES_UNOPENED.code,
+              failure,
+            );
             setRefusal(RELEASE_NOTES_UNOPENED);
           });
         }}

@@ -4,6 +4,7 @@
 
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { unreadableDeliveryReading, type ReadingState } from "#renderer/lib/partial-read.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 
@@ -26,12 +27,18 @@ export interface AttentionSessionGroup {
 /**
  * What one projection read produced, as a value a view narrows on.
  *
- * Two phases: a read in flight and a read that answered. A failed read is not a phase; its
- * rejection reaches whoever performs the read. The `read` arm carries its coverage, because a
- * read that answered is not the same as one that answered for everything it asked about.
+ * Three phases: a read in flight, a read that failed, which can be asked again, and a read that
+ * answered. The `read` arm carries its coverage, because a read that answered is not the same as
+ * one that answered for everything it asked about.
  */
 export type AttentionReading =
   | { readonly phase: "reading" }
+  | {
+      readonly phase: "failed";
+      readonly refusal: ExtendedRefusal;
+      /** Asks for the projection again, on the person's press. */
+      readonly readAgain: () => void;
+    }
   | {
       readonly phase: "read";
       readonly summary: AttentionSummary;
@@ -145,7 +152,7 @@ export const ATTENTION_SUBJECT = "notifications";
  * `lib/partial-read.ts` alone, so the panel and the spoken settlement say the same thing.
  * `refusedSessions` is not folded in, because how many sessions never answered is the whole of
  * what it tells a person and a `beside-an-answer` refusal carries no figure; it stays the
- * attention read's own sentence. The still-reading phase maps to nothing.
+ * attention read's own sentence. The still-reading and failed phases map to nothing.
  */
 export function answeredReadingStates(reading: AnsweredAttentionReading): readonly ReadingState[] {
   return [unreadableDeliveryReading(reading.droppedCount, undefined)];

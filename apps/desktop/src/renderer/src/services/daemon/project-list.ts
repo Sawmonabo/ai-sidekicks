@@ -1,15 +1,23 @@
 // The service's projects, read off `project.subscribe`: the whole list when the stream opens and
-// again on each change. Every delivery is checked here with the contract's generated check; one
-// that does not match, or a re-open the daemon refuses, is handed on as the list being lost, the
-// cause going to the window's diagnostic capture. A stream that ends is opened again and restates
-// the list.
+// again on each change. Every delivery is checked here with the contract's generated check. A list
+// holding a project that does not match is handed on without it, each refused project's fault
+// going to the window's diagnostic capture; a delivery that is no list at all, or a re-open the
+// daemon refuses, is handed on as the list being lost. A stream that ends is opened again and
+// restates the list.
 
-import { validateProjectList } from "@ai-sidekicks/contracts/project";
+import {
+  validateProjectList,
+  validateProjectListEntry,
+  type ProjectListEntry,
+} from "@ai-sidekicks/contracts/project";
 
 import { PROJECT_LIST_STREAM } from "#shared/daemon/streams.js";
 import { checkFaultPaths } from "#shared/daemon/fault-path.js";
-import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
-import type { ProjectListFeed } from "#renderer/store/projects/list.js";
+import {
+  recordRefusedMemberPaths,
+  type RefusedMemberIssues,
+} from "#renderer/lib/diagnostic-capture/refused-member-record.js";
+import type { ProjectListFeed, ProjectListFrame } from "#renderer/store/projects/list.js";
 import type { PlatformBridge } from "../platform/bridge.js";
 import { openReopeningSubscription } from "../transport/reopening-subscription.js";
 
@@ -48,17 +56,7 @@ function projectListFeedOver(bridge: PlatformBridge): ProjectListFeed {
       open: (deliver, onEnded) =>
         bridge.daemon.subscribe(PROJECT_LIST_STREAM, {}, deliver, onEnded),
       onFrame: (payload) => {
-        if (validateProjectList(payload)) {
-          onFrame({ kind: "list", projects: payload.projects });
-          return;
-        }
-        recordRefusedMemberPaths({
-          source: "services/daemon",
-          kind: "notice-unreadable",
-          subject: PROJECT_LIST_STREAM,
-          issues: checkFaultPaths(validateProjectList, payload),
-        });
-        onFrame({ kind: "lost" });
+        onFrame(readProjectListFrame(payload));
       },
       onReopenRefusal: (refusal) => {
         if (refusal !== undefined) {
@@ -66,4 +64,41 @@ function projectListFeedOver(bridge: PlatformBridge): ProjectListFeed {
         }
       },
     });
+}
+
+// One delivery as a frame: the list less each project that does not match, or the list lost where
+// the delivery is no list of projects even with its projects set aside.
+function readProjectListFrame(payload: unknown): ProjectListFrame {
+  if (validateProjectList(payload)) {
+    return { kind: "list", projects: payload.projects };
+  }
+  // Set aside, the projects leave the rest of the delivery to be checked on its own.
+  const rows: unknown =
+    payload !== null && typeof payload === "object" ? Reflect.get(payload, "projects") : undefined;
+  if (!Array.isArray(rows) || !validateProjectList({ ...(payload as object), projects: [] })) {
+    recordUnreadable(checkFaultPaths(validateProjectList, payload));
+    return { kind: "lost" };
+  }
+  const projects: ProjectListEntry[] = [];
+  rows.forEach((row: unknown, index) => {
+    if (validateProjectListEntry(row)) {
+      projects.push(row);
+      return;
+    }
+    recordUnreadable(
+      checkFaultPaths(validateProjectListEntry, row).map((fault) => ({
+        path: ["projects", index, ...fault.path],
+      })),
+    );
+  });
+  return { kind: "list", projects };
+}
+
+function recordUnreadable(issues: RefusedMemberIssues): void {
+  recordRefusedMemberPaths({
+    source: "services/daemon",
+    kind: "notice-unreadable",
+    subject: PROJECT_LIST_STREAM,
+    issues,
+  });
 }

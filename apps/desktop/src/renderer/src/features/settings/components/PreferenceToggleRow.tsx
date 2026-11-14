@@ -47,7 +47,11 @@ export function PreferenceToggleRow(props: PreferenceToggleRowProps): React.JSX.
           )}
         </span>
         {lines.map((line, index) => (
-          <p className="meridian-settings-row__description" id={lineIds[index]} key={line}>
+          <p
+            className="meridian-settings-row__description"
+            id={lineIds[index]}
+            key={lineIds[index]}
+          >
             {line}
           </p>
         ))}

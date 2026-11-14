@@ -46,15 +46,7 @@ export function AgentsPane(props: AgentsPaneProps): React.JSX.Element {
       <div className="meridian-agents__columns">
         {models === undefined || props.bridge === undefined ? (
           <BindingColumnFrame>
-            <Nothing
-              kind="not-checked"
-              placement="block"
-              title="This app was not handed a session to read sidekicks from."
-              detail={
-                "The sidekick list and the binding are scoped to one session, so " +
-                "nothing was asked of the background service."
-              }
-            />
+            <Nothing kind="not-checked" placement="block" title="No session" />
           </BindingColumnFrame>
         ) : (
           <SessionAgentsColumns models={models} bridge={props.bridge} agentId={props.agentId} />

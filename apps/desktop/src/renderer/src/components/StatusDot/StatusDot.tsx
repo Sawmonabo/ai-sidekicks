@@ -1,5 +1,5 @@
-// A status dot: one of a session's five states as a still mark sized from its line's text, with
-// its state named in a word on hover.
+// A status dot: one of a session's five states as a mark sized from its line's text, with its
+// state named in a word on hover. A running or waiting dot steps through an opacity ramp.
 
 import "./StatusDot.css";
 

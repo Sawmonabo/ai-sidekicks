@@ -4,6 +4,7 @@ import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WirePercentFigure } from "#renderer/components/WireFigure/WirePercentFigure.js";
+import { useRelativeTimesNow } from "#renderer/hooks/useRelativeTimesNow.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { UpdateReading } from "#renderer/store/update/reading.js";
@@ -38,6 +39,15 @@ export function UpdateReadOut(props: {
   // Generated, since two windows can render this block and a fixed id would tie one window's
   // label to the other's bar.
   const progressId = useId();
+  const lastCheckedAt =
+    reading.kind === "state" && reading.state.status === "idle"
+      ? reading.state.lastCheckedAt
+      : undefined;
+  // Drawn again only when the age would read differently, on the window's clock.
+  const nowMilliseconds = useRelativeTimesNow(
+    clock,
+    lastCheckedAt === undefined ? [] : [lastCheckedAt],
+  );
   if (reading.kind === "not-read") {
     return <LoadingNotice clock={clock} placement="inline" title="Loading update status…" />;
   }
@@ -89,11 +99,11 @@ export function UpdateReadOut(props: {
       <p className="meridian-settings-page__state" aria-busy={isBusy ? true : undefined}>
         {line}
       </p>
-      {state.status === "idle" && state.lastCheckedAt !== undefined ? (
+      {lastCheckedAt === undefined ? null : (
         <p className="meridian-settings-page__aside">
-          <FigureSentence parts={lastCheckedLine(state.lastCheckedAt, clockLocale)} />
+          <FigureSentence parts={lastCheckedLine(lastCheckedAt, nowMilliseconds, clockLocale)} />
         </p>
-      ) : null}
+      )}
       {path}
     </>
   );

@@ -1,4 +1,4 @@
-/* A status dot, sized from its line's own text and never animated. */
+/* A status dot, sized from its line's own text; running and waiting dots step through a ramp. */
 
 .meridian-status-dot {
   flex: none;
@@ -26,4 +26,21 @@
 
 .meridian-status-dot--idle {
   background: var(--meridian-text-faint);
+}
+
+/* Eight opacity steps out and eight back, never a smooth pulse; reduced motion stills it. */
+.meridian-status-dot--running,
+.meridian-status-dot--waiting {
+  animation: meridian-status-dot-ramp var(--meridian-motion-breath) steps(8, jump-none) infinite
+    alternate;
+}
+
+@keyframes meridian-status-dot-ramp {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0.35;
+  }
 }

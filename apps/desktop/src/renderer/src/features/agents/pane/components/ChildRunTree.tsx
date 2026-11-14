@@ -1,8 +1,8 @@
 // The Agents pane's list of what the session dispatched: one tree of every child run and provider
 // helper in the order the work happened, each row naming its agent, model, effort and the agent
-// asked for a peer call, with its tokens and spend in the foot. A finished row dims where it stands.
-// The tree is one read of the daemon's child-run links, held by the session's models for as long
-// as this list is mounted and asked again on every run, helper or refused-create event.
+// asked for a peer call, with its tokens and spend in the foot. A finished row dims where it
+// stands. The tree is one read of the daemon's child-run links, held by the session's models for
+// as long as this list is mounted and asked again on every run, helper or refused-create event.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 

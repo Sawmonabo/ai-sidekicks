@@ -61,25 +61,10 @@ function renderMounts(props: MountListProps): React.JSX.Element {
       <Nothing
         kind="empty"
         placement="block"
-        title="No repository is attached to this session."
-        detail={
-          "Attaching is deliberate — nothing is attached automatically. " +
-          "Once a repository is attached, this section names each mount's " +
-          "resolved root and whether it is still the repository it was " +
-          "attached as."
-        }
+        title="No repository attached"
+        detail="Nothing is attached automatically"
       />
     );
   }
-  return (
-    <Nothing
-      kind="not-checked"
-      placement="block"
-      title="Repo mounts have not been read."
-      detail={
-        "This section will name each mount's resolved root and whether " +
-        "it is still the repository it was attached as."
-      }
-    />
-  );
+  return <Nothing kind="not-checked" placement="block" title="Repositories not read" />;
 }

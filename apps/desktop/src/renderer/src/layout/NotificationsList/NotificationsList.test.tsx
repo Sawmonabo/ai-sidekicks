@@ -1,9 +1,11 @@
-// The notifications list draws the new answer once an open session's store moves, and draws a
-// provider's new build under `Earlier`, uncounted, landing on that provider's settings section.
+// The notifications list draws the new answer once an open session's store moves, says a failed
+// read failed until `Try again` reads again, and draws a provider's new build under `Earlier`,
+// uncounted, landing on that provider's settings section.
 
 import { act, fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
@@ -95,7 +97,10 @@ describe("what makes the attention read run again", () => {
   ): ReturnType<typeof render> {
     return render(
       <PlatformBridgeProvider bridge={bridgeOnClock("attention", clock).bridge} clock={clock}>
-        <ReadThroughCenter read={read} registry={registry} />
+        {/* A failed read's line speaks through the window's announcer. */}
+        <LiveAnnouncerProvider clock={clock}>
+          <ReadThroughCenter read={read} registry={registry} />
+        </LiveAnnouncerProvider>
       </PlatformBridgeProvider>,
     );
   }
@@ -138,6 +143,29 @@ describe("what makes the attention read run again", () => {
 
     expect(read).toHaveBeenCalledTimes(2);
     expect(container.textContent ?? "").toContain("Fix the login flow");
+  });
+
+  it("says a failed read failed and reads again on Try again", async () => {
+    const clock = new ManualClock(0);
+    const registry = registryOn(clock);
+    const served = callServing({ items: [item()] });
+    const read = vi
+      .fn<AttentionProjectionReadCall>()
+      .mockRejectedValueOnce(new Error("the projection read failed"))
+      .mockImplementation(served);
+    const view = mount(clock, read, registry);
+    // The list alone: the announcer's own region keeps the last sentence it said.
+    const list = (): string =>
+      view.getByRole("region", { name: "Notifications" }).textContent ?? "";
+    await releaseCoalescedRead(clock);
+    expect(list()).toContain("Couldn't load notifications");
+
+    fireEvent.click(view.getByRole("button", { name: "Try again" }));
+    await releaseCoalescedRead(clock);
+
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(list()).not.toContain("Couldn't load notifications");
+    expect(list()).toContain("Fix the login flow");
   });
 });
 

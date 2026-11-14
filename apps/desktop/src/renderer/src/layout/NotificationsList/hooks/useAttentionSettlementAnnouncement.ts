@@ -10,7 +10,7 @@ import { describeAttentionSettlement } from "../attention-sentences.js";
  */
 export function useAttentionSettlementAnnouncement(reading: AttentionReading): void {
   useAnnounceWhenChanged(
-    reading.phase === "reading" ? undefined : describeAttentionSettlement(reading),
+    reading.phase === "read" ? describeAttentionSettlement(reading) : undefined,
     "polite",
     { isReadSettlement: true },
   );

@@ -42,11 +42,12 @@ function mountHealth(
 }
 
 // Each banner's words as drawn, the provider named from its section, the lost folder's path as
-// its mount read gave it, and a settings file named from the session's folder and the home folder.
+// its mount read gave it, and a settings file named from whichever of the session's folders holds
+// it and the home folder.
 function drawn(events: readonly ProjectedSessionEvent[]): readonly string[] {
   return foldSessionNoticeBanners(events).map((banner) =>
     sessionNoticeBannerWords(banner, banner.kind === "folderLost" ? "" : "Codex", "/work/app", {
-      sessionFolder: SESSION_FOLDER,
+      sessionFolders: ["/Users/me/other-repo", SESSION_FOLDER],
       homeFolder: "/Users/me",
     }).join(" · "),
   );

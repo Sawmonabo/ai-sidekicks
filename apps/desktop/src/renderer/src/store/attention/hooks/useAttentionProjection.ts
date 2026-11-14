@@ -14,13 +14,12 @@
 // no stale reply wins, never return a loaded view to its loading shape), so a stream of
 // settling events costs one read.
 //
-// `PushDrivenRead` reports `not-loaded | loaded | failed`, and the projection's "nothing was
-// read" lives inside the loaded arm as an absent value; that mapping is written once, here.
+// `PushDrivenRead` reports `not-loaded | loaded | failed`, each mapped once, here, to the
+// reading's phase; a failed read's phase carries the read again a person's press asks for.
 
 import { useEffect, useMemo } from "react";
 
 import { type Clock } from "#renderer/lib/clock.js";
-import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { PushDrivenRead, type PushDrivenReadState } from "../../reads/push-driven.js";
 import { usePushDrivenRead } from "../../reads/hooks/usePushDrivenRead.js";
@@ -87,18 +86,25 @@ export function useAttentionProjection(
   }, [projectionRead]);
 
   const state = usePushDrivenRead(projectionRead);
-  return useMemo(() => attentionReadingFrom(state), [state]);
+  return useMemo(() => attentionReadingFrom(state, projectionRead), [state, projectionRead]);
 }
 
 /** The read's states as the attention reading's phases. Written once, here. */
 function attentionReadingFrom(
   state: PushDrivenReadState<AttentionProjectionRead>,
+  projectionRead: PushDrivenRead<AttentionProjectionRead>,
 ): AttentionReading {
   if (state.kind === "not-loaded") {
     return { phase: "reading" };
   }
   if (state.kind === "failed") {
-    throw new RefusalError(state.refusal);
+    return {
+      phase: "failed",
+      refusal: state.refusal,
+      readAgain: () => {
+        projectionRead.refresh("user-request");
+      },
+    };
   }
   return {
     phase: "read",

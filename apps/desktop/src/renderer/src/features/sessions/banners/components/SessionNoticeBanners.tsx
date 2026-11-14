@@ -1,9 +1,10 @@
 // The banners a session's standing notices raise, under its header: a crash loop's with `Restart`,
 // which asks the daemon to start the provider again, an ignored-settings banner with `Open the
 // file` where main gave a token for its file, and a lost folder's, which goes when the folder is
-// back. A folder holding another repository offers `Re-attach` while git still answers for it and
-// `Open folder…` once it holds none. A × puts a crash loop's or a settings banner away for the
-// notice that raised it, for as long as the session stays open.
+// back. A folder that can't be reached offers `Open folder…`; one holding another repository offers
+// `Re-attach` while git still answers for it and `Open folder…` once it holds none. A × puts a
+// crash loop's or a settings banner away for the notice that raised it, for as long as the session
+// stays open.
 
 import { useMemo, useReducer } from "react";
 
@@ -135,8 +136,8 @@ function NoticeBannerRows(
   );
 }
 
-// The banner's one act, where it has one; a lost folder's waits for its path, which its words and
-// its refusals name.
+// The banner's one act, where it has one; a re-attach waits for its folder's path, which its
+// refusals name.
 function bannerActOf(
   banner: SessionNoticeBanner,
   bridge: PlatformBridge,
@@ -168,15 +169,20 @@ function bannerActOf(
               ),
           };
     }
-    case "folderLost":
-      if (banner.health === "unreachable" || folder === undefined) {
+    case "folderLost": {
+      const openFolderAct = { label: "Open folder…", press: () => openFolder(bridge) };
+      if (banner.health === "unreachable") {
+        return openFolderAct;
+      }
+      if (folder === undefined) {
         return undefined;
       }
       // A folder that still holds a repository re-attaches; one that holds none cannot be
       // attached, so another folder is picked in its place.
       return banner.isRepository
         ? { label: "Re-attach", press: () => reattachFolder(bridge, banner.repoMountId, folder) }
-        : { label: "Open folder…", press: () => openFolder(bridge) };
+        : openFolderAct;
+    }
   }
 }
 

@@ -30,14 +30,9 @@ export function ArtifactPayloadSection({
 function renderPayloadArm(payload: ArtifactPayloadReading): React.JSX.Element {
   switch (payload.status) {
     case "fetching":
-      return <Nothing kind="not-loaded" placement="inline" title="Fetching this payload" />;
+      return <Nothing kind="not-loaded" placement="inline" title="Loading payload…" />;
     case "opaque":
-      return (
-        <p className="meridian-artifact-payload__note">
-          These bytes are not text, so there is nothing to preview. They arrived whole and are
-          unchanged.
-        </p>
-      );
+      return <p className="meridian-artifact-payload__note">binary — contents not shown</p>;
     case "text":
       return (
         <>

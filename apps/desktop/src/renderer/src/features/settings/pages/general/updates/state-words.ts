@@ -2,7 +2,7 @@
 import type { UpdateFailedStep, UpdateState } from "#shared/preload-api.js";
 
 import { figurePart, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
-import { formatDate, formatDateTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { formatDate, formatRelativeTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/store/update/unreachable.js";
 
 /** The whole update path, in order, drawn as numbered steps once an update has been found. */
@@ -99,16 +99,20 @@ export function updateStateLine(
   }
 }
 
-/** The line under the idle line naming when the last check finished. */
+/**
+ * The line under the idle line naming how long ago the last check finished, counted to
+ * `nowMilliseconds`, with the check's own time on hover.
+ */
 export function lastCheckedLine(
   lastCheckedAt: string,
+  nowMilliseconds: number,
   clockLocale: string,
 ): readonly FigureSentencePart[] {
   return [
     "Last checked ",
     figurePart(
       "wire",
-      formatDateTime(lastCheckedAt, clockLocale),
+      formatRelativeTime(lastCheckedAt, nowMilliseconds, clockLocale),
       formatZonedDateTime(lastCheckedAt, clockLocale),
     ),
     ".",

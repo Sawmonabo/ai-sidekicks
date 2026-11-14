@@ -41,6 +41,11 @@ export class SharedFeed<Frame, State> {
     return this.#state;
   }
 
+  /** Whether any reader holds the feed open. */
+  public get hasReaders(): boolean {
+    return this.#readers.size > 0;
+  }
+
   /** Read the feed until the handle releases it, waking `onChange` each time the state moves. */
   public watch(onChange: () => void): Unsubscribe {
     this.#readers.add(onChange);

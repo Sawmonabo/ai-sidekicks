@@ -2,9 +2,10 @@
 // whose every message is one provider's whole section. The stream opens before the list is read,
 // so no change falls between the two; a section the stream delivers before the list moves nothing,
 // since the list sent after it holds it. Every delivery is checked with the contract's generated
-// check. A refused or unreadable list, an unreadable section and a stream the daemon refuses are
-// handed on as the list being lost, so no screen names a provider from a list that may be wrong.
-// A stream that opens again reads the list again, since the gap may have hidden a change.
+// check. An unreadable section is refused alone, its fault going to the window's diagnostic
+// capture, and the rest of the list stands; a refused or unreadable list and a stream the daemon
+// refuses are handed on as the list being lost. A stream that opens again reads the list again,
+// since the gap may have hidden a change.
 
 import { validateProviderSettingsResponse } from "@ai-sidekicks/contracts/provider/settings";
 
@@ -116,6 +117,5 @@ class ProviderSectionsFollower {
       subject: PROVIDER_NOTICE_STREAM,
       issues: checkFaultPaths(validateProviderSettingsResponse, payload),
     });
-    this.#onFrame({ kind: "lost" });
   }
 }
