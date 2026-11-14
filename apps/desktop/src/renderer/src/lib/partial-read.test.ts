@@ -16,14 +16,10 @@ describe("partial-read — a view hands over every reading it holds", () => {
     // A served snapshot beside an unreadable tail must render a notice whichever reading the call
     // site passes.
     const notices = partialReadNotices(
-      [
-        { kind: "served" },
-        { kind: "partial", unreadableCount: 3, newestRefusal: PARSE_REFUSAL },
-        { kind: "cut", servedCount: 12 },
-      ],
+      [{ kind: "served" }, { kind: "partial", unreadableCount: 3, newestRefusal: PARSE_REFUSAL }],
       "the queue",
     );
-    expect(notices.length).toBe(2);
+    expect(notices.length).toBe(1);
     expect(notices.every((notice) => notice.shape !== "none")).toBe(true);
   });
 });

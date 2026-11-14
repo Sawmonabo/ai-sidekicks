@@ -39,7 +39,7 @@ import {
   runWindowPositionsOf,
 } from "../feed/run-group-fold.test-support.js";
 import { type RunWindowInputs } from "../feed/run-group-fold.js";
-import { FindMatchList, FoldedMatchCount, type FindResult } from "../find/matcher.js";
+import { FindMatchList, type FindResult } from "../find/matcher.js";
 import { ChangingRowIndex } from "./changing-rows.js";
 import {
   TranscriptWindowDerivation,
@@ -80,13 +80,8 @@ interface Windows {
   readonly fold: TranscriptPipelineStage;
   readonly drawn: TranscriptWindowModel;
   readonly changingRowIds: ReadonlySet<string>;
-  readonly finds: readonly HeldFind[];
-}
-
-/** What one find query reads over the drawn rows, and counts among the rows the fold withheld. */
-interface HeldFind {
-  readonly result: FindResult;
-  readonly foldedAwayMatchCount: number;
+  /** What each find query reads over the drawn rows. */
+  readonly finds: readonly FindResult[];
 }
 
 /** The held derivations of one session, as the feed keeps them across revisions. */
@@ -98,11 +93,7 @@ class HeldWindows {
   readonly #changingRowIndex = new ChangingRowIndex();
   /** The keys of the folded runs' groups, one set object while no group joins or leaves it. */
   #foldedRunGroupKeys: ReadonlySet<string> = new Set<string>();
-  readonly #finds = FIND_QUERIES.map((query) => ({
-    query,
-    matchList: new FindMatchList(),
-    foldedMatchCount: new FoldedMatchCount(),
-  }));
+  readonly #finds = FIND_QUERIES.map((query) => ({ query, matchList: new FindMatchList() }));
 
   public constructor(runWindowInputs: RunWindowInputs) {
     this.#runWindowInputs = runWindowInputs;
@@ -133,15 +124,9 @@ class HeldWindows {
       fold,
       drawn,
       changingRowIds: this.#changingRowIndex.changingRowIdsOf(unfurled, waitingOnPerson),
-      finds: this.#finds.map(({ query, matchList, foldedMatchCount }) => ({
-        result: matchList.resultOf(drawn.rows, query, unfurled.systemMessageByRowId),
-        foldedAwayMatchCount: foldedMatchCount.countOf(
-          fold.removedRows,
-          query,
-          unfurled.systemMessageByRowId,
-          drawsBody,
-        ),
-      })),
+      finds: this.#finds.map(({ query, matchList }) =>
+        matchList.resultOf(drawn.rows, query, unfurled.systemMessageByRowId),
+      ),
     };
   }
 }
@@ -167,7 +152,6 @@ describe("the transcript windows held across a session's revisions", () => {
       rebuilds: 0,
       runWindowLetGo: 0,
       restampedCreationRows: 0,
-      foldedMatches: 0,
       splitRuns: 0,
       headersBelowUndrawnRows: 0,
     };
@@ -230,9 +214,6 @@ describe("the transcript windows held across a session's revisions", () => {
       }
       if (windows.fold.removedRows.some((row) => !foldedRunIds.has(rowRunId(row)))) {
         coverage.runWindowLetGo += 1;
-      }
-      if (windows.finds.every((find) => find.foldedAwayMatchCount > 0)) {
-        coverage.foldedMatches += 1;
       }
       const runGroups = [...windows.unfurled.runGroupByHeaderKey.values()];
       if (new Set(runGroups.map((runGroup) => runGroup.runId)).size < runGroups.length) {
@@ -299,15 +280,14 @@ describe("the transcript windows held across a session's revisions", () => {
     expect(check().transcript.at(-1)).toBe(keptLast);
 
     // The script reaches every path the held windows take: a rollback and the release and read
-    // rewrite the log, an open run past its window lets rows go, a child restamps its row, each
-    // find has matches the fold withholds, other rows break a run into stretches, and a header
-    // stands at its group's first card below rows that draw nothing.
+    // rewrite the log, an open run past its window lets rows go, a child restamps its row, other
+    // rows break a run into stretches, and a header stands at its group's first card below rows
+    // that draw nothing.
     expect(coverage.splitRuns).toBeGreaterThan(0);
     expect(coverage.headersBelowUndrawnRows).toBeGreaterThan(0);
     expect(coverage.rebuilds).toBeGreaterThanOrEqual(3);
     expect(coverage.runWindowLetGo).toBeGreaterThan(0);
     expect(coverage.restampedCreationRows).toBeGreaterThan(0);
-    expect(coverage.foldedMatches).toBeGreaterThan(0);
     expect(restored.windows.unfurled.supersededRowIds.size).toBeGreaterThan(0);
     // Every revision is checked against a whole derivation and its own earlier text, about two and
     // a half seconds alone and over the default five on a loaded machine.

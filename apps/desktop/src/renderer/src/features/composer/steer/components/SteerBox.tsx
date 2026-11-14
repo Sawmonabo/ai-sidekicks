@@ -14,7 +14,7 @@ import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import { STEER_REFUSAL_ORIGIN, admissionRefusal } from "../refusals.js";
 import { NotDeliveredLine } from "./NotDeliveredLine.js";
@@ -165,20 +165,13 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
   const onSubmit = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
+      // An empty steer sends nothing and says nothing: Send is already dimmed.
       if (body.trim().length === 0) {
-        publishForm((held) => ({
-          ...held,
-          localRefusal: refuse(
-            STEER_REFUSAL_ORIGIN,
-            "empty-steer",
-            "There is nothing to steer with yet. Type what the run should do differently.",
-          ),
-        }));
         return;
       }
       sendSteer({ childHandle, content: body });
     },
-    [body, childHandle, publishForm, sendSteer],
+    [body, childHandle, sendSteer],
   );
 
   return (

@@ -30,16 +30,11 @@ export type ReadingState =
       readonly unreadableCount: number;
       /** The newest unreadable delivery's own parse refusal, where one was kept. */
       readonly newestRefusal: Refusal | undefined;
-    }
-  /**
-   * The producer cut its own enumeration. How many were dropped is not on the wire, so
-   * `servedCount`, what did arrive, is the only figure.
-   */
-  | { readonly kind: "cut"; readonly servedCount: number };
+    };
 
 /**
- * What a notice renders, so the component branches on a closed instruction. `"reading"` renders
- * as the skeleton; the counted sentence sits beside the rows it qualifies, led by its figure.
+ * What a notice says, so its reader branches on a closed instruction. `"reading"` is a read still
+ * in flight; the counted sentence is led by its figure.
  */
 export type PartialReadNotice =
   | { readonly shape: "none" }
@@ -89,16 +84,6 @@ export function readingNoticeFor(state: ReadingState, subject: string): PartialR
         figure: formatCount(state.unreadableCount),
         copy: `${state.unreadableCount === 1 ? "delivery" : "deliveries"} could not be read.`,
         refusal: state.newestRefusal,
-      };
-    case "cut":
-      return {
-        shape: "counted-sentence",
-        figure: formatCount(state.servedCount),
-        // "the answer for ${subject}" so the verb agrees with a noun supplied here.
-        copy:
-          `read before the answer for ${subject} was cut ` +
-          `short, so what is not shown here may still exist.`,
-        refusal: undefined,
       };
   }
 }

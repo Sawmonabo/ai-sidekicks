@@ -42,5 +42,5 @@ export function ReleaseNotesButton(props: { readonly address: string }): React.J
 const RELEASE_NOTES_UNOPENED = refuse(
   "provider-release-notes",
   "open-release-notes-failed",
-  "Could not open the browser.",
+  "Couldn't open the browser",
 );

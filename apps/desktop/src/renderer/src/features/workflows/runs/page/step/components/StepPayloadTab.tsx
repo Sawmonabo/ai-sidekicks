@@ -34,7 +34,6 @@ export function StepPayloadTab(props: {
           kind="error"
           placement="block"
           title="Couldn't load data"
-          detail={read.refusal.detail}
           action={<TryAgainButton onPress={readAgain} />}
           attempt={read.refusal}
         />

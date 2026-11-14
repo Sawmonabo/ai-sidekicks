@@ -1,7 +1,8 @@
 // What the popover draws and what a press on it does: a closed console command is not drawn, a
-// provider row runs nothing, a console row runs, a row the provider declared disabled takes
-// neither the cursor nor a press, the list is open only while a row matches what is typed, and the
-// skills the service lists are offered and picked into the line, on `/` or `$`.
+// provider row writes its word into the line and runs nothing, a console row runs, a row the
+// provider declared disabled takes neither the cursor nor a press, the list is open only while a
+// row matches what is typed, and the skills the service lists are offered and picked into the
+// line, on `/` or `$`.
 // Driven through the whole composer, because that is where an open popover exists.
 
 import { act, fireEvent } from "@testing-library/react";
@@ -9,7 +10,6 @@ import { describe, expect, it } from "vitest";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import {
   type MountedComposer,
-  NOT_RUNNABLE_FRAGMENT,
   TEST_COMMAND_ID,
   activeRow,
   mountComposer,
@@ -122,7 +122,7 @@ describe("CommandList — the list activates its active row", () => {
     return { runCount: () => ranCount };
   }
 
-  it("answers a press on a provider row instead of running anything", async () => {
+  it("writes a provider row's word into the line instead of running anything", async () => {
     const counted = registerCountedConsoleCommand();
     const recorded: RecordedDaemonCall[] = [];
     const mounted = await mountComposer({ bridge: recordingBridge(recorded) });
@@ -131,14 +131,15 @@ describe("CommandList — the list activates its active row", () => {
     // Console entries lead the catalog and their number grows with the palette, so step until the
     // active row is a provider's rather than counting.
     await stepToFirstProviderRow(mounted, list);
+    const providerWord = activeRow(mounted.container, list)?.querySelector(
+      ".meridian-command-discovery__name",
+    )?.textContent;
 
     await pressOnList(list, "Enter");
 
     expect(counted.runCount()).toBe(0);
     expect(recorded.map((entry) => entry.method)).not.toContain("agent.queueItem.create");
-    expect(
-      mounted.container.querySelector(".meridian-command-discovery__notice")?.textContent,
-    ).toContain(NOT_RUNNABLE_FRAGMENT);
+    expect(mounted.line.value).toBe(`/${providerWord ?? ""} `);
   });
 
   it("negative control: the same key on the same list runs the console row beside it", async () => {
@@ -152,7 +153,6 @@ describe("CommandList — the list activates its active row", () => {
     await pressOnList(list, "Enter");
 
     expect(counted.runCount()).toBe(1);
-    expect(mounted.container.querySelector(".meridian-command-discovery__notice")).toBeNull();
   });
 });
 
@@ -190,15 +190,13 @@ describe("CommandList — a row that cannot act", () => {
       await crossMacrotaskBoundary();
     });
     expect(activeRow(mounted.container, list)).toBe(rowNamed("compact"));
-    expect(mounted.container.querySelector(".meridian-command-discovery__notice")).toBeNull();
+    expect(mounted.line.value).toBe("/");
 
     await act(async () => {
       fireEvent.click(rowNamed("compact"));
       await crossMacrotaskBoundary();
     });
-    expect(
-      mounted.container.querySelector(".meridian-command-discovery__notice")?.textContent,
-    ).toContain(NOT_RUNNABLE_FRAGMENT);
+    expect(mounted.line.value).toBe("/compact ");
   });
 });
 

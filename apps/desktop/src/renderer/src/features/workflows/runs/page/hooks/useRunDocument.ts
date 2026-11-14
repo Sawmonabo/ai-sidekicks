@@ -10,6 +10,7 @@ import { useSubjectRead } from "#renderer/hooks/useSubjectRead.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { recordedReadFailure } from "../read-failure.js";
 
 /** Where the run's pinned version stands: being read, read, or refused. */
 export type RunDocumentRead =
@@ -30,7 +31,8 @@ export interface RunDocumentHold {
 /**
  * The version a run pinned, read by its id: its number from the definition's version chain, then
  * the document saved under that number, which the run graph draws. A run whose definition was
- * deleted still reads, since the run pins its version.
+ * deleted still reads, since the run pins its version. A failed read's cause goes to diagnostics,
+ * since the graph's box names none.
  */
 export function useRunDocument(
   bridge: PlatformBridge,
@@ -69,20 +71,19 @@ async function readPinnedVersion(
     { signal },
   );
   if (chain.status === "refused") {
-    return { kind: "failed", refusal: chain.refusal };
+    return recordedReadFailure(chain.refusal);
   }
   const pinned = chain.value.versions.find(
     (entry) => entry.workflowVersionId === workflowVersionId,
   );
   if (pinned === undefined) {
-    return {
-      kind: "failed",
-      refusal: refuse(
+    return recordedReadFailure(
+      refuse(
         "workflows",
         "version-not-in-chain",
         "The version this run pinned is not in its workflow's version history.",
       ),
-    };
+    );
   }
   const version = await callDaemon(
     bridge,
@@ -91,6 +92,6 @@ async function readPinnedVersion(
     { signal },
   );
   return version.status === "refused"
-    ? { kind: "failed", refusal: version.refusal }
+    ? recordedReadFailure(version.refusal)
     : { kind: "read", versionNumber: pinned.versionNumber, document: version.value.document };
 }

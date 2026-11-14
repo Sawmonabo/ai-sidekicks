@@ -67,14 +67,6 @@
   display: flex;
 }
 
-/* The answer to a key press the command list could not honor. Muted, since it explains the
-   list rather than reporting a failure. */
-.meridian-command-discovery__notice {
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-}
-
 /* An entry the provider declared disabled. Dimmed rather than hidden, because the driver
    returns it so a disabled command is distinguishable from one that does not exist. The
    declared state keeps the secondary weight; dimming it would hide what this row adds. */

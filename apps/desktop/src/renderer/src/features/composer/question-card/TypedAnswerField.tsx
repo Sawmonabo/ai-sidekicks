@@ -10,11 +10,6 @@ import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 export interface TypedAnswerFieldProps {
   /** The typed text the card holds for this question. */
   readonly draft: string;
-  /**
-   * Whether the card has closed the field — a delivery in flight or already taken. A boolean,
-   * not the reason: the card draws the reason once, below the questions.
-   */
-  readonly isClosed: boolean;
   /** Why what was typed is refused in place, drawn under the field; absent while it is not. */
   readonly issue?: string | undefined;
   readonly onDraftChange: (draft: string) => void;
@@ -39,7 +34,6 @@ export function TypedAnswerField(props: TypedAnswerFieldProps): React.JSX.Elemen
         placeholder="Something else…"
         value={props.draft}
         rows={2}
-        disabled={props.isClosed}
         aria-invalid={props.issue === undefined ? undefined : true}
         aria-describedby={props.issue === undefined ? undefined : issueId}
         onChange={(event) => {

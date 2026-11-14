@@ -29,6 +29,7 @@ import { StepPanel } from "./step/components/StepPanel.js";
 import { useRunPage } from "./hooks/useRunPage.js";
 import { findDocumentNode } from "./document-node.js";
 import { RunGraph } from "./graph/RunGraph.js";
+import { UnloadedRunGraph } from "./graph/UnloadedRunGraph.js";
 import { GoneSessionStepBackContext } from "../../gone-session-step-back.js";
 import type { PayerReading } from "../cost.js";
 
@@ -177,14 +178,11 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
       <div className="meridian-workflow-run__body">
         <div className="meridian-workflow-run__graph">
           {documentRead.kind === "reading" ? (
-            <LoadingNotice clock={clock} placement="block" title="Loading workflow…" />
+            <UnloadedRunGraph state="loading" />
           ) : documentRead.kind === "failed" ? (
-            <Nothing
-              kind="error"
-              placement="block"
-              title="Couldn't load workflow"
-              detail={documentRead.refusal.detail}
-              action={<TryAgainButton onPress={page.document.readAgain} />}
+            <UnloadedRunGraph
+              state="failed"
+              onRetry={page.document.readAgain}
               attempt={documentRead.refusal}
             />
           ) : (

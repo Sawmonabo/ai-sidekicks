@@ -1,16 +1,14 @@
 // The find field's state and the walk over the rows the feed draws. It searches every row the
 // store holds, whether or not the viewport's window holds it: a step to a row the window let go
-// lands on it, as a link does. Matches inside folded run groups are counted apart, since opening
-// the group is their exit. Both are held across the log's updates, which arrive per event, so the
-// count follows a row that goes, and a step from a hit that left moves on to the next live one.
+// lands on it, as a link does. The search is held across the log's updates, which arrive per
+// event, so the count follows a row that goes, and a step from a hit that left moves on to the
+// next live one.
 
 import { useCallback, useMemo, useState } from "react";
 
-import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { type SystemMessageReading } from "../../system-messages/classifier.js";
 import {
   FindMatchList,
-  FoldedMatchCount,
   stepFindMatch,
   type FindMatch,
   type FindStepDirection,
@@ -23,8 +21,6 @@ export interface TranscriptFindState {
   readonly isOpen: boolean;
   readonly query: string;
   readonly result: FindResult;
-  /** Matches inside folded terminal run groups; finished runs fold by default. */
-  readonly foldedAwayMatchCount: number;
   /**
    * Where the walk is in the current result, or `-1` with nothing selected.
    *
@@ -47,36 +43,21 @@ export interface TranscriptFindState {
   readonly step: (direction: FindStepDirection) => ReturnType<typeof stepFindMatch>;
 }
 
-/** The rows the walk searches, and what the run fold withheld from them. */
+/** The rows the walk searches. */
 export interface TranscriptFindInputs {
   /** The rows the feed draws, in log order: every one a step can land on. */
   readonly rows: readonly ProjectedTranscriptRow[];
-  /**
-   * The rows the run fold withheld, as that stage reported them. Re-deriving them would walk
-   * the whole projection on every appended row while a query is set.
-   */
-  readonly foldedAwayRows: readonly ProjectedTranscriptRow[];
-  /**
-   * The system message behind each row of the unfurled window, folded rows included. With
-   * `drawsBody` it says whether the feed draws a row: a folded row it draws nothing for stays
-   * hidden when its group opens, so it is no match a person could reach.
-   */
+  /** The system message behind each row of the unfurled window, whose line a match reads. */
   readonly systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>;
-  /** The registered renderer's answer to whether it draws a body for a row. */
-  readonly drawsBody: TranscriptRowRenderer["drawsBody"];
 }
 
 /**
- * Searches the rows the feed draws and counts the matches the run fold withholds.
- *
- * The two sets are disjoint (a row the fold took is not drawn), so every match is in `result` or
- * in the count. The walk is held by row, not ordinal, because the result recomputes as the log
- * moves.
+ * Searches the rows the feed draws. The walk is held by row, not ordinal, because the result
+ * recomputes as the log moves.
  */
 export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindState {
-  const { rows, foldedAwayRows, systemMessageByRowId, drawsBody } = inputs;
+  const { rows, systemMessageByRowId } = inputs;
   const [findMatchList] = useState(() => new FindMatchList());
-  const [foldedMatchCount] = useState(() => new FoldedMatchCount());
   const [isOpen, setIsOpen] = useState(false);
   const [openRequestCount, setOpenRequestCount] = useState(0);
   const [query, setQueryValue] = useState("");
@@ -87,11 +68,6 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
   const result = useMemo(
     () => findMatchList.resultOf(rows, query, systemMessageByRowId),
     [findMatchList, rows, query, systemMessageByRowId],
-  );
-
-  const foldedAwayMatchCount = useMemo(
-    () => foldedMatchCount.countOf(foldedAwayRows, query, systemMessageByRowId, drawsBody),
-    [foldedMatchCount, foldedAwayRows, query, systemMessageByRowId, drawsBody],
   );
 
   // Looked up, not remembered, so a recomputed result reports where the walk actually is.
@@ -139,7 +115,6 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
     isOpen,
     query,
     result,
-    foldedAwayMatchCount,
     currentMatchIndex,
     setQuery,
     open,

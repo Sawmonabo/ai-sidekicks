@@ -21,7 +21,6 @@ function recordingFindState(trace: ActTrace, walkedRowId?: string): TranscriptFi
     isOpen: false,
     query: "",
     result: emptyFindResult(0),
-    foldedAwayMatchCount: 0,
     currentMatchIndex: -1,
     setQuery: () => {
       trace.push("setQuery");

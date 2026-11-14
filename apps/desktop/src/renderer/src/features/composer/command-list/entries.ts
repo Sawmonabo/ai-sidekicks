@@ -1,11 +1,12 @@
 // What a leading slash opens and what the popover lists: pure decisions over three sources. A
-// console entry is an act this client performs; a provider entry is discovery only; a skill entry
-// is picked into the message. The entry type is a union, so a render cannot forget to ask which
-// one it holds. Provider `description`, `scope` and `enabled` are wire-verbatim or absent, never
-// defaulted. Only one binding's group reaches the list, because a command enumerated under one
-// binding is never offered under another. A skill is never a provider row: the daemon's skill list
-// is the one inventory of skills, so a row the provider marks as a skill is dropped by that mark,
-// and the list offers only the skills the addressed provider can run.
+// console entry is an act this client performs; a provider entry's word is written into the line
+// and sent as typed; a skill entry is picked into the message. The entry type is a union, so a
+// render cannot forget to ask which one it holds. Provider `description`, `scope` and `enabled`
+// are wire-verbatim or absent, never defaulted. Only one binding's group reaches the list,
+// because a command enumerated under one binding is never offered under another. A skill is never
+// a provider row: the daemon's skill list is the one inventory of skills, so a row the provider
+// marks as a skill is dropped by that mark, and the list offers only the skills the addressed
+// provider can run.
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/commands";
@@ -27,7 +28,7 @@ export interface ConsoleCommandEntry {
   readonly commandId: string;
 }
 
-/** One command or tool server prompt the bound provider published, for discovery only. */
+/** One command or tool server prompt the bound provider published, written into the line. */
 export interface ProviderCommandEntry {
   readonly source: "provider";
   readonly key: string;

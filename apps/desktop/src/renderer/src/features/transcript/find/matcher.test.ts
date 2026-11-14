@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import {
   FIND_MATCH_CAP,
   FindMatchList,
-  FoldedMatchCount,
   findInTranscript,
   stepFindMatch,
   type FindResult,
@@ -302,55 +301,5 @@ describe("find — the first step, before anything is selected", () => {
     const result = resultOver(7);
     expect(stepFindMatch(result, result.matches[2], "previous")?.index).toBe(1);
     expect(stepFindMatch(result, result.matches[2], "next")?.index).toBe(3);
-  });
-});
-
-describe("find — the matches a run fold withholds, held across what it reports", () => {
-  function foldedRow(sequence: number, message: string): ProjectedTranscriptRow {
-    return userMessageRow({ id: `folded-${String(sequence)}`, sequence, message });
-  }
-
-  it("counts what a whole count over each list counts", () => {
-    const hit = foldedRow(10, "hit");
-    const undrawn = foldedRow(20, "hit, drawn as nothing");
-    const systemMessage = foldedRow(30, "hit, a system message");
-    const miss = foldedRow(40, "miss");
-    const joined = foldedRow(25, "hit, let go into the middle");
-    const reworded = userMessageRow({ id: hit.id, sequence: hit.sequence, message: "reworded" });
-    const outOfOrder = [foldedRow(50, "hit"), foldedRow(45, "hit")];
-    const systemMessages = new Map<string, SystemMessageReading>([
-      [
-        systemMessage.id,
-        {
-          kind: "rollback",
-          label: "Rolled back to the hit",
-          rowId: systemMessage.id,
-          timestamp: "",
-        },
-      ],
-    ]);
-    // The system message's row left the window with the third list, so its reading went with it;
-    // the fourth list is out of log order.
-    const steps: readonly {
-      readonly rows: readonly ProjectedTranscriptRow[];
-      readonly systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>;
-      readonly count: number;
-    }[] = [
-      { rows: [hit, undrawn, systemMessage, miss], systemMessageByRowId: systemMessages, count: 2 },
-      {
-        rows: [hit, undrawn, joined, systemMessage, miss],
-        systemMessageByRowId: systemMessages,
-        count: 3,
-      },
-      { rows: [reworded, undrawn, joined, miss], systemMessageByRowId: new Map(), count: 1 },
-      { rows: [reworded, ...outOfOrder], systemMessageByRowId: new Map(), count: 2 },
-    ];
-    const drawsBody = (row: ProjectedTranscriptRow): boolean =>
-      row.id !== undrawn.id && row.id !== systemMessage.id;
-    const held = new FoldedMatchCount();
-    const counted = steps.map((step) =>
-      held.countOf(step.rows, "HIT", step.systemMessageByRowId, drawsBody),
-    );
-    expect(counted).toStrictEqual(steps.map((step) => step.count));
   });
 });

@@ -1,7 +1,7 @@
 // The popover listing what the console can do, what the run's provider enumerated and the skills
 // that provider runs, in that order, each provider and skill row carrying its origin mark. Every
-// provider entry is one the provider enumerated for the addressed binding; nothing here composes
-// or completes a provider command. A skill row is picked into the message by the list's owner.
+// provider entry is one the provider enumerated for the addressed binding. A provider row's word
+// and a skill row are written into the message by the list's owner, and nothing here runs either.
 // `CommandList.tsx` owns when the line asks for the popover; the popover draws only while a row
 // matches what is typed, because a word no row matches goes to the provider as typed.
 
@@ -22,24 +22,19 @@ import {
   selectAddressedBindingGroup,
   type AddressedProviderBinding,
   type CommandListEntry,
+  type ProviderCommandEntry,
   type SkillCommandEntry,
 } from "../entries.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 import type { LineEnterChoice } from "../hooks/useCommandListTrigger.js";
 import { type ProviderCommandReadState } from "../provider/read.js";
 import { EnumerationState } from "./EnumerationState.js";
-import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /**
  * A picked entry carries no typed argument, so an argument-reading command takes its palette
  * act.
  */
 const PICKED_ENTRY_READS_NO_LINE: readonly string[] = [];
-
-/** Why pressing a key on a provider row runs nothing, shown only in answer to the press. */
-const PROVIDER_ENTRY_NOT_RUNNABLE =
-  "Provider commands are listed for reference. This app " +
-  "starts no turn from one, so there is nothing here to run.";
 
 /**
  * The popover, mounted only while the line opens it so the active-entry cursor dies with the list.
@@ -50,14 +45,13 @@ const PROVIDER_ENTRY_NOT_RUNNABLE =
  */
 export function CommandListPopover(props: CommandListPopoverProps): React.JSX.Element | null {
   const { prefix, readCommands, enumeration, skills, addressed, stepIntoListToken } = props;
-  const { onDismiss, onPickSkill, onReadSkillsAgain, lineEnterChoiceRef } = props;
+  const { onDismiss, onPickProviderCommand, onPickSkill, onReadSkillsAgain, lineEnterChoiceRef } =
+    props;
   const listId = useId();
   const listRef = useRef<HTMLUListElement | null>(null);
   const scrollerScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>();
   const [activeIndex, setActiveIndex] = useState(0);
   const [actionOutcome, setActionOutcome] = useState<CommandOutcome | undefined>(undefined);
-  // Set by a press that could not be honored; cleared by the next move or act.
-  const [activationNotice, setActivationNotice] = useState<string | undefined>(undefined);
 
   // The addressed run's group, chosen before the catalog is composed; a reading with no group
   // for this run contributes nothing, and the empty state beneath the list says so.
@@ -105,14 +99,13 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
     }
   }, [stepIntoListToken]);
 
-  // Enter, Space and a press on a row that can act come through here: a console entry runs, a
-  // skill is picked into the message, and a provider entry is answered with why nothing ran.
+  // Enter, Space and a press on a row that can act come through here: a console entry runs, and a
+  // provider's word or a skill is written into the message.
   const activateEntry = useCallback(
     (entry: CommandListEntry) => {
       switch (entry.source) {
         case "console":
           setActionOutcome(undefined);
-          setActivationNotice(undefined);
           void executor({ commandName: entry.commandId, text: `/${entry.commandId}` }).then(
             setActionOutcome,
           );
@@ -121,22 +114,20 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
           onPickSkill(entry);
           return;
         case "provider":
-          setActivationNotice(PROVIDER_ENTRY_NOT_RUNNABLE);
+          onPickProviderCommand(entry);
       }
     },
-    [executor, onPickSkill],
+    [executor, onPickProviderCommand, onPickSkill],
   );
 
-  // Enter in the line chooses the active console or skill row. A provider row is listed for
-  // reference, and a console row already typed whole is Send's to run, so on either the line's
-  // Enter goes on to Send.
+  // Enter in the line chooses the active row. A console or provider row already typed whole is
+  // Send's, so on it the line's Enter goes on to Send.
   const activeEntry = boundedIndex < 0 ? undefined : entries[boundedIndex];
   useEffect(() => {
     lineEnterChoiceRef.current = () => {
       if (
         activeEntry === undefined ||
-        activeEntry.source === "provider" ||
-        (activeEntry.source === "console" && activeEntry.commandId === prefix)
+        (activeEntry.source !== "skill" && activeEntry.name === prefix)
       ) {
         return false;
       }
@@ -153,7 +144,6 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
       const movedIndex = cursorMove(event.key, actableIndexes, boundedIndex);
       if (movedIndex !== undefined) {
         event.preventDefault();
-        setActivationNotice(undefined);
         setActiveIndex(movedIndex);
         return;
       }
@@ -208,14 +198,6 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
           ))}
         </ul>
       </div>
-      {activationNotice === undefined ? null : (
-        <AnnouncedLine
-          element="p"
-          className="meridian-command-discovery__notice"
-          words={activationNotice}
-          politeness="polite"
-        />
-      )}
       <EnumerationState enumeration={enumeration} addressedGroup={addressedGroup} />
       {skills.status === "failed" ? (
         <div className="meridian-command-discovery__state">
@@ -237,6 +219,8 @@ interface CommandListPopoverProps {
   readonly skills: SkillListState;
   /** Reads the skills again after a failed read. */
   readonly onReadSkillsAgain: () => void;
+  /** Writes a provider row's word at the head of the message. */
+  readonly onPickProviderCommand: (entry: ProviderCommandEntry) => void;
   /** Picks a skill row into the message. */
   readonly onPickSkill: (entry: SkillCommandEntry) => void;
   readonly addressed: AddressedProviderBinding;

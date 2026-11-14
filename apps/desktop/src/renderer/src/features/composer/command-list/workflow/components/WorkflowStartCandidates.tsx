@@ -1,11 +1,9 @@
 // The definitions a half-typed `/workflow run <name>` could still become, offered as a list while
 // the name is typed. Nothing here reads a wire: definitions arrive as props and filtering is over
-// the list in hand. Selecting one completes the line; the popover's rule against inserting text
-// covers provider entries only, not the argument of a command the runtime itself intercepts.
+// the list in hand. Selecting one completes the line.
 
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { PartialRead } from "#renderer/components/PartialRead/PartialRead.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { workflowDefinitionCandidates } from "../definition/match.js";
 import "./WorkflowStartCandidates.css";
@@ -33,33 +31,28 @@ export function WorkflowStartCandidates(props: WorkflowStartCandidatesProps): Re
   );
 }
 
-/** The list, or the one honest sentence about why there is not one. */
+/** The list, the sentence a complete walk says when there is none, or nothing. */
 function renderReading(
   definitions: readonly WorkflowDefinitionSummary[],
   complete: boolean,
   typedPrefix: string | undefined,
   onComplete: (definitionName: string) => void,
   listScrollbarRef: React.RefCallback<HTMLDivElement>,
-): React.JSX.Element {
+): React.JSX.Element | null {
   if (complete && definitions.length === 0) {
     return <Nothing kind="empty" title="No workflows yet" />;
   }
   const candidates = workflowDefinitionCandidates(definitions, typedPrefix);
   if (candidates.length === 0) {
     // Withheld under an incomplete walk: a search that stopped short says nothing about what is
-    // missing.
+    // missing, so it draws nothing.
     return complete ? (
       <Nothing
         kind="empty"
         title={`No workflow matches “${typedPrefix ?? ""}”`}
         detail="Clear the name to see every workflow."
       />
-    ) : (
-      <PartialRead
-        states={[{ kind: "cut", servedCount: definitions.length }]}
-        subject="saved workflows"
-      />
-    );
+    ) : null;
   }
   // The bar is drawn inside the scroller, so the scroller is not the list: a list holds only its
   // items.

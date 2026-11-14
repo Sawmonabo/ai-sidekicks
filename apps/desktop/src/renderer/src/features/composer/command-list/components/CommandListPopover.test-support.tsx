@@ -21,8 +21,6 @@ import { ServedProviderSections } from "#renderer/store/providers/ServedProvider
 
 /** The id of the console command the suites register so the list has an act to offer. */
 export const TEST_COMMAND_ID = "composer-discovery-test.act";
-/** A fragment of the sentence a press on a non-executable row is answered with. */
-export const NOT_RUNNABLE_FRAGMENT = "there is nothing here to run";
 /** Command ids a case registered; removed from the registry after each test. */
 export const registeredIds: string[] = [];
 

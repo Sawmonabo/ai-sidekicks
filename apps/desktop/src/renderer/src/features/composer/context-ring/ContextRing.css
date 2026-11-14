@@ -44,11 +44,3 @@
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }
-
-/* What that provenance means, on the two grades where it changes the reading. */
-.meridian-context-ring__source-note {
-  flex-basis: 100%;
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}

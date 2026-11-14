@@ -12,6 +12,7 @@ import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { readWorkflowPayloadItems } from "#renderer/services/artifacts/workflow-payload-items.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { recordedReadFailure } from "../../read-failure.js";
 
 /** Where a payload's items were kept: inline on the step's row, or as an artifact of its size. */
 export type StepPayloadStorage =
@@ -40,6 +41,7 @@ export interface StepPayloadReadHold {
  * an artifact comes back as its reference in one page, and its items are then read from the
  * artifact, so the tab draws both the same way and says which it was. The read starts over when
  * the step moves on, so a step that finishes while its panel is open shows what it finished with.
+ * A failed read's cause goes to diagnostics, since the tab names none.
  */
 export function useStepPayloadRead(
   bridge: PlatformBridge,
@@ -72,7 +74,7 @@ export function useStepPayloadRead(
           { signal },
         );
         if (reply.status === "refused") {
-          return { kind: "failed", refusal: reply.refusal };
+          return recordedReadFailure(reply.refusal);
         }
         const { payload, nextCursor } = reply.value;
         if (payload.kind === "artifact") {
@@ -83,7 +85,7 @@ export function useStepPayloadRead(
                 items: kept.value,
                 storage: { kind: "artifact", sizeBytes: payload.sizeBytes },
               }
-            : { kind: "failed", refusal: kept.refusal };
+            : recordedReadFailure(kept.refusal);
         }
         items.push(...payload.items);
         cursor = nextCursor;

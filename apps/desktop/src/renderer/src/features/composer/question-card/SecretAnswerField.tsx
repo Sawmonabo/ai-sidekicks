@@ -6,8 +6,6 @@ export interface SecretAnswerFieldProps {
   /** The question the field answers, which is also its accessible name. */
   readonly questionText: string;
   readonly value: string;
-  /** Whether the card has closed the field — a delivery in flight or already taken. */
-  readonly isClosed: boolean;
   readonly onValueChange: (value: string) => void;
 }
 
@@ -21,7 +19,6 @@ export function SecretAnswerField(props: SecretAnswerFieldProps): React.JSX.Elem
       autoComplete="off"
       spellCheck={false}
       value={props.value}
-      disabled={props.isClosed}
       onChange={(event) => {
         props.onValueChange(event.target.value);
       }}

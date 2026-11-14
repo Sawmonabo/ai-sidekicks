@@ -3,15 +3,14 @@
 // Draws every question of the record in order, each with its option rows and a typed field
 // (both providers always take typed text); a secret question draws one masked field instead.
 // `Answer` stays closed until every question has an answer, then sends one per question in
-// one call. The card never settles the question itself.
+// one call and hides the card, which draws again with its answers only if the answer is refused.
+// The card never settles the question itself.
 
 import type {
   QuestionAskedPayload,
   QuestionResolveRequest,
 } from "@ai-sidekicks/contracts/question";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { isNotANumber, useQuestionDrafts } from "./hooks/useQuestionDrafts.js";
 import { SecretAnswerField } from "./SecretAnswerField.js";
 import { TypedAnswerField } from "./TypedAnswerField.js";
@@ -33,24 +32,28 @@ export interface QuestionCardProps {
   readonly onAnswer: (answers: QuestionResolveRequest["answers"]) => void;
 }
 
-/** The question card: every question with its fields, and `Answer`. */
-export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
-  const deliveryStatus = props.delivery.status;
+/**
+ * The question card: every question with its fields, and `Answer`. Hidden while an answer is on
+ * its way or taken, with its drafts still held for a refused one.
+ */
+export function QuestionCard(props: QuestionCardProps): React.JSX.Element | null {
+  const { delivery } = props;
   const questionDrafts = useQuestionDrafts(
     props.question.questionId,
     props.questions,
-    deliveryStatus,
+    delivery.status,
   );
-  // No further answer while one is on the wire or taken; a refusal leaves the controls live.
-  const isSettling = deliveryStatus === "delivering" || deliveryStatus === "accepted";
   const { answers, drafts } = questionDrafts;
+  if (delivery.status === "delivering" || delivery.status === "accepted") {
+    return null;
+  }
   return (
     <form
       className="meridian-input-ask"
       onSubmit={(event) => {
         event.preventDefault();
-        // The conditions the Answer button is closed on, so guard and affordance agree.
-        if (answers !== undefined && !isSettling) {
+        // The condition the Answer button is closed on, so guard and affordance agree.
+        if (answers !== undefined) {
           props.onAnswer(answers);
         }
       }}
@@ -68,7 +71,6 @@ export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
             <SecretAnswerField
               questionText={prompt.text}
               value={drafts[index]?.secretValue ?? ""}
-              isClosed={isSettling}
               onValueChange={(value) => {
                 questionDrafts.enterSecret(index, value);
               }}
@@ -86,7 +88,6 @@ export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
                         type="button"
                         className="meridian-input-ask__option meridian-action-button"
                         aria-pressed={drafts[index]?.pickedLabel === option.label}
-                        disabled={isSettling}
                         onClick={() => {
                           questionDrafts.pickOption(index, option.label);
                         }}
@@ -104,7 +105,6 @@ export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
               )}
               <TypedAnswerField
                 draft={drafts[index]?.typedText ?? ""}
-                isClosed={isSettling}
                 issue={
                   isNotANumber(prompt, drafts[index]?.typedText ?? "")
                     ? NOT_A_NUMBER_SENTENCE
@@ -121,51 +121,16 @@ export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
       <button
         type="submit"
         className="meridian-input-ask__send meridian-action-button"
-        disabled={isSettling || answers === undefined}
+        disabled={answers === undefined}
       >
         Answer
       </button>
-      {renderDelivery(props.delivery)}
+      {delivery.status === "refused" ? (
+        <InlineRefusal code={delivery.refusal.code} detail={delivery.refusal.detail} />
+      ) : null}
     </form>
   );
 }
 
-/**
- * Draws what became of the dispatched answer: nothing while `unsent`, otherwise in flight,
- * taken, or an inline refusal. `accepted` never claims the question is settled.
- */
-function renderDelivery(delivery: AnswerDelivery): React.ReactNode {
-  switch (delivery.status) {
-    case "unsent":
-      return null;
-    case "delivering":
-      return (
-        <Nothing
-          kind="computing"
-          placement="inline"
-          title="Delivering this answer."
-          detail="The answer is on the wire and has not been acknowledged yet."
-        />
-      );
-    case "accepted":
-      return (
-        // What became of the person's answer is said; the line under it is browsed.
-        <AnnouncedLine element="span" words={ANSWER_DELIVERED_SENTENCE} politeness="polite">
-          <Nothing
-            kind="empty"
-            placement="inline"
-            title={ANSWER_DELIVERED_SENTENCE}
-            detail="The background service took this answer."
-          />
-        </AnnouncedLine>
-      );
-    case "refused":
-      return <InlineRefusal code={delivery.refusal.code} detail={delivery.refusal.detail} />;
-  }
-}
-
 /** What a number question's field says under typed text that is not a number. */
 const NOT_A_NUMBER_SENTENCE = "That is not a number.";
-
-/** What the card says once the background service took the answer. */
-const ANSWER_DELIVERED_SENTENCE = "The answer was delivered.";

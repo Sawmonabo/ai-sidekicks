@@ -5,9 +5,7 @@
 // message's line. While a query is set the log moves under it on every admitted event, so a held
 // search reads only the rows that moved.
 
-import { isDrawnRow } from "../feed/drawn-rows.js";
 import { classifyTranscriptRow } from "../rows/kind.js";
-import { type TranscriptRowRenderer } from "../rows/renderer.js";
 import { toolRowHeadingOf, toolRowHeadingText } from "../rows/tool-heading.js";
 import { userMessageTextOf } from "../rows/user-message.js";
 import { type SystemMessageReading } from "../system-messages/classifier.js";
@@ -124,96 +122,6 @@ export class FindMatchList {
       totalMatchCount,
       searchedRowCount: rows.length,
     };
-  }
-}
-
-/**
- * How many of the rows the run fold withholds match one query and would be drawn once their group
- * opens, held across the lists the fold reports. Both lists are in log order, so one walk of the
- * two by sequence finds the rows that joined, left or were projected again, and only those are
- * matched; a new query or a new renderer is counted whole. Whether the feed draws a row is a fact
- * about the row object, so a row both lists hold keeps its place in the count.
- */
-export class FoldedMatchCount {
-  #rows: readonly ProjectedTranscriptRow[] = [];
-  #needle = "";
-  #systemMessageByRowId: ReadonlyMap<string, SystemMessageReading> = new Map();
-  #drawsBody: TranscriptRowRenderer["drawsBody"] | undefined;
-  #count = 0;
-
-  /**
-   * The matches of `query` among `rows`, counting a row only when the feed draws it: a system
-   * message of `systemMessageByRowId`, the unfurled window's, or a row `drawsBody` has a body for.
-   */
-  public countOf(
-    rows: readonly ProjectedTranscriptRow[],
-    query: string,
-    systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>,
-    drawsBody: TranscriptRowRenderer["drawsBody"],
-  ): number {
-    const needle = query.trim().toLowerCase();
-    const isCounted = (row: ProjectedTranscriptRow): boolean =>
-      rowMatches(row, needle, systemMessageByRowId) &&
-      isDrawnRow(row, systemMessageByRowId, drawsBody);
-    // A row that left is matched as it was counted, against the system messages of its own pass.
-    const previousSystemMessageByRowId = this.#systemMessageByRowId;
-    const wasCounted = (row: ProjectedTranscriptRow): boolean =>
-      rowMatches(row, needle, previousSystemMessageByRowId) &&
-      isDrawnRow(row, previousSystemMessageByRowId, drawsBody);
-    const isSameQuestion = needle === this.#needle && drawsBody === this.#drawsBody;
-    let count: number | undefined;
-    if (needle.length === 0) {
-      count = 0;
-    } else if (isSameQuestion && rows === this.#rows) {
-      count = this.#count;
-    } else if (isSameQuestion) {
-      count = this.#countMoved(rows, isCounted, wasCounted);
-    }
-    this.#rows = rows;
-    this.#needle = needle;
-    this.#systemMessageByRowId = systemMessageByRowId;
-    this.#drawsBody = drawsBody;
-    this.#count = count ?? rows.filter(isCounted).length;
-    return this.#count;
-  }
-
-  // The held count moved by the rows that differ between the held list and `rows`. Every row of
-  // either list is passed once, as one both hold or as one that left or joined, so the count holds
-  // for lists in any order; in log order, only the rows that moved are matched.
-  #countMoved(
-    rows: readonly ProjectedTranscriptRow[],
-    isCounted: (row: ProjectedTranscriptRow) => boolean,
-    wasCounted: (row: ProjectedTranscriptRow) => boolean,
-  ): number {
-    const previousRows = this.#rows;
-    let count = this.#count;
-    let previousPosition = 0;
-    let position = 0;
-    while (previousPosition < previousRows.length || position < rows.length) {
-      const previousRow = previousRows[previousPosition];
-      const row = rows[position];
-      if (previousRow === row) {
-        previousPosition += 1;
-        position += 1;
-        continue;
-      }
-      // A row projected again stands at its own sequence in both lists, so it leaves and joins.
-      if (
-        row === undefined ||
-        (previousRow !== undefined && previousRow.sequence <= row.sequence)
-      ) {
-        previousPosition += 1;
-        count -= wasCounted(previousRow as ProjectedTranscriptRow) ? 1 : 0;
-      }
-      if (
-        previousRow === undefined ||
-        (row !== undefined && row.sequence <= previousRow.sequence)
-      ) {
-        position += 1;
-        count += isCounted(row as ProjectedTranscriptRow) ? 1 : 0;
-      }
-    }
-    return count;
   }
 }
 

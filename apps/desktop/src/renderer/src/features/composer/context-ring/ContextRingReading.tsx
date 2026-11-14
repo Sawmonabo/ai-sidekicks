@@ -1,29 +1,15 @@
-// The context ring's own reading: how much of the window this run has spent. The source note
-// table lives here because where a figure came from is part of what it means.
+// The context ring's own reading: how much of the window this run has spent.
 
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import type { ContextWindowSource } from "@ai-sidekicks/contracts/context-window";
 import type { ContextWindowReading } from "#renderer/store/session/events/context-window-reading.js";
-
-/**
- * What each provenance grade means for a person reading the bar. Total over the closed set, so a
- * new grade fails to compile. `providerReported` has no note: it is the expected grade, and a note
- * on every reading would hide the one that matters.
- */
-const CONTEXT_SOURCE_NOTES: Readonly<Record<ContextWindowSource, string | undefined>> = {
-  providerReported: undefined,
-  modelDefault:
-    "The window size is the model's default rather than a figure the provider reported.",
-};
 
 /** The meter with a reading behind it, split out so the absent arm is a straight-line return. */
 export function ContextRingReading(props: {
   readonly reading: ContextWindowReading;
 }): React.JSX.Element {
-  const { usagePercent, windowUsedTokens, windowMaxTokens, windowSource } = props.reading;
-  const sourceNote = windowSource === undefined ? undefined : CONTEXT_SOURCE_NOTES[windowSource];
+  const { usagePercent, windowUsedTokens, windowMaxTokens } = props.reading;
   return (
     <div className="meridian-context-ring">
       <span className="meridian-context-ring__label">conversation</span>
@@ -54,9 +40,6 @@ export function ContextRingReading(props: {
           <span className="meridian-context-ring__unit">tokens</span>
         </span>
       </span>
-      {sourceNote === undefined ? null : (
-        <p className="meridian-context-ring__source-note">{sourceNote}</p>
-      )}
     </div>
   );
 }

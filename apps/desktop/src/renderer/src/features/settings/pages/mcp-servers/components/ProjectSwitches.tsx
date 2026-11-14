@@ -42,7 +42,7 @@ export function ProjectSwitches(props: {
     <div className="meridian-mcp__detail-block">
       <h4 className="meridian-settings-page__section-head">On for runs</h4>
       {state.status === "reading" ? (
-        <LoadingNotice clock={clock} placement="inline" title="Loading projects…" />
+        <LoadingNotice clock={clock} placement="inline" title="Loading…" />
       ) : null}
       {state.status === "failed" ? (
         <InlineRefusal

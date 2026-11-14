@@ -125,9 +125,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const fullBodyReads = useFullBodyReads(props.sessionStore, props.readTranscriptBody);
   const jumpToRow = viewport.jumpToRow;
   const findAndJump = useTranscriptFindAndJump({
-    foldedAwayRows: windows.runGroupFold.removedRows,
     systemMessageByRowId: windows.unfurledWindow.systemMessageByRowId,
-    drawsBody: props.rowRenderer.drawsBody,
     rows: transcriptWindow.rows,
     areRowsShown: isDrawable,
     jumpToRow,

@@ -7,7 +7,6 @@
 
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 
-import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 import {
@@ -108,23 +107,10 @@ function ProviderOriginWord(props: { readonly providerName: ProviderId }): React
   return <>{useProviderName(props.providerName).toLowerCase()}</>;
 }
 
-/** What an entry does, in its own words; a skill whose `SKILL.md` carries none shows nothing. */
+/** What an entry does, in its own words; an entry published with none leaves the cell blank. */
 function EntryDescription(props: { readonly entry: CommandListEntry }): React.JSX.Element | null {
-  const { entry } = props;
-  if (entry.description !== undefined) {
-    return <span className="meridian-command-discovery__description">{entry.description}</span>;
-  }
-  if (entry.source === "skill") {
-    return null;
-  }
-  // `empty`, not `not-checked`: the enumeration was read and this entry came back without a
-  // description.
-  return (
-    <Nothing
-      kind="empty"
-      placement="inline"
-      title="The provider published no description"
-      detail="This entry was enumerated without one."
-    />
+  const { description } = props.entry;
+  return description === undefined ? null : (
+    <span className="meridian-command-discovery__description">{description}</span>
   );
 }
