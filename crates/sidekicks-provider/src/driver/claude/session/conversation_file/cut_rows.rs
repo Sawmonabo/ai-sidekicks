@@ -1,13 +1,14 @@
 //! Whether a cut Claude Code made took one of the person's messages, read from the end of the
 //! conversation's file back. A cut that lands appends an explicit `last-prompt` row marked
-//! `rewound` whose `leafUuid` names where the conversation now ends and whose `cutUuid` names the
-//! entry the cut began at. An explicit row with no `rewound` naming that same end, as Claude Code's
-//! own relaunch writes it, leaves the cut standing; one naming another end, as the row taking back
-//! a refused cut does, ends it; and a turn after a cut writes `user` and `assistant` entries. So
-//! the cuts that stand are the rows after the last such entry that no later row moved off their
-//! end, and a message is cut away only where one of them names the entry holding it. No chain is
-//! followed and none of Claude Code's rules for where a conversation ends is read: leaf rows,
-//! compactions and parallel tool results leave a message held.
+//! `rewound` whose `cutUuid` names the entry the cut began at. Any later explicit row with no
+//! `rewound` ends the cut: the row taking back a refused cut is one, and Claude Code's own relaunch
+//! writes the same row with the same members, which can name the same end, so a cut a relaunch
+//! follows reads held too. A turn after a cut writes `user` and `assistant` entries. So the cuts
+//! that stand are the rows after the last such entry and the last such row, and a message is cut
+//! away only where one of them began at the newest entry holding it, found among those rows where
+//! no turn's entry followed it (a prompt taken mid-turn) or before them. No chain is followed and
+//! none of Claude Code's rules for where a conversation ends is read: leaf rows, compactions and
+//! parallel tool results leave a message held.
 
 use std::fs::File;
 use std::io::{self, Read as _, Seek as _};
@@ -31,10 +32,14 @@ const CONVERSATION_ENTRY_TYPES: [&str; 5] =
 /// Whether a cut Claude Code made took the person's message `message_id` from the conversation
 /// `file`: `CutAway` where a standing cut began at the entry holding it, as its own uuid, as a
 /// prompt Claude Code took mid-turn by its `source_uuid`, or among a merged command's
-/// `mergedSendUuids`; `Held` wherever the rows do not show that, a cut row with no `cutUuid`, an
-/// unreadable line or a line past the ceiling among them. Reads from the end on a blocking thread:
-/// every line after the last turn's entry, then only the lines a search of the bytes finds naming
-/// the message. Fails as the file cannot be opened or read.
+/// `mergedSendUuids`; `Held` wherever the rows do not show that: a cut row with no `cutUuid`, a cut
+/// a later explicit row with no `rewound` ended, an entry holding the message newer than every cut
+/// row, an unreadable line among the rows after the last turn's entry, or a line past the ceiling.
+/// Reads from the end on a blocking thread: every line after the last turn's entry or explicit row
+/// with no `rewound`, then only the lines a search of the bytes finds naming the message, where one
+/// that does not read is passed over, since any line after a standing cut's start was cut with it.
+/// A line spanning reads is held whole up to the ceiling plus one block, its peak. Fails as the
+/// file cannot be opened or read.
 pub(crate) async fn read_claude_cut_rows(
     file: &Path,
     message_id: &str,
@@ -54,7 +59,8 @@ pub(crate) async fn read_claude_cut_rows(
 }
 
 // `read_claude_cut_rows`'s read, on the blocking thread it runs on: `block_bytes` at a time from
-// the end back, a line longer than `line_max_bytes` skipped unread.
+// the end back, a line skipped unread once the part of it read before the read holding its start
+// passes `line_max_bytes`, so one is held whole up to `line_max_bytes` plus `block_bytes`.
 fn read_cut_rows(
     file: &Path,
     message_id: &str,
@@ -134,17 +140,16 @@ fn read_cut_rows(
     Ok(RewindTargetPresence::Held)
 }
 
-// The read from the end back: every row after the last turn's entry, then the entry holding the
-// message.
+// The read from the end back: every row after the last turn's entry or explicit row with no
+// `rewound`, then the entry holding the message.
 struct CutRowsRead<'id> {
     message_id: &'id str,
     // Finds the message's id in the file's bytes, from the end back.
     message_finder: FinderRev<'id>,
     // The entries the standing cuts began at, as their rows name them.
     cut_starts: Vec<String>,
-    // The end the explicit rows with no `rewound` read since the last standing cut's row name.
-    kept_end: Option<String>,
-    // Whether every row after the last turn's entry was read.
+    // Whether every row of the tail, after the last turn's entry or explicit row with no
+    // `rewound`, was read.
     is_tail_read: bool,
 }
 
@@ -154,7 +159,6 @@ impl<'id> CutRowsRead<'id> {
             message_id,
             message_finder: FinderRev::new(message_id),
             cut_starts: Vec::new(),
-            kept_end: None,
             is_tail_read: false,
         }
     }
@@ -196,8 +200,9 @@ impl<'id> CutRowsRead<'id> {
     }
 
     // Takes the next row of the tail back, `None` for a line that does not read as one: a cut's
-    // row stands while the later rows keep its end, a row moving the end elsewhere or a turn's
-    // entry ends the tail, and an unreadable line ends it too, since it may be either.
+    // row stands, an explicit row with no `rewound` ends every cut before it and so the tail, a
+    // turn's entry ends the tail, and an unreadable line ends it too, since it may be either. An
+    // entry holding the message answers where it stands: held unless a newer cut began at it.
     fn take_tail_row(&mut self, entry: Option<ConversationEntry>) -> Option<RewindTargetPresence> {
         let Some(entry) = entry else {
             return self.end_tail();
@@ -205,18 +210,6 @@ impl<'id> CutRowsRead<'id> {
         match entry.entry_type.as_deref() {
             Some("last-prompt") if entry.is_explicit == Some(true) => {
                 if entry.is_rewound != Some(true) {
-                    return match (&self.kept_end, entry.leaf_uuid) {
-                        (None, Some(end)) => {
-                            self.kept_end = Some(end);
-                            None
-                        }
-                        (Some(kept), Some(end)) if *kept == end => None,
-                        (Some(_), Some(_)) | (Some(_) | None, None) => self.end_tail(),
-                    };
-                }
-                if let Some(kept) = self.kept_end.take()
-                    && entry.leaf_uuid.as_ref() != Some(&kept)
-                {
                     return self.end_tail();
                 }
                 match entry.cut_uuid {
@@ -230,12 +223,12 @@ impl<'id> CutRowsRead<'id> {
                 }
             }
             Some("user" | "assistant") => self.end_tail().or_else(|| self.take_holding(&entry)),
-            Some(_) | None => None,
+            Some(_) | None => self.take_holding(&entry),
         }
     }
 
-    // Takes an entry the search found naming the message; answers once it is the newest entry
-    // holding it.
+    // Takes an entry read in the tail or found by the search naming the message; answers once it
+    // is the newest entry holding it.
     fn take_holding(&self, entry: &ConversationEntry) -> Option<RewindTargetPresence> {
         let uuid = entry.uuid.as_deref().filter(|uuid| !uuid.is_empty())?;
         let is_conversation_entry = entry.is_sidechain != Some(true)
@@ -337,8 +330,6 @@ struct ConversationEntry {
     is_rewound: Option<bool>,
     #[serde(rename = "cutUuid", default, deserialize_with = "read_lenient")]
     cut_uuid: Option<String>,
-    #[serde(rename = "leafUuid", default, deserialize_with = "read_lenient")]
-    leaf_uuid: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     attachment: Option<EntryAttachment>,
     #[serde(rename = "mergedSendUuids", default, deserialize_with = "read_lenient")]
@@ -479,7 +470,9 @@ mod tests {
     }
 
     // Two tool results of one parallel batch, Claude Code's routine row naming the first between
-    // them, a steer during the batch and a later message, with no cut.
+    // them, a steer during the batch and a later message, with no cut. The read ends at the newest
+    // line, a turn's entry with no cut row after it, so this guards only that; a row that is not
+    // explicit is passed over in `spanning_steer`.
     fn parallel_batch() -> String {
         file_of(&[
             entry("user", "root-a", None, "first"),
@@ -502,7 +495,8 @@ mod tests {
         file_of(&lines)
     }
 
-    // A cut, then the row Claude Code's own relaunch writes, naming the end the cut left.
+    // A cut, then the row Claude Code's own relaunch writes, naming the end the cut left, which is
+    // the row a take-back of a refused cut can write too.
     fn relaunch_after_cut() -> String {
         let mut lines = two_turns();
         lines.push(cut_row("reply-1", "asked-m"));
@@ -539,17 +533,44 @@ mod tests {
         )
     }
 
+    // A tool's result, then a steer with no turn's entry after it, where the cut began.
+    fn steer_with_no_turn_after() -> Vec<Value> {
+        vec![
+            entry("user", "root-a", None, "first"),
+            entry("assistant", "call-a", Some("root-a"), "a tool"),
+            entry("user", "result-1", Some("call-a"), "its result"),
+            steer("steer-e", "result-1", "asked-m", "second"),
+            cut_row("result-1", "steer-e"),
+        ]
+    }
+
+    // The cut begun at a steer with no turn's entry after it.
+    fn steer_last_cut() -> String {
+        file_of(&steer_with_no_turn_after())
+    }
+
+    // The same cut taken back by a row naming the end it left, as the take-back names the last
+    // turn's entry it holds.
+    fn steer_last_cut_taken_back() -> String {
+        let mut lines = steer_with_no_turn_after();
+        lines.push(json!({"type": "last-prompt", "leafUuid": "result-1", "explicit": true}));
+        file_of(&lines)
+    }
+
     // Killed by a cut's row left unread or read with no search for the entry it began at, by a
     // line copied wrong where it spans blocks, by a skip that keeps a byte of the skipped line,
-    // by a merged member or a steer the read leaves out, by a relaunch's row read as taking the
-    // cut back, by a leaf row, a row taking a cut back, a later turn or an unended line read past,
-    // and by a cut of another message counted as this one's.
+    // by a merged member or a steer the read leaves out, by a steer after the last turn's entry
+    // passed over, by a later explicit row with no `rewound` read as keeping the cut, by a leaf
+    // row, a later turn or an unended line read past, and by a cut of another message counted as
+    // this one's.
     #[rstest]
     #[case::own_entry(own_entry_cut(), 1024, RewindTargetPresence::CutAway)]
     #[case::spanning_steer(spanning_steer_cut(), 1024, RewindTargetPresence::CutAway)]
     #[case::reply_past_the_ceiling(reply_past_the_ceiling(), 256, RewindTargetPresence::CutAway)]
     #[case::merged_member(merged_member_cut(), 1024, RewindTargetPresence::CutAway)]
-    #[case::relaunch_after_cut(relaunch_after_cut(), 1024, RewindTargetPresence::CutAway)]
+    #[case::steer_last(steer_last_cut(), 1024, RewindTargetPresence::CutAway)]
+    #[case::steer_last_taken_back(steer_last_cut_taken_back(), 1024, RewindTargetPresence::Held)]
+    #[case::relaunch_after_cut(relaunch_after_cut(), 1024, RewindTargetPresence::Held)]
     #[case::parallel_batch(parallel_batch(), 1024, RewindTargetPresence::Held)]
     #[case::healed_refusal(healed_refusal(), 1024, RewindTargetPresence::Held)]
     #[case::turn_after_cut(turn_after_cut(), 1024, RewindTargetPresence::Held)]

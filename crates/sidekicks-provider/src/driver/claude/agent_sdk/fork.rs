@@ -159,14 +159,37 @@ impl WorkFolderRemoval {
 
 impl Drop for WorkFolderRemoval {
     fn drop(&mut self) {
-        if let Some(folder) = self.folder.take() {
-            match tokio::runtime::Handle::try_current() {
-                Ok(runtime) => {
-                    drop(runtime.spawn(remove_work_folder(folder, self.tree_ends.clone())));
+        // The folder of a removal that has not finished, removed in place where it is dropped
+        // first, as a shutting-down runtime drops the task it spawned unrun. The fork's processes
+        // were signaled by their trees' drops already, and the removal may have been part done.
+        struct UnfinishedRemoval(Option<PathBuf>);
+
+        impl Drop for UnfinishedRemoval {
+            fn drop(&mut self) {
+                if let Some(folder) = self.0.take() {
+                    let removed = remove_folder(&folder).or_else(|error| {
+                        if error.kind() == io::ErrorKind::NotFound {
+                            Ok(())
+                        } else {
+                            Err(error)
+                        }
+                    });
+                    log_left_folder(&folder, removed);
                 }
-                // Off a runtime nothing can wait for the fork's processes, which their trees'
-                // drops have already signaled, so the folder is removed here.
-                Err(_no_runtime) => log_left_folder(&folder, remove_folder(&folder)),
+            }
+        }
+
+        if let Some(folder) = self.folder.take() {
+            let mut unfinished = UnfinishedRemoval(Some(folder.clone()));
+            // Off a runtime nothing can wait for the fork's processes, so `unfinished` removes
+            // the folder here as it drops.
+            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                let tree_ends = self.tree_ends.clone();
+                drop(runtime.spawn(async move {
+                    remove_work_folder(folder, tree_ends).await;
+                    // The removal ran to its end, so nothing is left for `unfinished` to remove.
+                    unfinished.0.take();
+                }));
             }
         }
     }
