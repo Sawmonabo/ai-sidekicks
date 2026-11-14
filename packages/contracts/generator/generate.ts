@@ -4,11 +4,11 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { GENERATED_FOLDER_PATH, generatedFiles } from "./generated-files.ts";
+import { GENERATED_FOLDER_PATH, generatedFiles, runContractEmit } from "./generated-files.ts";
 
 // Every file is generated in memory before the folder is touched, so a run that fails while
 // generating leaves the folder as it was; a failure while writing leaves it part written.
-const files = await generatedFiles();
+const files = await generatedFiles(runContractEmit());
 rmSync(GENERATED_FOLDER_PATH, { recursive: true, force: true });
 for (const [path, source] of files) {
   const file = join(GENERATED_FOLDER_PATH, path);

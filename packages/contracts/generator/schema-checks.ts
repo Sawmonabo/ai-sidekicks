@@ -4,7 +4,15 @@
 // wherever another check calls it. Ajv's ES-module output still loads its run-time helpers with
 // `require` and leaves its functions untyped; this rewrites both, statement by statement, into
 // TypeScript the package can ship.
-import { Ajv2020, Name, _, type Code, type KeywordCxt, type SchemaObject } from "ajv/dist/2020.js";
+import {
+  Ajv2020,
+  Name,
+  _,
+  type Code,
+  type Format,
+  type KeywordCxt,
+  type SchemaObject,
+} from "ajv/dist/2020.js";
 import standaloneCode from "ajv/dist/standalone/index.js";
 
 import { MODULE_ID_SCHEME, type ContractModule } from "./emit-folder.ts";
@@ -63,6 +71,20 @@ export interface CheckCompiler {
   readonly ajv: Ajv2020;
   /** The definition each compiled function checks, by Ajv's name for the function. */
   readonly definitionOf: ReadonlyMap<string, CompiledDefinition>;
+}
+
+/**
+ * The `schema-check` values a check calls at run time, handed to a compiler whose checks run in
+ * this process instead of being written out: its `format` rules, the byte measure and the keyed
+ * repeat.
+ */
+export interface CheckRunTime {
+  readonly formats: Readonly<Record<string, Format>>;
+  readonly wireByteLength: (
+    value: unknown,
+    attachments: readonly Uint8Array[] | undefined,
+  ) => number;
+  readonly repeatsItemKey: (items: readonly unknown[], member: string) => boolean;
 }
 
 /** A format named for an integer type (`uint32`, `int64`) checks numbers; every other, strings. */
@@ -127,15 +149,18 @@ function defaultAmongOptionsCode(cxt: KeywordCxt): void {
  * Compiles the checks of a generation run: every definition of `modules` is added as a schema of
  * its own under its reference, and the definitions `checkedNames` lists for each module are
  * compiled with every definition they reach. Each reference is a call, never inlined, so a
- * definition's check is written once.
+ * definition's check is written once. Given `runTime`, the checks call its values, so a check
+ * compiled here also runs here; without it they name the `schema-check` exports the written code
+ * imports, and only that code runs them.
  */
 export function createCheckCompiler(
   modules: readonly ContractModule[],
   checkedNames: (module: ContractModule) => readonly string[],
+  runTime?: CheckRunTime,
 ): CheckCompiler {
   // A number format is Ajv's object form, so its check runs on numbers and its code calls
   // `SCHEMA_FORMATS[name].validate`; a string format is a bare function.
-  const formats = Object.fromEntries(
+  const formats: Record<string, Format> = Object.fromEntries(
     [...formatNames(modules.map((module) => module.schema))].map((name) => [
       name,
       NUMBER_FORMAT_NAME.test(name)
@@ -143,6 +168,12 @@ export function createCheckCompiler(
         : (): boolean => true,
     ]),
   );
+  // The function a keyword's code calls: the run-time value, or the name the written code imports.
+  const runTimeFunction = (
+    cxt: KeywordCxt,
+    name: typeof WIRE_BYTE_LENGTH | typeof REPEATS_ITEM_KEY,
+  ): Code =>
+    runTime === undefined ? new Name(name) : cxt.gen.scopeValue("keyword", { ref: runTime[name] });
   const ajv = new Ajv2020({
     strict: true,
     $data: true,
@@ -155,8 +186,9 @@ export function createCheckCompiler(
     passContext: true,
     // A reference calls its definition's one function instead of copying its check in place.
     inlineRefs: false,
-    // Generation only needs each format's name and kind: the code reads `SCHEMA_FORMATS`.
-    formats,
+    // Generation only needs each format's name and kind, since the written code reads
+    // `SCHEMA_FORMATS`; a check that runs here takes the run time's rules.
+    formats: { ...formats, ...runTime?.formats },
     code: { source: true, esm: true, lines: false, optimize: true, formats: _`SCHEMA_FORMATS` },
   });
   // Ajv registers `discriminator` after `unevaluatedProperties`, which then compiles before the
@@ -198,7 +230,7 @@ export function createCheckCompiler(
     schemaType: "number",
     code: (cxt) =>
       cxt.fail(
-        _`${new Name(WIRE_BYTE_LENGTH)}(${cxt.data}, this && this.attachments) > ${cxt.schema}`,
+        _`${runTimeFunction(cxt, WIRE_BYTE_LENGTH)}(${cxt.data}, this && this.attachments) > ${cxt.schema}`,
       ),
   });
   // A list whose items may not repeat their value at one member, as the Rust list's key refuses.
@@ -206,7 +238,8 @@ export function createCheckCompiler(
     keyword: "uniqueItemKey",
     type: "array",
     schemaType: "string",
-    code: (cxt) => cxt.fail(_`${new Name(REPEATS_ITEM_KEY)}(${cxt.data}, ${cxt.schema})`),
+    code: (cxt) =>
+      cxt.fail(_`${runTimeFunction(cxt, REPEATS_ITEM_KEY)}(${cxt.data}, ${cxt.schema})`),
   });
   ajv.addKeyword({
     keyword: "defaultAmongOptions",

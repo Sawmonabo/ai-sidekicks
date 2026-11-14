@@ -1,6 +1,7 @@
 // Reads the folder the Rust contracts' emit step writes: per contract module its JSON Schema and a
-// description of what the module exports, and the refusal codes once. The folder comes from
-// another program, so every file is checked against its shape before the generator trusts it.
+// description of what the module exports, the refusal codes once, and the values serde writes for
+// the types whose wire form is written by hand. The folder comes from another program, so every
+// file is checked against its shape before the generator trusts it.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -59,10 +60,35 @@ export interface RefusalCodes {
   readonly codes: readonly string[];
 }
 
+/**
+ * A value serde writes for a type whose `Serialize` or `JsonSchema` is written by hand, named by
+ * its Rust type, with the schema a member holding it reads (a reference to its owner's definition
+ * or the inlined schema) and the bytes its byte members wrote, in attachment order.
+ */
+export interface SerializerSample {
+  readonly type: string;
+  readonly schema: SchemaObject;
+  readonly value: unknown;
+  readonly attachments: readonly (readonly number[])[];
+}
+
+/** A sample the emit could not build, write or describe, with the reason. */
+interface SerializerSampleFault {
+  readonly type: string;
+  readonly fault: string;
+}
+
+/** The serializer samples one emit run wrote. */
+interface SerializerSamples {
+  readonly samples: readonly SerializerSample[];
+  readonly faults: readonly SerializerSampleFault[];
+}
+
 /** Everything one emit run wrote. */
 export interface ContractEmit {
   readonly modules: readonly ContractModule[];
   readonly refusalCodes: RefusalCodes;
+  readonly serializerSamples: SerializerSamples;
 }
 
 const MODULE_PATH = "^[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)*$";
@@ -150,6 +176,45 @@ const REFUSAL_CODES_SCHEMA = {
   },
 };
 
+const RUST_TYPE = { type: "string", minLength: 1 };
+
+const SERIALIZER_SAMPLES_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["samples", "faults"],
+  properties: {
+    samples: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["type", "schema", "value", "attachments"],
+        properties: {
+          type: RUST_TYPE,
+          schema: { type: "object" },
+          value: true,
+          attachments: {
+            type: "array",
+            items: {
+              type: "array",
+              items: { type: "integer", minimum: 0, maximum: 255 },
+            },
+          },
+        },
+      },
+    },
+    faults: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["type", "fault"],
+        properties: { type: RUST_TYPE, fault: { type: "string" } },
+      },
+    },
+  },
+};
+
 const SCHEMA_FILE_SCHEMA = {
   type: "object",
   required: ["$schema", "$id", "$defs"],
@@ -164,6 +229,7 @@ const emitAjv = new Ajv2020({ strict: true, allErrors: true });
 const checkModuleFile = emitAjv.compile(MODULE_FILE_SCHEMA);
 const checkRefusalCodes = emitAjv.compile(REFUSAL_CODES_SCHEMA);
 const checkSchemaFile = emitAjv.compile(SCHEMA_FILE_SCHEMA);
+const checkSerializerSamples = emitAjv.compile(SERIALIZER_SAMPLES_SCHEMA);
 
 /** Reads `file` as JSON and checks it with `check`; throws naming the file and every fault. */
 function readChecked<T>(file: string, check: ValidateFunction): T {
@@ -220,5 +286,9 @@ export function readContractEmit(emitRoot: string): ContractEmit {
   if (!modules.some((module) => module.path === refusalCodes.module)) {
     throw new Error(`refusal codes name module ${refusalCodes.module}, which the emit lacks`);
   }
-  return { modules, refusalCodes };
+  const serializerSamples = readChecked<SerializerSamples>(
+    join(emitRoot, "serializer-samples.json"),
+    checkSerializerSamples,
+  );
+  return { modules, refusalCodes, serializerSamples };
 }

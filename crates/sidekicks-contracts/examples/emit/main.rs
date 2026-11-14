@@ -1,6 +1,9 @@
 //! Writes the folder the TypeScript generator reads: per contract module its closed JSON Schema and
-//! what it exports besides its types, and the refusal codes once. A development program, run as
+//! what it exports besides its types, the refusal codes once, and a value of each type whose wire
+//! form is written by hand beside its schema. A development program, run as
 //! `cargo run -p sidekicks-contracts --example emit -- <folder>`; it is never shipped.
+
+mod samples;
 
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
@@ -40,6 +43,10 @@ fn main() -> EmitResult<()> {
             "doc": "Every refusal code a daemon method or a control plane route answers with.",
             "codes": RefusalCode::ALL.iter().map(|code| code.as_str()).collect::<Vec<_>>(),
         }),
+    )?;
+    write_json(
+        &folder.join("serializer-samples.json"),
+        &samples::serializer_samples(&owners),
     )?;
     writeln!(
         std::io::stdout().lock(),
