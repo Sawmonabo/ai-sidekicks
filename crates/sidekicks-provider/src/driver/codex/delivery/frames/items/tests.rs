@@ -98,6 +98,7 @@ async fn a_codex_steer_lands_in_frame_order() {
             run_control: &task.run_control,
             config_forks: &task.calls.runs.config_forks,
             delivery: &task.calls.forks.delivery,
+            peer_messages: &task.peer_messages,
         },
         &mut task.record,
         CodexRoutedFrames {
