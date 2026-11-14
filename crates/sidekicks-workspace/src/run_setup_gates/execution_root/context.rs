@@ -9,7 +9,6 @@ use std::sync::LazyLock;
 
 use futures::future::BoxFuture;
 use notify::Watcher;
-use rusqlite::types::Value;
 use sidekicks_contracts::repo::mount::{
     ExecutionMode, RepoMountId, RepoMountState, WorkspaceId, WorkspaceState,
 };
@@ -71,10 +70,6 @@ const RELEASE_RUN_CONTEXT_SQL: &str = "UPDATE run_execution_contexts SET release
 const ARCHIVE_RUN_WORKSPACE_SQL: &str = "UPDATE workspaces SET state = @archived, updated_at = @now
   WHERE workflow_run_id = @run_id AND state <> @archived";
 
-// The deletes of the workspaces of the runs a JSON list of their ids names.
-static LISTED_RUN_WORKSPACE_DELETE_SQL: LazyLock<[String; 2]> =
-    LazyLock::new(|| run_workspace_delete_sql("SELECT value FROM json_each(?1)"));
-
 /// Binds a run a session starts outside the run engine, a workflow run, in the session's own live
 /// workspace, and holds the checkout its context row is written in, which the gate implements.
 pub trait SessionRunBinder: Send + Sync {
@@ -105,7 +100,8 @@ pub trait SessionRunBinder: Send + Sync {
     ) -> BoxFuture<'a, Result<RunContextBinding, RunSetupGateError>>;
 
     /// Deletes the workspace workflow run `workflow_run_id` owns, with its branch contexts, for a
-    /// start that made no run; does nothing where it owns none. Fails as the write fails.
+    /// start that made no run or one a stop cut before its run's row, appending its
+    /// `workspace.archived`; does nothing where it owns none. Fails as the read or the write fails.
     fn discard_project_run(
         &self,
         workflow_run_id: WorkflowRunId,
@@ -121,6 +117,14 @@ pub trait SessionRunBinder: Send + Sync {
     /// Tells the projects list that a write holding a context row of `session_id`'s run, or its
     /// release, committed, so the session's live-run figure is read again.
     fn note_context_changed(&self, session_id: SessionId);
+
+    /// Sweeps `session_id` out of a tree removed while a workflow run of it was bound there, once
+    /// the write that released the run's context committed, as an agent run's end does. Fails as
+    /// the sweep fails.
+    fn sweep_released_run(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), RunSetupGateError>>;
 }
 
 /// A run bound in its workspace: the facts its context row is written from, and the canonical
@@ -318,21 +322,9 @@ impl<W: Watcher + Send + Sync + 'static> SessionRunBinder for ExecutionRootSetup
         workflow_run_id: WorkflowRunId,
     ) -> BoxFuture<'_, Result<(), RunSetupGateError>> {
         Box::pin(async move {
-            let run_ids_json =
-                serde_json::to_string(&[workflow_run_id]).expect("a run id writes as JSON");
-            let statements = LISTED_RUN_WORKSPACE_DELETE_SQL
-                .iter()
-                .map(|sql| WriteStatement {
-                    sql: Cow::Borrowed(sql.as_str()),
-                    bindings: StatementBindings::Positional(vec![Value::Text(
-                        run_ids_json.clone(),
-                    )]),
-                    expected_row_count: None,
-                });
-            self.writer
-                .write(statements.collect())
+            self.workspaces
+                .discard_run_workspace(workflow_run_id)
                 .await
-                .map(drop)
                 .map_err(failed)
         })
     }
@@ -346,5 +338,17 @@ impl<W: Watcher + Send + Sync + 'static> SessionRunBinder for ExecutionRootSetup
 
     fn note_context_changed(&self, session_id: SessionId) {
         self.list_feed.refresh_sessions(&[session_id]);
+    }
+
+    fn sweep_released_run(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), RunSetupGateError>> {
+        Box::pin(async move {
+            self.moves
+                .sweep_from_removed_tree(&session_id, None)
+                .await
+                .map_err(RunSetupGateError::Failed)
+        })
     }
 }

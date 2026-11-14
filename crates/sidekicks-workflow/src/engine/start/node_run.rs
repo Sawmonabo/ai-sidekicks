@@ -6,9 +6,10 @@ use std::sync::Arc;
 
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
-use sidekicks_contracts::workflow::run::events::WorkflowNodeRun;
+use sidekicks_contracts::workflow::run::events::{WorkflowNodeRun, WorkflowStartedReusedStep};
 use sidekicks_contracts::workflow::run::step::events::WorkflowReusedStep;
 use sidekicks_contracts::workflow::run::step::record::WorkflowPayloadRef;
 use sidekicks_store::database::connection::read_pool::ReadLength;
@@ -152,7 +153,7 @@ impl WorkflowRunStarter {
             .map_err(WorkflowRunStartError::ReusedOutput)?;
         replayed.sealed = Some(checked.graph.place(&node_run.node_id));
         let outcome = self
-            .start_checked(start, checked, None, Some((node_run, replayed)))
+            .start_checked(start, checked, None, (Some(node_run), Some(replayed)))
             .await?;
         Ok(NodeRunStartOutcome {
             outcome,
@@ -228,6 +229,34 @@ impl StartedNodeRun {
             sealed: None,
             reused,
         })
+    }
+
+    /// The earlier steps the walk replays as the run's started event stores them.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
+    pub(crate) fn started_reused_steps(&self) -> Vec<WorkflowStartedReusedStep> {
+        self.reused
+            .iter()
+            .map(|reused| {
+                let record = &reused.seed.record;
+                WorkflowStartedReusedStep {
+                    node_id: reused.seed.node_id.clone(),
+                    reused_from: record.from.clone(),
+                    input_ref: record.input_ref.clone(),
+                    output_ref: record.output_ref.clone(),
+                    output_item_counts: reused
+                        .seed
+                        .output_lengths
+                        .iter()
+                        .copied()
+                        .map(SafeInt::from_usize)
+                        .collect(),
+                    pin_hash: record.pin_hash.clone(),
+                }
+            })
+            .collect()
     }
 
     /// Stores again in `session_id`, the run's session, each replayed input and output kept as an

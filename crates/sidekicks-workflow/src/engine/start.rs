@@ -36,7 +36,7 @@ use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowName, WorkflowNode, WorkflowNodeId, WorkflowTriggerInput,
     WorkflowVersionId,
 };
-use sidekicks_contracts::workflow::definition::item::WorkflowItem;
+use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowPinnedItem};
 use sidekicks_contracts::workflow::run::events::{
     WorkflowChainRunJoinedPayload, WorkflowNodeRun, WorkflowRunStartedPayload,
 };
@@ -87,7 +87,9 @@ pub(crate) use self::check::check_run_graph;
 pub(crate) use self::errors::WorkflowRunStartError;
 use self::folder::{PreparedStart, RunFolder};
 pub(crate) use self::node_run::{StartedNodeRun, StartedReusedStep};
-pub(crate) use self::reload::{ReloadedRun, ReloadedScope, ReloadedStep, ReplayedEvent};
+pub(crate) use self::reload::{
+    ReloadedRepin, ReloadedRun, ReloadedScope, ReloadedStep, ReplayedEvent,
+};
 use self::retry::RetriedRun;
 
 /// The statements a start prepares on a read connection: the pinned version by its id, the
@@ -376,11 +378,12 @@ impl WorkflowRunStarter {
         start: WorkflowRunStart,
     ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
         let checked = self.check(&start, None, start.mode).await?;
-        self.start_checked(start, checked, None, None).await
+        self.start_checked(start, checked, None, (None, None)).await
     }
 
     // Starts `start`'s run once its checks passed, as `start` says, retrying `retried` where one
-    // is given, and naming `node_run`'s target and replaying its steps where it is one.
+    // is given, naming the node run's target where it is one, and replaying the earlier steps
+    // `replayed` holds, a node run's or a retry's.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -390,7 +393,7 @@ impl WorkflowRunStarter {
         start: WorkflowRunStart,
         checked: CheckedStart,
         retried: Option<&RetriedRun>,
-        node_run: Option<(WorkflowNodeRun, StartedNodeRun)>,
+        node_run: (Option<WorkflowNodeRun>, Option<StartedNodeRun>),
     ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
         let workflow_run_id =
             WorkflowRunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
@@ -593,7 +596,8 @@ impl WorkflowRunStarter {
     // Reads the run's scope, builds the trigger step's input where it runs and stores again in
     // this run's session each output `node_run` replays from another, then commits the run's row,
     // with its chain's count for a joining run, the run it retries for a retry and the node run's
-    // target, and its started event, whose instant is the row's start. The scope is read first,
+    // target, and its started event, naming every step it replays, whose instant is the row's
+    // start. The scope is read first,
     // so a failed read leaves no stored payload behind; each payload it stores is named in
     // `stored`, for the start to delete when no run is made.
     #[cfg_attr(
@@ -606,7 +610,7 @@ impl WorkflowRunStarter {
         checked: CheckedStart,
         prepared: &PreparedStart,
         retried: Option<&RetriedRun>,
-        node_run: Option<(WorkflowNodeRun, StartedNodeRun)>,
+        node_run: (Option<WorkflowNodeRun>, Option<StartedNodeRun>),
         stored: &mut Vec<ArtifactId>,
     ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
         let WorkflowRunStart {
@@ -633,7 +637,7 @@ impl WorkflowRunStarter {
             }
             None => None,
         };
-        let (node_run, mut replayed) = node_run.unzip();
+        let (node_run, mut replayed) = node_run;
         if let Some(replayed) = &mut replayed {
             replayed
                 .store_in_session(&*self.payloads, session_id, stored)
@@ -677,6 +681,11 @@ impl WorkflowRunStarter {
                 provider: checked.provider.clone(),
                 node_run,
                 retried_workflow_run_id: retried_run_id,
+                pin_data: started_pin_data(&checked.pins),
+                reused_steps: replayed
+                    .as_ref()
+                    .map(StartedNodeRun::started_reused_steps)
+                    .unwrap_or_default(),
                 input_ref: trigger_input.clone(),
             }),
         )?;
@@ -836,11 +845,25 @@ pub(crate) fn hash_run_pins(
     if mode != WorkflowRunMode::Manual {
         return Ok(HashMap::new());
     }
-    pin_data_json
-        .map(parse_stored_pin_data)
-        .transpose()?
-        .map(Record::into_map)
-        .unwrap_or_default()
+    hash_pin_data(
+        pin_data_json
+            .map(parse_stored_pin_data)
+            .transpose()?
+            .unwrap_or_default(),
+    )
+}
+
+/// The pins `pin_data` holds, each node's items with their content hash. Refuses items that do not
+/// canonicalize.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
+pub(crate) fn hash_pin_data(
+    pin_data: Record<String, Vec<WorkflowPinnedItem>>,
+) -> Result<HashMap<WorkflowNodeId, RunPin>, WorkflowRunStartError> {
+    pin_data
+        .into_map()
         .into_iter()
         // An empty key names no node, so no step gives its pin, as with a key naming a node the
         // version lacks.
@@ -852,4 +875,22 @@ pub(crate) fn hash_run_pins(
             Ok((node_id, RunPin { items, hash }))
         })
         .collect()
+}
+
+/// The pin data a run's start event stores for `pins`, the pins it honors; `None` for none.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
+pub(crate) fn started_pin_data(
+    pins: &HashMap<WorkflowNodeId, RunPin>,
+) -> Option<Record<String, Vec<WorkflowPinnedItem>>> {
+    if pins.is_empty() {
+        return None;
+    }
+    let members = pins
+        .iter()
+        .map(|(node_id, pin)| (node_id.as_str().to_owned(), pin.items.clone()))
+        .collect();
+    Some(Record::new(members).expect("a pinned node's id is a stored record's key"))
 }

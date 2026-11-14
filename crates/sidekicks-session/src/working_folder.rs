@@ -135,10 +135,13 @@ static SELECT_LIVE_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// An agent run of the session still bound to its folder: its context not yet released.
-const SELECT_BOUND_RUN_SQL: &str = "SELECT EXISTS (SELECT 1 FROM run_execution_contexts
-  WHERE session_id = @session_id AND released_at IS NULL
-    AND run_id IN (SELECT run_id FROM runs WHERE session_id = @session_id))";
+// A run of the session, an agent run or a workflow run, still bound in the session's own
+// workspace: its context not yet released. A workflow run's own workspace is no folder of the
+// session's.
+const SELECT_BOUND_RUN_SQL: &str = "SELECT EXISTS (SELECT 1 FROM run_execution_contexts AS context
+  JOIN workspaces AS workspace ON workspace.id = context.workspace_id
+  WHERE context.session_id = @session_id AND context.released_at IS NULL
+    AND workspace.workflow_run_id IS NULL)";
 
 // The removed tree the session's own live workspace still works in, if any.
 static SELECT_REMOVED_TREE_OF_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {

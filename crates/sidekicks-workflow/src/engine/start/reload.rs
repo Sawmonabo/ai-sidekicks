@@ -1,6 +1,8 @@
 //! The restart's read of a session's unfinished runs, which the tick takes back: each run's row,
 //! the scope its steps share rebuilt from what its start stored, its pinned version's graph, its
-//! steps not yet settled and its workflow events in log order.
+//! steps not yet settled and its workflow events in log order. Before it, what a start left behind
+//! when a stop cut it before its run's row is deleted: the workspace it bound for its run, and the
+//! payloads it stored that nothing written names.
 #![cfg_attr(
     not(test),
     expect(
@@ -16,6 +18,7 @@ use std::sync::{Arc, LazyLock};
 use jiff::tz::TimeZone;
 use rusqlite::{Connection, Row, named_params};
 use serde_json::Value;
+use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
@@ -27,7 +30,9 @@ use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
+use sidekicks_contracts::workflow::definition::document::{
+    WorkflowName, WorkflowNode, WorkflowNodeId, WorkflowVersionId,
+};
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::events::WorkflowNodeRun;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
@@ -46,18 +51,20 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 use sidekicks_store::events::session::read::{
     SessionEventFilter, SessionEventReads, SessionLogReadError,
 };
+use sidekicks_workspace::run_setup_gates::RunSetupGateError;
+use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBinder;
 use sidekicks_workspace::working_folder::{
     ProjectEnvironmentReadError, WorkingFolderReadError, read_mount_environment_rows,
     read_project_environment_rows, read_working_folder,
 };
 use tokio_util::sync::CancellationToken;
 
-use super::check::read_definition_scope;
-use super::{check_run_graph, hash_run_pins, read_session_project};
+use super::{check_run_graph, hash_pin_data, read_session_project};
 use crate::definitions::kept_values::{WorkflowKeptValueError, WorkflowKeptValueStore};
 use crate::definitions::stored_document::parse_stored_workflow_body;
 use crate::definitions::versions::history::{WorkflowVersions, WorkflowVersionsError};
 use crate::engine::partial_run::covered_places;
+use crate::engine::ports::{PortError, StepPayloadArtifacts};
 use crate::engine::results::run_posts_results;
 use crate::engine::tick::run_status::RunPersonWait;
 use crate::engine::tick::{RunGraph, RunScope};
@@ -81,6 +88,30 @@ const UNFINISHED_RUNS_SQL: &str = "SELECT run.id, run.workflow_version_id, run.p
   LEFT JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
   WHERE run.session_id = ?1 AND run.finished_at IS NULL
   ORDER BY run.started_at, run.id";
+
+// The runs a workspace of the session was bound for that have no row: a start a stop cut between
+// its workspace's bind and its run's row.
+const STRANDED_RUN_WORKSPACES_SQL: &str = "SELECT workflow_run_id FROM workspaces
+  WHERE session_id = ?1 AND workflow_run_id IS NOT NULL
+    AND workflow_run_id NOT IN (SELECT id FROM workflow_runs)";
+
+const SESSION_RUN_IDS_SQL: &str = "SELECT id FROM workflow_runs WHERE session_id = ?1";
+
+// Of the artifacts a JSON list of their ids names, bound second, those that no event of the
+// session, bound first, and no row of its runs or their steps names anywhere in its text, so a
+// payload a reader could still reach is never among them.
+const UNNAMED_PAYLOADS_SQL: &str = "SELECT candidate.value FROM json_each(?2) AS candidate
+  WHERE NOT EXISTS (SELECT 1 FROM session_events AS event
+                     WHERE event.session_id = ?1 AND instr(event.payload, candidate.value) > 0)
+    AND NOT EXISTS (SELECT 1 FROM workflow_runs AS run
+                     WHERE run.session_id = ?1
+                       AND instr(run.trigger_json || coalesce(run.node_run_json, ''),
+                                 candidate.value) > 0)
+    AND NOT EXISTS (SELECT 1 FROM workflow_steps AS step
+                      JOIN workflow_runs AS run ON run.id = step.workflow_run_id
+                     WHERE run.session_id = ?1
+                       AND instr(step.input_ref || step.output_ref || step.log_ref,
+                                 candidate.value) > 0)";
 
 // A run's steps not settled, and its failed and canceled ones, which a park keeps for its
 // Resume, in execution order.
@@ -144,7 +175,7 @@ pub(crate) struct ReloadedRun {
     /// Its events the restart replays, in log order, each with its sequence and instant.
     pub(crate) events: Vec<ReplayedEvent>,
     /// What the run runs on, or the error its crashed ending carries where its version, its
-    /// graph or its workflow's pins no longer read.
+    /// graph or its pins no longer read.
     pub(crate) drive: Result<ReloadedScope, WorkflowStepError>,
 }
 
@@ -169,6 +200,21 @@ pub(crate) struct ReloadedScope {
     pub(crate) covered: Option<Arc<[bool]>>,
     /// A node run's target's place, whose outputs feed nothing; `None` for any other run.
     pub(crate) sealed: Option<usize>,
+    /// Each version a Resume moved the run to, in log order.
+    pub(crate) repins: Vec<ReloadedRepin>,
+}
+
+/// A version a reloaded run moved to on a Resume, as the restart found its kinds: the version,
+/// the workflow's name there, its nodes by id and its run graph.
+pub(crate) struct ReloadedRepin {
+    /// The version.
+    pub(crate) workflow_version_id: WorkflowVersionId,
+    /// The workflow's name in it.
+    pub(crate) workflow_name: WorkflowName,
+    /// Its nodes by id, the trigger included.
+    pub(crate) nodes: HashMap<WorkflowNodeId, WorkflowNode>,
+    /// Its run graph.
+    pub(crate) graph: Arc<RunGraph>,
 }
 
 /// A step of a reloaded run not settled, failed or canceled, as its row stores it.
@@ -228,6 +274,12 @@ pub(crate) enum RunReloadError {
     /// A stored event's instant did not read as one.
     #[error("a stored event's instant does not read as an instant")]
     Instant(#[from] NotAnInstant),
+    /// A workspace bound for a run that has no row could not be deleted.
+    #[error("a workspace a stop left with no run could not be deleted")]
+    StrandedWorkspace(#[source] Box<RunSetupGateError>),
+    /// The payloads a stop left that nothing names could not be listed or deleted.
+    #[error("a payload a stop left with nothing naming it could not be listed or deleted")]
+    StrandedPayload(#[source] PortError),
 }
 
 /// Reads a session's unfinished runs back for the tick at the restart.
@@ -240,6 +292,10 @@ pub(crate) struct RunReloader {
     pub(crate) kept_values: Arc<WorkflowKeptValueStore>,
     /// The data folder a run's own folder sits in.
     pub(crate) data_folder: PathBuf,
+    /// The binder that deletes a workspace bound for a run that never got its row.
+    pub(crate) binder: Arc<dyn SessionRunBinder>,
+    /// The payload store whose payloads a stop left with nothing naming them are deleted.
+    pub(crate) payloads: Arc<dyn StepPayloadArtifacts>,
 }
 
 /// One unfinished run's row, as the reload reads it.
@@ -261,15 +317,21 @@ struct RunRow {
 
 impl RunReloader {
     /// The unfinished runs of `session_id`, oldest first, each with its scope rebuilt: the
-    /// version and the provider its row pins, its workflow's pins as stored now, the folder of the
+    /// version and the provider its row pins, the pins its start event stores, the folder of the
     /// context it holds, else the session's, else its own, the environment rows and project of
     /// its repository, and its workflow's kept values. A run whose version, graph or pins no
-    /// longer read carries the error its crashed ending stores in place of a scope. Fails as
-    /// [`RunReloadError`] when a read of the session's rows, kept values or log fails.
+    /// longer read carries the error its crashed ending stores in place of a scope. First it
+    /// deletes what a start a stop cut before its run's row left: the workspace bound for that run
+    /// and every payload stored in the session under another run's step that nothing written
+    /// names. It runs for every recovered session, unfinished runs or not, before the session
+    /// takes a start, since a start under way holds such a workspace and such payloads. Fails as
+    /// [`RunReloadError`] when a read of the session's rows, kept values or log fails, or a
+    /// leftover cannot be deleted.
     pub(crate) async fn reload_session(
         &self,
         session_id: SessionId,
     ) -> Result<Vec<ReloadedRun>, RunReloadError> {
+        self.delete_stop_leftovers(session_id).await?;
         let kinds = Arc::clone(&self.kinds);
         let data_folder = self.data_folder.clone();
         let mut runs = self
@@ -288,6 +350,72 @@ impl RunReloader {
         }
         Ok(runs)
     }
+
+    // Deletes each workspace bound for a run of the session that has no row, then each payload
+    // stored in the session under a step of a run not the session's that nothing written names:
+    // a trigger input stored before a stop cut its run's row, or a copy of another session's
+    // output made for a run that never started.
+    async fn delete_stop_leftovers(&self, session_id: SessionId) -> Result<(), RunReloadError> {
+        let (stranded_runs, session_runs) = self
+            .pool
+            .read(ReadLength::Short, move |connection| {
+                Ok::<_, RunReloadError>((
+                    read_run_ids(connection, STRANDED_RUN_WORKSPACES_SQL, session_id)?,
+                    read_run_ids(connection, SESSION_RUN_IDS_SQL, session_id)?,
+                ))
+            })
+            .await?;
+        for workflow_run_id in stranded_runs {
+            self.binder
+                .discard_project_run(workflow_run_id)
+                .await
+                .map_err(|error| RunReloadError::StrandedWorkspace(Box::new(error)))?;
+        }
+        let candidates = self
+            .payloads
+            .payloads_of_other_runs(session_id, &session_runs)
+            .await
+            .map_err(RunReloadError::StrandedPayload)?;
+        if candidates.is_empty() {
+            return Ok(());
+        }
+        let candidates_json =
+            serde_json::to_string(&candidates).expect("artifact ids write as JSON");
+        let unnamed = self
+            .pool
+            .read(ReadLength::Long, move |connection| {
+                connection
+                    .prepare_cached(UNNAMED_PAYLOADS_SQL)?
+                    .query_map(
+                        (session_id.text().as_str(), candidates_json.as_str()),
+                        |row| text_column(row, 0, |text| ArtifactId::new(&text)),
+                    )?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(RunReloadError::from)
+            })
+            .await?;
+        for artifact_id in &unnamed {
+            self.payloads
+                .delete(artifact_id)
+                .await
+                .map_err(RunReloadError::StrandedPayload)?;
+        }
+        Ok(())
+    }
+}
+
+// The run ids `sql`, binding `session_id` first, selects on `connection`.
+fn read_run_ids(
+    connection: &Connection,
+    sql: &str,
+    session_id: SessionId,
+) -> Result<Vec<WorkflowRunId>, RunReloadError> {
+    Ok(connection
+        .prepare_cached(sql)?
+        .query_map([session_id.text().as_str()], |row| {
+            text_column(row, 0, |text| WorkflowRunId::new(&text))
+        })?
+        .collect::<Result<_, _>>()?)
 }
 
 /// The unfinished runs of `session_id` read on `connection`, their scopes built over `kinds`, a
@@ -314,13 +442,32 @@ fn read_session_runs(
             .prepare_cached(KEPT_STEPS_SQL.as_str())?
             .query_map([row.run_id.text().as_str()], reloaded_step)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        let version = WorkflowVersions::new(connection).read_version(row.workflow_version_id)?;
+        let run_events = events.remove(&row.run_id).unwrap_or_default();
+        // The walk is replayed from the version the run started on; each re-pin moves it on.
+        let started_version = run_events
+            .iter()
+            .find_map(|replayed| {
+                if let SessionEvent::WorkflowRunStarted(started) = &replayed.event {
+                    Some(started.workflow_version_id)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(row.workflow_version_id);
+        let version = WorkflowVersions::new(connection).read_version(started_version)?;
         let keys = RunEventKeys {
             session_id,
             definition_id: version.definition_id,
             workflow_version_id: row.workflow_version_id,
         };
-        let (pin_data_json, _) = read_definition_scope(connection, version.definition_id)?;
+        // The run gives the pins it started on, whatever its workflow pins now.
+        let pin_data = run_events.iter().find_map(|replayed| {
+            if let SessionEvent::WorkflowRunStarted(started) = &replayed.event {
+                started.pin_data.clone()
+            } else {
+                None
+            }
+        });
         let retried_mode = if row.is_retry {
             connection
                 .prepare_cached(FIRST_MODE_OF_RUN_SQL.as_str())?
@@ -337,28 +484,35 @@ fn read_session_runs(
         };
         let works_in_repository =
             row.execution_root.is_some() || session.shape == SessionShape::Project;
-        let built = 'built: {
-            let body = match parse_stored_workflow_body(&version.definition_body) {
-                Ok(body) => body,
-                Err(error) => break 'built Err(uncoded_step_error(error.to_string())),
+        let has_provider = row.provider.is_some();
+        let version_graph =
+            |body: &str| run_version_graph(kinds, body, works_in_repository, has_provider);
+        let mut repins = Vec::new();
+        for replayed in &run_events {
+            let SessionEvent::WorkflowRunResumed(resumed) = &replayed.event else {
+                continue;
             };
-            let (nodes, graph) =
-                match check_run_graph(kinds, &body, works_in_repository, row.provider.is_some()) {
-                    Ok(checked) => checked,
-                    Err(refusal) => break 'built Err(refused_error(&refusal)),
-                };
-            // A retry honors the pins its chain's first run that is not a retry honored.
-            let pins_mode = if row.is_retry {
-                retried_mode.unwrap_or(row.mode)
-            } else {
-                row.mode
+            let Some(joined) = resumed.repinned_to_workflow_version_id else {
+                continue;
             };
-            match hash_run_pins(pin_data_json.as_deref(), pins_mode) {
-                Ok(pins) => Ok(((body.name, nodes, graph), pins)),
-                Err(error) => Err(uncoded_step_error(error.to_string())),
+            let target = WorkflowVersions::new(connection).read_version(joined)?;
+            repins.push(version_graph(&target.definition_body).map(
+                |(workflow_name, nodes, graph)| ReloadedRepin {
+                    workflow_version_id: joined,
+                    workflow_name,
+                    nodes,
+                    graph: Arc::new(graph),
+                },
+            ));
+        }
+        let built = version_graph(&version.definition_body).and_then(|built| {
+            let repins = repins.into_iter().collect::<Result<Vec<_>, _>>()?;
+            match hash_pin_data(pin_data.unwrap_or_default()) {
+                Ok(pins) => Ok((built, pins, repins)),
+                Err(error) => Err(Box::new(uncoded_step_error(error.to_string()))),
             }
-        };
-        let drive = built.map(|((workflow_name, nodes, graph), pins)| {
+        });
+        let drive = built.map(|((workflow_name, nodes, graph), pins, repins)| {
             let covered = row.node_run.as_ref().map(|node_run| {
                 let mut covered = vec![false; graph.node_count()];
                 for place in covered_places(&graph, graph.place(&node_run.node_id)) {
@@ -411,8 +565,10 @@ fn read_session_runs(
                 graph: Arc::new(graph),
                 covered,
                 sealed,
+                repins,
             }
         });
+        let drive = drive.map_err(|error| *error);
         runs.push(ReloadedRun {
             keys,
             run_id: row.run_id,
@@ -420,11 +576,34 @@ fn read_session_runs(
             person_wait: row.person_wait,
             posts_results: run_posts_results(row.mode, retried_mode),
             steps,
-            events: events.remove(&row.run_id).unwrap_or_default(),
+            events: run_events,
             drive,
         });
     }
     Ok(runs)
+}
+
+/// The name, nodes and run graph of the version whose stored body is `body`, checked over `kinds`
+/// as a start checks it; the error a crashed ending stores where it no longer reads or checks,
+/// boxed for its size.
+fn run_version_graph(
+    kinds: &NodeKindTable,
+    body: &str,
+    works_in_repository: bool,
+    has_provider: bool,
+) -> Result<
+    (
+        WorkflowName,
+        HashMap<WorkflowNodeId, WorkflowNode>,
+        RunGraph,
+    ),
+    Box<WorkflowStepError>,
+> {
+    let body = parse_stored_workflow_body(body)
+        .map_err(|error| Box::new(uncoded_step_error(error.to_string())))?;
+    let (nodes, graph) = check_run_graph(kinds, &body, works_in_repository, has_provider)
+        .map_err(|refusal| Box::new(refused_error(&refusal)))?;
+    Ok((body.name, nodes, graph))
 }
 
 /// The run row the columns of [`UNFINISHED_RUNS_SQL`] read.

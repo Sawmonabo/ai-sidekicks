@@ -17,6 +17,9 @@
 //! - A workflow run started on a named project works in a workspace of its own on that project's
 //!   mount, which the session's reads leave out.
 //!
+//! - A run-owned workspace whose run never got its row, a start that made no run or one a stop cut,
+//!   is deleted with its `workspace.archived`.
+//!
 //! The writes that share another row's write are not here: a detach's archive and a managed
 //! mount's deletion, a re-attach's move to the new mount, a session purge's delete, and a
 //! run-owned workspace's archive at its run's end and its delete with its run.
@@ -64,6 +67,7 @@ use crate::row_guards::{
     BOUND_ROOT_METADATA_PATH, CHECKOUT_ROOT_METADATA_PATH, COMMON_DIR_METADATA_PATH,
     assert_mode_offered, expect_single_row_changed,
 };
+use crate::run_setup_gates::execution_root::context::run_workspace_delete_sql;
 use crate::trust_envelope::{
     AdmittedExecutionRoot, WorkspaceExecutionRootCandidate, validate_execution_root,
 };
@@ -158,6 +162,14 @@ const SELECT_WORKSPACE_SQL: &str = "SELECT workspace.id, workspace.session_id,
    FROM workspaces AS workspace
    JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
   WHERE workspace.id = @workspace_id";
+
+// The workspace a workflow run owns, with its session.
+const SELECT_RUN_WORKSPACE_SQL: &str =
+    "SELECT id, session_id FROM workspaces WHERE workflow_run_id = @workflow_run_id";
+
+// The deletes of the workspace one workflow run owns, its branch contexts first, then itself.
+static RUN_WORKSPACE_DELETE_SQL: LazyLock<[String; 2]> =
+    LazyLock::new(|| run_workspace_delete_sql("@workflow_run_id"));
 
 /// Why a workspace call failed: a refusal the wire carries, or a failure inside the daemon.
 #[derive(Debug, thiserror::Error)]
@@ -338,6 +350,65 @@ impl WorkspaceService {
             })
             .await?
             .workspace_id)
+    }
+
+    /// Deletes the workspace workflow run `workflow_run_id` owns, with its branch contexts, where
+    /// no run row follows its bind, and appends its `workspace.archived` in the same write; does
+    /// nothing where it owns none. Fails as the read or the write fails.
+    pub async fn discard_run_workspace(
+        &self,
+        workflow_run_id: WorkflowRunId,
+    ) -> Result<(), WorkspaceServiceError> {
+        let owned = self
+            .reads
+            .read::<_, WorkspaceServiceError>(ReadLength::Short, move |connection| {
+                Ok(connection
+                    .prepare_cached(SELECT_RUN_WORKSPACE_SQL)?
+                    .query_row(
+                        named_params! { "@workflow_run_id": workflow_run_id.text().as_str() },
+                        |row| {
+                            Ok((
+                                text_column(row, 0, |text| WorkspaceId::new(&text))?,
+                                text_column(row, 1, |text| SessionId::new(&text))?,
+                            ))
+                        },
+                    )
+                    .optional()?)
+            })
+            .await?;
+        let Some((workspace_id, session_id)) = owned else {
+            return Ok(());
+        };
+        let run_id = text_binding("@workflow_run_id", workflow_run_id.text().as_str());
+        let [branch_contexts, workspace] = &*RUN_WORKSPACE_DELETE_SQL;
+        let delete = |sql: &'static String, expected_row_count| WriteStatement {
+            sql: Cow::Borrowed(sql.as_str()),
+            bindings: StatementBindings::Named(vec![run_id.clone()]),
+            expected_row_count,
+        };
+        let deleted = self
+            .events
+            .emit_workspace_archived(
+                EmitWorkspaceEventInput {
+                    session_id,
+                    workspace_id,
+                    repo_mount_id: None,
+                    actor: None,
+                },
+                SessionEventLinkage {
+                    transactional_prelude: vec![
+                        delete(branch_contexts, None),
+                        delete(workspace, Some(1)),
+                    ],
+                    ..SessionEventLinkage::default()
+                },
+            )
+            .await;
+        match deleted {
+            // Another discard deleted it since the read, and logged its event.
+            Err(error) if error.refused_statement_index().is_some() => Ok(()),
+            ended => ended.map(drop).map_err(WorkspaceServiceError::Append),
+        }
     }
 
     // The bind of `target`, as `bind` says; a run-owned workspace is always new, since its run is.

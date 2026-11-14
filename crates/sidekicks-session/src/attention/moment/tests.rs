@@ -363,18 +363,21 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
 #[case::step_waits_on_an_approval(
     step_event("workflow.phase.suspended", json!({
         "waitCause": "approval", "waitId": WAIT, "logRef": {"kind": "inline", "items": []},
+        "prompt": "Ship?",
     })),
     raise_wait(AttentionWait::Step(step_key()), PendingInput)
 )]
 #[case::step_waits_on_a_form(
     step_event("workflow.phase.suspended", json!({
         "waitCause": "form", "waitId": WAIT, "logRef": {"kind": "inline", "items": []},
+        "prompt": "Notes", "inputSchema": {"type": "object"},
     })),
     raise_wait(AttentionWait::Step(step_key()), PendingInput)
 )]
 #[case::step_waits_on_a_reply(
     step_event("workflow.phase.suspended", json!({
         "waitCause": "reply", "waitId": WAIT, "logRef": {"kind": "inline", "items": []},
+        "prompt": "Why?",
     })),
     raise_wait(AttentionWait::Step(step_key()), PendingInput)
 )]

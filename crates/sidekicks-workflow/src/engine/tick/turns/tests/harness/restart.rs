@@ -185,6 +185,8 @@ impl Harness {
                 Arc::clone(&self.payloads) as Arc<dyn StepPayloadArtifacts>,
             )),
             data_folder: PathBuf::from("/data"),
+            binder: Arc::clone(&self.notices) as Arc<dyn SessionRunBinder>,
+            payloads: Arc::clone(&self.payloads) as Arc<dyn StepPayloadArtifacts>,
         };
         let runs = reloader
             .reload_session(session_id)

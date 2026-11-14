@@ -82,6 +82,7 @@ mod settlement;
 mod write;
 
 pub(crate) use run_events::RunLiveStep;
+pub(crate) use settlement::StoredRunVariable;
 
 /// One run's events and row statements for this turn, in the order handed: each event typed,
 /// with its instant, until the append drafts it, since a readied step adds to an event held.
@@ -533,6 +534,17 @@ impl RunTurnCommit {
             (WorkflowStepStatus::Pending, None),
             false,
         );
+    }
+
+    /// Cancels `step` of a run the restart cannot drive again, standing as `standing`, at `at`: its
+    /// row and `workflow.step.canceled` with no cause, so a rebuild writes the same row.
+    pub(crate) fn canceled_at_restart(
+        &mut self,
+        step: &WorkflowStepKey,
+        at: &WireInstant,
+        standing: (WorkflowStepStatus, Option<WorkflowWaitCause>),
+    ) {
+        self.cancel(step.clone(), at, 0, None, standing, false);
     }
 
     /// Writes `workflow.parallelJoin.branchesCanceled` on `step` at `at`, whose turn canceled

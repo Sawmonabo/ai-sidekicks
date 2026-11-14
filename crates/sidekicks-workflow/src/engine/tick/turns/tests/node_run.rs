@@ -14,7 +14,8 @@ use sidekicks_contracts::workflow::definition::document::{
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::control::WorkflowNodeExecuteScope;
 use sidekicks_contracts::workflow::run::events::WorkflowNodeRun;
-use sidekicks_contracts::workflow::run::step::record::WorkflowPayloadRef;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 
 use super::harness::{Harness, edge, item, large_items, node};
 use crate::definitions::versions::history::WorkflowVersions;
@@ -299,9 +300,12 @@ async fn run_this_node_runs_the_target_on_its_prior_input() {
 /// `A`'s earlier input and output, each stored as an artifact, are stored again under `A`'s
 /// earlier step in this run's session when the earlier run lives in another session, and its refs
 /// kept as they are when both share the session; `A`'s skip records them and `B` runs on its
-/// items either way, with no other payload written. Mutations: in `store_in_session`, keep the
-/// earlier refs whatever their session (no copy is written); store no input copy (`A`'s input
-/// stays the other session's).
+/// items either way, with no other payload written. A restart then deletes only the payload a
+/// start stored under a run a stop left with no row, never a copy or an original a record names.
+/// Mutations: in `store_in_session`, keep the earlier refs whatever their session (no copy is
+/// written); store no input copy (`A`'s input stays the other session's); the reload's check of
+/// what names a payload dropped (the copies are deleted); its payload sweep dropped (the stranded
+/// payload stays).
 #[rstest]
 #[case::another_session(false)]
 #[case::the_same_session(true)]
@@ -382,5 +386,32 @@ async fn a_reused_payload_of_another_session_is_stored_again(#[case] is_same_ses
     assert_eq!(
         column(&harness, "B", "status").as_deref(),
         Some("succeeded")
+    );
+
+    let stranded_key = WorkflowStepKey {
+        workflow_run_id: WorkflowRunId::new("019a2b3c-0000-7000-8000-00000000c0de")
+            .expect("a run id no row holds"),
+        ..earlier_key("T", 0)
+    };
+    let stranded = write_step_payload(
+        harness.payloads.as_ref(),
+        this_session,
+        &stranded_key,
+        &large_items(),
+    )
+    .await
+    .expect("the stranded payload is stored");
+    let WorkflowPayloadRef::Artifact {
+        artifact_id: stranded_id,
+        ..
+    } = stranded
+    else {
+        panic!("the stranded payload is an artifact");
+    };
+    harness.restart().await;
+    assert_eq!(
+        harness.payloads.deletes(),
+        [stranded_id],
+        "only the payload nothing names is deleted"
     );
 }

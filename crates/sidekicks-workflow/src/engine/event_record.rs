@@ -188,6 +188,8 @@ pub(crate) enum EngineFault {
     ResumeUnreadable,
     /// A wait the restart took back found its question unread or gone, or its agent run gone.
     WaitNotReattached,
+    /// The run's session could not leave a tree removed while the run worked in it.
+    RemovedTreeSweepFailed,
 }
 
 /// An intent recorded and not yet answered; its outcome names it by `sequence`.
@@ -479,6 +481,11 @@ impl RunEngineRecord {
                 &mut line,
                 "waitNotReattached",
                 "The step's wait could not be taken back after the restart.",
+            ),
+            EngineFault::RemovedTreeSweepFailed => says(
+                &mut line,
+                "removedTreeSweepFailed",
+                "The session could not leave a tree removed while the run worked in it.",
             ),
         }
         line.insert("error".to_owned(), json!(error_chain(error)));

@@ -101,8 +101,8 @@ fn ask_cause(ask: &PersonAsk) -> WorkflowWaitCause {
 }
 
 /// The `workflow.phase.suspended` of `step` in the session `session_id`, waiting on `ask` as
-/// `opened` opened it: the arm `ask` names, carrying the wait's id, its deadline and `log_ref`, the
-/// log the step wrote before it waited.
+/// `opened` opened it: the arm `ask` names, carrying the wait's id, its deadline, `log_ref`, the
+/// log the step wrote before it waited, and what `ask` asks, so a restart can ask it again.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn suspended_payload(
     session_id: SessionId,
@@ -119,7 +119,7 @@ pub(crate) fn suspended_payload(
     let wait_id = opened.wait_id;
     let log_ref = log_ref.clone();
     match ask {
-        PersonAsk::Approval { .. } => WorkflowPhaseSuspendedPayload::Approval {
+        PersonAsk::Approval { prompt } => WorkflowPhaseSuspendedPayload::Approval {
             session_id,
             workflow_run_id,
             node_id,
@@ -130,8 +130,14 @@ pub(crate) fn suspended_payload(
             wait_deadline_at,
             wait_id,
             log_ref,
+            run_variables_ref: None,
+            prompt: prompt.clone(),
+            input_schema: None,
         },
-        PersonAsk::Form { .. } => WorkflowPhaseSuspendedPayload::Form {
+        PersonAsk::Form {
+            prompt,
+            input_schema,
+        } => WorkflowPhaseSuspendedPayload::Form {
             session_id,
             workflow_run_id,
             node_id,
@@ -142,8 +148,11 @@ pub(crate) fn suspended_payload(
             wait_deadline_at,
             wait_id,
             log_ref,
+            run_variables_ref: None,
+            prompt: prompt.clone(),
+            input_schema: input_schema.clone(),
         },
-        PersonAsk::Reply { .. } => WorkflowPhaseSuspendedPayload::Reply {
+        PersonAsk::Reply { prompt } => WorkflowPhaseSuspendedPayload::Reply {
             session_id,
             workflow_run_id,
             node_id,
@@ -154,6 +163,9 @@ pub(crate) fn suspended_payload(
             wait_deadline_at,
             wait_id,
             log_ref,
+            run_variables_ref: None,
+            prompt: prompt.clone(),
+            input_schema: None,
         },
     }
 }

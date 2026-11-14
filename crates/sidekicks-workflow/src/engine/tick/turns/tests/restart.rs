@@ -309,6 +309,44 @@ async fn a_held_step_is_held_again_and_admitted_by_the_new_loop() {
     assert_rebuilds(&harness).await;
 }
 
+/// A run whose version no longer reads at the restart ends crashed, its waiting step canceled on a
+/// `workflow.step.canceled` of its own, so a rebuild from the log writes the rows the ending wrote.
+/// Mutations: the unrunnable ending's cancel written without its event (no `workflow.step.canceled`
+/// and the rebuilt step differs); the cancel of the run's steps dropped (`A` stays `waiting`).
+#[tokio::test]
+async fn an_unrunnable_run_cancels_its_steps_on_their_own_events() {
+    let mut harness = Harness::new(None).await;
+    harness
+        .start(
+            vec![
+                node("T", "test.trigger", 0, None),
+                node("A", "test.ask", 1, None),
+            ],
+            &[edge("T", "A", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| step_column(rows, "A", "status").as_deref() == Some("waiting"))
+        .await;
+    harness
+        .rows
+        .execute("UPDATE workflow_versions SET definition_body = '{}'", [])
+        .expect("the test breaks the run's version");
+
+    harness.restart().await;
+    harness
+        .wait_until(|rows| run_status(rows) == "crashed")
+        .await;
+    assert_eq!(harness.status("A").as_deref(), Some("canceled"));
+    assert_eq!(
+        step_events(&harness, "workflow.step.canceled", "A").len(),
+        1
+    );
+    assert_rebuilds(&harness).await;
+}
+
 /// The payloads of the stored events of `event_type`, read on `rows`.
 fn step_events_in(rows: &Connection, event_type: &str) -> Vec<String> {
     let mut statement = rows

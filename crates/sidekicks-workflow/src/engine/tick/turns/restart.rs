@@ -3,9 +3,10 @@
 //! next batch, so the loop's first turn writes every row the sweep moves on an event of its own.
 //! A step that was running fails as crashed and parks its run; a step winding down settles
 //! canceled; a held step is held again, or canceled where the sweep parks its run; a waiting step
-//! keeps its wait; a pending step is dispatched again where its run goes on. A run with no step
+//! keeps its wait, asked again where its ask is gone; a pending step is dispatched again where its
+//! run goes on, a retry attempt once what is left of its wait has passed. A run with no step
 //! waiting, parked or held ends crashed, its pending steps canceled, and a run whose version or log
-//! no longer reads ends crashed with the reason.
+//! no longer reads ends crashed with the reason, each of its steps canceled on an event of its own.
 #![cfg_attr(
     not(test),
     expect(
@@ -18,7 +19,9 @@ mod replay;
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
+use sidekicks_contracts::question::QuestionWaitOutcome;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
@@ -28,26 +31,22 @@ use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_std::scheduler::armed_instant::InstantJob as _;
 
 use self::replay::{ReplayedRun, replay_run, replayed_epoch, reused_seeds};
-use super::EngineTick;
 use super::starting::{seeded_run, trigger_inputs};
-use crate::engine::event_record::EngineFault;
+use super::{EngineTick, arm_retry};
+use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome};
 use crate::engine::start::{ReloadedRun, ReloadedScope, ReloadedStep};
 use crate::engine::tick::commit::{RunEnding, RunLiveStep, RunTurnCommit};
 use crate::engine::tick::live_runs::{LiveRun, LiveStep, ParkCanceledStep};
 use crate::engine::tick::run_status::{RunPersonWait, RunStepCounts};
-use crate::engine::tick::step_failure::{RunStop, crashed_step_failure};
+use crate::engine::tick::step_failure::{RunStop, crashed_step_failure, step_retry};
 use crate::engine::tick::walk::WalkReady;
 use crate::engine::tick::{ParkedAgentRun, StepReport, StepReportKind, StepSettlement};
+use crate::engine::waits::OpenedPersonWait;
 use crate::kinds::step_context::StepRecords;
-use crate::kinds::uncoded_step_error;
+use crate::kinds::{PersonAsk, uncoded_step_error};
 use crate::runs::gate_resolution::RunEventKeys;
 use crate::runs::step_payload::read_step_payload;
 use crate::secrets::redaction::RunRedaction;
-
-/// The question a form's or a reply's wait asked is no longer open, so its answer cannot land.
-#[derive(Debug, thiserror::Error)]
-#[error("no open question holds the wait")]
-struct QuestionNotOpen;
 
 /// A reloaded run that cannot be driven again: what its crashed ending writes.
 struct UnrunnableRun<'run> {
@@ -103,6 +102,7 @@ impl EngineTick {
             graph,
             covered,
             sealed,
+            repins,
         } = match drive {
             Ok(reloaded_scope) => reloaded_scope,
             Err(error) => return self.end_unrunnable(unrunnable, error).await,
@@ -111,7 +111,7 @@ impl EngineTick {
         let replayed = match reused_seeds(&events, scope.session_id, &*self.payloads).await {
             Ok(reused) => {
                 let live = seeded_run(scope, graph, (covered, sealed), reused, record);
-                replay_run(live, &events, &*self.payloads).await
+                replay_run(live, &events, repins, &*self.payloads).await
             }
             Err(reason) => Err(reason),
         };
@@ -211,6 +211,9 @@ impl EngineTick {
             park_canceled,
             winding_down,
             last_hold_reports,
+            retried_at,
+            mut parked_records,
+            mut asks,
             newest_sequence,
         } = replayed;
         let run_id = live.scope.run_id;
@@ -254,7 +257,11 @@ impl EngineTick {
                 }
                 WorkflowStepStatus::Pending => pending.push(live_step.step.clone()),
                 WorkflowStepStatus::Waiting => {
-                    if self.take_wait_back(&mut live, &mut live_step, row).await {
+                    let stored = (parked_records.remove(&index), asks.remove(&index));
+                    if self
+                        .take_wait_back(&mut live, &mut live_step, row, stored)
+                        .await
+                    {
                         is_waiting = true;
                     } else {
                         crashing.push(live_step.step.clone());
@@ -331,7 +338,25 @@ impl EngineTick {
                     .push(canceled_report(step, now.clone(), None));
             }
         } else if !is_parking {
-            live.held.dispatches.extend(pending);
+            // A retry attempt waits out what is left of its wait, a past one dispatched at once.
+            for step in pending {
+                let left = retried_at.get(&step.execution_index.get()).map_or(
+                    Duration::ZERO,
+                    |readied_at| {
+                        let node = live
+                            .scope
+                            .nodes
+                            .get(&step.node_id)
+                            .expect("a live step's node is one of the run's");
+                        retry_wait_left(readied_at, step_retry(node).wait)
+                    },
+                );
+                if left.is_zero() {
+                    live.held.dispatches.push(step);
+                } else {
+                    arm_retry(&mut self.retries, step, left, live.scope.cancel.clone());
+                }
+            }
         }
         live.follow_cap(&self.deadlines, false);
         let is_batched = !live.next_batch.is_empty() || !live.held.dispatches.is_empty();
@@ -341,16 +366,18 @@ impl EngineTick {
         }
     }
 
-    /// Takes the wait of `live_step`, a waiting step of `live`, back from `row`: an account wait's
-    /// agent run, with its resume where it reads, and a form's or a reply's open question; a wait
-    /// whose resume does not read keeps its run off the clock, and a question no longer open is
-    /// recorded. Answers `false` where the agent run is not there to take back, which the sweep
-    /// fails as crashed.
+    /// Takes the wait of `live_step`, a waiting step of `live`, back from `row` and what its
+    /// suspension `stored`: an account wait's agent run with the records it kept, its resume where
+    /// it reads, and a form's or a reply's open question; a wait whose resume does not read keeps
+    /// its run off the clock, a form or reply whose question is no longer open is asked again, and
+    /// an approval's card is raised again, which a card still standing ignores. Answers `false`
+    /// where the agent run is not there to take back, which the sweep fails as crashed.
     async fn take_wait_back(
         &self,
         live: &mut LiveRun,
         live_step: &mut LiveStep,
         row: &ReloadedStep,
+        (records, ask): (Option<StepRecords>, Option<(PersonAsk, WireInstant)>),
     ) -> bool {
         let step = live_step.step.clone();
         match row.wait_cause {
@@ -369,7 +396,7 @@ impl EngineTick {
                     Ok(run) => {
                         live_step.parked_agent_run = Some(ParkedAgentRun {
                             run,
-                            records: StepRecords::default(),
+                            records: records.unwrap_or_default(),
                         });
                         true
                     }
@@ -392,15 +419,7 @@ impl EngineTick {
                     .await;
                 match reattached {
                     Ok(Some(_)) => {}
-                    Ok(None) => {
-                        live.record
-                            .fault(
-                                Some(&step),
-                                EngineFault::WaitNotReattached,
-                                &QuestionNotOpen,
-                            )
-                            .await;
-                    }
+                    Ok(None) => self.ask_again(live, &step, row, ask).await,
                     Err(error) => {
                         live.record
                             .fault(Some(&step), EngineFault::WaitNotReattached, error.as_ref())
@@ -409,12 +428,46 @@ impl EngineTick {
                 }
                 true
             }
-            Some(WorkflowWaitCause::Approval | WorkflowWaitCause::Chain) | None => true,
+            Some(WorkflowWaitCause::Approval) => {
+                self.ask_again(live, &step, row, ask).await;
+                true
+            }
+            Some(WorkflowWaitCause::Chain) | None => true,
         }
     }
 
-    /// Ends `run`, which cannot be driven again, crashed with `error` in one write that cancels its
-    /// unsettled steps; a refused write leaves its rows for the next restart, off the clock.
+    /// Asks the person again what `step`'s wait asks, its `ask` as its suspension stored it, under
+    /// the wait id and deadline `row` stores, writing nothing: the wait's `Waiting on you` was
+    /// posted when it began. A failed ask is recorded and the wait stays.
+    async fn ask_again(
+        &self,
+        live: &LiveRun,
+        step: &WorkflowStepKey,
+        row: &ReloadedStep,
+        ask: Option<(PersonAsk, WireInstant)>,
+    ) {
+        let (ask, started_at) = ask.expect("a person's wait's suspension stores what it asks");
+        let opened = OpenedPersonWait {
+            wait_id: row.wait_id.expect("a person's wait names its wait"),
+            cause: row.wait_cause.expect("a waiting step names its cause"),
+            started_at,
+            deadline_at: row.wait_deadline_at.clone(),
+        };
+        let asked = self
+            .person_waits
+            .ask_person(&live.scope, step, &opened, &ask, None)
+            .await;
+        if let Err(error) = asked {
+            live.record
+                .fault(Some(step), EngineFault::WaitNotReattached, error.as_ref())
+                .await;
+        }
+    }
+
+    /// Ends `run`, which cannot be driven again, crashed with `error` in one write that cancels
+    /// each unsettled step on a `workflow.step.canceled` of its own and settles the question a
+    /// form's or a reply's wait holds, then withdraws each approval's card; a refused write leaves
+    /// its rows for the next restart, off the clock.
     async fn end_unrunnable(&mut self, run: UnrunnableRun<'_>, error: WorkflowStepError) {
         let UnrunnableRun {
             keys,
@@ -445,14 +498,47 @@ impl EngineTick {
             person_wait,
             Arc::clone(&self.payloads),
         );
+        let now = WireInstant::now();
+        let mut cards = Vec::new();
+        for row in &unsettled {
+            commit.canceled_at_restart(&row.step, &now, (row.status, row.wait_cause));
+            let Some(wait_id) = row.wait_id else {
+                continue;
+            };
+            match row.wait_cause {
+                Some(WorkflowWaitCause::Form | WorkflowWaitCause::Reply) => {
+                    commit.settle_wait_question(&wait_id, QuestionWaitOutcome::Ended, &now);
+                }
+                Some(WorkflowWaitCause::Approval) => cards.push((row.step.clone(), wait_id)),
+                Some(WorkflowWaitCause::Account | WorkflowWaitCause::Chain) | None => {}
+            }
+        }
         commit.end(RunEnding::Crashed { error: Some(error) }, posts_results);
-        let live_steps = unsettled.iter().map(|row| RunLiveStep {
-            step: &row.step,
-            status: row.status,
-            wait_cause: row.wait_cause,
-        });
-        match commit.append(&self.appender, &record, live_steps).await {
-            Ok(_) => self.binder.note_context_changed(session_id),
+        match commit
+            .append(
+                &self.appender,
+                &record,
+                std::iter::empty::<RunLiveStep<'_>>(),
+            )
+            .await
+        {
+            Ok(_) => {
+                self.binder.note_context_changed(session_id);
+                if let Err(error) = self.binder.sweep_released_run(session_id).await {
+                    let fault = EngineFault::RemovedTreeSweepFailed;
+                    record.fault(None, fault, &error).await;
+                }
+                for (step, wait_id) in cards {
+                    let intent = EngineIntent::WithdrawingCard { wait_id };
+                    let pending = record.intent(Some(&step), intent).await;
+                    let outcome = match self.person_waits.cards.withdraw(session_id, wait_id).await
+                    {
+                        Ok(()) => EngineOutcome::Done,
+                        Err(_failed) => EngineOutcome::Failed { code: None },
+                    };
+                    record.outcome(pending, outcome).await;
+                }
+            }
             Err(failure) => {
                 self.deadlines.skip_run(run_id);
                 self.dropped_waits
@@ -492,6 +578,15 @@ fn canceled_report(
             cancellation_reason: None,
         }),
     }
+}
+
+/// What is left at the restart of a retry's `wait` begun at `readied_at`, zero once it has passed.
+fn retry_wait_left(readied_at: &WireInstant, wait: Duration) -> Duration {
+    let elapsed = readied_at
+        .timestamp()
+        .and_then(|at| Duration::try_from(jiff::Timestamp::now().duration_since(at)).ok())
+        .unwrap_or(Duration::ZERO);
+    wait.saturating_sub(elapsed)
 }
 
 /// The error a run's crashed ending stores where its log could not be followed back, saying

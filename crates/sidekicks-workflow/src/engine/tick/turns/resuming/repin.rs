@@ -43,19 +43,19 @@ const HELD_NODES_SQL: &str = "SELECT DISTINCT node_id FROM workflow_steps
 /// A run's move to another version of its workflow as its Resume takes it: the version, its name,
 /// its nodes, the trigger's among them, its run graph, and the run's steps its rebuilt walk
 /// keeps.
-pub(super) struct RepinTarget {
+pub(in crate::engine::tick::turns) struct RepinTarget {
     /// The version the run joins.
-    pub(super) workflow_version_id: WorkflowVersionId,
+    pub(in crate::engine::tick::turns) workflow_version_id: WorkflowVersionId,
     /// The workflow's name in that version.
-    pub(super) workflow_name: WorkflowName,
+    pub(in crate::engine::tick::turns) workflow_name: WorkflowName,
     /// The version's nodes by id, the trigger included.
-    pub(super) nodes: HashMap<WorkflowNodeId, WorkflowNode>,
+    pub(in crate::engine::tick::turns) nodes: HashMap<WorkflowNodeId, WorkflowNode>,
     /// The version's run graph.
-    pub(super) graph: Arc<RunGraph>,
+    pub(in crate::engine::tick::turns) graph: Arc<RunGraph>,
     /// The places of the graph the rebuilt walk covers, by place.
-    pub(super) covered: Arc<[bool]>,
+    pub(in crate::engine::tick::turns) covered: Arc<[bool]>,
     /// The run's steps the rebuilt walk settles again under their own keys, in execution order.
-    pub(super) kept: Vec<KeptStep>,
+    pub(in crate::engine::tick::turns) kept: Vec<KeptStep>,
 }
 
 /// Why a re-pin's reads did not finish; the run is left as it was.

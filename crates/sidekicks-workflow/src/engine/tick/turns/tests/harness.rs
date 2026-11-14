@@ -48,7 +48,7 @@ use crate::engine::ports::noticed_sessions::NoticedSessions;
 use crate::engine::ports::run_limits::ScriptedRunLimits;
 use crate::engine::ports::scripted_agent_runs::ScriptedAgentRunner;
 use crate::engine::ports::{EngineRecordSink, KeptEngineRecords};
-use crate::engine::start::{StartedNodeRun, StartedRun, StartedTrigger};
+use crate::engine::start::{StartedNodeRun, StartedRun, StartedTrigger, started_pin_data};
 use crate::engine::tick::commit::SessionEventId;
 use crate::engine::tick::turns::ending::RunCancelRefusal;
 use crate::engine::tick::turns::tests::harness::ports::{
@@ -349,6 +349,20 @@ impl Harness {
             .as_ref()
             .map(|started| started.input_ref.clone());
         let node_run_record = node_run.as_ref().map(|(node_run, _)| node_run.clone());
+        let node_run = match node_run {
+            Some((node_run, plan)) => {
+                let mut started = StartedNodeRun::from_plan(&graph, plan, self.payloads.as_ref())
+                    .await
+                    .expect("the reused outputs read back");
+                started.sealed = Some(graph.place(&node_run.node_id));
+                started
+                    .store_in_session(self.payloads.as_ref(), base.session_id, &mut Vec::new())
+                    .await
+                    .expect("the reused payloads are stored in the run's session");
+                Some(started)
+            }
+            None => None,
+        };
         let started_by = match base.mode {
             WorkflowRunMode::Manual => WorkflowStartedBy::User {
                 device_id: DeviceId::new("device-1".to_owned()).expect("a device id"),
@@ -392,6 +406,11 @@ impl Harness {
                 provider: None,
                 node_run: node_run_record,
                 retried_workflow_run_id: None,
+                pin_data: started_pin_data(&base.pins),
+                reused_steps: node_run
+                    .as_ref()
+                    .map(StartedNodeRun::started_reused_steps)
+                    .unwrap_or_default(),
                 input_ref: trigger_input,
             }),
         )
@@ -417,20 +436,6 @@ impl Harness {
             ..test_run_scope(base.mode, nodes)
         };
         let cancel = scope.cancel.clone();
-        let node_run = match node_run {
-            Some((node_run, plan)) => {
-                let mut started = StartedNodeRun::from_plan(&graph, plan, self.payloads.as_ref())
-                    .await
-                    .expect("the reused outputs read back");
-                started.sealed = Some(graph.place(&node_run.node_id));
-                started
-                    .store_in_session(self.payloads.as_ref(), base.session_id, &mut Vec::new())
-                    .await
-                    .expect("the reused payloads are stored in the run's session");
-                Some(started)
-            }
-            None => None,
-        };
         let started = StartedRun {
             scope: Arc::new(scope),
             graph: Arc::new(graph),

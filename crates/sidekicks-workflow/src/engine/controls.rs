@@ -343,6 +343,13 @@ impl WorkflowRunControls {
             match self.appender.append(draft, linkage).await {
                 Ok(receipt) => {
                     self.binder.note_context_changed(session_id);
+                    if let Err(error) = self.binder.sweep_released_run(session_id).await {
+                        tracing::warn!(
+                            workflow_run_id = %workflow_run_id,
+                            error = &error as &(dyn Error + 'static),
+                            "a canceled run's session did not leave a removed tree"
+                        );
+                    }
                     for wait_id in withdrawn_cards {
                         if let Err(error) = self.cards.withdraw(session_id, wait_id).await {
                             tracing::warn!(

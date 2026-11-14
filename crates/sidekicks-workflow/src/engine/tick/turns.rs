@@ -41,6 +41,7 @@ use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBin
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::{Id, JoinError, JoinSet};
+use tokio_util::sync::CancellationToken;
 
 use super::commit::{ReportedStep, RunTurnCommit, RunTurnCommitFailure};
 use super::dispatch::{StepDispatch, fill_step_failure};
@@ -629,16 +630,12 @@ impl EngineTick {
                             inputs: inputs.clone(),
                             input_ref: input_ref.clone(),
                         }),
-                        ReadiedNext::Retry(wait) => {
-                            let cancel = live.scope.cancel.clone();
-                            let attempt = ready.step.clone();
-                            self.retries.spawn(async move {
-                                tokio::select! {
-                                    () = tokio::time::sleep(wait) => Some(attempt),
-                                    () = cancel.cancelled() => None,
-                                }
-                            });
-                        }
+                        ReadiedNext::Retry(wait) => arm_retry(
+                            &mut self.retries,
+                            ready.step.clone(),
+                            wait,
+                            live.scope.cancel.clone(),
+                        ),
                         ReadiedNext::Fail(reports) => live.next_batch.extend(reports),
                         ReadiedNext::Canceled => continue,
                     }
@@ -662,6 +659,11 @@ impl EngineTick {
                 self.needs_deadline_read |= std::mem::take(&mut live.needs_deadline_read);
                 if let Some(ending_event_id) = ending_event_id {
                     self.binder.note_context_changed(live.scope.session_id);
+                    if let Err(error) = self.binder.sweep_released_run(live.scope.session_id).await
+                    {
+                        let fault = EngineFault::RemovedTreeSweepFailed;
+                        live.record.fault(None, fault, &error).await;
+                    }
                     for reply in live.cancel_replies.drain(..) {
                         let _unheard = reply.send(Ok(ending_event_id.clone()));
                     }
@@ -861,6 +863,22 @@ fn is_undispatched(live_step: &LiveStep) -> bool {
         live_step.status,
         WorkflowStepStatus::Pending | WorkflowStepStatus::WaitingMemory
     ) && live_step.cancel.is_none()
+}
+
+/// Arms on `retries` the timer that answers `attempt` once `wait` has passed, or nothing once its
+/// run's `cancel` fires first.
+fn arm_retry(
+    retries: &mut JoinSet<Option<WorkflowStepKey>>,
+    attempt: WorkflowStepKey,
+    wait: Duration,
+    cancel: CancellationToken,
+) {
+    retries.spawn(async move {
+        tokio::select! {
+            () = tokio::time::sleep(wait) => Some(attempt),
+            () = cancel.cancelled() => None,
+        }
+    });
 }
 
 /// The attempt a retry's `timer` answers come due, `None` when its run was canceled first. A

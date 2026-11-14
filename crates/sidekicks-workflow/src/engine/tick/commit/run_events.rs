@@ -119,25 +119,37 @@ impl RunTurnCommit {
     /// Writes a person's Resume at `at` as `workflow.run.resumed` opening the run's execution
     /// `epoch`, lifting `lifted_parks` failed parks; the steps it runs again ride it, and the
     /// turn's status move fills in where the run picks up. Where the Resume moves the run to the
-    /// version `repinned_to`, the event names the version it left and that one, the run's row
-    /// takes it, and the event and every later one of the turn name it. Answers the event's index.
+    /// version `repinned_to`, keeping the steps beside it, the event names the version it left,
+    /// that one and the kept steps, the run's row takes it, and the event and every later one of
+    /// the turn name it. Answers the event's index.
     pub(crate) fn resume_run(
         &mut self,
         at: &WireInstant,
         epoch: WorkflowRunEpoch,
         lifted_parks: usize,
-        repinned_to: Option<WorkflowVersionId>,
+        repinned_to: Option<(WorkflowVersionId, &[WorkflowStepKey])>,
     ) -> usize {
         for _ in 0..lifted_parks {
             self.counts.unparked();
         }
         self.epoch = epoch;
         let mut repinned_from = None;
-        if let Some(joined) = repinned_to {
+        let mut joined_version = None;
+        let mut kept_steps = Vec::new();
+        if let Some((joined, kept)) = repinned_to {
             repinned_from = Some(self.keys.workflow_version_id);
+            joined_version = Some(joined);
             self.keys.workflow_version_id = joined;
             self.statements
                 .push(run_version_statement(self.run_id, joined));
+            kept_steps = kept
+                .iter()
+                .map(|step| WorkflowResumedStep {
+                    node_id: step.node_id.clone(),
+                    attempt: step.attempt,
+                    execution_index: step.execution_index,
+                })
+                .collect();
         }
         self.push(
             at,
@@ -151,7 +163,8 @@ impl RunTurnCommit {
                     pending_gates: Vec::new(),
                 },
                 repinned_from_workflow_version_id: repinned_from,
-                repinned_to_workflow_version_id: repinned_to,
+                repinned_to_workflow_version_id: joined_version,
+                kept_steps: kept_steps,
                 readied: Vec::new(),
             )),
         );
@@ -323,6 +336,7 @@ impl RunTurnCommit {
                 resumption_point: self.resumption_point(live_steps),
                 repinned_from_workflow_version_id: None,
                 repinned_to_workflow_version_id: None,
+                kept_steps: Vec::new(),
                 readied: Vec::new(),
             )),
             RunStatusChange::FailedPark => SessionEvent::WorkflowRunFailed(run_payload!(

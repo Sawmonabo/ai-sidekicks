@@ -515,8 +515,9 @@ interface WorkflowRunEventPayload {
   workflowVersionId: string;
 }
 // workflow.run.started — how the run was started and by whom, the trigger node that started it, its
-// place in its chain, the node a node run targets, the run a retry retries and the input its
-// trigger step starts on, so the run row rebuilds from events. A payload with none of `inputRef`,
+// place in its chain, the node a node run targets, the run a retry retries, the pins it honors for
+// its whole life, the earlier steps it replays as its start stored them in its session, and the
+// input its trigger step starts on, so the run row and its walk rebuild from events. A payload with none of `inputRef`,
 // `nodeRun` and `retriedWorkflowRunId` is refused, and so is one whose `retriedWorkflowRunId` is
 // present on a run whose mode is not `retry` or absent on one whose mode is.
 interface WorkflowRunStartedPayload extends WorkflowRunEventPayload {
@@ -527,7 +528,19 @@ interface WorkflowRunStartedPayload extends WorkflowRunEventPayload {
   provider?: ProviderId; // the provider the run's command steps use; absent when the workflow names none
   nodeRun?: WorkflowNodeRun; // the node a node run (workflow.node.execute) targets; absent on a whole run
   retriedWorkflowRunId?: WorkflowRunId; // the run a retry (workflow.run.retry) retries; present exactly in `retry` mode
+  pinData?: Record<string, WorkflowPinnedItem[]>; // by node id, the pins as the run started; absent where it honors none
+  reusedSteps?: WorkflowStartedReusedStep[]; // the earlier steps a node run or a retry replays; absent where it replays none
   inputRef?: WorkflowPayloadRef; // absent exactly on a node run or a retry that reuses its trigger's step, which writes no trigger row
+}
+// One earlier step a node run or a retry replays in its node's place, its payloads as stored in the
+// run's own session.
+interface WorkflowStartedReusedStep {
+  nodeId: WorkflowNodeId;
+  reusedFrom: { step: WorkflowStepKey; workflowVersionId: string };
+  inputRef: WorkflowPayloadRef;
+  outputRef: WorkflowPayloadRef;
+  outputItemCounts: number[];
+  pinHash?: string; // only where the earlier step recorded a pin
 }
 // The node a node run targets and what it covers, as its started event and its run row name it.
 type WorkflowNodeRun = { nodeId: WorkflowNodeId; scope: "node" | "fromHere" };
@@ -600,7 +613,8 @@ interface WorkflowTriggerFiredPayload {
 // none; a restart's loader reads the run's newest epoch from it and counts that epoch's pauses for
 // the next pause number. On an
 // accepted re-pin the event's own workflowVersionId, and every event after it, names the version
-// joined, and the run row's workflow_version_id moves to it in the same write.
+// joined, and the run row's workflow_version_id moves to it in the same write; `keptSteps` lists the
+// run's settled steps that version keeps, so a restart rebuilds the run's walk on it.
 type WorkflowRunResumedPayload = WorkflowRunEventPayload & {
   epoch: number;
   resumptionPoint: {
@@ -608,6 +622,7 @@ type WorkflowRunResumedPayload = WorkflowRunEventPayload & {
     pendingGates: WorkflowNodeId[];
   };
   readied: WorkflowReadiedStep[];
+  keptSteps?: Array<{ nodeId: WorkflowNodeId; attempt: number; executionIndex: number }>; // only on an accepted re-pin
 } & WorkflowVersionRepin;
 // workflow.run.canceled — appended in the same unit of work as the status write, so a projection
 // rebuild cannot apply the last suspension again and resurrect a canceled run. `reason` is the person's own,
@@ -665,15 +680,26 @@ interface WorkflowPhaseFailedPayload extends WorkflowStepEventPayload {
 // wait armed one; absent, only the person resumes it. A wait on a person carries `waitId`, the wait
 // the person's answer must name to settle it, and `waitDeadlineAt`, the instant it gives up, where
 // the node's `Timeout` armed one; the step's row keeps both as truth. It also carries `logRef`, the
-// log the step wrote before it waited. A `chain` wait names none of these.
+// log the step wrote before it waited, and `prompt`, what it asks, with a form's `inputSchema`, so a
+// restart that finds the ask gone asks again. An `account` wait carries the log and the run
+// variables its step recorded before it waited, so its settlement after a restart keeps them. A
+// `chain` wait names none of these.
 type WorkflowPhaseSuspendedPayload = WorkflowStepEventPayload &
   (
-    | { waitCause: "account"; providerAccountId: ProviderAccountId; resumeAt?: string } // RFC 3339 UTC
+    | {
+        waitCause: "account";
+        providerAccountId: ProviderAccountId;
+        resumeAt?: string; // RFC 3339 UTC
+        logRef?: WorkflowPayloadRef; // absent where the step wrote no log
+        runVariablesRef?: WorkflowPayloadRef; // absent where the step set none
+      }
     | {
         waitCause: "approval" | "form" | "reply";
         waitId: string;
         waitDeadlineAt?: string; // RFC 3339 UTC
         logRef: WorkflowPayloadRef;
+        prompt: string;
+        inputSchema?: Record<string, unknown>; // the JSON Schema of the answer's fields; present exactly on a form
       }
     | { waitCause: "chain" }
   );
@@ -687,8 +713,8 @@ interface WorkflowPhaseWaitingOnMemoryPayload extends WorkflowStepEventPayload {
 }
 // The step boundaries. A started event names the input it ran on, on an agent step whose account
 // cannot run its run's level the level it runs at in its place, and on a step that gave its node's
-// pinned items in a manual run the content hash of that pin; a finished event the output and log it
-// produced, how many items each of its main outputs holds, plus its cost where a provider was
+// pinned items in a manual run the content hash of that pin; a finished event the output, log and
+// run variables it produced, how many items each of its main outputs holds, plus its cost where a provider was
 // billed; a failed event the error, the item index that failed, the words typed with the `Decline`
 // that failed a command step, its log and, where its node's `onError` passed its input on, that
 // output and its counts; a canceled event the step alone; and a skipped event why it was skipped,
@@ -705,6 +731,7 @@ interface WorkflowStepStartedPayload extends WorkflowStepEventPayload {
 interface WorkflowStepCompletedPayload extends WorkflowStepEventPayload {
   outputRef: WorkflowPayloadRef;
   logRef: WorkflowPayloadRef;
+  runVariablesRef?: WorkflowPayloadRef; // the run variables the step set, one item each; absent for none
   cost?: WorkflowCost;
   outputItemCounts: number[]; // per main output in output order, the error output last: where each
   // list ends in the items outputRef stores joined

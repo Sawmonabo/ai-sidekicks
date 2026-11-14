@@ -205,14 +205,13 @@ impl WorkflowRunStarter {
             first_mode: source.first_mode,
         };
         let outcome = self
-            .start_checked(start, checked, Some(&retried), None)
+            .start_checked(start, checked, Some(&retried), (None, Some(node_run)))
             .await?;
-        let mut run = match outcome {
+        let run = match outcome {
             WorkflowStartOutcome::Started(run) => Some(run),
             WorkflowStartOutcome::HeldOnChain { .. } => None,
         }
         .expect("a retry starts a chain of its own, which never holds it");
-        run.node_run = Some(node_run);
         Ok(run)
     }
 }

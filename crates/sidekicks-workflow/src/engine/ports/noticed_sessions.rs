@@ -64,4 +64,12 @@ impl SessionRunBinder for NoticedSessions {
     fn note_context_changed(&self, session_id: SessionId) {
         lock(&self.0).push(session_id);
     }
+
+    // It binds nothing, so no session of it works in a removed tree.
+    fn sweep_released_run(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), RunSetupGateError>> {
+        Box::pin(async { Ok(()) })
+    }
 }

@@ -17,7 +17,7 @@ use crate::wire::Never;
 use crate::wire::id::UuidTextForm;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::NonEmptyText;
+use crate::wire::text::{ComposedText, NonEmptyText};
 use crate::workflow::definition::document::{
     WorkflowContentHash, WorkflowNodeId, WorkflowVersionId,
 };
@@ -117,7 +117,8 @@ workflow_step_event! {
 }
 
 workflow_step_event! {
-    /// `workflow.step.completed`: the output and log the step produced, and its cost if billed.
+    /// `workflow.step.completed`: the output, log and run variables the step produced, and its
+    /// cost if billed.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -139,6 +140,16 @@ workflow_step_event! {
         /// How many items each main output holds, in output order, the error output last where
         /// the node has one: the boundaries of the output lists `outputRef` stores joined.
         pub output_item_counts: Vec<SafeInt<0>>,
+        /// The run variables the step set, one item each, which the run's later steps read;
+        /// absent where it set none.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowPayloadRef")]
+        #[garde(dive)]
+        pub run_variables_ref: Option<WorkflowPayloadRef>,
         /// The steps this event's write readied, each with what its `pending` row stores; empty
         /// where it readied none.
         #[garde(dive)]
@@ -219,10 +230,11 @@ macro_rules! phase_suspended_payload {
             /// `workflow.phase.suspended`: a step started waiting: its `waitCause` and, for an
             /// `account` wait, the spent account the attention read groups it under and the
             /// durable resume instant where the wait armed one; absent, only the person resumes
-            /// it. A wait on anything else names neither. A wait on a person's approval, form or
-            /// reply carries the deadline its node's `Timeout` arms, the `waitId` its answer
-            /// names and the `logRef` the step wrote before it waited; a wait on an account or a
-            /// chain's question carries none of them.
+            /// it, with the log and run variables its step recorded before it waited. A wait on
+            /// anything else names neither. A wait on a person's approval, form or reply carries
+            /// the deadline its node's `Timeout` arms, the `waitId` its answer names, the `logRef`
+            /// the step wrote before it waited and what it asks, a form's fields among it; a wait
+            /// on an account carries none of them but the log, and a chain's question none.
             #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
             #[serde(
                 tag = "waitCause",
@@ -269,14 +281,40 @@ phase_suspended_payload! {
         )]
         #[schemars(with = "Never")]
         wait_id: Option<Never>,
-        /// Never present: only a wait on a person writes a log before it waits.
+        /// The log its step wrote before it waited; absent where it wrote none.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowPayloadRef")]
+        #[garde(dive)]
+        log_ref: Option<WorkflowPayloadRef>,
+        /// The run variables its step set before it waited, one item each; absent for none.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowPayloadRef")]
+        #[garde(dive)]
+        run_variables_ref: Option<WorkflowPayloadRef>,
+        /// Never present: only a wait on a person asks.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
         #[schemars(with = "Never")]
-        log_ref: Option<Never>,
+        prompt: Option<Never>,
+        /// Never present: only a form asks for fields.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        input_schema: Option<Never>,
     }
     /// Waiting on a person's approval.
     Approval {
@@ -310,6 +348,25 @@ phase_suspended_payload! {
         /// The log the step wrote before it waited.
         #[garde(dive)]
         log_ref: WorkflowPayloadRef,
+        /// Never present: only an account wait keeps the run variables its step set before it
+        /// waited.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        run_variables_ref: Option<Never>,
+        /// What the wait asks the person, which the restart asks again where its ask is gone.
+        prompt: ComposedText,
+        /// Never present: only a form asks for fields.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        input_schema: Option<Never>,
     }
     /// Waiting on a person's form.
     Form {
@@ -343,6 +400,19 @@ phase_suspended_payload! {
         /// The log the step wrote before it waited.
         #[garde(dive)]
         log_ref: WorkflowPayloadRef,
+        /// Never present: only an account wait keeps the run variables its step set before it
+        /// waited.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        run_variables_ref: Option<Never>,
+        /// What the wait asks the person, which the restart asks again where its ask is gone.
+        prompt: ComposedText,
+        /// The JSON Schema of the answer's fields.
+        input_schema: serde_json::Map<String, serde_json::Value>,
     }
     /// Waiting on a person's chat reply.
     Reply {
@@ -376,6 +446,25 @@ phase_suspended_payload! {
         /// The log the step wrote before it waited.
         #[garde(dive)]
         log_ref: WorkflowPayloadRef,
+        /// Never present: only an account wait keeps the run variables its step set before it
+        /// waited.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        run_variables_ref: Option<Never>,
+        /// What the wait asks the person, which the restart asks again where its ask is gone.
+        prompt: ComposedText,
+        /// Never present: only a form asks for fields.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        input_schema: Option<Never>,
     }
     /// Waiting on its chain's question.
     Chain {
@@ -419,6 +508,31 @@ phase_suspended_payload! {
         )]
         #[schemars(with = "Never")]
         log_ref: Option<Never>,
+        /// Never present: only an account wait keeps the run variables its step set before it
+        /// waited.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        run_variables_ref: Option<Never>,
+        /// Never present: only a wait on a person asks.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        prompt: Option<Never>,
+        /// Never present: only a form asks for fields.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        input_schema: Option<Never>,
     }
 }
 
@@ -753,9 +867,19 @@ mod tests {
     /// A deadline rides a wait on a person and is refused on any other wait. Mutations: refuse it
     /// on a person's wait; keep it on an account or chain wait.
     #[rstest]
-    #[case::approval(json!({"waitCause": "approval", "waitId": WAIT, "logRef": empty_log()}), true)]
-    #[case::form(json!({"waitCause": "form", "waitId": WAIT, "logRef": empty_log()}), true)]
-    #[case::reply(json!({"waitCause": "reply", "waitId": WAIT, "logRef": empty_log()}), true)]
+    #[case::approval(
+        json!({"waitCause": "approval", "waitId": WAIT, "logRef": empty_log(), "prompt": "Ship?"}),
+        true
+    )]
+    #[case::form(
+        json!({"waitCause": "form", "waitId": WAIT, "logRef": empty_log(), "prompt": "Notes",
+               "inputSchema": {"type": "object"}}),
+        true
+    )]
+    #[case::reply(
+        json!({"waitCause": "reply", "waitId": WAIT, "logRef": empty_log(), "prompt": "Why?"}),
+        true
+    )]
     #[case::account(json!({"waitCause": "account", "providerAccountId": ACCOUNT}), false)]
     #[case::chain(json!({"waitCause": "chain"}), false)]
     fn phase_suspended_carries_a_deadline_only_on_a_wait_on_a_person(
@@ -785,7 +909,10 @@ mod tests {
     #[case::form("form")]
     #[case::reply("reply")]
     fn phase_suspended_on_a_person_is_refused_without_its_log(#[case] wait_cause: &str) {
-        let wire = step_payload(json!({"waitCause": wait_cause, "waitId": WAIT}));
+        let wire = step_payload(json!({
+            "waitCause": wait_cause, "waitId": WAIT, "prompt": "Ship?",
+            "inputSchema": {"type": "object"},
+        }));
         assert!(serde_json::from_value::<WorkflowPhaseSuspendedPayload>(wire).is_err());
     }
 

@@ -35,7 +35,7 @@ use crate::engine::tick::run_status::whole_milliseconds_between;
 use crate::engine::tick::step_failure::{StepFailureRoute, route_step_failure, step_failure_error};
 use crate::engine::tick::{ParkedAgentRun, StepSettlement};
 use crate::engine::waits::{open_person_wait, suspended_payload};
-use crate::kinds::step_context::StepRunVariable;
+use crate::kinds::step_context::{StepRecords, StepRunVariable};
 use crate::kinds::{PersonAsk, PersonWait, StepFailure};
 use crate::runs::step_payload::{StepPayloadWriteError, join_step_outputs, write_step_payload};
 use crate::runs::step_rows::{
@@ -137,6 +137,15 @@ impl RunTurnCommit {
                 run,
                 records,
             } => {
+                let mut written = Vec::new();
+                let stored = self
+                    .write_parked_records(&step, &records, &mut written)
+                    .await;
+                let refs = match stored {
+                    Ok(refs) => refs,
+                    Err(error) => return Err(write_failure(error, written)),
+                };
+                self.artifact_ids.extend(written);
                 self.statements.push(wait_step_on_account(
                     &step,
                     &provider_account_id,
@@ -145,7 +154,7 @@ impl RunTurnCommit {
                     cut_hold_milliseconds(reported.last_hold_report_at, at),
                 ));
                 let suspended =
-                    account_suspended(self, &step, provider_account_id, resets_at.clone());
+                    account_suspended(self, &step, provider_account_id, resets_at.clone(), refs);
                 self.push(at, suspended);
                 self.counts.moved(
                     Some(reported.standing()),
@@ -252,7 +261,7 @@ impl RunTurnCommit {
         let stored = self
             .write_completed(&step, &outputs, log_lines, &run_variables, &mut written)
             .await;
-        let (output_ref, log_ref, kept) = match stored {
+        let (output_ref, log_ref, run_variables_ref, kept) = match stored {
             Ok(stored) => stored,
             Err(error) => return Err(write_failure(error, written)),
         };
@@ -298,6 +307,7 @@ impl RunTurnCommit {
                 log_ref: log_ref,
                 cost: cost,
                 output_item_counts: output_lengths.into_iter().map(SafeInt::from_usize).collect(),
+                run_variables_ref: run_variables_ref,
                 readied: Vec::new(),
             )),
         );
@@ -311,8 +321,9 @@ impl RunTurnCommit {
         })
     }
 
-    /// The refs of a completed step's outputs and log, and each variable it keeps beside the
-    /// reference a value above the inline cap is kept as, writing every artifact into `written`.
+    /// The refs of a completed step's outputs, log and run variables, the last `None` where it set
+    /// none, and each variable it keeps beside the reference a value above the inline cap is kept
+    /// as, writing every artifact into `written`.
     async fn write_completed<'variables>(
         &self,
         step: &WorkflowStepKey,
@@ -325,6 +336,9 @@ impl RunTurnCommit {
             .write_payload(step, &join_step_outputs(outputs), written)
             .await?;
         let log_ref = self.write_log(step, log_lines, written).await?;
+        let run_variables_ref = self
+            .write_run_variables(step, run_variables, written)
+            .await?;
         let mut kept = Vec::new();
         for (name, variable) in run_variables {
             if !variable.is_kept {
@@ -355,7 +369,59 @@ impl RunTurnCommit {
             };
             kept.push((name.as_str(), variable, reference));
         }
-        Ok((output_ref, log_ref, kept))
+        Ok((output_ref, log_ref, run_variables_ref, kept))
+    }
+
+    /// The refs of the log lines and the run variables a parked step's `records` hold, each
+    /// `None` where it holds none, writing every artifact into `written`.
+    async fn write_parked_records(
+        &self,
+        step: &WorkflowStepKey,
+        records: &StepRecords,
+        written: &mut Vec<ArtifactId>,
+    ) -> Result<ParkedRecordRefs, StepPayloadWriteError> {
+        let log_ref = if records.log_lines.is_empty() {
+            None
+        } else {
+            Some(
+                self.write_log(step, records.log_lines.clone(), written)
+                    .await?,
+            )
+        };
+        let run_variables_ref = self
+            .write_run_variables(step, &records.run_variables, written)
+            .await?;
+        Ok((log_ref, run_variables_ref))
+    }
+
+    /// The ref of `run_variables`, one item each, `None` where there are none, writing any
+    /// artifact into `written`.
+    async fn write_run_variables(
+        &self,
+        step: &WorkflowStepKey,
+        run_variables: &BTreeMap<String, StepRunVariable>,
+        written: &mut Vec<ArtifactId>,
+    ) -> Result<Option<WorkflowPayloadRef>, StepPayloadWriteError> {
+        if run_variables.is_empty() {
+            return Ok(None);
+        }
+        let items: Vec<WorkflowItem> = run_variables
+            .iter()
+            .map(|(name, variable)| WorkflowItem {
+                json: AnyValue(
+                    serde_json::to_value(StoredRunVariable {
+                        name: name.clone(),
+                        value: variable.value.clone(),
+                        is_kept: variable.is_kept,
+                    })
+                    .expect("a run variable writes as JSON, its value being a JSON value"),
+                ),
+                binary: None,
+                paired_item: None,
+                error: None,
+            })
+            .collect();
+        Ok(Some(self.write_payload(step, &items, written).await?))
     }
 
     /// Writes a failed step's row and events, then answers what its node's failure route decides.
@@ -503,11 +569,28 @@ impl RunTurnCommit {
     }
 }
 
-/// A completed step's output ref, its log ref, and each variable it keeps by name beside the
-/// reference JSON a value above the inline cap is kept as and the artifact that names.
+/// One run variable as a step's stored run variables hold it, one item each.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct StoredRunVariable {
+    /// The variable's name.
+    pub(crate) name: String,
+    /// Its value.
+    pub(crate) value: Value,
+    /// Whether later runs of the workflow read it too.
+    pub(crate) is_kept: bool,
+}
+
+/// The refs of a parked step's log lines and run variables, each `None` where it holds none.
+type ParkedRecordRefs = (Option<WorkflowPayloadRef>, Option<WorkflowPayloadRef>);
+
+/// A completed step's output ref, its log ref, its run variables' ref where it set any, and each
+/// variable it keeps by name beside the reference JSON a value above the inline cap is kept as and
+/// the artifact that names.
 type CompletedPayloads<'variables> = (
     WorkflowPayloadRef,
     WorkflowPayloadRef,
+    Option<WorkflowPayloadRef>,
     Vec<(
         &'variables str,
         &'variables StepRunVariable,
@@ -516,12 +599,13 @@ type CompletedPayloads<'variables> = (
 );
 
 /// The `workflow.phase.suspended` of `step` waiting on the spent account `provider_account_id`,
-/// resuming at `resume_at` where one is armed.
+/// resuming at `resume_at` where one is armed, with the refs of the records the step kept.
 fn account_suspended(
     commit: &RunTurnCommit,
     step: &WorkflowStepKey,
     provider_account_id: ProviderAccountId,
     resume_at: Option<WireInstant>,
+    (log_ref, run_variables_ref): ParkedRecordRefs,
 ) -> SessionEvent {
     SessionEvent::WorkflowPhaseSuspended(WorkflowPhaseSuspendedPayload::Account {
         session_id: commit.keys.session_id,
@@ -533,7 +617,10 @@ fn account_suspended(
         resume_at,
         wait_deadline_at: None,
         wait_id: None,
-        log_ref: None,
+        log_ref,
+        run_variables_ref,
+        prompt: None,
+        input_schema: None,
     })
 }
 

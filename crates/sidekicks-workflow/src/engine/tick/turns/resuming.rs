@@ -23,7 +23,7 @@ use crate::engine::tick::live_runs::{LiveRun, LiveStep, ParkCanceledStep};
 
 mod repin;
 
-use self::repin::RepinTarget;
+pub(super) use self::repin::RepinTarget;
 pub(crate) use self::repin::{REPIN_STATEMENT_CAPACITY, RepinReadError, RepinRefusal};
 
 /// The reply to a person's Resume: once the write that resumes the run commits, the version the
@@ -133,7 +133,13 @@ impl EngineTick {
                     .expect("a run's executions are far below the largest safe integer"),
             );
             live.approval_pauses = 0;
-            let joined = repin.as_ref().map(|repin| repin.workflow_version_id);
+            let kept: Vec<WorkflowStepKey> = repin
+                .iter()
+                .flat_map(|repin| repin.kept.iter().map(|kept| kept.step.clone()))
+                .collect();
+            let joined = repin
+                .as_ref()
+                .map(|repin| (repin.workflow_version_id, kept.as_slice()));
             let resumed = turn
                 .commit
                 .resume_run(&at, live.epoch, failed_parks.len(), joined);
@@ -160,7 +166,11 @@ impl EngineTick {
                 }
                 Some(repin) => {
                     left_version = Some(live.scope.workflow_version_id);
-                    move_run(live, repin, &failed_parks);
+                    let park_canceled = std::mem::take(&mut live.park_canceled)
+                        .into_iter()
+                        .map(|canceled| canceled.step)
+                        .collect();
+                    move_run(live, repin, &failed_parks, park_canceled);
                     let opened = live.walk.start();
                     self.take_walk(live, turn, opened, (resumed, at)).await;
                 }
@@ -174,8 +184,14 @@ impl EngineTick {
 /// the version and holds its nodes, its walk is rebuilt on the version's graph, settling again the
 /// steps the run keeps, whose outputs it holds, its outputs read by the version's labels, and each
 /// failed step and each step the park canceled whose node the version holds runs again as its
-/// next attempt when the walk readies it. The run is no longer stopped.
-fn move_run(live: &mut LiveRun, repin: RepinTarget, failed_parks: &[WorkflowStepKey]) {
+/// next attempt when the walk readies it, as does each of `park_canceled`, the steps the park
+/// canceled. The run is no longer stopped.
+pub(super) fn move_run(
+    live: &mut LiveRun,
+    repin: RepinTarget,
+    failed_parks: &[WorkflowStepKey],
+    park_canceled: Vec<WorkflowStepKey>,
+) {
     let RepinTarget {
         workflow_version_id,
         workflow_name,
@@ -187,7 +203,7 @@ fn move_run(live: &mut LiveRun, repin: RepinTarget, failed_parks: &[WorkflowStep
     let mut again: Vec<WorkflowStepKey> = failed_parks
         .iter()
         .cloned()
-        .chain(live.park_canceled.drain(..).map(|canceled| canceled.step))
+        .chain(park_canceled)
         .filter(|step| nodes.contains_key(&step.node_id))
         .collect();
     again.sort_by_key(|step| step.execution_index.get());

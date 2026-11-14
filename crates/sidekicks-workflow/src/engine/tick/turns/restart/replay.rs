@@ -2,24 +2,35 @@
 //! park, cancel and Resume the log holds walked again in log order, each settled step's outputs
 //! read back, so the walk's rounds, loops and joins stand as they stood when the daemon stopped.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
+use serde_json::Value;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
-use sidekicks_contracts::workflow::run::events::WorkflowRunFailedOutcome;
+use sidekicks_contracts::workflow::run::events::{
+    WorkflowRunFailedOutcome, WorkflowRunResumedPayload,
+};
 use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseSuspendedPayload;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 
+use super::super::resuming::{RepinTarget, move_run};
 use crate::engine::ports::StepPayloadArtifacts;
-use crate::engine::start::{ReplayedEvent, StartedReusedStep};
+use crate::engine::start::{ReloadedRepin, ReplayedEvent, StartedReusedStep};
+use crate::engine::tick::commit::StoredRunVariable;
 use crate::engine::tick::live_runs::LiveRun;
 use crate::engine::tick::step_failure::RunStop;
-use crate::engine::tick::walk::{ReusedSeedStep, ReusedStepRecord, WalkSkipReason, WalkTurn};
+use crate::engine::tick::walk::{
+    KeptStep, ReusedSeedStep, ReusedStepRecord, WalkSkipReason, WalkTurn,
+};
 use crate::expressions::lineage::{StepKey, StepOutput};
+use crate::kinds::PersonAsk;
+use crate::kinds::step_context::{StepRecords, StepRunVariable};
 use crate::runs::projection::{step_key, suspended_step};
 use crate::runs::step_payload::{read_step_payload, split_step_outputs, stored_output_lengths};
 
@@ -36,37 +47,47 @@ pub(super) struct ReplayedRun {
     pub(super) winding_down: HashSet<u64>,
     /// The instant of each held step's last hold report, by execution index.
     pub(super) last_hold_reports: HashMap<u64, WireInstant>,
+    /// The instant each retry attempt not yet settled was readied at, by execution index.
+    pub(super) retried_at: HashMap<u64, WireInstant>,
+    /// The log lines and run variables each step parked on a spent account had recorded, by
+    /// execution index.
+    pub(super) parked_records: HashMap<u64, StepRecords>,
+    /// What each step waiting on a person asks, and when it began waiting, by execution index.
+    pub(super) asks: HashMap<u64, (PersonAsk, WireInstant)>,
     /// The sequence of the run's newest replayed event.
     pub(super) newest_sequence: SafeInt<0>,
 }
 
-/// The earlier steps a node run or a retry replays, as its own reused skips name them, each with
-/// its outputs read back through `payloads`, in log order, all from `session_id`, the run's
-/// session, where each skip stored them again. Fails with the reason when an output does not read.
+/// The earlier steps a node run or a retry replays, every one its started event among `events`
+/// names, each with its outputs read back through `payloads`, all from `session_id`, the run's
+/// session, where its start stored them. Fails with the reason when an output does not read.
 pub(super) async fn reused_seeds(
     events: &[ReplayedEvent],
     session_id: SessionId,
     payloads: &dyn StepPayloadArtifacts,
 ) -> Result<Vec<StartedReusedStep>, String> {
-    let mut seeds = Vec::new();
-    for replayed in events {
-        let SessionEvent::WorkflowStepSkipped(skipped) = &replayed.event else {
-            continue;
-        };
-        let Some(from) = &skipped.reused_from else {
-            continue;
-        };
-        let output_lengths = stored_output_lengths(&skipped.output_item_counts);
-        let outputs = read_outputs(payloads, &skipped.output_ref, &output_lengths).await?;
+    let Some(started) = events.iter().find_map(|replayed| {
+        if let SessionEvent::WorkflowRunStarted(started) = &replayed.event {
+            Some(started)
+        } else {
+            None
+        }
+    }) else {
+        return Ok(Vec::new());
+    };
+    let mut seeds = Vec::with_capacity(started.reused_steps.len());
+    for reused in &started.reused_steps {
+        let output_lengths = stored_output_lengths(&reused.output_item_counts);
+        let outputs = read_outputs(payloads, &reused.output_ref, &output_lengths).await?;
         seeds.push(StartedReusedStep {
             seed: ReusedSeedStep {
-                node_id: skipped.node_id.clone(),
+                node_id: reused.node_id.clone(),
                 output_lengths,
                 record: ReusedStepRecord {
-                    from: from.clone(),
-                    input_ref: skipped.input_ref.clone(),
-                    output_ref: skipped.output_ref.clone(),
-                    pin_hash: skipped.pin_hash.clone(),
+                    from: reused.reused_from.clone(),
+                    input_ref: reused.input_ref.clone(),
+                    output_ref: reused.output_ref.clone(),
+                    pin_hash: reused.pin_hash.clone(),
                     outputs,
                 },
             },
@@ -92,12 +113,14 @@ pub(super) fn replayed_epoch(events: &[ReplayedEvent]) -> WorkflowRunEpoch {
 }
 
 /// Walks `live`, a run before any step, through `events` in log order, each settled step's
-/// outputs read back through `payloads`. Fails with the reason when the log names a step the walk
-/// does not hold, a failure whose route it never wrote, an ending that is not a park, a re-pin, or
-/// an output that does not read.
+/// outputs read back through `payloads`, and each Resume that moved it to another version onto
+/// that version's entry in `repins`. Fails with the reason when the log names a step the walk
+/// does not hold, a failure whose route it never wrote, an ending that is not a park, a re-pin
+/// whose version or kept step it cannot follow, or an output that does not read.
 pub(super) async fn replay_run(
     live: LiveRun,
     events: &[ReplayedEvent],
+    repins: Vec<ReloadedRepin>,
     payloads: &dyn StepPayloadArtifacts,
 ) -> Result<ReplayedRun, String> {
     let mut replay = Replay {
@@ -107,9 +130,14 @@ pub(super) async fn replay_run(
             park_canceled: Vec::new(),
             winding_down: HashSet::new(),
             last_hold_reports: HashMap::new(),
+            retried_at: HashMap::new(),
+            parked_records: HashMap::new(),
+            asks: HashMap::new(),
             newest_sequence: SafeInt::ZERO,
         },
         failing: Vec::new(),
+        output_lengths: HashMap::new(),
+        repins: repins.into_iter(),
         payloads,
     };
     for replayed in events {
@@ -123,10 +151,13 @@ pub(super) async fn replay_run(
     Ok(replay.run)
 }
 
-/// A replay under way: the run so far, and the failed steps whose route the log has yet to name.
+/// A replay under way: the run so far, the failed steps whose route the log has yet to name, the
+/// output lengths of each step it settled by execution index, and the re-pins still to follow.
 struct Replay<'payloads> {
     run: ReplayedRun,
     failing: Vec<WorkflowStepKey>,
+    output_lengths: HashMap<u64, Vec<usize>>,
+    repins: std::vec::IntoIter<ReloadedRepin>,
     payloads: &'payloads dyn StepPayloadArtifacts,
 }
 
@@ -147,6 +178,13 @@ impl Replay<'_> {
                 let step = step_key!(completed);
                 self.settle(&step, &completed.output_ref, &completed.output_item_counts)
                     .await?;
+                if let Some(run_variables_ref) = &completed.run_variables_ref {
+                    let set = read_run_variables(self.payloads, run_variables_ref).await?;
+                    let variables = Arc::make_mut(&mut self.run.live.run_variables);
+                    for (name, variable) in set {
+                        variables.insert(name, variable.value);
+                    }
+                }
             }
             SessionEvent::WorkflowStepFailed(failed) => {
                 let step = step_key!(failed);
@@ -155,6 +193,7 @@ impl Replay<'_> {
                         .await?;
                 } else {
                     self.unsettled(&step)?;
+                    self.run.retried_at.remove(&step.execution_index.get());
                     self.failing.push(step);
                 }
             }
@@ -172,6 +211,9 @@ impl Replay<'_> {
                 if live.walk.retry(&failed).step != next {
                     return Err("a retry's attempt is not the one the walk readies".to_owned());
                 }
+                self.run
+                    .retried_at
+                    .insert(next.execution_index.get(), replayed.at.clone());
             }
             SessionEvent::WorkflowRunFailed(failed) => match failed.outcome {
                 WorkflowRunFailedOutcome::Parked => {
@@ -187,6 +229,9 @@ impl Replay<'_> {
                 let index = step.execution_index.get();
                 self.run.winding_down.remove(&index);
                 self.run.last_hold_reports.remove(&index);
+                self.run.retried_at.remove(&index);
+                self.run.parked_records.remove(&index);
+                self.run.asks.remove(&index);
                 // A step the walk canceled itself never stayed in it.
                 if live.walk.is_unsettled(&step) {
                     if live.stop.is_some() || !self.failing.is_empty() {
@@ -197,8 +242,8 @@ impl Replay<'_> {
                 }
             }
             SessionEvent::WorkflowRunResumed(resumed) => {
-                if resumed.repinned_to_workflow_version_id.is_some() {
-                    return Err("a Resume moved the run to another version".to_owned());
+                if let Some(joined) = resumed.repinned_to_workflow_version_id {
+                    return self.repin(resumed, joined);
                 }
                 live.epoch = resumed.epoch;
                 live.approval_pauses = 0;
@@ -221,6 +266,22 @@ impl Replay<'_> {
                 }
                 let index = suspended_step(suspended).execution_index.get();
                 self.run.last_hold_reports.remove(&index);
+                if let WorkflowPhaseSuspendedPayload::Account {
+                    log_ref,
+                    run_variables_ref,
+                    ..
+                } = suspended
+                {
+                    let records = read_parked_records(
+                        self.payloads,
+                        log_ref.as_ref(),
+                        run_variables_ref.as_ref(),
+                    )
+                    .await?;
+                    self.run.parked_records.insert(index, records);
+                } else if let Some(ask) = suspended_ask(suspended) {
+                    self.run.asks.insert(index, (ask, replayed.at.clone()));
+                }
             }
             SessionEvent::WorkflowPhaseWaitingOnMemory(held) => {
                 self.run
@@ -238,9 +299,87 @@ impl Replay<'_> {
                     .insert(canceling.execution_index.get());
             }
             // The walk makes each skip itself; a reused one's outputs came with its seed.
-            SessionEvent::WorkflowStepSkipped(_) => {}
+            SessionEvent::WorkflowStepSkipped(skipped) => {
+                self.output_lengths.insert(
+                    skipped.execution_index.get(),
+                    stored_output_lengths(&skipped.output_item_counts),
+                );
+            }
             _ => unreachable!("the reload reads only the replayed event types"),
         }
+        Ok(())
+    }
+
+    /// Moves the run to `joined` as the Resume `resumed` did: its next execution opened, its walk
+    /// rebuilt on the version's graph over the steps the event kept, and its failed parks and the
+    /// steps its park canceled run again. Fails when the re-pin's version was not read or a kept
+    /// step's outputs are not the run's.
+    fn repin(
+        &mut self,
+        resumed: &WorkflowRunResumedPayload,
+        joined: WorkflowVersionId,
+    ) -> Result<(), String> {
+        let target = self
+            .repins
+            .next()
+            .filter(|repin| repin.workflow_version_id == joined)
+            .ok_or_else(|| {
+                "a Resume moved the run to a version the restart did not read".to_owned()
+            })?;
+        let live = &mut self.run.live;
+        let kept = resumed
+            .kept_steps
+            .iter()
+            .map(|kept| {
+                let output_lengths = self
+                    .output_lengths
+                    .get(&kept.execution_index.get())
+                    .cloned()
+                    .ok_or_else(|| {
+                        format!(
+                            "a re-pin keeps a step of node {} the run never settled",
+                            kept.node_id.as_str()
+                        )
+                    })?;
+                Ok(KeptStep {
+                    step: WorkflowStepKey {
+                        workflow_run_id: live.scope.run_id,
+                        node_id: kept.node_id.clone(),
+                        attempt: kept.attempt,
+                        execution_index: kept.execution_index,
+                    },
+                    output_lengths,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        live.epoch = resumed.epoch;
+        live.approval_pauses = 0;
+        let mut failed_parks = std::mem::take(&mut self.run.failed_parks);
+        failed_parks.sort_by_key(|step| step.execution_index.get());
+        let park_canceled = std::mem::take(&mut self.run.park_canceled);
+        let ReloadedRepin {
+            workflow_version_id,
+            workflow_name,
+            nodes,
+            graph,
+        } = target;
+        // A re-pin covers every place of its version.
+        let covered = Arc::from(vec![true; graph.node_count()]);
+        move_run(
+            live,
+            RepinTarget {
+                workflow_version_id,
+                workflow_name,
+                nodes,
+                graph,
+                covered,
+                kept,
+            },
+            &failed_parks,
+            park_canceled,
+        );
+        let started = live.walk.start();
+        self.take(started);
         Ok(())
     }
 
@@ -275,6 +414,8 @@ impl Replay<'_> {
             .map(|ready| ready.sources)
             .expect("the walk holds the step unsettled");
         let walked = live.walk.settle(step, &output_lengths);
+        self.output_lengths
+            .insert(step.execution_index.get(), output_lengths);
         live.outputs.record(
             StepKey {
                 node_id: step.node_id.clone(),
@@ -285,6 +426,9 @@ impl Replay<'_> {
         let index = step.execution_index.get();
         self.run.winding_down.remove(&index);
         self.run.last_hold_reports.remove(&index);
+        self.run.retried_at.remove(&index);
+        self.run.parked_records.remove(&index);
+        self.run.asks.remove(&index);
         self.take(walked);
         Ok(())
     }
@@ -325,6 +469,81 @@ impl Replay<'_> {
             self.take(flushed);
         }
     }
+}
+
+/// What the person wait `suspended` asks, `None` for a wait on an account or a chain's question.
+fn suspended_ask(suspended: &WorkflowPhaseSuspendedPayload) -> Option<PersonAsk> {
+    match suspended {
+        WorkflowPhaseSuspendedPayload::Approval { prompt, .. } => Some(PersonAsk::Approval {
+            prompt: prompt.clone(),
+        }),
+        WorkflowPhaseSuspendedPayload::Form {
+            prompt,
+            input_schema,
+            ..
+        } => Some(PersonAsk::Form {
+            prompt: prompt.clone(),
+            input_schema: input_schema.clone(),
+        }),
+        WorkflowPhaseSuspendedPayload::Reply { prompt, .. } => Some(PersonAsk::Reply {
+            prompt: prompt.clone(),
+        }),
+        WorkflowPhaseSuspendedPayload::Account { .. }
+        | WorkflowPhaseSuspendedPayload::Chain { .. } => None,
+    }
+}
+
+/// The records a step parked on a spent account stored with its wait: the lines `log_ref` holds
+/// and the run variables `run_variables_ref` holds, read through `payloads`. Fails with the reason
+/// when either does not read.
+async fn read_parked_records(
+    payloads: &dyn StepPayloadArtifacts,
+    log_ref: Option<&WorkflowPayloadRef>,
+    run_variables_ref: Option<&WorkflowPayloadRef>,
+) -> Result<StepRecords, String> {
+    let mut records = StepRecords::default();
+    if let Some(log_ref) = log_ref {
+        let items = read_step_payload(payloads, log_ref)
+            .await
+            .map_err(|error| error.to_string())?;
+        for item in items {
+            let line = item
+                .json
+                .0
+                .get("line")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "a parked step's stored log line does not read".to_owned())?;
+            records.log_lines.push(line.to_owned());
+        }
+    }
+    if let Some(run_variables_ref) = run_variables_ref {
+        records.run_variables = read_run_variables(payloads, run_variables_ref).await?;
+    }
+    Ok(records)
+}
+
+/// The run variables `run_variables_ref` stores, one item each, read through `payloads`. Fails
+/// with the reason when they do not read.
+async fn read_run_variables(
+    payloads: &dyn StepPayloadArtifacts,
+    run_variables_ref: &WorkflowPayloadRef,
+) -> Result<BTreeMap<String, StepRunVariable>, String> {
+    read_step_payload(payloads, run_variables_ref)
+        .await
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|item| {
+            let stored: StoredRunVariable =
+                serde_json::from_value(item.json.0).map_err(|error| error.to_string())?;
+            Ok((
+                stored.name,
+                StepRunVariable {
+                    value: stored.value,
+                    is_kept: stored.is_kept,
+                },
+            ))
+        })
+        .collect()
 }
 
 /// The outputs `output_ref` stores, read through `payloads` and split by `output_lengths`. Fails

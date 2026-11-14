@@ -8,15 +8,19 @@ use serde::{Deserialize, Serialize};
 use crate::provider::id::ProviderId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::integer::SafeInt;
+use crate::wire::record::Record;
 use crate::wire::text::NonEmptyText;
-use crate::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
-use crate::workflow::definition::item::WorkflowStepError;
+use crate::workflow::definition::document::{
+    WorkflowContentHash, WorkflowNodeId, WorkflowVersionId,
+};
+use crate::workflow::definition::item::{WorkflowPinnedItem, WorkflowStepError};
 use crate::workflow::run::control::{
     WorkflowCancelReason, WorkflowNodeExecuteScope, names_whole_repin,
 };
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::snapshot::WorkflowRunEpoch;
-use crate::workflow::run::step::events::WorkflowReadiedStep;
+use crate::workflow::run::step::events::{WorkflowReadiedStep, WorkflowReusedStep};
 use crate::workflow::run::step::record::{WorkflowPayloadRef, workflow_step_key};
 use crate::workflow::run::trigger::{
     WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
@@ -53,10 +57,41 @@ pub struct WorkflowNodeRun {
     pub scope: WorkflowNodeExecuteScope,
 }
 
+/// One earlier step a node run or a retry replays in place of running its node, as its start
+/// stored it in the run's session: the node, the step whose data it carries, its input and output,
+/// its output's item counts and, where that step recorded one, the hash of its pin.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct WorkflowStartedReusedStep {
+    /// The node the step replays.
+    pub node_id: WorkflowNodeId,
+    /// The earlier step whose data it carries.
+    #[garde(dive)]
+    pub reused_from: WorkflowReusedStep,
+    /// The earlier step's input.
+    #[garde(dive)]
+    pub input_ref: WorkflowPayloadRef,
+    /// The earlier step's output.
+    #[garde(dive)]
+    pub output_ref: WorkflowPayloadRef,
+    /// How many items each main output holds, in output order.
+    pub output_item_counts: Vec<SafeInt<0>>,
+    /// The hash of the pin the earlier step gave, where it gave one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WorkflowContentHash")]
+    pub pin_hash: Option<WorkflowContentHash>,
+}
+
 workflow_run_event! {
     /// `workflow.run.started`: how the run was started and by whom, the trigger node that started
-    /// it, its place in its chain, the node a node run targets, the run a retry retries and the
-    /// input its trigger step starts on, so the run row rebuilds from events. `inputRef` is absent
+    /// it, its place in its chain, the node a node run targets, the run a retry retries, the pins
+    /// it honors, the earlier steps it replays and the input its trigger step starts on, so the
+    /// run row and its walk rebuild from events. `inputRef` is absent
     /// exactly on a node run or a retry that reuses its trigger's step, which writes no trigger
     /// row, and `retriedWorkflowRunId` is present exactly on a retry.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -112,6 +147,20 @@ workflow_run_event! {
         )]
         #[schemars(with = "WorkflowRunId")]
         pub retried_workflow_run_id: Option<WorkflowRunId>,
+        /// The test data pinned onto its nodes by node id as the run started, which it gives in
+        /// place of running them for its whole life; absent where it honors no pin.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Record<String, Vec<WorkflowPinnedItem>>")]
+        pub pin_data: Option<Record<String, Vec<WorkflowPinnedItem>>>,
+        /// The earlier steps a node run or a retry replays in place of running their nodes, each
+        /// node's in its earlier run's execution order; absent on a run that replays none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[garde(dive)]
+        pub reused_steps: Vec<WorkflowStartedReusedStep>,
         /// The input its trigger step starts on; absent on a node run or a retry that reuses its
         /// trigger's step.
         #[serde(
@@ -347,7 +396,7 @@ pub struct WorkflowResumptionPoint {
 workflow_run_event! {
     /// `workflow.run.resumed`: a person or an armed schedule resumed a waiting or failed run, with
     /// where it picks up and, only on an accepted re-pin, the version it left and the one it
-    /// joined, both or neither.
+    /// joined, both or neither, with the steps the joined version keeps.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -381,6 +430,10 @@ workflow_run_event! {
         )]
         #[schemars(with = "WorkflowVersionId")]
         pub repinned_to_workflow_version_id: Option<WorkflowVersionId>,
+        /// On an accepted re-pin, the run's settled steps the joined version keeps, whose outputs
+        /// its walk replays, in execution order; absent otherwise.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub kept_steps: Vec<WorkflowResumedStep>,
         /// The steps this event's write readied, each with what its `pending` row stores; empty
         /// where it readied none.
         #[garde(dive)]
@@ -415,6 +468,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           results were posted into a session.",
     definitions: &[
         Definition::read::<WorkflowNodeRun>(),
+        Definition::read::<WorkflowStartedReusedStep>(),
         Definition::read::<WorkflowRunStartedPayload>().checked(),
         Definition::read::<WorkflowRunCanceledPayload>().checked(),
         Definition::read::<WorkflowRunCrashedPayload>().checked(),

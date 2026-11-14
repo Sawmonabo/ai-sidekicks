@@ -116,6 +116,13 @@ impl SessionRunBinder for TestBinder {
     fn note_context_changed(&self, session_id: SessionId) {
         self.notices.note_context_changed(session_id);
     }
+
+    fn sweep_released_run(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), RunSetupGateError>> {
+        self.gate.sweep_released_run(session_id)
+    }
 }
 
 /// A project session whose workspace is still `preparing` reads no working folder, so the start's
