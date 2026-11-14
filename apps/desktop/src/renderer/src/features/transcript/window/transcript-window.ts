@@ -89,7 +89,7 @@ export class TranscriptWindowDerivation {
   /**
    * The window of `transcript`, which may be any log: grown, rewritten or another altogether, its
    * run groups reading `runEntities`, the store's run entities, and its system messages naming a
-   * provider through `providerNameOf`.
+   * provider through `providerNameOf`, a crashed run's by the provider its run entity names.
    */
   public derive(
     transcript: readonly ProjectedSessionEvent[],
@@ -150,6 +150,8 @@ class WindowAccumulation {
   /** The identity list under construction, or `undefined` while the published one stands. */
   #viewportRows: ViewportRow[] | undefined;
   readonly #runGroupIndex: RunGroupIndex;
+  /** The store's run entities the rows now joining read, which name a crashed run's provider. */
+  #runEntities: RunEntitiesByRunId;
   readonly #runGroups = new PublishedKeyedList<RunGroup, RunGroup>(
     (runGroup) => runGroup.key,
     (runGroup) => runGroup,
@@ -177,6 +179,7 @@ class WindowAccumulation {
   ) {
     this.#projector = new TranscriptRowProjector(rowByEvent);
     this.#runGroupIndex = new RunGroupIndex(runEntities);
+    this.#runEntities = runEntities;
   }
 
   /**
@@ -235,6 +238,7 @@ class WindowAccumulation {
   ): TranscriptWindowModel {
     // Read first, so a run the stretch first names takes its facts as they stand now.
     this.#runGroupIndex.admitRunEntities(runEntities);
+    this.#runEntities = runEntities;
     const batch = this.#projector.project(events);
     // A child run the stretch moved restamps its creation row, which an earlier stretch projected.
     for (const eventId of batch.movedSummaryEventIds) {
@@ -267,7 +271,7 @@ class WindowAccumulation {
 
   /** Join `row` to every index, answering the key of the run group it joined, if any. */
   #admitRow(row: ProjectedTranscriptRow, providerNameOf: ProviderNameOf): string | undefined {
-    const systemMessage = this.#classifier.classify(row, providerNameOf);
+    const systemMessage = this.#classifier.classify(row, providerNameOf, this.#runEntities);
     // The group is decided here, before anything is drawn, so every stage and the window cap read
     // one membership.
     const parentKey = this.#runGroupIndex.admit(row, systemMessage !== undefined);

@@ -1,5 +1,5 @@
-/* The system message (`SystemMessage`): one line marking a provider switch, compaction or
- * rollback.
+/* The system message (`SystemMessage`): one line marking a provider switch, compaction, rollback
+ * or a turn a provider process's end cut, with the last lines that process printed under it.
  */
 
 .meridian-system-message {
@@ -10,7 +10,17 @@
   color: var(--meridian-text);
 }
 
-/* The failed provider switch is the only caution binding. */
+/* A failed provider switch and a turn a crash ended are the caution bindings. */
 .meridian-system-message--caution .meridian-system-message__label {
   color: var(--meridian-red-text);
+}
+
+/* The last lines a dead provider process printed, verbatim, in the mono face. */
+.meridian-system-message__last-lines {
+  margin: 0;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

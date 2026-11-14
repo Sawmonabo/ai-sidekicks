@@ -1,6 +1,7 @@
-// The system message, drawn: one line across the transcript naming the act, never the actor. The
-// feed dispatches a system message here before the row renderer, which draws row bodies; a system
-// message has only the act's name its classifier read.
+// The system message, drawn: one line across the transcript naming the act, never the actor, and
+// under a turn a provider process's end cut, the last lines it printed. The feed dispatches a
+// system message here before the row renderer, which draws row bodies; a system message has only
+// the words its classifier read.
 
 import {
   TranscriptRowLayout,
@@ -21,7 +22,7 @@ export interface SystemMessageProps {
   readonly isSuperseded?: boolean | undefined;
 }
 
-/** One system message, on one line. */
+/** One system message, on one line, over the last lines a dead provider process printed. */
 export function SystemMessage(props: SystemMessageProps): React.JSX.Element {
   const binding = SYSTEM_MESSAGE_BINDINGS[props.systemMessage.kind];
   return (
@@ -39,6 +40,9 @@ export function SystemMessage(props: SystemMessageProps): React.JSX.Element {
       >
         <span className="meridian-system-message__label">{props.systemMessage.label}</span>
       </p>
+      {props.systemMessage.lastLines === undefined ? null : (
+        <pre className="meridian-system-message__last-lines">{props.systemMessage.lastLines}</pre>
+      )}
     </TranscriptRowLayout>
   );
 }

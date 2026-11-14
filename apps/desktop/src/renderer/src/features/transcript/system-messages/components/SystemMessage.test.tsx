@@ -1,5 +1,6 @@
 // The system message, read from the rendered line: it names the act and never the actor or the
-// wire's spelling, a failed switch names the provider it tried, and it is the one caution.
+// wire's spelling, a failed switch names the provider it tried, and a turn a provider process's
+// end cut names the provider and the cause over the last lines it printed.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -12,11 +13,16 @@ import {
   AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
 } from "@ai-sidekicks/contracts/agent/provider-binding";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { AgentRunFailedPayload } from "@ai-sidekicks/contracts/run/events";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
+import type { SessionPartitions } from "#renderer/store/session/entities/partitions.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 const CLAUDE_BINDING = {
-  driverName: "claude",
+  providerName: "claude",
   modelId: "opus",
   providerAccountId: "claude-work",
   effort: "high",
@@ -35,8 +41,11 @@ function failedSwitch(attempted: Record<string, unknown>): Record<string, unknow
   };
 }
 
-function renderSystemMessage(row: ProjectedTranscriptRow): HTMLElement {
-  const systemMessage = new SystemMessageClassifier().classify(row, fixtureProviderNameOf);
+function renderSystemMessage(
+  row: ProjectedTranscriptRow,
+  runs: SessionPartitions["run"] = {},
+): HTMLElement {
+  const systemMessage = new SystemMessageClassifier().classify(row, fixtureProviderNameOf, runs);
   if (systemMessage === undefined) {
     throw new Error(`expected ${row.type} to classify as a system message`);
   }
@@ -59,7 +68,7 @@ describe("the system message — the switch outcomes", () => {
         payload: failedSwitch(attempted),
       });
     const container = renderSystemMessage(
-      failedRow({ driverName: "codex", modelId: "gpt-5.5", largerWindow: null }),
+      failedRow({ providerName: "codex", modelId: "gpt-5.5", largerWindow: null }),
     );
     const line = container.querySelector(".meridian-system-message");
     expect(line?.textContent).toBe("Switch to Codex failed");
@@ -88,5 +97,44 @@ describe("the system message — the switch outcomes", () => {
     const line = container.querySelector(".meridian-system-message");
     expect(line).not.toBeNull();
     expect(line?.classList.contains("meridian-system-message--caution")).toBe(false);
+  });
+});
+
+describe("the system message — a turn a provider process's end cut", () => {
+  it("draws the turn-ended line in the signal's words, the last printed lines and the time", () => {
+    const outputTail = "panic: runtime error\n  at worker.run (worker.js:12)";
+    const container = renderSystemMessage(
+      runRow({
+        id: "rf",
+        sequence: 8,
+        type: "agent.run.failed",
+        runId: "run-a",
+        position: 8,
+        payload: {
+          sessionId: "33333333-3333-4333-8333-333333333333" as SessionId,
+          runId: "run-a" as RunId,
+          runVersion: 4,
+          previousState: "running",
+          newState: "failed",
+          failureCategory: "providerFailure",
+          processExit: { signal: "SIGKILL", outputTail },
+        } satisfies AgentRunFailedPayload,
+      }),
+      // The run's start reported Claude Code, which the store's run body keeps.
+      { "run-a": { kind: "run", id: "run-a", body: { provider: "claude" } } },
+    );
+    const line = container.querySelector(".meridian-system-message");
+    expect(line?.textContent).toBe(
+      "Turn ended · Claude Code ended unexpectedly · killed by the system",
+    );
+    expect(line?.classList.contains("meridian-system-message--caution")).toBe(true);
+    expect(container.querySelector(".meridian-system-message__last-lines")?.textContent).toBe(
+      outputTail,
+    );
+    expect(container.querySelector(`[${HOVER_LABEL_TEXT_ATTRIBUTE}]`)?.textContent).toMatch(
+      /\d{1,2}:\d{2}/,
+    );
+    // The signal's name stays in the logs.
+    expect(container.textContent).not.toContain("SIGKILL");
   });
 });

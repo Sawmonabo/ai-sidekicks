@@ -20,6 +20,7 @@ describe("system messages — one row's classification", () => {
         targetPosition: 2,
       }),
       fixtureProviderNameOf,
+      {},
     );
     expect(systemMessage?.kind).toBe("rollback");
     expect(systemMessage?.rowId).toBe("rb");
@@ -37,6 +38,7 @@ describe("system messages — one row's classification", () => {
         position: 7,
       }),
       fixtureProviderNameOf,
+      {},
     );
     const providerSwitch = classifier.classify(
       runRow({
@@ -47,6 +49,7 @@ describe("system messages — one row's classification", () => {
         position: 5,
       }),
       fixtureProviderNameOf,
+      {},
     );
     expect(compaction?.kind).toBe("compaction");
     expect(providerSwitch?.kind).toBe("provider-switch");
@@ -58,6 +61,7 @@ describe("system messages — one row's classification", () => {
       classifier.classify(
         runRow({ id: "r1", sequence: 1, type: "agent.run.running", runId: "run-a", position: 1 }),
         fixtureProviderNameOf,
+        {},
       ),
     ).toBeUndefined();
     expect(
@@ -69,6 +73,7 @@ describe("system messages — one row's classification", () => {
           category: "sessionLifecycle",
         }),
         fixtureProviderNameOf,
+        {},
       ),
     ).toBeUndefined();
   });

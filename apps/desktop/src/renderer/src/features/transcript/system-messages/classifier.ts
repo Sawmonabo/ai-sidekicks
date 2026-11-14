@@ -8,6 +8,7 @@ import {
   type ProviderNameOf,
   type SystemMessageKind,
 } from "./kinds.js";
+import type { SessionPartitions } from "#renderer/store/session/entities/partitions.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** One system message: the act it names, its words, and the row and moment it stands at. */
@@ -15,6 +16,8 @@ export interface SystemMessageReading {
   readonly kind: SystemMessageKind;
   /** The act's name as the one-line row reads it. */
   readonly label: string;
+  /** The last lines a dead provider process printed, verbatim, on a turn it ended. */
+  readonly lastLines?: string;
   readonly rowId: string;
   readonly timestamp: string;
 }
@@ -39,17 +42,29 @@ export class SystemMessageClassifier {
   /**
    * One row's system message, or `undefined` when the row is not one, in which case the row is
    * drawn as any other event row. `providerNameOf` names the provider a failed switch was moving
-   * to.
+   * to, and the provider `runs`, the session store's runs, says a run whose process ended was on.
    */
   public classify(
     row: ProjectedTranscriptRow,
     providerNameOf: ProviderNameOf,
+    runs: SessionPartitions["run"],
   ): SystemMessageReading | undefined {
     const kind = row.kind === "rollbackBoundary" ? "rollback" : this.#kindByWireType.get(row.type);
     if (kind === undefined) {
       return undefined;
     }
-    const label = SYSTEM_MESSAGE_BINDINGS[kind].labelOf(row, providerNameOf);
-    return { kind, label, rowId: row.id, timestamp: row.timestamp };
+    const binding = SYSTEM_MESSAGE_BINDINGS[kind];
+    const label = binding.labelOf(row, providerNameOf, runs);
+    if (label === undefined) {
+      return undefined;
+    }
+    const lastLines = binding.lastLinesOf?.(row);
+    return {
+      kind,
+      label,
+      ...(lastLines === undefined ? {} : { lastLines }),
+      rowId: row.id,
+      timestamp: row.timestamp,
+    };
   }
 }

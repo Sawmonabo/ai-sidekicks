@@ -13,7 +13,7 @@ import type {
 } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionNoticePostedPayload } from "@ai-sidekicks/contracts/session/controls/events";
 import type { FilePathRef } from "#shared/preload-api.js";
-import { signalWords } from "#shared/signal-words.js";
+import { processEndWords } from "#shared/signal-words.js";
 
 import { refusalSentence } from "#renderer/lib/code-words.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
@@ -223,17 +223,16 @@ function readCrashLoopCause(
 function crashLoopWords(cause: CrashLoopCause, providerName: string): readonly string[] {
   switch (cause.kind) {
     case "exitCode":
-      return [`${providerName} ended unexpectedly`, `exited with code ${String(cause.exitCode)}`];
     case "signal":
-      return [`${providerName} ended unexpectedly`, signalWords(cause.signal)];
+      return processEndWords(providerName, cause);
     case "startFailure":
       // The start's failure in one line: its first, as the daemon quoted it.
       return [`${providerName} could not start`, cause.startFailure.split("\n", 1)[0] ?? ""];
     case "silence":
-      return [
-        `${providerName} stopped answering`,
-        `no reply for ${formatWholeDuration(cause.silentSeconds / 60, "minute")}`,
-      ];
+      return processEndWords(providerName, {
+        kind: "silence",
+        silentFor: formatWholeDuration(cause.silentSeconds / 60, "minute"),
+      });
   }
 }
 
