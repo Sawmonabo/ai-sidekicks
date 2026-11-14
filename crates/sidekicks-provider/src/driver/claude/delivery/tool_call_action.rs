@@ -160,7 +160,7 @@ mod tests {
             read_claude_tool_call_action(&tool_name, Some(&input)),
             ToolCallAction {
                 kind,
-                subject: FreeFormText::new(subject.to_owned()).expect("a test subject fits"),
+                subject: Some(FreeFormText::new(subject.to_owned()).expect("a test subject fits")),
             }
         );
     }

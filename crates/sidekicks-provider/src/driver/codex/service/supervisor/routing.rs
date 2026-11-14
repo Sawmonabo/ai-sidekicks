@@ -167,8 +167,8 @@ pub(crate) struct CodexSpawnedHelper {
     pub(crate) call_id: Option<String>,
     /// Its path in Codex's tree of helpers, v2's `agentPath`.
     pub(crate) provider_path: Option<String>,
-    /// The ask it was spawned with: v1's `prompt`, or for v2, whose ask Codex hands on encrypted,
-    /// the task name its `agentPath` ends in, in words (`fix_parser` reads `Fix parser`).
+    /// The ask it was spawned with: v1's `prompt`, or for v2, whose item carries no ask, the task
+    /// name its `agentPath` ends in, in words (`fix_parser` reads `Fix parser`).
     pub(crate) ask: Option<String>,
     /// The model it runs on, the item's `model`.
     pub(crate) model: Option<String>,
@@ -275,7 +275,7 @@ fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawned
                 .and_then(read_codex_given_text)
                 .map(|thread_id| {
                     let provider_path = item.agent_path.as_deref().and_then(read_codex_given_text);
-                    // The item hands the ask on encrypted, so the head reads the task name instead.
+                    // The item carries no ask, so the head reads the task name instead.
                     let ask = provider_path.as_deref().map(word_task_name);
                     CodexSpawnedHelper {
                         thread_id,

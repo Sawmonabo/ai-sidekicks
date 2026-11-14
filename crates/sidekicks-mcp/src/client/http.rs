@@ -175,8 +175,9 @@ impl McpServerConnection {
     /// Opens a connection to the server at `address`, whose keyed digest `digest`, where given, is
     /// its endpoint, a connection given none making no task-augmented call, over the client's one
     /// HTTP client, sending `headers` with every request and the headers `authorizer` makes for
-    /// each, its start held to `startup_timeout` or the 30 s default. Refused when `headers` names `Accept`, `Mcp-Session-Id` or `Last-Event-Id`, which
-    /// the transport sets itself; fails when the server does not complete its start in time.
+    /// each, its start held to `startup_timeout` or the 30 s default. Refused when `headers` names
+    /// `Accept`, `Mcp-Session-Id` or `Last-Event-Id`, which the transport sets itself; fails when
+    /// the server does not complete its start in time.
     pub(crate) async fn connect_http(
         address: &McpServerAddress,
         digest: Option<&ServerAddressDigest>,

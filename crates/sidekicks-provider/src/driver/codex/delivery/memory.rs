@@ -164,6 +164,9 @@ pub(crate) struct CodexDeliveryMemory {
     /// The run each tool call's rows went on, by item id, which a review of the call blocks; each
     /// leaves with its item's end.
     pub(crate) tool_row_run_by_item_id: HashMap<String, CodexRowRun>,
+    /// Each tool call whose start's act named no subject yet, by item id, so its end records the
+    /// act it names; each leaves with its item's end.
+    pub(crate) unnamed_act_item_ids: HashSet<String>,
     /// Turns whose reply has started, by turn id; each leaves with its turn's terminal.
     pub(crate) reply_started_turn_ids: HashSet<String>,
     /// A reviewer warning waiting for the next review on its thread, by thread id.
@@ -218,6 +221,7 @@ impl CodexDeliveryMemory {
             retried_run_id_by_turn_id: HashMap::new(),
             tool_row_event_id_by_item_id: HashMap::new(),
             tool_row_run_by_item_id: HashMap::new(),
+            unnamed_act_item_ids: HashSet::new(),
             reply_started_turn_ids: HashSet::new(),
             guardian_warning_by_thread_id: HashMap::new(),
             seen_review_ids: VecDeque::new(),

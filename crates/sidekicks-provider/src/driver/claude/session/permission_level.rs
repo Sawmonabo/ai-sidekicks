@@ -19,7 +19,6 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::settle_all::SettleFailures;
 use strum::VariantArray;
 
-use crate::driver::CommandSandboxAvailability;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::errors::{ClaudeSessionError, record_unheard_claude_failure};
 use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
@@ -34,6 +33,7 @@ use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings, ClaudePermissionMode,
 };
 use crate::driver::claude::spawn::settings::compose_claude_sandbox_settings;
+use crate::driver::command_sandbox::CommandSandboxAvailability;
 use crate::driver::contract::error::DriverError;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::session_control::{UpdatePermissionLevelParams, permission_level_not_offered};

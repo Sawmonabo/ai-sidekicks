@@ -107,7 +107,7 @@ async fn a_resume_the_live_process_answers_holds_only_the_turn_it_runs() {
         helper,
         ClaudeChildRunRoute {
             session_id,
-            agent_id: "helper-1".to_owned(),
+            agent_id: SubagentId::new("helper-1".to_owned()).expect("a test helper id is an id"),
             parent_run_id: held,
             binding_id: binding_id("lead"),
             is_refused: false,

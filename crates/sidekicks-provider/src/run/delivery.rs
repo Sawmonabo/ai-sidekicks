@@ -80,7 +80,8 @@ pub struct ChildRunSubagent {
     pub role: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// Its path in its provider's tree, where the provider keeps one.
     pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
-    /// The ask its provider started it with, whole, where the start names one.
+    /// The ask its provider started it with, whole, where the start names one; where the start
+    /// carries no ask, the task name it was spawned under, in words.
     pub ask: Option<MessageContent>,
     /// The model its provider started it on, where the start names one.
     pub model_id: Option<ProviderToken>,

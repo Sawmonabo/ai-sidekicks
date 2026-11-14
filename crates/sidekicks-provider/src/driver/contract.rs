@@ -798,8 +798,9 @@ pub trait ProviderDriver: Send + Sync {
     /// redirect the provider's own client sends, where the provider's rule sets one an owner may
     /// have registered, `None` where the entry's declared callback is the whole of it or the
     /// provider listens on a free port at a path it registers itself; and, where
-    /// `is_owner_client_secret_read`, the secret as [`ProviderDriver::read_mcp_owner_client_secret`]
-    /// reads it. Fails as those reads fail, the address's `NoPersonServerEntry` included.
+    /// `is_owner_client_secret_read`, the secret as
+    /// [`ProviderDriver::read_mcp_owner_client_secret`] reads it. Fails as those reads fail, the
+    /// address's `NoPersonServerEntry` included.
     fn read_mcp_sign_in_entry(
         &self,
         request: McpServerAddressRead,

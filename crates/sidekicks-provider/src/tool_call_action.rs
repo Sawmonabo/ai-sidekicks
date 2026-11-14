@@ -1,6 +1,5 @@
-//! What a tool call does as its start's row records it: the kind and the subject a driver reads
-//! from its provider's own tool input, cut to the row's field, else the open kind over the tool's
-//! own name.
+//! What a tool call does as its rows record it: the kind and the subject a driver reads from its
+//! provider's own tool input, cut to the row's field, else the open kind over the tool's own name.
 
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::tool_call::{ToolCallAction, ToolCallActionKind};
@@ -16,7 +15,10 @@ pub(crate) fn compose_tool_call_action(
 ) -> Option<ToolCallAction> {
     FreeFormText::new(cut_to_code_points(subject, EVENT_FIELD_MAX_LEN).to_owned())
         .ok()
-        .map(|subject| ToolCallAction { kind, subject })
+        .map(|subject| ToolCallAction {
+            kind,
+            subject: Some(subject),
+        })
 }
 
 /// The open kind over the tool's own name, for a call no other kind covers or whose subject no row
@@ -26,7 +28,7 @@ pub(crate) fn compose_open_tool_call_action(
 ) -> ToolCallAction {
     ToolCallAction {
         kind: ToolCallActionKind::Tool,
-        subject: tool_name.clone(),
+        subject: Some(tool_name.clone()),
     }
 }
 

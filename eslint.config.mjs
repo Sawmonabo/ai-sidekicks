@@ -97,7 +97,7 @@ const repositoryConfig = defineConfig(
       "**/.agents/tmp/**",
       // Sätteri's source with our fix, which the markdown parser's build unpacks.
       "packages/markdown-parser/satteri/**",
-      // The packages the Rust port replaces, unchecked until the change that deletes each one.
+      // The packages the Rust port deletes, unchecked until the change that deletes each one.
       "apps/cli/**",
       "packages/control-plane/**",
       "packages/crypto-paseto/**",

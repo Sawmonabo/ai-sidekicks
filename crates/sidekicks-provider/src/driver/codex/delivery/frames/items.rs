@@ -122,6 +122,12 @@ impl CodexFrameDelivery {
                 &self.dependencies.line_shells,
                 "item/started",
             );
+            if row
+                .as_ref()
+                .is_some_and(|row| row.event.is_invoked_act_unnamed())
+            {
+                record.delivery.unnamed_act_item_ids.insert(item_id.clone());
+            }
             self.admit_row(record, row).await;
         }
     }
@@ -281,6 +287,7 @@ impl CodexFrameDelivery {
         record.delivery.tool_row_event_id_by_item_id.remove(item_id);
         record.delivery.tool_row_run_by_item_id.remove(item_id);
         record.delivery.changed_paths_by_item_id.remove(item_id);
+        let is_act_unnamed = record.delivery.unnamed_act_item_ids.remove(item_id);
         if item_type(item) == Some(CODEX_TOOL_OUTPUT_ITEM_TYPE) {
             report_tool_output_echo(record, item);
         }
@@ -288,8 +295,9 @@ impl CodexFrameDelivery {
             item,
             run,
             "item/completed",
-            started_at_ms,
-            Some(completed_at_ms),
+            (started_at_ms, Some(completed_at_ms)),
+            is_act_unnamed,
+            &self.dependencies.line_shells,
         );
         self.admit_row(record, row).await;
         let tool_traces = &self.dependencies.tool_traces;

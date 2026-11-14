@@ -402,9 +402,10 @@ mod tests {
         SpawnEnvironmentError, WithheldEnvironmentNames, build_conversation_command_environment,
         build_project_command_environment, build_provider_process_environment,
     };
+    use crate::driver::command_sandbox::CommandSandboxNeeds;
     use crate::driver::{
-        BackgroundWork, CommandSandboxNeeds, ProviderCommand, ProviderDescriptor,
-        ProviderMemoryEstimates, ProviderSwitchBoundaries,
+        BackgroundWork, ProviderCommand, ProviderDescriptor, ProviderMemoryEstimates,
+        ProviderSwitchBoundaries,
     };
     use crate::tool_server_name::McpServerNameRule;
 

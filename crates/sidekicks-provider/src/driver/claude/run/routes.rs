@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::watch;
 
@@ -26,7 +27,7 @@ pub(crate) struct ClaudeChildRunRoute {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The helper's agent id, as Claude Code gave it.
-    pub(crate) agent_id: String,
+    pub(crate) agent_id: SubagentId,
     /// The run it was started beneath: its launching helper's, else the lead's.
     pub(crate) parent_run_id: RunId,
     /// The binding the lead's process is attributed on.
@@ -428,7 +429,9 @@ impl ClaudeRunRoutes {
         self.lock()
             .children
             .iter()
-            .find(|(_, route)| route.session_id == session_id && route.agent_id == agent_id)
+            .find(|(_, route)| {
+                route.session_id == session_id && route.agent_id.as_str() == agent_id
+            })
             .map(|(run_id, _)| *run_id)
     }
 
@@ -442,7 +445,9 @@ impl ClaudeRunRoutes {
         self.lock()
             .children
             .iter()
-            .find(|(_, route)| route.session_id == session_id && route.agent_id == agent_id)
+            .find(|(_, route)| {
+                route.session_id == session_id && route.agent_id.as_str() == agent_id
+            })
             .map(|(run_id, route)| (*run_id, route.clone()))
     }
 

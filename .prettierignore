@@ -12,6 +12,7 @@ docs/archive/reference/**
 crates/sidekicks-daemon/vendor/litellm/
 # Sätteri's source with our fix, which the markdown parser's build unpacks.
 packages/markdown-parser/satteri/
+# lint-staged reads the block below to keep Tombi off its TOML files.
 # The packages the Rust port deletes, unchecked until the change that deletes each one.
 apps/cli/
 packages/control-plane/

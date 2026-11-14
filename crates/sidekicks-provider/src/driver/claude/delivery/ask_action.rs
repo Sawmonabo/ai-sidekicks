@@ -5,12 +5,11 @@
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::approval::RememberedScopeKind;
-use url::Url;
 
 use crate::driver::claude::delivery::file_tool_writes::ClaudeFileTool;
 use crate::driver::claude::spawn::settings::CLAUDE_SHELL_TOOL_NAME;
 use crate::port::permission_ask::ProviderAskAction;
-use crate::record_readers::read_non_empty_string;
+use crate::record_readers::{read_non_empty_string, read_url_host};
 
 const CLAUDE_RULE_SCOPES: [RememberedScopeKind; 2] =
     [RememberedScopeKind::Session, RememberedScopeKind::Project];
@@ -77,7 +76,7 @@ pub(super) fn read_action(tool_name: &str, input: &Map<String, Value>) -> Provid
         };
     }
     if tool_name == "WebFetch"
-        && let Some(host) = read_host(input.get("url"))
+        && let Some(host) = read_url_host(input.get("url"))
     {
         return ProviderAskAction::Network { host };
     }
@@ -93,15 +92,6 @@ fn read_path_member(tool_name: &str) -> Option<&'static str> {
         "Glob" | "Grep" => Some("path"),
         _ => None,
     }
-}
-
-// The host a fetch names as WHATWG's `hostname` gives it (an IPv6 host in its brackets), or `None`
-// for a URL that does not parse or names no host, such as a `file:` URL.
-fn read_host(url: Option<&Value>) -> Option<String> {
-    let url = Url::parse(url?.as_str()?).ok()?;
-    url.host_str()
-        .filter(|host| !host.is_empty())
-        .map(str::to_owned)
 }
 
 #[cfg(test)]

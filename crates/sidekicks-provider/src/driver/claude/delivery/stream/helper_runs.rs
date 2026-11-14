@@ -209,7 +209,7 @@ impl ClaudeDeliveryStream {
                 run_id,
                 ClaudeChildRunRoute {
                     session_id: session.session_id,
-                    agent_id: emission.subagent_id.clone(),
+                    agent_id: subagent_id.clone(),
                     parent_run_id: carrier.run_id,
                     binding_id: carrier.binding_id.clone(),
                     is_refused: refusal.is_some(),
@@ -275,14 +275,11 @@ impl ClaudeDeliveryStream {
         else {
             return;
         };
-        let Ok(subagent_id) = SubagentId::new(helper_id.to_owned()) else {
-            return;
-        };
         let carrier = ClaudeBoundRun {
             run_id: route.parent_run_id,
             binding_id: route.binding_id,
         };
-        self.send_backgrounded_row(session, &carrier, subagent_id, child_run_id)
+        self.send_backgrounded_row(session, &carrier, route.agent_id, child_run_id)
             .await;
     }
 
@@ -321,8 +318,8 @@ impl ClaudeDeliveryStream {
         let (stop, is_held) = {
             let pauses = lock(&self.dependencies.pauses);
             (
-                pauses.helper_stop_reason(&session.session_id, &route.agent_id),
-                pauses.is_helper_held(&session.session_id, &route.agent_id),
+                pauses.helper_stop_reason(&session.session_id, route.agent_id.as_str()),
+                pauses.is_helper_held(&session.session_id, route.agent_id.as_str()),
             )
         };
         let is_daemon_interrupt_end = matches!(stop, Some(HelperStopReason::StopAll)) || is_held;
@@ -343,13 +340,18 @@ impl ClaudeDeliveryStream {
         };
         self.send(session, delivery, Some("system/task_notification"))
             .await;
-        session
-            .lock()
-            .helper_resumes
-            .record_end(&route.agent_id, child_run_id, is_interrupted);
+        session.lock().helper_resumes.record_end(
+            route.agent_id.as_str(),
+            child_run_id,
+            is_interrupted,
+        );
         // A pause or an interrupt's hold ends with the run, so the helper's next own run is not
         // held unreported; an ended helper holds no call, so none is answered.
-        lock(&self.dependencies.pauses).resume_helper(&session.session_id, &route.agent_id, None);
+        lock(&self.dependencies.pauses).resume_helper(
+            &session.session_id,
+            route.agent_id.as_str(),
+            None,
+        );
         routes.retire_child_run(child_run_id);
     }
 

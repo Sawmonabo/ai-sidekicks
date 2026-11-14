@@ -5,6 +5,7 @@
 use serde_json::{Map, Value};
 use sidekicks_contracts::wire::integer::MAX_SAFE_INTEGER;
 use sidekicks_contracts::wire::text::NonEmptyText;
+use url::Url;
 
 /// Whether `text` is one or more ASCII digits alone, with no sign, space or point.
 pub(crate) fn is_digits(text: &str) -> bool {
@@ -57,4 +58,14 @@ pub(crate) fn read_count(source: &Map<String, Value>, key: &str) -> Option<u64> 
     let value = number.as_f64()?;
     (value >= 0.0 && value.fract() == 0.0 && value <= MAX_SAFE_INTEGER as f64)
         .then_some(value as u64)
+}
+
+/// The host the URL `url` names as WHATWG's `hostname` gives it (an IPv6 host in its brackets);
+/// `None` for a value that is no text, a URL that does not parse or one that names no host, such
+/// as a `file:` URL.
+pub(crate) fn read_url_host(url: Option<&Value>) -> Option<String> {
+    let url = Url::parse(url?.as_str()?).ok()?;
+    url.host_str()
+        .filter(|host| !host.is_empty())
+        .map(str::to_owned)
 }

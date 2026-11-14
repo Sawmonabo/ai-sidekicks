@@ -195,7 +195,7 @@ impl ClaudeRunControls {
         let mut pauses = lock(&self.pauses);
         match self.start.routes.route_of(params.run_id) {
             Some(ClaudeRunRoute::Child(route)) => {
-                pauses.pause_helper(&params.session_id, &route.agent_id);
+                pauses.pause_helper(&params.session_id, route.agent_id.as_str());
             }
             Some(ClaudeRunRoute::Lead { .. } | ClaudeRunRoute::Apart) | None => {
                 pauses.pause_lead(&params.session_id, &params.run_id);
@@ -238,8 +238,11 @@ impl ClaudeRunControls {
                 Ok(words) if !words.is_empty() => Some(words.join("\n\n")),
                 Ok(_) | Err(_) => None,
             };
-            let resumed =
-                lock(&self.pauses).resume_helper(&session_id, &route.agent_id, steer.as_deref());
+            let resumed = lock(&self.pauses).resume_helper(
+                &session_id,
+                route.agent_id.as_str(),
+                steer.as_deref(),
+            );
             // A held call denied with the person's words starts no helper.
             if steer.is_some()
                 && let Some(stream) = self.start.streams.get(session_id)
@@ -437,7 +440,7 @@ impl ClaudeRunControls {
             })?;
         match self.start.routes.route_of(params.run_id) {
             Some(ClaudeRunRoute::Child(route)) => {
-                lock(&self.helper_steers).push(route.session_id, &route.agent_id, sentence);
+                lock(&self.helper_steers).push(route.session_id, route.agent_id.as_str(), sentence);
                 return Ok(());
             }
             Some(ClaudeRunRoute::Apart) => {
@@ -577,8 +580,8 @@ impl ClaudeRunControls {
     // own words: a helper at its next tool call, a process apart from the session's own (`apart`)
     // in its running turn, and the lead in its running turn or as its own run while no run holds
     // its turn. The words open no process: with none of the session's live, or the session asleep,
-    // the start refuses them, so nothing is written and nothing failed. The stop stands whether or not the words reach it,
-    // so a failed write is recorded.
+    // the start refuses them, so nothing is written and nothing failed. The stop stands whether or
+    // not the words reach it, so a failed write is recorded.
     async fn tell_command_stopped(
         &self,
         session_id: SessionId,
@@ -593,7 +596,7 @@ impl ClaudeRunControls {
         let sentence = format!("The user stopped `{named}`.");
         if let Some(ClaudeRunRoute::Child(route)) = self.start.routes.route_of(command.start.run_id)
         {
-            lock(&self.helper_steers).push(route.session_id, &route.agent_id, sentence);
+            lock(&self.helper_steers).push(route.session_id, route.agent_id.as_str(), sentence);
             return;
         }
         let text = OutboundText {

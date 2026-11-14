@@ -26,7 +26,9 @@ use sidekicks_store::transcript::whole_patch::{omitted_patches_of, stored_patch_
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::patches::read_codex_patch_files;
-use crate::driver::codex::delivery::tool_call_action::read_codex_tool_call_action;
+use crate::driver::codex::delivery::tool_call_action::{
+    read_codex_named_tool_call_action, read_codex_tool_call_action,
+};
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
 use crate::port::tool_traces::ToolTrace;
 use crate::record_readers::{read_count, read_non_empty_string};
@@ -122,6 +124,17 @@ impl CodexRowDelivery {
                 payload.tool_call_id.as_ref().map(ToolCallId::as_str)
             }
             CodexRow::Late(_) | CodexRow::Thinking(_) => None,
+        }
+    }
+
+    /// Whether the row opens a tool call whose act names no subject yet, which its end may name.
+    pub(crate) fn is_invoked_act_unnamed(&self) -> bool {
+        match &self.row {
+            CodexRow::Late(LateAppendableRow::AgentToolCallInvoked(payload)) => payload
+                .action
+                .as_ref()
+                .is_some_and(|action| action.subject.is_none()),
+            CodexRow::Late(_) | CodexRow::Thinking(_) => false,
         }
     }
 }
@@ -226,13 +239,16 @@ pub(crate) fn read_codex_tool_start_row(
 }
 
 /// The row a completed tool item becomes, its result or its failure; any other item adds none.
-/// The duration is Codex's own, else the span between `started_at_ms` and `completed_at_ms`.
+/// The duration is Codex's own, else the span between `started_at_ms` and `completed_at_ms`. Where
+/// `is_act_unnamed`, its start's act named no subject, and a result records the act the item now
+/// names, its command lines read without the `-lc` wrapper of any of `line_shells`.
 pub(crate) fn read_codex_item_completed_row(
     item: &Map<String, Value>,
     run: &CodexRowRun,
     method: &'static str,
-    started_at_ms: Option<u64>,
-    completed_at_ms: Option<u64>,
+    (started_at_ms, completed_at_ms): (Option<u64>, Option<u64>),
+    is_act_unnamed: bool,
+    line_shells: &[PathBuf],
 ) -> Option<CodexItemRow> {
     let item_id = read_non_empty_string(item, "id")?;
     if !is_codex_tool_item(item) {
@@ -245,7 +261,10 @@ pub(crate) fn read_codex_item_completed_row(
             .zip(completed_at_ms)
             .map(|(started, completed)| completed.saturating_sub(started))
     });
-    let payload = tool_activity(item, run, item_id, duration_ms, read_omitted_patches(item))?;
+    let mut payload = tool_activity(item, run, item_id, duration_ms, read_omitted_patches(item))?;
+    if is_act_unnamed {
+        payload.action = read_codex_named_tool_call_action(item, line_shells);
+    }
     let result = read_result_body(item);
     let (row, body) = if is_failed {
         (

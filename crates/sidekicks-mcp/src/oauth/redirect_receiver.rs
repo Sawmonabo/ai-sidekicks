@@ -206,7 +206,7 @@ impl RedirectListener {
             }
             Some(callback) => {
                 let callback_url = callback.url();
-                let address = owner_issued_address(callback_url)?;
+                let address = owner_issued_address(callback)?;
                 if !is_routable_callback_path(callback_url.path()) {
                     return Err(RedirectReceiverError::UnusablePath {
                         callback_url: callback_url.to_string(),
@@ -215,7 +215,7 @@ impl RedirectListener {
                 let listener = TcpListener::bind(address)
                     .await
                     .map_err(RedirectReceiverError::Bind)?;
-                let redirect_address = if callback_url.port().is_none() && address.port() == 0 {
+                let redirect_address = if address.port() == 0 {
                     let port = listener
                         .local_addr()
                         .map_err(RedirectReceiverError::Bind)?
@@ -249,8 +249,9 @@ impl RedirectListener {
     }
 
     /// Starts serving: each callback whose `Host` is this address and whose `state` equals
-    /// `expected_state`, or the one a restart answer put in its place, goes to `owner`. Dropping the receiver before a final answer closes the
-    /// listener at once; after one it closes itself once the result page has had its linger.
+    /// `expected_state`, or the one a restart answer put in its place, goes to `owner`. Dropping
+    /// the receiver before a final answer closes the listener at once; after one it closes itself
+    /// once the result page has had its linger.
     pub fn receive(
         self,
         expected_state: String,
@@ -318,7 +319,8 @@ async fn bind_free_loopback_port() -> io::Result<TcpListener> {
 /// The socket an owner-issued callback address binds: its loopback host as the sign-in judges
 /// loopback, a name (`localhost`, a name under it) as `127.0.0.1` and an IPv4 address an IPv6 one
 /// carries as that address, on its port, or on port 0, a free one, where it names no port.
-fn owner_issued_address(callback_url: &Url) -> Result<SocketAddr, RedirectReceiverError> {
+fn owner_issued_address(callback: &RedirectAddress) -> Result<SocketAddr, RedirectReceiverError> {
+    let callback_url = callback.url();
     if callback_url.scheme() != "http" {
         return Err(RedirectReceiverError::NotHttp {
             callback_url: callback_url.to_string(),
@@ -336,7 +338,37 @@ fn owner_issued_address(callback_url: &Url) -> Result<SocketAddr, RedirectReceiv
             callback_url: callback_url.to_string(),
         });
     };
-    Ok(SocketAddr::new(host, callback_url.port().unwrap_or(0)))
+    let port = if names_port(callback.as_str()) {
+        callback_url
+            .port_or_known_default()
+            .expect("an http address has a default port")
+    } else {
+        0
+    };
+    Ok(SocketAddr::new(host, port))
+}
+
+// Whether the address `text` writes names a port, read from the text itself: the `url` crate drops
+// a port that is the scheme's default, so an explicit `:80` reads there as no port at all.
+fn names_port(text: &str) -> bool {
+    let after_scheme = text
+        .trim_matches(|character: char| character <= ' ')
+        .split_once(':')
+        .map_or("", |(_, rest)| rest)
+        .trim_start_matches(['/', '\\']);
+    let authority = after_scheme
+        .split(['/', '\\', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    let host_and_port = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, rest)| rest);
+    let after_host = host_and_port
+        .rsplit_once(']')
+        .map_or(host_and_port, |(_, rest)| rest);
+    after_host
+        .rsplit_once(':')
+        .is_some_and(|(_, port)| !port.is_empty())
 }
 
 /// Whether an owner-issued path can sit beside the result pages in the router, which refuses a
@@ -569,7 +601,7 @@ mod tests {
     use tokio::time::timeout;
 
     use super::{
-        AuthorizationResponse, CallbackAnswer, CallbackPath, RedirectCallback,
+        AuthorizationResponse, CallbackAnswer, CallbackPath, RedirectAddress, RedirectCallback,
         RedirectCallbackOwner, RedirectListener, RedirectReceiver, ResultPage,
     };
 
@@ -771,7 +803,8 @@ mod tests {
         #[case] callback_url: &str,
         #[case] socket: Option<&str>,
     ) {
-        let bound = super::owner_issued_address(&Url::parse(callback_url).expect("a URL"));
+        let bound =
+            super::owner_issued_address(&RedirectAddress::parse(callback_url).expect("a URL"));
         assert_eq!(
             bound.ok().map(|address| address.to_string()).as_deref(),
             socket

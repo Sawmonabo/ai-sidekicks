@@ -79,7 +79,8 @@ pub struct AgentTreeNode {
     pub role: Option<String>,
     /// Its path in its provider's tree, where the provider keeps one.
     pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
-    /// The ask its first start named, where its provider named one.
+    /// The ask its first start named, whole, where its provider named one; where that start
+    /// carries no ask, the task name it was spawned under, in words.
     pub ask: Option<MessageContent>,
     /// The model its first start named, where its provider named one.
     pub model_id: Option<ProviderToken>,
@@ -116,7 +117,8 @@ pub struct NewAgentTreeNode {
     pub role: Option<String>,
     /// Its path in its provider's tree, where the provider keeps one.
     pub provider_path: Option<String>,
-    /// The ask its provider started it with, where the start names one.
+    /// The ask its provider started it with, whole, where the start names one; where the start
+    /// carries no ask, the task name it was spawned under, in words.
     pub ask: Option<String>,
     /// The model its provider started it on, where the start names one.
     pub model_id: Option<String>,

@@ -163,7 +163,8 @@ fn a_run_head_reads_its_tool_calls_activity_result_ask_and_end_from_its_own_log(
         ended_head
             .activity
             .as_ref()
-            .map(|activity| activity.subject.as_str()),
+            .and_then(|activity| activity.subject.as_ref())
+            .map(FreeFormText::as_str),
         Some("bash")
     );
     let cut: String = final_words.chars().take(CHILD_RUN_RESULT_MAX_LEN).collect();
@@ -184,7 +185,8 @@ fn a_run_head_reads_its_tool_calls_activity_result_ask_and_end_from_its_own_log(
         live_head
             .activity
             .as_ref()
-            .map(|activity| activity.subject.as_str()),
+            .and_then(|activity| activity.subject.as_ref())
+            .map(FreeFormText::as_str),
         Some("edit")
     );
     assert_eq!(live_head.result, None, "a live run has no result yet");
@@ -291,7 +293,8 @@ fn a_provider_helpers_head_carries_its_name_ask_and_end() {
         named_head
             .activity
             .as_ref()
-            .map(|activity| activity.subject.as_str()),
+            .and_then(|activity| activity.subject.as_ref())
+            .map(FreeFormText::as_str),
         Some("read")
     );
     assert_eq!(

@@ -210,9 +210,9 @@ fn claude_server_keys(
     keys
 }
 
-// Whether `helper`, named by `binding`'s entry, is the administrator's own: the entry is the one the
-// administrator's MCP file on this computer declares, or a `managedMcpServers` entry of one of the
-// administrator's managed settings files there names the same helper, which no remote delivery
+// Whether `helper`, named by `binding`'s entry, is the administrator's own: the entry is the one
+// the administrator's MCP file on this computer declares, or a `managedMcpServers` entry of one of
+// the administrator's managed settings files there names the same helper, which no remote delivery
 // writes. A managed settings file that cannot be read names none.
 async fn is_administrators_helper(
     sources: &ClaudeMcpSignInSources<'_>,

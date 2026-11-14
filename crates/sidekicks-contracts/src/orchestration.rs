@@ -247,7 +247,8 @@ pub struct ChildRunHead {
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>")]
     pub agent_name: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
-    /// The ask it was dispatched with, whole; `null` where its start recorded none.
+    /// The ask it was dispatched with, whole, or for a helper whose provider's start carries no
+    /// ask, the task name it was spawned under, in words; `null` where its start recorded none.
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<MessageContent>")]
     pub ask: Option<MessageContent>,
@@ -283,8 +284,8 @@ pub struct ChildRunHead {
     #[schemars(with = "crate::wire::NullableSchema<WireInstant>")]
     #[garde(dive)]
     pub ended_at: Option<WireInstant>,
-    /// What it is doing, its newest tool call's action, kept once it ends; `null` before its
-    /// first tool call.
+    /// What it is doing: the newest action its tool calls recorded, at a call's start or at an
+    /// end that named what the start could not, kept once it ends; `null` before its first.
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<ToolCallAction>")]
     pub activity: Option<ToolCallAction>,

@@ -20,6 +20,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
@@ -425,7 +426,7 @@ impl ScriptedSession {
             run_id,
             ClaudeChildRunRoute {
                 session_id: self.session_id,
-                agent_id: agent_id.to_owned(),
+                agent_id: SubagentId::new(agent_id.to_owned()).expect("a test helper id is an id"),
                 parent_run_id,
                 binding_id: binding_id("helper"),
                 is_refused: false,

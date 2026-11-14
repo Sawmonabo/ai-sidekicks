@@ -35,7 +35,7 @@
   // nothing catches it: it is removed by reading.
   "tags": ["-consumedBy"],
 
-  // The packages the Rust port replaces, unchecked until the change that deletes each one.
+  // The packages the Rust port deletes, unchecked until the change that deletes each one.
   "ignoreWorkspaces": [
     "apps/cli",
     "packages/control-plane",

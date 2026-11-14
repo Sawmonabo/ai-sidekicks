@@ -494,10 +494,10 @@ impl ClaudeRaisedSettingsNotices {
     }
 
     // What `reader`'s new `notices` post, in order: at a start's first reading, the notice that
-    // ends every earlier start's notices, where one may stand; then, for each file a let-go notice named, that the
-    // file loads cleanly, followed by the notices still standing on it, since the newest notice
-    // of a file is the one that stands (every one where a let-go notice named no file); then each
-    // notice no standing notice carried before, each place once.
+    // ends every earlier start's notices, where one may stand; then, for each file a let-go notice
+    // named, that the file loads cleanly, followed by the notices still standing on it, since the
+    // newest notice of a file is the one that stands (every one where a let-go notice named no
+    // file); then each notice no standing notice carried before, each place once.
     fn take_fresh(
         &mut self,
         session_id: SessionId,

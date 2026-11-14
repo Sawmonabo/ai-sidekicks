@@ -47,6 +47,7 @@ use crate::bounded_poll::poll_until;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
+use crate::driver::command_sandbox::{CommandSandboxAvailability, MissingSandboxPrerequisite};
 use crate::driver::contract::params_and_results::DriverCliVersionReport;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::ports::SessionRelaunchListener;
@@ -59,9 +60,8 @@ use crate::driver::test_registry::{
     new_agent_id, new_run_id, new_session_id, test_driver_services,
 };
 use crate::driver::{
-    AccountFoldersError, CommandSandboxAvailability, CurrentProviderAccount, DriverServices,
-    MissingSandboxPrerequisite, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
-    SessionSpawnContextResolver,
+    AccountFoldersError, CurrentProviderAccount, DriverServices, ProviderAccountFolders,
+    ProviderAccountReader, SessionSpawnContext, SessionSpawnContextResolver,
 };
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;

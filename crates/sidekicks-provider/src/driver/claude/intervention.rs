@@ -380,7 +380,7 @@ impl ClaudeInterventions {
         {
             return Ok(applied());
         }
-        lock(&self.pauses).hold_interrupted_helper(&route.session_id, &route.agent_id);
+        lock(&self.pauses).hold_interrupted_helper(&route.session_id, route.agent_id.as_str());
         let command_ids = self
             .writer
             .start

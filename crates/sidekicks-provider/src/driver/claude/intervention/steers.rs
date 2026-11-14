@@ -108,7 +108,7 @@ impl ClaudeInterventions {
             payload.content.as_str(),
             &attachments.map_err(DriverError::Internal)?,
         );
-        lock(&self.helper_steers).push(route.session_id, &route.agent_id, words);
+        lock(&self.helper_steers).push(route.session_id, route.agent_id.as_str(), words);
         drop(place);
         Ok(applied())
     }

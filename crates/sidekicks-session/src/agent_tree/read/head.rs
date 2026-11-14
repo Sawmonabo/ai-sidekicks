@@ -38,20 +38,22 @@ static SELECT_TOOL_COUNTS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// Each listed run's newest readable tool call's action, as its driver recorded it at the call's
-// start; the bare column reads from the row `MAX` picks.
+// Each listed run's newest readable action, as its driver recorded it at a tool call's start or
+// at an end that named what the start could not; a row with no action hides no older one. The bare
+// column reads from the row `MAX` picks.
 static SELECT_NEWEST_TOOLS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT invoked.run_id, MAX(invoked.sequence),
-       json_extract(invoked.payload, '$.action')
-  FROM session_events AS invoked
-  WHERE invoked.session_id = @session_id
-    AND invoked.type = '{invoked}'
-    AND invoked.run_id IN (SELECT value FROM json_each(@run_ids))
+        "SELECT acted.run_id, MAX(acted.sequence), json_extract(acted.payload, '$.action')
+  FROM session_events AS acted
+  WHERE acted.session_id = @session_id
+    AND acted.type IN ('{invoked}', '{completed}')
+    AND acted.run_id IN (SELECT value FROM json_each(@run_ids))
+    AND json_extract(acted.payload, '$.action') IS NOT NULL
     AND {readable}
-  GROUP BY invoked.run_id",
+  GROUP BY acted.run_id",
         invoked = SessionEventType::AgentToolCallInvoked.as_str(),
-        readable = readable_event_sql("invoked"),
+        completed = SessionEventType::AgentToolCallCompleted.as_str(),
+        readable = readable_event_sql("acted"),
     )
 });
 
@@ -170,18 +172,14 @@ impl HeadLog {
                 |row| {
                     Ok((
                         run_id_column(row, 0)?,
-                        optional_text_column(row, 2, |text| {
+                        text_column(row, 2, |text| {
                             serde_json::from_str::<ToolCallAction>(&text)
                                 .map_err(StoredJsonFault::from)
                         })?,
                     ))
                 },
             )?
-            .collect::<rusqlite::Result<Vec<_>>>()?
-            .into_iter()
-            // A call whose start recorded no action leaves its run with none.
-            .filter_map(|(run_id, action)| Some((run_id, action?)))
-            .collect();
+            .collect::<rusqlite::Result<_>>()?;
         let ends = reader
             .prepare_cached(&SELECT_ENDS_SQL)?
             .query_map(
@@ -291,7 +289,8 @@ impl HeadLog {
             .unwrap_or(SafeInt::ZERO)
     }
 
-    /// What the newest tool call `run_id` made does, kept once it ends; `None` before its first.
+    /// The newest action `run_id`'s tool calls recorded, kept once it ends; `None` before the
+    /// first.
     pub(super) fn activity(&self, run_id: RunId) -> Option<ToolCallAction> {
         self.activities.get(&run_id).cloned()
     }

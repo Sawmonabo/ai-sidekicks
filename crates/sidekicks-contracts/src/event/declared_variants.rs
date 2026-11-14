@@ -389,7 +389,8 @@ tool_activity_payload! {
     /// arguments or result body is kept apart from it. It takes the epoch stamp.
     pub struct ToolActivityPayload {
         /// What the call does and to what, read by its driver from the call's own input; set on
-        /// its start, absent on its end.
+        /// its start, and on its end only where the end names what the start could not, as a
+        /// search's query its provider names only when the call ends.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",

@@ -40,16 +40,23 @@ pub enum ToolCallActionKind {
     Tool,
 }
 
-/// What one tool call does and to what, read by its provider's driver from the call's own input
-/// when it starts: the command line, the input, a file's path, the pattern or query, the host, or
-/// the tool's own name for the open kind.
+/// What one tool call does and to what, read by its provider's driver from the call's own input:
+/// the command line, the input, a file's path, the pattern or query, the host, or the tool's own
+/// name for the open kind.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ToolCallAction {
     /// What it does.
     pub kind: ToolCallActionKind,
-    /// What it does it to, cut to the field's cap.
-    pub subject: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// What it does it to, cut to the field's cap; absent while the provider has not named it,
+    /// as a search whose query the provider names only when the call ends.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<EVENT_FIELD_MAX_LEN>")]
+    pub subject: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
 }
 
 /// The TypeScript module of a provider's tool call.

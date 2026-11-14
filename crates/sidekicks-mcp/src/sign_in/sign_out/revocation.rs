@@ -180,9 +180,9 @@ pub(crate) fn revoke_on_task(
 
 // Posts `held`'s refresh token to the revocation endpoint the server's metadata publishes, through
 // `client`, signed with the sign-in's proof key when it holds one and authenticated with its
-// client's secret, `client_secret`, where one is given; no refresh token or no published endpoint sends nothing. The
-// metadata is `metadata` where given, else read at `held`'s recorded address, else discovered at
-// `address`.
+// client's secret, `client_secret`, where one is given; no refresh token or no published endpoint
+// sends nothing. The metadata is `metadata` where given, else read at `held`'s recorded address,
+// else discovered at `address`.
 async fn revoke(
     client: Arc<ServerOAuthHttpClient>,
     address: &McpServerAddress,

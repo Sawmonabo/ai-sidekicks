@@ -84,11 +84,11 @@ impl ClaudeDriver {
         .await
     }
 
-    /// Reads what a sign-in to `request`'s server reads from its entry, the administrator's MCP file
-    /// and the person's files read once, in the environment its address is read with: the whole
-    /// address as [`Self::read_mcp_server_addresses`] reads it; no callback, since Claude Code's
-    /// declaration names its whole callback; and, where `is_owner_client_secret_read`, the secret
-    /// as [`Self::read_mcp_owner_client_secret`] reads it. Fails as either read fails.
+    /// Reads what a sign-in to `request`'s server reads from its entry, the administrator's MCP
+    /// file and the person's files read once, in the environment its address is read with: the
+    /// whole address as [`Self::read_mcp_server_addresses`] reads it; no callback, since Claude
+    /// Code's declaration names its whole callback; and, where `is_owner_client_secret_read`, the
+    /// secret as [`Self::read_mcp_owner_client_secret`] reads it. Fails as either read fails.
     pub(crate) async fn read_mcp_sign_in_entry(
         &self,
         request: McpServerAddressRead,

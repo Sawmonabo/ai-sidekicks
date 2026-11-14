@@ -17,11 +17,11 @@
 //!   no secret: just before a renewal is sent, and only then, the secret is read again where the
 //!   binding's provider keeps it, so a rotated one is sent, and the manager forgets it once the
 //!   renewal ends. Such a sign-in is renewed a minute before it runs out, ahead of rmcp's own
-//!   margin, so rmcp never renews it with no secret set; a request that finds the server needs a sign-in while another
-//!   sign-in was kept since its read is tried once more as that sign-in. It renews against the
-//!   server's metadata, through the server's filtered OAuth client. A
-//!   sign-in another authorization server issued is forgotten when the authorizer is made, its
-//!   issuer compared equal but for a slash ending either, so a slash alone never forgets a sign-in.
+//!   margin, so rmcp never renews it with no secret set; a request that finds the server needs a
+//!   sign-in while another sign-in was kept since its read is tried once more as that sign-in. It
+//!   renews against the server's metadata, through the server's filtered OAuth client. A sign-in
+//!   another authorization server issued is forgotten when the authorizer is made, its issuer
+//!   compared equal but for a slash ending either, so a slash alone never forgets a sign-in.
 //! - A request that finds the server needs a sign-in marks it signed out, under the server's
 //!   custody, unless another sign-in was kept since, so the signed-in set never lists a server
 //!   whose every call needs a new sign-in and never drops one a new sign-in just kept.
@@ -269,7 +269,7 @@ impl SignInAuthorizer {
                 let manager = self.renewing_as(found, Some(binding)).await?;
                 let renewed = retry_refused_proof(|| manager.refresh_token()).await;
                 drop(manager);
-                self.forget_owner_client_secret(found).await?;
+                self.forget_owner_client_secret(found).await;
                 renewed.map(|tokens| tokens.access_token().secret().clone())
             }
             Some(_) | None => {
@@ -389,13 +389,18 @@ impl SignInAuthorizer {
     }
 
     // Sets the manager back to `held`'s client with no secret, so an owner's secret read for a
-    // renewal is held no longer than that renewal.
-    async fn forget_owner_client_secret(
-        &self,
-        held: &Arc<HeldSignIn>,
-    ) -> Result<(), SignInAuthorizationError> {
+    // renewal is held no longer than that renewal. A failure is logged and the manager marked
+    // unset, so its next use sets it again: the renewal it follows has already saved its tokens,
+    // which the request goes on with.
+    async fn forget_owner_client_secret(&self, held: &Arc<HeldSignIn>) {
         let mut renewing = self.manager.lock().await;
-        self.configure_client(&mut renewing, held, None)
+        if let Err(error) = self.configure_client(&mut renewing, held, None) {
+            renewing.configured_for = Weak::new();
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "an MCP server's renewal could not clear its owner client's secret"
+            );
+        }
     }
 
     // Revokes the refresh token a renewal whose save was refused received, a sign-out or a new
@@ -467,7 +472,7 @@ impl SignInAuthorizer {
         let renewed = retry_refused_proof(|| manager.refresh_token()).await;
         drop(manager);
         if owner_client.is_some() {
-            self.forget_owner_client_secret(&held).await?;
+            self.forget_owner_client_secret(&held).await;
         }
         self.revoke_refused_renewal();
         match renewed {
