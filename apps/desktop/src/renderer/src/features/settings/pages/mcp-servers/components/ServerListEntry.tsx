@@ -8,21 +8,10 @@ import type {
   McpServerInventoryEntry,
 } from "@ai-sidekicks/contracts/mcp/server";
 import { MCP_SERVER_STATUS_WORDS } from "#renderer/lib/mcp-server-status-words.js";
+import { MCP_SCOPE_WORDS } from "../scope-words.js";
 import { toneForServerStatus } from "../status-tone.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
-
-// Where a server applies: the words the add form offers for each scope a person writes, and the
-// provider's own word, as the wire sends it, for a connector's and an administrator's.
-const WHERE_IT_APPLIES: Readonly<
-  Record<Exclude<McpServerInventoryEntry["scope"], "plugin">, string>
-> = {
-  user: "All projects",
-  project: "This project · in the repo",
-  local: "This project · not in the repo",
-  connector: "connector",
-  managed: "managed",
-};
 
 /**
  * One server in the list, pressed to select it: its name, provider, where it applies and its
@@ -77,7 +66,7 @@ export function ServerListEntry(props: {
               From plugin <WireFigure value={entry.scopeRef} />
             </>
           ) : (
-            WHERE_IT_APPLIES[entry.scope]
+            MCP_SCOPE_WORDS[entry.scope]
           )}
         </span>
         {entry.supersededIn?.map((origin) => (

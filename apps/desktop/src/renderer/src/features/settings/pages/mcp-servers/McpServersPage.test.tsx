@@ -233,6 +233,10 @@ function operationsServing(
     sendClearToolOverride: async () => await Promise.resolve(TOOL_SWITCHED_OFF),
     sendSignIn: async () =>
       await Promise.resolve({ authorizationUrl: "https://issues.example.test/authorize" }),
+    sendUpsert: async () => await Promise.resolve(PARTIAL_APPLICATION),
+    sendDelete: async () => await Promise.resolve({ applied: "userConfigWrite" }),
+    sendReconnect: async () => await Promise.resolve({ legs: [] }),
+    searchRegistry: async () => await Promise.resolve({ status: "served", value: { servers: [] } }),
     ...overrides,
   };
 }

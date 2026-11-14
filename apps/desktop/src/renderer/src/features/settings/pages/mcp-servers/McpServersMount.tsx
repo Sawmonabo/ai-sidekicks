@@ -45,8 +45,9 @@ export function McpServersMount(): ReactNode {
 
 /**
  * The verbs the body drives, over one bridge. A refused reply rejects with the daemon's
- * refusal, which the body's read and its mutation outcome both carry verbatim. A stream frame is
- * a signal to read again, so its payload is not read.
+ * refusal, which the body's read and its mutation outcome both carry verbatim; a registry search
+ * answers its refusal instead, as the search's own state. A stream frame is a signal to read
+ * again, so its payload is not read.
  */
 function mcpServerOperationsOver(bridge: PlatformBridge): McpServerOperations {
   return {
@@ -71,5 +72,13 @@ function mcpServerOperationsOver(bridge: PlatformBridge): McpServerOperations {
       unwrapDaemonReply(await callDaemon(bridge, "mcp.toolOverride.clear", request)),
     sendSignIn: async (request) =>
       unwrapDaemonReply(await callDaemon(bridge, "mcp.server.signIn", request)),
+    sendUpsert: async (request) =>
+      unwrapDaemonReply(await callDaemon(bridge, "mcp.server.upsert", request)),
+    sendDelete: async (request) =>
+      unwrapDaemonReply(await callDaemon(bridge, "mcp.server.delete", request)),
+    sendReconnect: async (request) =>
+      unwrapDaemonReply(await callDaemon(bridge, "mcp.server.reconnect", request)),
+    searchRegistry: async (request, signal) =>
+      await callDaemon(bridge, "mcp.registry.search", request, { signal }),
   };
 }

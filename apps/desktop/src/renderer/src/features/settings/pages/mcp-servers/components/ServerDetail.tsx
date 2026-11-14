@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { Switch } from "#renderer/components/Switch/Switch.js";
@@ -9,13 +10,17 @@ import type { Clock } from "#renderer/lib/clock.js";
 import type {
   McpServerBindingRef,
   McpServerInventoryEntry,
+  McpServerLegStatus,
   McpToolOverrideFacet,
+  McpWritableBindingRef,
 } from "@ai-sidekicks/contracts/mcp/server";
 import type { ProjectListEntry } from "@ai-sidekicks/contracts/project";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { ConfigReadBack } from "./ConfigReadBack.js";
-import { ProjectSwitches, type ProjectListReading } from "./ProjectSwitches.js";
+import type { ProjectListReading } from "./ProjectListStatus.js";
+import { ProjectSwitches } from "./ProjectSwitches.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
+import { RemoveServerConfirm } from "./RemoveServerConfirm.js";
 import { ServerLegs } from "./ServerLegs.js";
 import { toneForServerStatus } from "../status-tone.js";
 import { ToolSettingList } from "./ToolSettingList.js";
@@ -36,10 +41,18 @@ const SWITCH_AND_TOOL_READINGS_MISSING_LINE =
   "drawn because the reading they act on did not arrive; everything else on this page is " +
   "offered exactly as usual.";
 
+/** What `Reconnect` reads while the provider is asked. */
+const RECONNECTING_WORDS = "Asking for the connection again…";
+
+/** The readings of a server no running session uses. */
+const NO_LEGS: readonly McpServerLegStatus[] = [];
+
 /**
  * The selected server: its state with the probe's reason where one decides it, its set-up read
- * back, one reading per running session under `Running sessions`, then the controls this fixture
- * body sends. With nothing selected it says how to pick one.
+ * back, one reading per running session under `Running sessions`, then its controls: `Reconnect`
+ * first, the primary control on a server reading `Failed`, then its switches, its sign-in and, on a
+ * server a person wrote, `Remove`, confirmed in place. With nothing selected it says how to pick
+ * one, under how the last removal settled where the selected server was just removed.
  *
  * Every control is offered and none is eligibility-gated; each disables only while its own call
  * is in flight and settles in place under itself. A control whose reading the service did not
@@ -65,6 +78,16 @@ export function ServerDetail(props: {
   /** The outcome of `Sign in to this server`. */
   readonly signInOutcome: McpMutationOutcome;
   readonly onSignIn: (binding: McpServerBindingRef) => void;
+  /** The outcome of `Reconnect`. */
+  readonly reconnectOutcome: McpMutationOutcome;
+  /** Asks for the connection again, handed the sessions' readings as they stood at the press. */
+  readonly onReconnect: (
+    binding: McpServerBindingRef,
+    legsBefore: readonly McpServerLegStatus[],
+  ) => void;
+  /** The outcome of `Remove`, which outlives the server it removed. */
+  readonly removalOutcome: McpMutationOutcome;
+  readonly onRemove: (binding: McpWritableBindingRef) => void;
   readonly onChangeTool: (
     binding: McpServerBindingRef,
     toolName: string,
@@ -87,13 +110,23 @@ export function ServerDetail(props: {
     onSetEnabledIn,
     signInOutcome,
     onSignIn,
+    reconnectOutcome,
+    onReconnect,
+    removalOutcome,
+    onRemove,
     onChangeTool,
     sessionDirectory,
     clock,
   } = props;
+  const [isConfirmingRemoval, setIsConfirmingRemoval] = useState(false);
   if (entry === undefined) {
     return (
       <section className="meridian-mcp__detail" aria-label="Selected server">
+        <MutationOutcomeLine
+          outcome={removalOutcome}
+          sessionDirectory={sessionDirectory}
+          clock={clock}
+        />
         <Nothing
           kind="empty"
           placement="block"
@@ -103,7 +136,12 @@ export function ServerDetail(props: {
     );
   }
   const binding = bindingOf(entry);
+  const writableBinding =
+    binding.scope === "user" || binding.scope === "project" || binding.scope === "local"
+      ? binding
+      : undefined;
   const { enabled } = entry;
+  const isFailed = entry.status === "failed";
   return (
     <section className="meridian-mcp__detail" aria-label="Selected server">
       <div className="meridian-mcp__detail-head">
@@ -125,6 +163,47 @@ export function ServerDetail(props: {
       )}
 
       <ConfigReadBack config={entry.config} />
+
+      <div className="meridian-mcp__detail-block">
+        <span className="meridian-mcp__add-actions">
+          <button
+            type="button"
+            className={
+              isFailed
+                ? "meridian-settings-page__action " +
+                  "meridian-settings-page__action--primary meridian-action-button"
+                : "meridian-settings-page__action meridian-action-button"
+            }
+            disabled={reconnectOutcome.kind === "sending"}
+            onClick={() => {
+              onReconnect(binding, entry.legs ?? NO_LEGS);
+            }}
+          >
+            Reconnect
+          </button>
+        </span>
+        <p className="meridian-settings-page__aside">
+          This asks for the connection again. It changes nothing that is set here.
+        </p>
+        <MutationOutcomeLine
+          outcome={reconnectOutcome}
+          sessionDirectory={sessionDirectory}
+          clock={clock}
+          sendingWords={RECONNECTING_WORDS}
+          onTryAgain={() => {
+            onReconnect(binding, entry.legs ?? NO_LEGS);
+          }}
+        />
+        {reconnectOutcome.kind === "reconnected" && reconnectOutcome.isUnchanged ? (
+          <AnnouncedLine
+            element="p"
+            className="meridian-settings-page__state"
+            words={`Nothing changed. The server is still ${MCP_SERVER_STATUS_WORDS[entry.status]}.`}
+            politeness="polite"
+            attempt={reconnectOutcome}
+          />
+        ) : null}
+      </div>
 
       <div className="meridian-mcp__detail-block">
         <h4 className="meridian-settings-page__section-head">Running sessions</h4>
@@ -184,6 +263,42 @@ export function ServerDetail(props: {
           }}
         />
       </div>
+
+      {writableBinding === undefined ? null : (
+        <div className="meridian-mcp__detail-block">
+          {isConfirmingRemoval ? (
+            <RemoveServerConfirm
+              serverName={entry.serverName}
+              provider={entry.provider}
+              onCancel={() => {
+                setIsConfirmingRemoval(false);
+              }}
+              onRemove={() => {
+                setIsConfirmingRemoval(false);
+                onRemove(writableBinding);
+              }}
+            />
+          ) : (
+            <span className="meridian-mcp__add-actions">
+              <button
+                type="button"
+                className="meridian-settings-page__action meridian-action-button"
+                disabled={removalOutcome.kind === "sending"}
+                onClick={() => {
+                  setIsConfirmingRemoval(true);
+                }}
+              >
+                Remove
+              </button>
+            </span>
+          )}
+          <MutationOutcomeLine
+            outcome={removalOutcome}
+            sessionDirectory={sessionDirectory}
+            clock={clock}
+          />
+        </div>
+      )}
 
       {entry.bindingStoreUnavailable === true ? (
         <Nothing

@@ -13,16 +13,25 @@ import type {
   McpApprovalMode,
   McpAssignableIdempotencyClass,
   McpLiveApplicationResult,
+  McpRegistrySearchRequest,
+  McpRegistrySearchResponse,
   McpServerBindingRef,
+  McpServerDeleteRequest,
+  McpServerDeleteResponse,
   McpServerEnabledUpdateRequest,
+  McpServerLegStatus,
   McpServerMutationResponse,
+  McpServerReconnectRequest,
+  McpServerReconnectResponse,
   McpServerSignInRequest,
   McpServerSignInResponse,
+  McpServerUpsertRequest,
   McpToolOverrideClearRequest,
   McpToolOverrideMutationResponse,
   McpToolOverrideUpdateRequest,
 } from "@ai-sidekicks/contracts/mcp/server";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { DaemonReply } from "#renderer/services/daemon/reply.js";
 
 /**
  * What a settled change answered: each grade it took effect at, in the order the service named
@@ -34,19 +43,25 @@ export interface McpChangeSettlement {
 }
 
 /**
- * How a mutation this page sent has settled. `signInPageOpened` is a sign-in whose page
- * the system browser was handed; `refused` is a send that rejected, carrying the service's own
- * words.
+ * How a mutation this page sent has settled. `serverSent` is an added or changed server the
+ * service took; `signInPageOpened` is a sign-in whose page the system browser was handed;
+ * `reconnected` is a reconnect the service answered, `isUnchanged` where no session's reading
+ * moved; `refused` is a send that rejected, carrying the service's own words.
  */
 export type McpMutationOutcome =
   | { readonly kind: "idle" }
   | { readonly kind: "sending"; readonly binding: McpServerBindingRef }
   | {
-      readonly kind: "settled";
+      readonly kind: "settled" | "serverSent";
       readonly binding: McpServerBindingRef;
       readonly settlement: McpChangeSettlement;
     }
   | { readonly kind: "signInPageOpened"; readonly binding: McpServerBindingRef }
+  | {
+      readonly kind: "reconnected";
+      readonly binding: McpServerBindingRef;
+      readonly isUnchanged: boolean;
+    }
   | {
       readonly kind: "refused";
       readonly binding: McpServerBindingRef;
@@ -101,6 +116,26 @@ export type SendMcpClearToolOverride = (
 /** Starts the service's own sign-in for a binding's server, answering its sign-in page. */
 export type SendMcpSignIn = (request: McpServerSignInRequest) => Promise<McpServerSignInResponse>;
 
+/** Adds a server, or changes the declaration of one at the same place and name. */
+export type SendMcpUpsert = (request: McpServerUpsertRequest) => Promise<McpServerMutationResponse>;
+
+/** Removes a binding from its provider's config. */
+export type SendMcpDelete = (request: McpServerDeleteRequest) => Promise<McpServerDeleteResponse>;
+
+/** Asks the provider to open a binding's connection again, answering each session's reading. */
+export type SendMcpReconnect = (
+  request: McpServerReconnectRequest,
+) => Promise<McpServerReconnectResponse>;
+
+/**
+ * Searches the public MCP Registry through the service, answering its page or the refusal in its
+ * place; `signal` ends the search's hold on its answer once a newer search replaces it.
+ */
+export type SearchMcpRegistry = (
+  request: McpRegistrySearchRequest,
+  signal: AbortSignal,
+) => Promise<DaemonReply<McpRegistrySearchResponse>>;
+
 /**
  * What one press on a tool's facet asks for: a value set here, naming that facet alone, or the
  * facet returned to the server's own value, which clears it alone.
@@ -120,9 +155,35 @@ export function mintIdempotencyKey(): string {
   return crypto.randomUUID();
 }
 
-/** How a binding-level change settled: its one grade and each live session it touched. */
-export function settlementOfMutation(result: McpServerMutationResponse): McpChangeSettlement {
+/**
+ * How a binding-level change or a removal settled: its one grade and each live session it
+ * touched.
+ */
+export function settlementOfMutation(
+  result: McpServerMutationResponse | McpServerDeleteResponse,
+): McpChangeSettlement {
   return { grades: [result.applied], liveResults: result.liveResults };
+}
+
+/**
+ * Whether a reconnect moved no session's reading: each session the service answered for reads as
+ * it did before the press, and no session joined or left.
+ */
+export function isReconnectUnchanged(
+  legsBefore: readonly McpServerLegStatus[],
+  legsAfter: readonly McpServerLegStatus[],
+): boolean {
+  return (
+    legsBefore.length === legsAfter.length &&
+    legsAfter.every((after) =>
+      legsBefore.some(
+        (before) =>
+          before.sessionId === after.sessionId &&
+          before.bindingId === after.bindingId &&
+          before.status === after.status,
+      ),
+    )
+  );
 }
 
 /**

@@ -1,18 +1,21 @@
 // The MCP servers page: the server list beside the selected server's readings, per-tool
-// settings and the outcome of each change, drawn from the reading and the calls it is handed.
+// settings and the outcome of each change, drawn from the reading and the calls it is handed, and
+// under them `Add a server` and `Browse servers`.
 //
 // It authors none of what the MCP page must not: no aggregate status (the daemon's arrives on
-// the entry), no derived eligibility (every control is offered), and no configuration,
-// environment, header, token or authorization-URL value (the wire carries names in their place).
+// the entry), no derived eligibility (every control is offered), and it draws no configuration,
+// environment, header, token or authorization-URL value (the wire carries names in their place;
+// what the add form's person typed leaves with its send and is held nowhere after it).
 //
 // The outcome ledger is one entry per control: a binding's own switch keyed by its scope-qualified
 // identity, its switch in one project by that identity and the project's root and distribution,
-// its sign-in by that identity and the word `signIn`, and each tool's facet by that identity, the
-// tool's name and the facet. It belongs
-// to the bridge it was produced through: the provider replaces the bridge under a live mount in
-// place, so the map rides the subject-scoped holder with the bridge as subject. It re-seeds
-// during the render that first sees a new bridge, and a publisher captured under the retired
-// bridge writes nothing.
+// its sign-in, reconnect and removal by that identity and the act's word, each tool's facet by that
+// identity, the tool's name and the facet, and the add form's send by a key no binding's can be.
+// A removal's entry outlives its row, so the pane the removed server stood in still says how the
+// removal settled. It belongs to the bridge it was produced through: the provider replaces the
+// bridge under a live mount in place, so the map rides the subject-scoped holder with the bridge
+// as subject. It re-seeds during the render that first sees a new bridge, and a publisher
+// captured under the retired bridge writes nothing.
 
 import "./McpServersPage.css";
 
@@ -21,8 +24,11 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type {
   McpProviderReadFailure,
   McpServerBindingRef,
+  McpServerConfigInput,
   McpServerInventoryEntry,
+  McpServerLegStatus,
   McpToolOverrideFacet,
+  McpWritableBindingRef,
 } from "@ai-sidekicks/contracts/mcp/server";
 import type { ProjectListEntry } from "@ai-sidekicks/contracts/project";
 import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
@@ -48,6 +54,7 @@ import {
 import { mcpBindingKeyOf } from "./binding-key.js";
 import {
   IDLE_MCP_MUTATION,
+  isReconnectUnchanged,
   mintIdempotencyKey,
   type IdempotencyKeyMinter,
   SIGN_IN_PAGE_UNOPENED_CODE,
@@ -58,15 +65,21 @@ import {
   type McpProjectScopedBindingRef,
   type McpSwitchableBindingRef,
   type McpToolFacetChange,
+  type SearchMcpRegistry,
   type SendMcpClearToolOverride,
+  type SendMcpDelete,
   type SendMcpEnabled,
+  type SendMcpReconnect,
   type SendMcpSignIn,
   type SendMcpToolOverride,
+  type SendMcpUpsert,
 } from "./mutation.js";
-import type { ProjectListReading } from "./components/ProjectSwitches.js";
+import type { ProjectListReading } from "./components/ProjectListStatus.js";
+import { ServerAdding } from "./components/ServerAdding.js";
 import { ServerDetail } from "./components/ServerDetail.js";
 import { FailedProviderRow } from "./components/FailedProviderRow.js";
 import { ServerListEntry } from "./components/ServerListEntry.js";
+import { MutationOutcomeLine } from "./components/MutationOutcomeLine.js";
 
 /** The subsystem a refused change names as its author. */
 const MCP_MUTATION_ORIGIN = "mcp-mutation";
@@ -82,6 +95,10 @@ export interface McpServerOperations {
   readonly sendToolOverride: SendMcpToolOverride;
   readonly sendClearToolOverride: SendMcpClearToolOverride;
   readonly sendSignIn: SendMcpSignIn;
+  readonly sendUpsert: SendMcpUpsert;
+  readonly sendDelete: SendMcpDelete;
+  readonly sendReconnect: SendMcpReconnect;
+  readonly searchRegistry: SearchMcpRegistry;
 }
 
 /**
@@ -229,6 +246,36 @@ export function McpServersPage(props: {
       return { kind: "signInPageOpened", binding };
     });
   };
+  // The declaration travels only inside this send: the outcome keeps the binding alone.
+  const addServer = (binding: McpWritableBindingRef, config: McpServerConfigInput): void => {
+    sendChange(ADD_SERVER_OUTCOME_KEY, binding, async () => ({
+      kind: "serverSent",
+      binding,
+      settlement: settlementOfMutation(
+        await operations.sendUpsert({ ...binding, clientIdempotencyKey: mintKey(), config }),
+      ),
+    }));
+  };
+  const removeServer = (binding: McpWritableBindingRef): void => {
+    sendChange(removalOutcomeKeyOf(mcpBindingKeyOf(binding)), binding, async () => ({
+      kind: "settled",
+      binding,
+      settlement: settlementOfMutation(
+        await operations.sendDelete({ ...binding, clientIdempotencyKey: mintKey() }),
+      ),
+    }));
+  };
+  // A reconnect writes nothing, so it carries no key; whether it moved any session's reading is
+  // read from the readings the service answered against those the press saw.
+  const reconnect = (
+    binding: McpServerBindingRef,
+    legsBefore: readonly McpServerLegStatus[],
+  ): void => {
+    sendChange(reconnectOutcomeKeyOf(binding), binding, async () => {
+      const { legs } = await operations.sendReconnect(binding);
+      return { kind: "reconnected", binding, isUnchanged: isReconnectUnchanged(legsBefore, legs) };
+    });
+  };
   // Only the facet pressed is sent: a set names that facet alone and a clear clears it alone, so
   // the tool's other facets are left as they stand.
   const changeTool = (
@@ -263,6 +310,24 @@ export function McpServersPage(props: {
   const failedProviders = state.kind === "loaded" ? state.value.failedProviders : NO_FAILURES;
   const observedStamps = observedStampsOf(servers);
   const nowMilliseconds = useRelativeTimesNow(clock, observedStamps);
+  const serverAdding = (
+    <ServerAdding
+      outcome={outcomes.get(ADD_SERVER_OUTCOME_KEY) ?? IDLE_MCP_MUTATION}
+      onAdd={addServer}
+      onDropOutcome={() => {
+        recordOutcome(ADD_SERVER_OUTCOME_KEY, IDLE_MCP_MUTATION);
+      }}
+      searchRegistry={operations.searchRegistry}
+      projects={projects}
+      sessionDirectory={sessionDirectory}
+      clock={clock}
+    />
+  );
+  // How the removal of the server last selected settled, which stands where that server stood.
+  const removalOutcome =
+    selectedKey === undefined
+      ? IDLE_MCP_MUTATION
+      : (outcomes.get(removalOutcomeKeyOf(selectedKey)) ?? IDLE_MCP_MUTATION);
   if (state.kind === "not-loaded") {
     return <LoadingNotice clock={clock} placement="block" title="Loading…" />;
   }
@@ -297,6 +362,11 @@ export function McpServersPage(props: {
   if (servers.length === 0) {
     return (
       <>
+        <MutationOutcomeLine
+          outcome={removalOutcome}
+          sessionDirectory={sessionDirectory}
+          clock={clock}
+        />
         {failedRows.length === 0 ? null : (
           <ul className="meridian-mcp__entries" aria-label="Tool servers">
             {failedRows}
@@ -310,6 +380,7 @@ export function McpServersPage(props: {
             title={noServersLineFor(section)}
           />
         ))}
+        {serverAdding}
       </>
     );
   }
@@ -320,73 +391,87 @@ export function McpServersPage(props: {
   }
   const selected = servers.find((entry) => mcpBindingKeyOf(entry) === selectedKey);
   return (
-    <div className="meridian-mcp">
-      <div className="meridian-mcp__list">
-        <ul className="meridian-mcp__entries" aria-label="Tool servers">
-          {servers.map((entry) => {
-            const key = mcpBindingKeyOf(entry);
-            return (
-              <ServerListEntry
-                key={key}
-                entry={entry}
-                isSelected={entry === selected}
-                onSelect={() => {
-                  setSelectedKey(key);
-                }}
-                nowMilliseconds={nowMilliseconds}
-              />
-            );
-          })}
-          {failedRows}
-        </ul>
-        {providersWithNone.map((section) => (
-          <p key={section.provider} className="meridian-settings-page__aside">
-            {noServersLineFor(section)}
-          </p>
-        ))}
+    <>
+      <div className="meridian-mcp">
+        <div className="meridian-mcp__list">
+          <ul className="meridian-mcp__entries" aria-label="Tool servers">
+            {servers.map((entry) => {
+              const key = mcpBindingKeyOf(entry);
+              return (
+                <ServerListEntry
+                  key={key}
+                  entry={entry}
+                  isSelected={entry === selected}
+                  onSelect={() => {
+                    setSelectedKey(key);
+                  }}
+                  nowMilliseconds={nowMilliseconds}
+                />
+              );
+            })}
+            {failedRows}
+          </ul>
+          {providersWithNone.map((section) => (
+            <p key={section.provider} className="meridian-settings-page__aside">
+              {noServersLineFor(section)}
+            </p>
+          ))}
+        </div>
+        {/* Keyed by the server, so nothing one server's pane holds is carried to the next. */}
+        <ServerDetail
+          key={selected === undefined ? undefined : mcpBindingKeyOf(selected)}
+          entry={selected}
+          outcome={
+            selected === undefined
+              ? IDLE_MCP_MUTATION
+              : (outcomes.get(mcpBindingKeyOf(selected)) ?? IDLE_MCP_MUTATION)
+          }
+          toolOutcomeFor={(toolName, facet) =>
+            selected === undefined
+              ? IDLE_MCP_MUTATION
+              : (outcomes.get(toolOutcomeKeyOf(selected, toolName, facet)) ?? IDLE_MCP_MUTATION)
+          }
+          onSetEnabled={setEnabled}
+          projects={projects}
+          projectSwitchOutcomeFor={(project) =>
+            selected === undefined
+              ? IDLE_MCP_MUTATION
+              : (outcomes.get(projectSwitchOutcomeKeyOf(selected, project)) ?? IDLE_MCP_MUTATION)
+          }
+          onSetEnabledIn={setEnabledIn}
+          signInOutcome={
+            selected === undefined
+              ? IDLE_MCP_MUTATION
+              : (outcomes.get(signInOutcomeKeyOf(selected)) ?? IDLE_MCP_MUTATION)
+          }
+          onSignIn={signIn}
+          reconnectOutcome={
+            selected === undefined
+              ? IDLE_MCP_MUTATION
+              : (outcomes.get(reconnectOutcomeKeyOf(selected)) ?? IDLE_MCP_MUTATION)
+          }
+          onReconnect={reconnect}
+          removalOutcome={removalOutcome}
+          onRemove={removeServer}
+          onChangeTool={changeTool}
+          sessionDirectory={sessionDirectory}
+          clock={clock}
+          nowMilliseconds={nowMilliseconds}
+        />
       </div>
-      {/* Keyed by the server, so nothing one server's pane holds is carried to the next. */}
-      <ServerDetail
-        key={selected === undefined ? undefined : mcpBindingKeyOf(selected)}
-        entry={selected}
-        outcome={
-          selected === undefined
-            ? IDLE_MCP_MUTATION
-            : (outcomes.get(mcpBindingKeyOf(selected)) ?? IDLE_MCP_MUTATION)
-        }
-        toolOutcomeFor={(toolName, facet) =>
-          selected === undefined
-            ? IDLE_MCP_MUTATION
-            : (outcomes.get(toolOutcomeKeyOf(selected, toolName, facet)) ?? IDLE_MCP_MUTATION)
-        }
-        onSetEnabled={setEnabled}
-        projects={projects}
-        projectSwitchOutcomeFor={(project) =>
-          selected === undefined
-            ? IDLE_MCP_MUTATION
-            : (outcomes.get(projectSwitchOutcomeKeyOf(selected, project)) ?? IDLE_MCP_MUTATION)
-        }
-        onSetEnabledIn={setEnabledIn}
-        signInOutcome={
-          selected === undefined
-            ? IDLE_MCP_MUTATION
-            : (outcomes.get(signInOutcomeKeyOf(selected)) ?? IDLE_MCP_MUTATION)
-        }
-        onSignIn={signIn}
-        onChangeTool={changeTool}
-        sessionDirectory={sessionDirectory}
-        clock={clock}
-        nowMilliseconds={nowMilliseconds}
-      />
-    </div>
+      {serverAdding}
+    </>
   );
 }
 
 /** How a change this body sent settled, once its send answered. */
-type SettledMcpMutationOutcome = Extract<
+type SettledMcpMutationOutcome = Exclude<
   McpMutationOutcome,
-  { readonly kind: "settled" | "signInPageOpened" }
+  { readonly kind: "idle" | "sending" | "refused" }
 >;
+
+/** The ledger key of the add form's send, which no binding's key can equal. */
+const ADD_SERVER_OUTCOME_KEY = structuralKey(["addServer"]);
 
 /** What a sign-in whose page the system browser would not open settles with. */
 const SIGN_IN_PAGE_UNOPENED = refuse(
@@ -419,6 +504,16 @@ function projectSwitchOutcomeKeyOf(
 ): string {
   const distro = typeof project.place === "object" ? [project.place.distro] : [];
   return structuralKey([mcpBindingKeyOf(binding), structuralKey([project.folderPath, ...distro])]);
+}
+
+/** The ledger key of the removal of the binding keyed `bindingKey`. */
+function removalOutcomeKeyOf(bindingKey: string): string {
+  return structuralKey([bindingKey, "remove"]);
+}
+
+/** The ledger key of one binding's reconnect. */
+function reconnectOutcomeKeyOf(binding: McpServerBindingRef): string {
+  return structuralKey([mcpBindingKeyOf(binding), "reconnect"]);
 }
 
 /** The ledger key of one binding's sign-in. */

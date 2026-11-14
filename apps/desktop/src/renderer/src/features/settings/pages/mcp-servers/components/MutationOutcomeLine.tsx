@@ -20,12 +20,14 @@ import { SIGN_IN_UNFINISHED_WORDS, type McpMutationOutcome } from "../mutation.j
 import { SessionName, sessionNameWords } from "./SessionName.js";
 
 /**
- * What the last change to one control did, in place: `Sending…` while it is on its way, once past
- * the short delay; then one line for each grade the service answered, saying when the change
- * takes effect, and one line for each running session it failed on, named as the session list
- * names it; or, for a sign-in, that its page opened in the browser. Handed `onTryAgain`, a
- * refusal draws as the strip ending in `Try again`. A session the list does not name yet gets its
- * line only once its name arrives, so no placeholder is ever read out as a name.
+ * What the last change to one control did, in place: `Sending…`, or the control's own in-flight
+ * words, while it is on its way, once past the short delay; then one line for each grade the
+ * service answered, saying when the change takes effect, after the added server's own line where
+ * one was sent, and one line for each running session it failed on, named as the session list
+ * names it; or, for a sign-in, that its page opened in the browser. A reconnect's answer is the
+ * row's own state word, so it draws nothing here. Handed `onTryAgain`, a refusal draws as the
+ * strip ending in `Try again`. A session the list does not name yet gets its line only once its
+ * name arrives, so no placeholder is ever read out as a name.
  *
  * A partial outcome reads as one: a change can be saved and still miss one running session, and
  * a single verdict would leave that session on the old setting while the person believes it
@@ -37,16 +39,20 @@ export function MutationOutcomeLine(props: {
   readonly sessionDirectory: SessionDirectoryState;
   /** The window's clock, which holds `Sending…` back for the short delay. */
   readonly clock: Clock;
+  /** What the control reads while its change is on its way, `Sending…` unless given. */
+  readonly sendingWords?: string;
   /** Sends the refused change again, drawing a refusal as the strip ending in `Try again`. */
   readonly onTryAgain?: () => void;
 }): ReactNode {
   const { outcome, sessionDirectory, clock, onTryAgain } = props;
   const providerSections = useProviderSections();
-  if (outcome.kind === "idle") {
+  if (outcome.kind === "idle" || outcome.kind === "reconnected") {
     return null;
   }
   if (outcome.kind === "sending") {
-    return <LoadingNotice clock={clock} placement="inline" title="Sending…" />;
+    return (
+      <LoadingNotice clock={clock} placement="inline" title={props.sendingWords ?? "Sending…"} />
+    );
   }
   if (outcome.kind === "refused") {
     const { code, detail } = outcome.refusal;
@@ -77,6 +83,14 @@ export function MutationOutcomeLine(props: {
   // Each line is said on its own, so a session the list names later adds only its own line.
   return (
     <div className="meridian-mcp__outcome">
+      {outcome.kind === "serverSent" ? (
+        <AnnouncedLine
+          element="p"
+          className="meridian-settings-page__state"
+          words={SERVER_SENT_WORDS}
+          politeness="polite"
+        />
+      ) : null}
       {settlement.grades.map((grade) => (
         <AnnouncedLine
           key={grade}
@@ -113,6 +127,10 @@ function FailedSessionLine(props: { readonly entry: SessionListEntry | undefined
     </p>
   );
 }
+
+/** What an added server the service took settles with, before when it takes effect. */
+const SERVER_SENT_WORDS =
+  "The server was sent to the background service. Every value typed here was cleared on submit.";
 
 /** What a sign-in whose page reached the browser settles with. */
 const SIGN_IN_PAGE_OPENED_WORDS = "The sign-in for that server opened in the default browser.";

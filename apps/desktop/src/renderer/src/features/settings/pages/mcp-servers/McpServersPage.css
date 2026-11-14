@@ -172,3 +172,39 @@
   font-style: italic;
   font-weight: 500;
 }
+
+/* `Add a server` and `Browse servers` under the list: their line and buttons, then whichever is
+   open, each a column of fields or results. */
+.meridian-mcp__adding,
+.meridian-mcp__add-form,
+.meridian-mcp__browse,
+.meridian-mcp__pairs,
+.meridian-mcp__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-mcp__adding {
+  margin-top: var(--meridian-space-3);
+}
+
+.meridian-mcp__adding-head,
+.meridian-mcp__add-actions,
+.meridian-mcp__pair,
+.meridian-mcp__figure-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+}
+
+/* What an asked name is for sits under its row's fields. */
+.meridian-mcp__pair-about {
+  flex-basis: 100%;
+}
+
+.meridian-mcp__confirm-words {
+  margin: 0;
+}
