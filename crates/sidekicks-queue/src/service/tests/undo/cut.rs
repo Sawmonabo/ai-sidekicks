@@ -21,7 +21,9 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::restore::SessionRestoreTarget;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::rewind::{ForkedBinding, RewindConversationResult};
+use sidekicks_provider::driver::rewind::{
+    ForkedBinding, RewindConversationResult, RewindTargetPresence,
+};
 use sidekicks_provider::driver::session_control::SessionCloseCause;
 use sidekicks_provider::left_conversations::{LeftConversation, read_left_conversations};
 use sidekicks_provider::port::run_host::{RunHost, RunHostError};
@@ -29,6 +31,7 @@ use sidekicks_provider::run::turn_end::StartedTurn;
 use sidekicks_provider::runtime_binding::store::{mint_runtime_binding_id, read_binding};
 use sidekicks_provider::runtime_binding::test_store::{spawned_build, test_provider_account_id};
 use sidekicks_provider::runtime_binding::writer::RuntimeBindingWriter;
+use sidekicks_session::checkpoints::restore_cuts::read_recorded_cut;
 use sidekicks_session::checkpoints::store::kept::list_checkpoints;
 use sidekicks_session::run::binding_cursors::RunBindingCursorError;
 use sidekicks_session::run::engine::RunEngine;
@@ -52,7 +55,7 @@ use super::{
 };
 use crate::error::QueueError;
 use crate::provider_session::errors::ProviderSessionError;
-use crate::service::undo::{ConversationCut, ConversationCutError};
+use crate::service::undo::{ConversationCut, ConversationCutError, ProviderCut};
 use crate::test_items::Form;
 
 /// The companions recovery passes when it undoes to where both sides agree: its resolution, and a
@@ -165,7 +168,7 @@ async fn a_cut_the_provider_or_a_companion_refuses_writes_nothing(#[case] unwrit
 
     let cut = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, companions)
+        .cut_conversation(&hold, &scene.target, companions, ProviderCut::ToMake)
         .await;
 
     match unwritten {
@@ -224,7 +227,7 @@ async fn an_applied_cut_lands_with_its_companions() {
 
     let cut = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, companions)
+        .cut_conversation(&hold, &scene.target, companions, ProviderCut::ToMake)
         .await
         .expect("the cut applies");
 
@@ -256,6 +259,63 @@ async fn an_applied_cut_lands_with_its_companions() {
     assert!(scene.closes.lock().expect("unpoisoned").is_empty());
 }
 
+// A retried undo asks the provider before it cuts: a conversation that already ends before the
+// point is sent no second cut and gets the record a landed cut writes, the rollback and the key's
+// row; one that still holds the message is cut once. Killed by asking for the cut after the read
+// answered it made, by a cut already made that skips the rollback or the key's row, and by reading
+// the answer the wrong way round.
+#[rstest]
+#[case::already_cut(RewindTargetPresence::CutAway, 0)]
+#[case::still_held(RewindTargetPresence::Held, 1)]
+#[tokio::test]
+async fn a_retry_asks_the_provider_and_cuts_only_a_conversation_still_holding_the_point(
+    #[case] presence: RewindTargetPresence,
+    #[case] expected_rewinds: usize,
+) {
+    let scene = scene(applied_in_place()).await;
+    *scene.presence.lock().expect("unpoisoned") = presence;
+    let fixture = &scene.fixture;
+    let undo_key = client_key();
+    let hold = fixture
+        .queue
+        .hold_for_undo(fixture.session_id, undo_key.clone())
+        .await;
+
+    let provider_cut = fixture
+        .queue
+        .read_provider_cut(fixture.session_id, &scene.target)
+        .await
+        .expect("the provider's read answers");
+    let cut = fixture
+        .queue
+        .cut_conversation(
+            &hold,
+            &scene.target,
+            RollbackCompanions::default(),
+            provider_cut,
+        )
+        .await
+        .expect("the cut is recorded");
+    let again = fixture
+        .queue
+        .cut_conversation(
+            &hold,
+            &scene.target,
+            RollbackCompanions::default(),
+            ProviderCut::ToMake,
+        )
+        .await;
+
+    assert!(matches!(cut, ConversationCut::Applied { .. }));
+    assert_eq!(scene.rewinds.load(Ordering::SeqCst), expected_rewinds);
+    assert!(
+        read_recorded_cut(&fixture.database.reader(), fixture.session_id, &undo_key)
+            .expect("the key's row reads")
+            .is_some()
+    );
+    assert!(matches!(again, Err(ConversationCutError::Superseded)));
+}
+
 // A checkpoint a cut already cut away is left out of the session's list, and a second cut to it
 // refuses before the provider is asked, while the checkpoint of the turn the run opens again at
 // the same position, in the epoch the cut opened, is listed. Killed by the list keeping a
@@ -271,7 +331,12 @@ async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
         .await;
     fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
+        .cut_conversation(
+            &hold,
+            &scene.target,
+            RollbackCompanions::default(),
+            ProviderCut::ToMake,
+        )
         .await
         .expect("the cut applies");
     let (_, message_sequence) = fixture
@@ -290,7 +355,12 @@ async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
         .expect("the session's checkpoints read");
     let again = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
+        .cut_conversation(
+            &hold,
+            &scene.target,
+            RollbackCompanions::default(),
+            ProviderCut::ToMake,
+        )
         .await;
 
     let listed: Vec<SessionRestoreTarget> = listed
@@ -359,7 +429,12 @@ async fn a_cut_applied_on_a_fork_moves_the_session_to_the_forks_binding() {
 
     fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
+        .cut_conversation(
+            &hold,
+            &scene.target,
+            RollbackCompanions::default(),
+            ProviderCut::ToMake,
+        )
         .await
         .expect("the cut applies");
 
@@ -430,7 +505,12 @@ async fn a_fork_the_daemon_cannot_record_is_closed_and_fails_the_cut() {
 
     let cut = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
+        .cut_conversation(
+            &hold,
+            &scene.target,
+            RollbackCompanions::default(),
+            ProviderCut::ToMake,
+        )
         .await;
 
     assert!(
@@ -498,7 +578,7 @@ async fn a_target_in_an_earlier_run_rolls_back_every_later_run_in_one_write() {
 
     let cut = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, companions)
+        .cut_conversation(&hold, &scene.target, companions, ProviderCut::ToMake)
         .await
         .expect("the cut applies");
 
@@ -547,7 +627,12 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
 
     let refused = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
+        .cut_conversation(
+            &hold,
+            &scene.target,
+            RollbackCompanions::default(),
+            ProviderCut::ToMake,
+        )
         .await;
     let rewinds_while_open = scene.rewinds.load(Ordering::SeqCst);
     let version_while_open = fixture.run_version(scene.run_id);
@@ -556,7 +641,12 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
         .await;
     let applied = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
+        .cut_conversation(
+            &hold,
+            &scene.target,
+            RollbackCompanions::default(),
+            ProviderCut::ToMake,
+        )
         .await;
 
     assert!(
@@ -626,7 +716,12 @@ async fn a_turn_opened_once_the_provider_answered_opens_after_the_rollback() {
     // The hold comes back with the cut, so its release cannot write while the log is read.
     let cut = tokio::spawn(async move {
         let cut = queue
-            .cut_conversation(&hold, &target, RollbackCompanions::default())
+            .cut_conversation(
+                &hold,
+                &target,
+                RollbackCompanions::default(),
+                ProviderCut::ToMake,
+            )
             .await;
         (cut, hold)
     });

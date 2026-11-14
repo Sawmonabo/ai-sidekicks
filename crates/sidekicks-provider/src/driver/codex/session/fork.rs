@@ -446,6 +446,7 @@ async fn move_record_to_fork(
     record.declared_output_speed = read_codex_declared_tier(session_id, &forked.reply);
     record.reasoning_effort = read_thread_reasoning_effort(&forked.reply);
     record.turn_id_by_client_message_id.clear();
+    record.cut_client_message_ids.clear();
     if is_rebound {
         record.end_mcp_server_status_leg();
         record.on_mcp_server_status = legs.and_then(|legs| legs.on_mcp_server_status);

@@ -27,7 +27,9 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::ProviderDriver;
-use sidekicks_provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use sidekicks_provider::driver::rewind::{
+    RewindConversationParams, RewindConversationResult, RewindTargetPresence,
+};
 use sidekicks_provider::left_conversations::{
     LeftConversation, compose_fork_left_conversation_insert,
 };
@@ -126,6 +128,16 @@ pub enum ConversationCut {
         /// The fallback it took.
         fallback_action: Option<String>,
     },
+}
+
+/// Whether an undo's cut asks the provider, or records a cut the provider already made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderCut {
+    /// The provider's conversation still holds the point, so the provider is asked to cut it.
+    ToMake,
+    /// The provider's conversation already ends before the point, as its own record read: only
+    /// the rollback and the key's record are written.
+    AlreadyMade,
 }
 
 /// Why a conversation cut was not made or not recorded. Every refusal but [`Unrecorded`],
@@ -234,15 +246,66 @@ impl RunQueue {
         undo_hold
     }
 
+    /// Whether the provider of `target`'s run still holds, on the session's live binding, the
+    /// person's message the cut before `target` is asked before, read from the provider's own
+    /// record, so a retried undo never cuts twice. Fails with [`ConversationCutError`]'s
+    /// `NoLiveBinding` where the session runs on none, as the reach's read fails, and with
+    /// `Queue` carrying the provider's failure of the read.
+    pub async fn read_provider_cut(
+        &self,
+        session_id: SessionId,
+        target: &SessionRestoreTarget,
+    ) -> Result<ProviderCut, ConversationCutError> {
+        let binding_id = self
+            .provider_sessions
+            .binding_cursors()
+            .current_binding(&session_id)
+            .ok_or(ConversationCutError::NoLiveBinding)?;
+        let target = target.clone();
+        let providers = Arc::clone(&self.providers);
+        let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
+        let (message_id, driver) = self
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                let read = read_reach(
+                    reader,
+                    &providers,
+                    &*read_damaged_from_sequence,
+                    session_id,
+                    &target,
+                    SessionRestoreScope::Conversation,
+                )?;
+                let driver = read
+                    .driver
+                    .expect("a reach with the conversation in scope resolves its driver");
+                Ok::<_, ConversationCutError>((read.reach.message_id, driver))
+            })
+            .await?;
+        let presence = driver
+            .read_rewind_target(RewindConversationParams {
+                session_id,
+                binding_id,
+                target_message_id: message_id.to_string(),
+            })
+            .await
+            .map_err(QueueError::from)?;
+        Ok(match presence {
+            RewindTargetPresence::Held => ProviderCut::ToMake,
+            RewindTargetPresence::CutAway => ProviderCut::AlreadyMade,
+        })
+    }
+
     /// Cuts the held session's conversation before the person's message `target` names, as the
-    /// provider of the target's run does it, outside every lock: before that message, or, for one
+    /// provider of the target's run does it, outside every lock, or, for a cut `provider_cut`
+    /// says the provider already made, records it with no ask: before that message, or, for one
     /// whose landing names a group the cut takes it with, before the group's first message.
     /// Once the provider applied it, one write records an `agent.run.rolledBack` of that run at the
     /// position before the reach's and of each later lead run at its start, with `companions`
     /// committing in it, and the cut is fenced on the session's live binding; a fork the provider
     /// cut onto is recorded in that write as a conversation the binding left, so the purge reaches
-    /// it whatever follows, and then as that binding's relaunch, the conversation it left with it,
-    /// under the same holds; the hold stays. A turn opening on the session that meets the write in
+    /// it whatever follows, and then as that binding's relaunch, the conversation it left and the
+    /// cut under the undo's key with it, under the same holds; a cut in place is recorded under the
+    /// key in the rollback's write. The hold stays. A turn opening on the session that meets the write in
     /// progress opens once the write has ended. Refuses as [`ConversationCutError`] says before the
     /// provider is asked, an open turn among the runs it reaches and a companion its check refuses
     /// included; a provider's fallback or failure writes nothing, a write the store does not record
@@ -254,6 +317,7 @@ impl RunQueue {
         hold: &UndoHold,
         target: &SessionRestoreTarget,
         companions: RollbackCompanions,
+        provider_cut: ProviderCut,
     ) -> Result<ConversationCut, ConversationCutError> {
         let session_id = hold.session_id;
         let binding_id = self
@@ -265,27 +329,42 @@ impl RunQueue {
             .read_cut_reach(session_id, target, binding_id, &companions.check)
             .await?;
         let driver = Arc::clone(&reach.driver);
-        let rewound = driver
-            .rewind_conversation(RewindConversationParams {
-                session_id,
-                binding_id: reach.binding.id.clone(),
-                target_message_id: reach.reach.message_id.to_string(),
-            })
-            .await
-            .map_err(QueueError::from)?;
-        // The draft's words come from the daemon's own queue items, never the provider's.
-        let fork = match rewound {
-            RewindConversationResult::Applied { fork, .. } => fork,
-            RewindConversationResult::Degraded { fallback_action } => {
-                return Ok(ConversationCut::Degraded { fallback_action });
+        // A cut the provider already made was made in place on the binding the session runs on.
+        let fork = match provider_cut {
+            ProviderCut::AlreadyMade => None,
+            ProviderCut::ToMake => {
+                let rewound = driver
+                    .rewind_conversation(RewindConversationParams {
+                        session_id,
+                        binding_id: reach.binding.id.clone(),
+                        target_message_id: reach.reach.message_id.to_string(),
+                    })
+                    .await
+                    .map_err(QueueError::from)?;
+                // The draft's words come from the daemon's own queue items, never the provider's.
+                match rewound {
+                    RewindConversationResult::Applied { fork, .. } => fork,
+                    RewindConversationResult::Degraded { fallback_action } => {
+                        return Ok(ConversationCut::Degraded { fallback_action });
+                    }
+                }
             }
         };
         // Pushed after the caller's statements, so each keeps the index its check names.
         let mut companion_write = companions.write;
-        // A retry under the undo's key reads the cut as applied and never cuts again.
-        companion_write
-            .statements
-            .push(record_cut_statement(session_id, &hold.undo_key));
+        // A retry under the undo's key reads the cut as applied and never cuts again; a cut onto a
+        // fork is recorded in the write that takes the fork up, so a fork refused records none.
+        let cut_record = record_cut_statement(
+            session_id,
+            &hold.undo_key,
+            &reach.reach.checkpoint.checkpoint_id,
+        );
+        let fork_companions = if fork.is_some() {
+            vec![cut_record]
+        } else {
+            companion_write.statements.push(cut_record);
+            Vec::new()
+        };
         if let Some(fork) = &fork {
             match compose_fork_left_conversation_insert(
                 session_id,
@@ -355,13 +434,16 @@ impl RunQueue {
                 .into_iter()
                 .collect();
                 binding_cursors
-                    .record_relaunch(RuntimeBindingRelaunch {
-                        predecessor_id: reach.binding.id,
-                        binding_id: fork.binding_id,
-                        resume_handle: fork.resume_handle.as_str().to_owned(),
-                        spawned_version: fork.spawned_version,
-                        left_conversations,
-                    })
+                    .record_relaunch(
+                        RuntimeBindingRelaunch {
+                            predecessor_id: reach.binding.id,
+                            binding_id: fork.binding_id,
+                            resume_handle: fork.resume_handle.as_str().to_owned(),
+                            spawned_version: fork.spawned_version,
+                            left_conversations,
+                        },
+                        fork_companions,
+                    )
                     .await
             }
             Err(refused) => Err(refused.into()),

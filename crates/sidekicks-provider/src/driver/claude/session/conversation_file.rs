@@ -8,6 +8,7 @@
 
 pub(crate) mod forks;
 pub(crate) mod lines;
+pub(crate) mod live_chain;
 pub(crate) mod peer_replies;
 pub(crate) mod title;
 

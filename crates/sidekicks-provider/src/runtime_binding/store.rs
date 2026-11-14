@@ -593,18 +593,20 @@ impl RuntimeBindingStore {
     /// Records the binding a driver minted when it resumed a session on its own: a new row on the
     /// predecessor's run, provider, legs and recovery data, so the new binding holds that data from
     /// its first instant, with the relaunched build's own version and path, naming the
-    /// conversation the leg runs on now, and each conversation it left in the same write. Fails
-    /// with [`RuntimeBindingStoreError::InvalidOutput`] for an invalid resume handle, and with
-    /// [`RuntimeBindingStoreError::Write`] when the predecessor has no row, so nothing was
-    /// recorded.
+    /// conversation the leg runs on now, and each conversation it left and the caller's own
+    /// `companions` in the same write. Fails with [`RuntimeBindingStoreError::InvalidOutput`] for
+    /// an invalid resume handle, and with [`RuntimeBindingStoreError::Write`] when the predecessor
+    /// has no row or a companion is refused, so nothing was recorded.
     pub async fn record_relaunch(
         &self,
         relaunch: RuntimeBindingRelaunch,
+        companions: Vec<WriteStatement>,
     ) -> Result<(), RuntimeBindingStoreError> {
         check_resume_handle(&relaunch.resume_handle)?;
         let timestamp = WireInstant::now().as_str().to_owned();
         let cli_version = &relaunch.spawned_version.cli_version;
-        let mut statements = Vec::with_capacity(1 + relaunch.left_conversations.len());
+        let mut statements =
+            Vec::with_capacity(1 + relaunch.left_conversations.len() + companions.len());
         statements.push(WriteStatement {
             sql: Cow::Borrowed(INSERT_RELAUNCHED_BINDING_SQL),
             bindings: StatementBindings::Named(vec![
@@ -631,6 +633,7 @@ impl RuntimeBindingStore {
         statements.extend(relaunch.left_conversations.iter().map(|conversation| {
             compose_left_conversation_insert(&relaunch.binding_id, &timestamp, conversation)
         }));
+        statements.extend(companions);
         self.writer.write(statements).await?;
         Ok(())
     }

@@ -32,6 +32,7 @@ use tokio::time::{sleep, timeout};
 use super::super::{DriverCalls, HELD_WATCH, WAIT, client_key, fixture, recording_driver};
 use super::{Fixture, applied_in_place, device, scene};
 use crate::error::QueueError;
+use crate::service::undo::ProviderCut;
 
 /// The edited message an undo sends again, saying `text`.
 fn resend_of(text: &str) -> SessionRestoreResend {
@@ -153,7 +154,12 @@ async fn a_send_during_an_undo_waits_and_follows_the_edit(#[case] route: HeldRou
     let is_starting_while_held = fixture.queue.admission.is_starting(held_run_id);
     fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
+        .cut_conversation(
+            &hold,
+            &scene.target,
+            RollbackCompanions::default(),
+            ProviderCut::ToMake,
+        )
         .await
         .expect("the cut applies");
     if matches!(route, HeldRoute::RefusedResend) {
@@ -448,7 +454,12 @@ async fn back_to_back_undos_resume_a_paused_run_once_with_the_newer_edit_first()
         .await;
     fixture
         .queue
-        .cut_conversation(&second_hold, &scene.target, RollbackCompanions::default())
+        .cut_conversation(
+            &second_hold,
+            &scene.target,
+            RollbackCompanions::default(),
+            ProviderCut::ToMake,
+        )
         .await
         .expect("the second cut applies");
     let queue = Arc::clone(&fixture.queue);
@@ -553,7 +564,12 @@ async fn a_resume_pressed_during_an_undo_runs_once_at_the_release_with_the_edit_
     .expect("the press is taken");
     fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
+        .cut_conversation(
+            &hold,
+            &scene.target,
+            RollbackCompanions::default(),
+            ProviderCut::ToMake,
+        )
         .await
         .expect("the cut applies");
     let resumes_while_held = scene.calls.resumes();

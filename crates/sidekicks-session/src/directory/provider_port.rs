@@ -634,13 +634,16 @@ impl SessionDirectoryProviderPort {
                 .collect();
         self.deps
             .binding_cursors
-            .record_relaunch(RuntimeBindingRelaunch {
-                predecessor_id: predecessor.id,
-                binding_id,
-                resume_handle: resume_handle.as_str().to_owned(),
-                spawned_version,
-                left_conversations,
-            })
+            .record_relaunch(
+                RuntimeBindingRelaunch {
+                    predecessor_id: predecessor.id,
+                    binding_id,
+                    resume_handle: resume_handle.as_str().to_owned(),
+                    spawned_version,
+                    left_conversations,
+                },
+                Vec::new(),
+            )
             .await?;
         Ok(())
     }

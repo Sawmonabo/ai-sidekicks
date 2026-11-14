@@ -146,14 +146,17 @@ async fn a_run_admitted_during_a_relaunch_is_bound_on_the_relaunched_leg() {
         Arc::clone(&fixture.log.writer),
     );
     bindings
-        .record_relaunch(RuntimeBindingRelaunch {
-            predecessor_id: fixture.run_binding_id(first_run_id),
-            binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
-                .expect("a UUID is a binding id"),
-            resume_handle: "conversation-relaunched".to_owned(),
-            spawned_version: spawned_build("1.0.1", "/opt/provider/bin"),
-            left_conversations: Vec::new(),
-        })
+        .record_relaunch(
+            RuntimeBindingRelaunch {
+                predecessor_id: fixture.run_binding_id(first_run_id),
+                binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
+                    .expect("a UUID is a binding id"),
+                resume_handle: "conversation-relaunched".to_owned(),
+                spawned_version: spawned_build("1.0.1", "/opt/provider/bin"),
+                left_conversations: Vec::new(),
+            },
+            Vec::new(),
+        )
         .await
         .expect("the relaunch is recorded");
     settle.release.send(()).expect("the settle waits");

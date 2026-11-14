@@ -92,6 +92,36 @@ pub(crate) async fn read_codex_turns(
     Ok(newest_first)
 }
 
+/// Whether Codex still lists turn `turn_id` of `thread_id`, its turns read newest first and the
+/// paging stopped at the page that lists it. A conversation no message has reached yet answers
+/// listed, since it cannot tell. Fails as [`read_codex_turns`] does.
+pub(crate) async fn is_codex_turn_listed(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+    turn_id: &str,
+) -> Result<bool, CodexError> {
+    let mut cursor = None;
+    loop {
+        let Some(page) =
+            read_turns_page(connection, thread_id, cursor, CODEX_TURNS_PAGE_LIMIT).await?
+        else {
+            return Ok(true);
+        };
+        if page
+            .data
+            .into_iter()
+            .filter_map(read_listed_turn)
+            .any(|listed| listed.id == turn_id)
+        {
+            return Ok(true);
+        }
+        cursor = page.next_cursor.filter(|next| !next.is_empty());
+        if cursor.is_none() {
+            return Ok(false);
+        }
+    }
+}
+
 /// The newest turn of `thread_id`, `None` for a conversation no message has reached yet. Fails
 /// as [`read_codex_turns`] does.
 pub(crate) async fn read_codex_newest_turn(

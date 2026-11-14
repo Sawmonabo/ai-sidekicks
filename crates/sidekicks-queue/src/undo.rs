@@ -135,6 +135,9 @@ pub enum UndoStopError {
         /// What the undo would stop now.
         stops: SessionRestoreStops,
     },
+    /// A read failed once every stop was sent, so something may already have stopped.
+    #[error("an undo's read failed once its stops were sent")]
+    AfterStops(#[source] Box<UndoStopError>),
     /// The point's sequence holds no event the session's log reads.
     #[error("the undo's point, sequence {sequence}, is not in the session's log")]
     PointNotFound {
@@ -215,6 +218,26 @@ struct StopProgress {
 struct LoggedEnds {
     ended_commands: HashSet<String>,
     running_runs: Vec<RunId>,
+}
+
+impl UndoStopError {
+    // The error as the wait after the stops met it: a failed read is marked as one after them.
+    fn after_stops(self) -> Self {
+        match self {
+            Self::Pool(_)
+            | Self::Database(_)
+            | Self::Log(_)
+            | Self::ToolCalls(_)
+            | Self::Agents(_)
+            | Self::PointNotFound { .. } => Self::AfterStops(Box::new(self)),
+            Self::Sweep(_)
+            | Self::Refused(_)
+            | Self::Grew { .. }
+            | Self::AfterStops(_)
+            | Self::NotStopped { .. }
+            | Self::StillRunning { .. } => self,
+        }
+    }
 }
 
 impl UndoStops {
@@ -384,7 +407,7 @@ impl UndoStops {
         // carries on past its dropped handle.
         stops.detach_all();
         party_ends.detach_all();
-        waited.map(|()| set)
+        waited.map(|()| set).map_err(UndoStopError::after_stops)
     }
 
     // The session's head now.

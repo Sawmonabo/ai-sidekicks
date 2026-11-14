@@ -147,6 +147,26 @@ pub fn read_checkpoint(
     Ok(checkpoint)
 }
 
+/// The checkpoint `checkpoint_id` of `session_id` as its row holds it, whether or not a cut took
+/// its point; `None` where no such row stands. Fails as SQLite does.
+pub fn read_kept_checkpoint(
+    connection: &Connection,
+    session_id: SessionId,
+    checkpoint_id: &SnapshotId,
+) -> rusqlite::Result<Option<Checkpoint>> {
+    Ok(connection
+        .prepare_cached(CHECKPOINT_BY_ID_SQL)?
+        .query_row(
+            named_params! {
+                "@checkpointId": checkpoint_id.as_str(),
+                "@sessionId": session_id.text().as_str(),
+            },
+            stored_checkpoint_of,
+        )
+        .optional()?
+        .map(|stored| stored.checkpoint))
+}
+
 /// `session_id`'s checkpoints, oldest prompt first, but those a later undo cut away, read from the
 /// log as far as `read_damaged_from_sequence` lets it read. Fails with the rollbacks' read error,
 /// which also carries this list's own: [`SupersededTurnsReadError::Database`] when SQLite refuses

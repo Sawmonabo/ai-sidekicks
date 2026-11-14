@@ -1,5 +1,5 @@
 //! The undo's one order: its steps in order, one undo of a session at a time, a retry after a
-//! recorded cut answered applied, the hold let go after a failure at each step, a failure after
+//! recorded cut answered applied and its files finished, the hold let go after a failure at each step, a failure after
 //! the stops reported, a pausing lead waited out within its bound, a grown set of stops answered
 //! with nothing moved, and what each scope's cut and put-back report.
 
@@ -27,6 +27,7 @@ use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_provider::driver::test_registry::new_run_id;
+use sidekicks_session::checkpoints::restore_cuts::RecordedCut;
 use sidekicks_session::checkpoints::store::Checkpoint;
 use sidekicks_session::interventions::service::InterventionError;
 use sidekicks_session::queue_store::CurrentLeadRun;
@@ -42,7 +43,7 @@ use super::{
 use crate::error::QueueError;
 use crate::provider_session::errors::ProviderSessionError;
 use crate::service::undo::reach::UndoReach;
-use crate::service::undo::{ConversationCut, ConversationCutError};
+use crate::service::undo::{ConversationCut, ConversationCutError, ProviderCut};
 use crate::undo::{UndoStopError, UndoStopSet};
 
 /// The point's run position in the stand-in's reach.
@@ -55,11 +56,12 @@ const POINT: i64 = 7;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Step {
     Hold,
-    IsCutRecorded,
+    ReadRecordedCut,
     ReadPoint,
     ReadLead,
     WaitOutPause,
     MakeLive,
+    ReadProviderCut,
     Stop,
     Settle,
     Interrupt,
@@ -67,6 +69,7 @@ enum Step {
     Stage,
     Cut,
     PutBack,
+    RecordFiles,
     Release,
     Unstage,
 }
@@ -74,7 +77,7 @@ enum Step {
 /// Steps that record themselves in order, `failing` failing as its step fails, the lead read in
 /// each of `lead_states` in turn, the last one standing, any pause or resume waited out over
 /// `pause_wait`, the stops answering `grown` as more than the person agreed to, and the undo's
-/// key holding a recorded cut where `is_cut_recorded` says.
+/// key holding what `recorded` says of a recorded cut.
 struct RecordingSteps {
     taken: Mutex<Vec<Step>>,
     failing: Option<Step>,
@@ -82,7 +85,7 @@ struct RecordingSteps {
     lead_states: Mutex<VecDeque<RunState>>,
     pause_wait: Duration,
     grown: Option<SessionRestoreStops>,
-    is_cut_recorded: bool,
+    recorded: Option<RecordedCut>,
     is_live: Mutex<bool>,
     released_resends: Mutex<Vec<Option<SessionRestoreResend>>>,
 }
@@ -96,7 +99,7 @@ impl RecordingSteps {
             lead_states: Mutex::new(lead_states.iter().copied().collect()),
             pause_wait: Duration::ZERO,
             grown: None,
-            is_cut_recorded: false,
+            recorded: None,
             is_live: Mutex::new(false),
             released_resends: Mutex::new(Vec::new()),
         }
@@ -125,13 +128,13 @@ impl UndoSteps for RecordingSteps {
         async {}.boxed()
     }
 
-    fn is_cut_recorded(
+    fn read_recorded_cut(
         &self,
         _session_id: SessionId,
         _undo_key: ClientUuid,
-    ) -> BoxFuture<'_, Result<bool, QueueError>> {
-        self.take(Step::IsCutRecorded);
-        let answer = self.is_cut_recorded;
+    ) -> BoxFuture<'_, Result<Option<RecordedCut>, QueueError>> {
+        self.take(Step::ReadRecordedCut);
+        let answer = self.recorded.clone();
         async move { Ok(answer) }.boxed()
     }
 
@@ -146,7 +149,7 @@ impl UndoSteps for RecordingSteps {
             Err(ConversationCutError::NoCheckpoint { source: None })
         } else {
             Ok(UndoPoint {
-                reach: reach_at_point(self.run_id),
+                checkpoint: reach_at_point(self.run_id).checkpoint,
                 resend: edited,
             })
         };
@@ -205,6 +208,19 @@ impl UndoSteps for RecordingSteps {
         } else {
             *lock(&self.is_live) = true;
             Ok(())
+        };
+        async move { answer }.boxed()
+    }
+
+    fn read_provider_cut(
+        &self,
+        _session_id: SessionId,
+        _target: SessionRestoreTarget,
+    ) -> BoxFuture<'_, Result<ProviderCut, ConversationCutError>> {
+        let answer = if self.take(Step::ReadProviderCut) {
+            Err(ConversationCutError::NoLiveBinding)
+        } else {
+            Ok(ProviderCut::ToMake)
         };
         async move { answer }.boxed()
     }
@@ -277,15 +293,28 @@ impl UndoSteps for RecordingSteps {
         _hold: &'a (),
         _target: SessionRestoreTarget,
         _companions: RollbackCompanions,
+        _provider_cut: ProviderCut,
     ) -> BoxFuture<'a, Result<ConversationCut, ConversationCutError>> {
         let answer = if self.take(Step::Cut) {
             Err(ConversationCutError::Superseded)
         } else {
-            Ok(ConversationCut::Degraded {
-                fallback_action: None,
+            Ok(ConversationCut::Applied {
+                rollbacks: Vec::new(),
+                reach: reach_at_point(self.run_id),
             })
         };
         async move { answer }.boxed()
+    }
+
+    fn record_files(
+        &self,
+        _session_id: SessionId,
+        _undo_key: ClientUuid,
+        files: SessionRestoreFileOutcome,
+    ) -> BoxFuture<'_, Result<(), QueueError>> {
+        self.take(Step::RecordFiles);
+        assert_eq!(files, file_outcome());
+        async { Ok(()) }.boxed()
     }
 
     fn release(
@@ -317,12 +346,9 @@ struct RecordingFiles<'steps> {
 impl UndoFiles for RecordingFiles<'_> {
     fn capture_after<'a>(
         &'a self,
-        reach: &'a UndoReach,
+        checkpoint: &'a Checkpoint,
     ) -> BoxFuture<'a, Result<(), SessionRestoreFailure>> {
-        assert_eq!(
-            reach.checkpoint.message_sequence.get(),
-            POINT.unsigned_abs()
-        );
+        assert_eq!(checkpoint.message_sequence.get(), POINT.unsigned_abs());
         let answer = if self.steps.take(Step::CaptureAfter) {
             Err(failure("the capture failed"))
         } else {
@@ -331,11 +357,8 @@ impl UndoFiles for RecordingFiles<'_> {
         async move { answer }.boxed()
     }
 
-    fn put_back<'a>(&'a self, reach: &'a UndoReach) -> BoxFuture<'a, FilesPutBack> {
-        assert_eq!(
-            reach.checkpoint.message_sequence.get(),
-            POINT.unsigned_abs()
-        );
+    fn put_back<'a>(&'a self, checkpoint: &'a Checkpoint) -> BoxFuture<'a, FilesPutBack> {
+        assert_eq!(checkpoint.message_sequence.get(), POINT.unsigned_abs());
         self.steps.take(Step::PutBack);
         async { FilesPutBack::Restored(file_outcome()) }.boxed()
     }
@@ -404,14 +427,15 @@ fn request<'files>(files: &'files RecordingFiles<'files>) -> UndoRequest<'files>
 }
 
 /// The steps a whole undo of a running lead takes, in the one order.
-const WHOLE_UNDO: [Step; 16] = [
+const WHOLE_UNDO: [Step; 18] = [
     Step::Hold,
-    Step::IsCutRecorded,
+    Step::ReadRecordedCut,
     Step::ReadPoint,
     Step::ReadLead,
     Step::WaitOutPause,
     Step::ReadLead,
     Step::MakeLive,
+    Step::ReadProviderCut,
     Step::Stop,
     Step::Settle,
     Step::Interrupt,
@@ -419,15 +443,16 @@ const WHOLE_UNDO: [Step; 16] = [
     Step::Stage,
     Step::Cut,
     Step::PutBack,
+    Step::RecordFiles,
     Step::Release,
     Step::Unstage,
 ];
 
 // An undo of a running lead in a session with no live process takes every step once, in the one
 // order: the hold, the recorded cut looked for, the point, the lead's pause or resume waited out
-// and the lead read again, the process opened, the stops, the held calls' settle, the lead's
-// interrupt, the after-captures, the resend kept, the cut, the put-back, the release and the kept
-// resend dropped. Killed by any two steps swapped and by any step skipped.
+// and the lead read again, the process opened, the provider asked whether it already cut, the
+// stops, the held calls' settle, the lead's interrupt, the after-captures, the resend kept, the
+// cut, the put-back and its record, the release and the kept resend dropped. Killed by any two steps swapped and by any step skipped.
 #[tokio::test]
 async fn an_undo_takes_its_steps_in_the_one_order() {
     let steps = RecordingSteps::new(&[RunState::Running]);
@@ -469,39 +494,63 @@ async fn two_undos_of_one_session_run_one_after_the_other() {
     assert_eq!(steps.taken(), expected);
 }
 
-// A retry under the key of an undo whose cut its write recorded, the outcome lost with the
-// process, answers the conversation applied, the files named as not put back, and cuts nothing
-// and stops nothing again. Killed by the recorded cut not looked for, where the retry reads its
-// own cut's point as superseded or cuts a second time.
+// A retry under the key of an undo whose cut applied, the outcome lost with the process, cuts
+// nothing again: with its files recorded put back it answers both applied and moves nothing; with
+// them not recorded it finishes them to the checkpoint the key kept, its stops and captures first,
+// and records them. Killed by the recorded cut not looked for, where the retry reads its own cut's
+// point as superseded or cuts a second time, by the files answered failed or left unfinished, and
+// by files recorded put back run again.
+#[rstest]
+#[case::files_recorded(true)]
+#[case::files_not_recorded(false)]
 #[tokio::test]
-async fn a_retry_after_its_recorded_cut_answers_applied_and_cuts_nothing() {
+async fn a_retry_after_its_recorded_cut_answers_applied_and_cuts_nothing(
+    #[case] is_files_recorded: bool,
+) {
     let mut steps = RecordingSteps::new(&[RunState::Running]);
-    steps.is_cut_recorded = true;
+    steps.recorded = Some(RecordedCut {
+        checkpoint: reach_at_point(steps.run_id).checkpoint,
+        files: is_files_recorded.then(file_outcome),
+    });
     let files = RecordingFiles { steps: &steps };
 
     let undone = run_undo(&steps, &KeyedLock::new(), request(&files)).await;
 
-    let Ok(SessionRestoreOutcome::RestoreFinished {
-        restored, failures, ..
-    }) = &undone
-    else {
-        panic!("a recorded cut answers a finished undo: {undone:?}");
-    };
-    assert_eq!(*restored, SessionRestoredScope::Conversation);
-    assert!(
-        failures
-            .as_ref()
-            .is_some_and(|failures| failures.conversation.is_none() && failures.files.is_some())
+    assert_eq!(
+        undone.expect("a recorded cut answers"),
+        SessionRestoreOutcome::RestoreFinished {
+            requested: SessionRestoreScope::ConversationAndFiles,
+            restored: SessionRestoredScope::ConversationAndFiles,
+            files: Some(file_outcome()),
+            failures: None,
+        }
     );
+    let finished: &[Step] = if is_files_recorded {
+        &[]
+    } else {
+        &[
+            Step::ReadLead,
+            Step::WaitOutPause,
+            Step::ReadLead,
+            Step::MakeLive,
+            Step::Stop,
+            Step::Settle,
+            Step::Interrupt,
+            Step::CaptureAfter,
+            Step::PutBack,
+            Step::RecordFiles,
+        ]
+    };
     assert_eq!(
         steps.taken(),
         [
-            Step::Hold,
-            Step::IsCutRecorded,
-            Step::Release,
-            Step::Unstage
+            &[Step::Hold, Step::ReadRecordedCut][..],
+            finished,
+            &[Step::Release, Step::Unstage][..]
         ]
+        .concat()
     );
+    assert_eq!(*lock(&steps.released_resends), [None]);
 }
 
 // A step that fails ends the undo with nothing after it but the release, which lets the hold go
@@ -513,11 +562,12 @@ async fn a_retry_after_its_recorded_cut_answers_applied_and_cuts_nothing() {
 #[case::point(Step::ReadPoint, true)]
 #[case::lead(Step::ReadLead, true)]
 #[case::process(Step::MakeLive, true)]
+#[case::provider_read(Step::ReadProviderCut, true)]
 #[case::stops(Step::Stop, true)]
 #[case::held_calls(Step::Settle, false)]
 #[case::interrupt(Step::Interrupt, false)]
 #[case::kept_resend(Step::Stage, false)]
-#[case::superseded_cut(Step::Cut, true)]
+#[case::superseded_cut(Step::Cut, false)]
 #[tokio::test]
 async fn a_failed_step_lets_the_hold_go_and_ends_the_undo(
     #[case] failing: Step,
@@ -585,7 +635,7 @@ async fn a_pausing_lead_is_waited_out_within_the_bound(
             taken,
             [
                 Step::Hold,
-                Step::IsCutRecorded,
+                Step::ReadRecordedCut,
                 Step::ReadPoint,
                 Step::ReadLead,
                 Step::Release,
@@ -616,7 +666,7 @@ async fn a_grown_set_of_stops_answers_it_and_moves_nothing() {
     );
     assert_eq!(
         steps.taken(),
-        [&WHOLE_UNDO[..8], &[Step::Release, Step::Unstage][..]].concat()
+        [&WHOLE_UNDO[..9], &[Step::Release, Step::Unstage][..]].concat()
     );
 }
 

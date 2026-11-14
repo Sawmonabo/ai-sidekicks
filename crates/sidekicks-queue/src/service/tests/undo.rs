@@ -26,7 +26,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::rewind::RewindConversationResult;
+use sidekicks_provider::driver::rewind::{RewindConversationResult, RewindTargetPresence};
 use sidekicks_provider::driver::session_control::SessionCloseCause;
 use sidekicks_provider::port::run_host::RunHost;
 use sidekicks_session::checkpoints::schema::{CheckpointVersionContent, CheckpointVersionLeg};
@@ -88,6 +88,8 @@ struct Scene {
     rewound_message_ids: Arc<Mutex<Vec<String>>>,
     /// Each close of the session's process the provider was asked for, in order.
     closes: Arc<Mutex<Vec<ProcessClose>>>,
+    /// What the provider's read answers of the cut's message.
+    presence: Arc<Mutex<RewindTargetPresence>>,
     run_id: RunId,
     target: SessionRestoreTarget,
     /// The queue item of the message at `target`.
@@ -140,6 +142,12 @@ async fn scene_on(answer: RewindAnswer, opening: Form) -> Scene {
             let answered = answer();
             async move { answered }.boxed()
         });
+    let presence = Arc::new(Mutex::new(RewindTargetPresence::Held));
+    let read = Arc::clone(&presence);
+    driver.expect_read_rewind_target().returning(move |_| {
+        let answered = *read.lock().expect("unpoisoned");
+        async move { Ok(answered) }.boxed()
+    });
     driver
         .expect_skill_resolve_starts_process()
         .return_const(false);
@@ -211,6 +219,7 @@ async fn scene_on(answer: RewindAnswer, opening: Form) -> Scene {
         rewinds,
         rewound_message_ids,
         closes,
+        presence,
         run_id,
         target,
         target_message_id,

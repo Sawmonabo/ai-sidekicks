@@ -53,13 +53,16 @@ async fn a_relaunch_records_its_own_build_and_keeps_the_predecessors_legs() {
     let new_build = spawned_build("2.1.0", "/opt/provider/2.1.0/bin");
 
     store
-        .record_relaunch(RuntimeBindingRelaunch {
-            predecessor_id: predecessor.id.clone(),
-            binding_id: relaunched_id.clone(),
-            resume_handle: "conversation-2".to_owned(),
-            spawned_version: new_build.clone(),
-            left_conversations: Vec::new(),
-        })
+        .record_relaunch(
+            RuntimeBindingRelaunch {
+                predecessor_id: predecessor.id.clone(),
+                binding_id: relaunched_id.clone(),
+                resume_handle: "conversation-2".to_owned(),
+                spawned_version: new_build.clone(),
+                left_conversations: Vec::new(),
+            },
+            Vec::new(),
+        )
         .await
         .expect("the relaunch is recorded");
 
@@ -227,13 +230,16 @@ async fn a_tool_server_set_lands_as_a_list_on_the_runs_newest_resumable_row() {
     .await;
     let newer_id = mint_runtime_binding_id();
     store
-        .record_relaunch(RuntimeBindingRelaunch {
-            predecessor_id: older.id.clone(),
-            binding_id: newer_id.clone(),
-            resume_handle: "conversation-2".to_owned(),
-            spawned_version: spawned_build("2.1.0", "/opt/provider/2.1.0/bin"),
-            left_conversations: Vec::new(),
-        })
+        .record_relaunch(
+            RuntimeBindingRelaunch {
+                predecessor_id: older.id.clone(),
+                binding_id: newer_id.clone(),
+                resume_handle: "conversation-2".to_owned(),
+                spawned_version: spawned_build("2.1.0", "/opt/provider/2.1.0/bin"),
+                left_conversations: Vec::new(),
+            },
+            Vec::new(),
+        )
         .await
         .expect("the relaunch is recorded");
     let connection = database.reader();

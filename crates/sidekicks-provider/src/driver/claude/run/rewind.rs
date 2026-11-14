@@ -24,6 +24,9 @@ use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSession
 use crate::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
+use crate::driver::claude::session::conversation_file::live_chain::{
+    ClaudeMessagePlace, read_claude_message_place,
+};
 use crate::driver::claude::session::conversation_file::{
     conversation_file_of, find_claude_command_holding,
 };
@@ -32,7 +35,7 @@ use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
 use crate::driver::contract::error::DriverError;
-use crate::driver::rewind::RewindConversationResult;
+use crate::driver::rewind::{RewindConversationResult, RewindTargetPresence};
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
@@ -445,6 +448,37 @@ async fn find_command_holding(
             .map_err(read_failure),
         None => Ok(None),
     }
+}
+
+/// Whether the live conversation still holds the person's message `message_id`, read from its
+/// file: a cut appends a `last-prompt` row naming the kept leaf, so the message is cut away once
+/// the chain from the conversation's end no longer reaches the entry that holds it. A file that
+/// holds no such entry, or no file, answers `Held`. Fails as the file cannot be found or read.
+pub(crate) async fn read_claude_rewind_target(
+    live: &LiveClaudeSession,
+    message_id: &str,
+) -> Result<RewindTargetPresence, DriverError> {
+    let read_failure = |error: std::io::Error| DriverError::Internal(Box::new(error));
+    let file = conversation_file_of(
+        &live.signed_in_spawn_environment(),
+        &live.provider_session_id,
+    )
+    .await
+    .map_err(read_failure)?;
+    let Some(file) = file else {
+        return Ok(RewindTargetPresence::Held);
+    };
+    Ok(
+        match read_claude_message_place(&file, message_id)
+            .await
+            .map_err(read_failure)?
+        {
+            ClaudeMessagePlace::CutAway => RewindTargetPresence::CutAway,
+            ClaudeMessagePlace::OnLiveChain | ClaudeMessagePlace::Unwritten => {
+                RewindTargetPresence::Held
+            }
+        },
+    )
 }
 
 #[cfg(test)]

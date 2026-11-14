@@ -51,7 +51,9 @@ use crate::driver::mcp_server::write::{
     McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
 };
 use crate::driver::message_handing::MessageHanding;
-use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::rewind::{
+    RewindConversationParams, RewindConversationResult, RewindTargetPresence,
+};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
@@ -143,6 +145,15 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: RewindConversationParams,
     ) -> BoxFuture<'_, Result<RewindConversationResult, DriverError>>;
+
+    /// Reads from the provider's own record whether the bound conversation still holds the
+    /// person's message `params.target_message_id` or already ends before it, so a retried undo
+    /// never cuts twice (gated on `rollback`). Answers `Held` wherever the record does not show
+    /// the message cut, a message it never recorded among them; fails as the read fails.
+    fn read_rewind_target(
+        &self,
+        params: RewindConversationParams,
+    ) -> BoxFuture<'_, Result<RewindTargetPresence, DriverError>>;
 
     /// Answers one interactive request the driver raised on a run.
     fn respond_to_request(

@@ -158,6 +158,9 @@ pub(crate) struct CodexSessionRecord {
     pub(crate) turn_boundaries: Vec<String>,
     /// The turn each of the person's messages started, by the message's id, for an undo's cut.
     pub(crate) turn_id_by_client_message_id: HashMap<String, String>,
+    /// The person's messages a cut of the conversation took, by id, so a retried undo reads them
+    /// cut away.
+    pub(crate) cut_client_message_ids: HashSet<String>,
     /// What every start, resume and fork of the conversation carries, the settings as chosen.
     pub(crate) thread_settings: CodexThreadSettings,
     /// Whether the conversation still owes a fork onto a config `thread_settings` changed; a turn
@@ -287,6 +290,7 @@ impl CodexSessionRecord {
             provider_account_id: established.provider_account_id,
             turn_boundaries: established.turn_boundaries,
             turn_id_by_client_message_id: HashMap::new(),
+            cut_client_message_ids: HashSet::new(),
             permission_profiles: CodexThreadPermissionProfiles::established(
                 &established.thread_settings,
             ),

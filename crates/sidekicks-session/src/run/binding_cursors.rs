@@ -40,6 +40,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::session::followers::CommittedEvent;
 use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 
@@ -369,15 +370,17 @@ impl RunBindingCursors {
     }
 
     /// Records the binding a resume or a fork restart runs under, whose cursor `open_relaunch` or
-    /// the fork restart's `fence_cut` opened, without opening it again. Fails as the store fails,
-    /// its predecessor missing among the refused writes, and then forgets the binding's cursor,
+    /// the fork restart's `fence_cut` opened, without opening it again, with the caller's own
+    /// `companions` in the same write. Fails as the store fails, its predecessor missing or a
+    /// companion refused among the refused writes, and then forgets the binding's cursor,
     /// recording nothing.
     pub async fn record_relaunch(
         &self,
         relaunch: RuntimeBindingRelaunch,
+        companions: Vec<WriteStatement>,
     ) -> Result<(), RunBindingCursorError> {
         let binding_id = relaunch.binding_id.clone();
-        if let Err(error) = self.store.record_relaunch(relaunch).await {
+        if let Err(error) = self.store.record_relaunch(relaunch, companions).await {
             self.forget_binding(&binding_id);
             return Err(error.into());
         }

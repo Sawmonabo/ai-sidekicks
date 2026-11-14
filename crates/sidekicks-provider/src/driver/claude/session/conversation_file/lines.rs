@@ -158,8 +158,8 @@ pub(crate) async fn read_conversation_lines<Entry: Lenient>(
     }
 }
 
-// Hands `line` to `visit` where it is one JSON object reading as an `Entry`.
-fn read_line<Entry: Lenient>(
+/// Hands `line` to `visit` where it is one JSON object reading as an `Entry`.
+pub(super) fn read_line<Entry: Lenient>(
     line: &[u8],
     is_terminated: bool,
     mut visit: impl FnMut(ConversationLine<'_, Entry>) -> ControlFlow<()>,

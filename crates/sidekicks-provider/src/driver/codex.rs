@@ -63,7 +63,9 @@ use crate::driver::mcp_server::write::{
     McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
 };
 use crate::driver::message_handing::{HandMoment, MessageHanding};
-use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::rewind::{
+    RewindConversationParams, RewindConversationResult, RewindTargetPresence,
+};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
@@ -270,6 +272,13 @@ impl ProviderDriver for CodexDriver {
         params: RewindConversationParams,
     ) -> BoxFuture<'_, Result<RewindConversationResult, DriverError>> {
         self.rewind_conversation(params).boxed()
+    }
+
+    fn read_rewind_target(
+        &self,
+        params: RewindConversationParams,
+    ) -> BoxFuture<'_, Result<RewindTargetPresence, DriverError>> {
+        self.read_rewind_target(params).boxed()
     }
 
     fn respond_to_request(

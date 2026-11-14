@@ -21,8 +21,8 @@ use super::{
     STEER_WORDS, Scene, SteerLanding, TARGET_POSITION, applied_in_place, cut_words,
     daemon_turn_scene, device, position, steer_scene,
 };
-use crate::service::undo::ConversationCut;
 use crate::service::undo::reach::{QueuedOpeningKind, TurnOpening, UndoReach};
+use crate::service::undo::{ConversationCut, ProviderCut};
 use crate::test_items::Form;
 
 /// The artifact and the turn speed the turn's opening is sent with in the resend's scene.
@@ -42,7 +42,12 @@ async fn cut_to_target(scene: &Scene) -> (Vec<SourcePosition>, UndoReach) {
         .await;
     let cut = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
+        .cut_conversation(
+            &hold,
+            &scene.target,
+            RollbackCompanions::default(),
+            ProviderCut::ToMake,
+        )
         .await
         .expect("the cut applies");
     let ConversationCut::Applied { rollbacks, reach } = cut else {
@@ -238,7 +243,12 @@ async fn a_resend_of_an_edited_steer_is_one_message_of_its_turn() {
         .await;
     let cut = fixture
         .queue
-        .cut_conversation(&hold, &steer.scene.target, RollbackCompanions::default())
+        .cut_conversation(
+            &hold,
+            &steer.scene.target,
+            RollbackCompanions::default(),
+            ProviderCut::ToMake,
+        )
         .await
         .expect("the cut applies");
     let ConversationCut::Applied { reach, .. } = cut else {

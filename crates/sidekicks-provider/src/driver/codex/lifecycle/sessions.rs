@@ -31,7 +31,9 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::prior_usage::read_prior_emitted;
-use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::rewind::{
+    RewindConversationParams, RewindConversationResult, RewindTargetPresence,
+};
 use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, MoveSessionToForkParams,
@@ -183,6 +185,14 @@ impl CodexDriver {
         params: RewindConversationParams,
     ) -> Result<RewindConversationResult, DriverError> {
         Ok(self.parts()?.rewind.rewind(&params).await?)
+    }
+
+    /// Reads whether the live conversation still holds the person's message; see the rewind.
+    pub(crate) async fn read_rewind_target(
+        &self,
+        params: RewindConversationParams,
+    ) -> Result<RewindTargetPresence, DriverError> {
+        Ok(self.parts()?.rewind.read_target(&params).await?)
     }
 
     /// Moves every session on the driver's services onto the build that replaced the running one;

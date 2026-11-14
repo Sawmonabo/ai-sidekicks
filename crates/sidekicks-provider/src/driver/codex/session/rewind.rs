@@ -17,7 +17,9 @@ use crate::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTur
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
-use crate::driver::codex::session::history::read_codex_turn_id_by_client_message_id;
+use crate::driver::codex::session::history::{
+    is_codex_turn_listed, read_codex_turn_id_by_client_message_id,
+};
 use crate::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
 };
@@ -25,7 +27,9 @@ use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::rewind::{
+    RewindConversationParams, RewindConversationResult, RewindTargetPresence,
+};
 
 const THREAD_REVERT_METHOD: &str = "thread/revert";
 
@@ -43,6 +47,8 @@ pub(crate) struct CodexMessageTurn {
     pub(crate) thread_id: String,
     /// The turn, `None` when the session recorded none still in the conversation.
     pub(crate) turn_id: Option<String>,
+    /// Whether a cut of the session's conversation took the message.
+    pub(crate) is_cut: bool,
 }
 
 /// Cuts sessions' conversations back in place, each cut inside its session's claimed slot.
@@ -122,6 +128,36 @@ impl CodexConversationRewind {
             fork: None,
             cut_message_text: None,
         })
+    }
+
+    /// Whether the conversation still holds one of the person's messages, by Codex's own record:
+    /// a message a cut of this session took reads cut away, and one whose turn the session
+    /// recorded reads cut away once `thread/turns/list` no longer lists that turn, read newest
+    /// first; any other reads held, since no listing tells a cut from a message Codex never
+    /// listed. Fails with `CodexError::Transport` when the session is not live, and as a request
+    /// fails.
+    pub(crate) async fn read_target(
+        &self,
+        params: &RewindConversationParams,
+    ) -> Result<RewindTargetPresence, CodexError> {
+        let inbound = self.slots.require_live(params.session_id)?;
+        let recorded = call_codex_session(&inbound, |reply| CodexSessionCall::ReadMessageTurn {
+            message_id: params.target_message_id.clone(),
+            reply,
+        })
+        .await?;
+        if recorded.is_cut {
+            return Ok(RewindTargetPresence::CutAway);
+        }
+        let Some(turn_id) = recorded.turn_id else {
+            return Ok(RewindTargetPresence::Held);
+        };
+        // A revert whose answer was lost leaves the record as it was, so Codex is asked.
+        if is_codex_turn_listed(&*recorded.connection?, &recorded.thread_id, &turn_id).await? {
+            Ok(RewindTargetPresence::Held)
+        } else {
+            Ok(RewindTargetPresence::CutAway)
+        }
     }
 
     /// Hands a turn too long for the model's window back by cutting it out of the conversation
@@ -230,6 +266,7 @@ pub(crate) fn read_codex_message_turn(
             .get(message_id)
             .filter(|turn_id| record.turn_boundaries.contains(turn_id))
             .cloned(),
+        is_cut: record.cut_client_message_ids.contains(message_id),
     }
 }
 
@@ -277,9 +314,16 @@ pub(crate) async fn revert_codex_turns(
         record.turn_boundaries.truncate(cut);
     }
     let kept = &record.turn_boundaries;
+    let cut = &mut record.cut_client_message_ids;
     record
         .turn_id_by_client_message_id
-        .retain(|_, turn_id| kept.contains(turn_id));
+        .retain(|message_id, turn_id| {
+            let is_kept = kept.contains(turn_id);
+            if !is_kept {
+                cut.insert(message_id.clone());
+            }
+            is_kept
+        });
     Ok(true)
 }
 

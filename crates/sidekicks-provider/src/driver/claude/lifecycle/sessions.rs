@@ -16,6 +16,7 @@ use super::held_calls::{HELD_TASK_STOP_BOUND, stop_held_tasks};
 use super::{ClaudeDriver, ClaudeSessionParts, internal};
 use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeHeldCallSettle;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
+use crate::driver::claude::run::rewind::read_claude_rewind_target;
 use crate::driver::claude::session::conversation_file::{
     conversation_file_of, find_claude_taken_messages,
 };
@@ -36,7 +37,9 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::{DaemonStopIntent, run_until};
 use crate::driver::diagnostics::DriverDiagnosticKind;
-use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::rewind::{
+    RewindConversationParams, RewindConversationResult, RewindTargetPresence,
+};
 use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, MoveSessionToForkParams,
@@ -142,6 +145,16 @@ impl ClaudeDriver {
                 &self.sources.ports.reviewer_denials,
             )
             .await
+    }
+
+    /// Reads whether the live conversation still holds the person's message; see the cuts.
+    pub(crate) async fn read_rewind_target(
+        &self,
+        params: RewindConversationParams,
+    ) -> Result<RewindTargetPresence, DriverError> {
+        let parts = self.parts()?;
+        let live = parts.run_start.live_session(params.session_id)?;
+        read_claude_rewind_target(&live, &params.target_message_id).await
     }
 
     /// Moves every live session onto the build that replaced the running one; none is live before

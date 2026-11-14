@@ -42,6 +42,16 @@ pub enum RewindConversationResult {
     },
 }
 
+/// Where the bound conversation stands to one of the person's messages, as the provider's own
+/// record reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RewindTargetPresence {
+    /// The conversation still holds the message, or the record does not show it cut.
+    Held,
+    /// The conversation held the message and a cut took it: it already ends before it.
+    CutAway,
+}
+
 /// The fork a cut restarted the session on, which the daemon records as a relaunch of the cut
 /// binding.
 #[derive(Clone, Debug, PartialEq, Eq)]

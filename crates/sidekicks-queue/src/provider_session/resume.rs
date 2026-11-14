@@ -492,13 +492,16 @@ impl ProviderSessions {
             let recorded = self
                 .deps
                 .binding_cursors
-                .record_relaunch(RuntimeBindingRelaunch {
-                    predecessor_id: leg.id.clone(),
-                    binding_id,
-                    resume_handle: resume_handle.as_str().to_owned(),
-                    spawned_version,
-                    left_conversations,
-                })
+                .record_relaunch(
+                    RuntimeBindingRelaunch {
+                        predecessor_id: leg.id.clone(),
+                        binding_id,
+                        resume_handle: resume_handle.as_str().to_owned(),
+                        spawned_version,
+                        left_conversations,
+                    },
+                    Vec::new(),
+                )
                 .await;
             if let Err(unrecorded) = recorded {
                 return Err(after_carried(

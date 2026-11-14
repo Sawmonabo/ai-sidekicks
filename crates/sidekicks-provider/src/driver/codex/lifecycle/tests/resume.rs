@@ -246,13 +246,16 @@ async fn resume_and_record(
         panic!("the conversation resumes: {resumed:?}");
     };
     bindings
-        .record_relaunch(RuntimeBindingRelaunch {
-            predecessor_id: binding.id.clone(),
-            binding_id: binding_id.clone(),
-            resume_handle: resume_handle.as_str().to_owned(),
-            spawned_version,
-            left_conversations: Vec::new(),
-        })
+        .record_relaunch(
+            RuntimeBindingRelaunch {
+                predecessor_id: binding.id.clone(),
+                binding_id: binding_id.clone(),
+                resume_handle: resume_handle.as_str().to_owned(),
+                spawned_version,
+                left_conversations: Vec::new(),
+            },
+            Vec::new(),
+        )
         .await
         .expect("the resumed binding is recorded");
     read_binding(&database.reader(), &binding_id)
