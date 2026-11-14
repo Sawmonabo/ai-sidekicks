@@ -328,6 +328,7 @@ impl Bench {
                 &instant(THIS_START),
                 &instant(THIS_START),
                 &spend,
+                None,
             )],
         );
         turn_id

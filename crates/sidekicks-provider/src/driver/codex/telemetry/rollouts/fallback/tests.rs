@@ -10,6 +10,7 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 
 use super::{CodexFallbackDue, CodexLaunchRollouts, CodexRolloutFallback};
+use crate::driver::test_registry::new_session_id;
 use crate::pricing::export_status::ExportStatusTracker;
 
 /// The launch's export interval in these tests.
@@ -130,4 +131,30 @@ async fn a_stop_the_export_ends_before_the_fallback_looks_is_read_once() {
         Some((REGISTERED_AT_MS, Some(RETURNED_NEWEST_MS)))
     );
     assert!(!fallback.next_pass());
+}
+
+// A pass a settled turn named that leaves its session waiting on the turn's end asks for one wake,
+// which makes a pass due two intervals on with no export, settle or stop, and keeps the session
+// waiting for it; the wake's own pass, which no new settle named, arms nothing, so no pass comes
+// due again. Killed by a waiting session that asks no wake (no pass due), and by a wake armed again
+// by its own pass (a second pass due).
+#[tokio::test(start_paused = true)]
+async fn a_waiting_session_is_read_at_one_wake_and_its_pass_arms_none() {
+    let (tracker, rollouts, mut fallback) = launch();
+    stop(&tracker).await;
+    export_without_responses(&tracker, &rollouts);
+    assert!(fallback.next_pass());
+    let session_id = new_session_id();
+
+    fallback.wait_for_turn_ends(HashSet::from([session_id]), &HashSet::from([session_id]));
+
+    let woken = tokio::time::timeout(INTERVAL * 3, fallback.wait_until_due()).await;
+    assert!(matches!(woken, Ok(CodexFallbackDue::Pass)));
+    assert!(fallback.next_pass());
+    assert!(fallback.unended_settled.contains(&session_id));
+
+    fallback.wait_for_turn_ends(HashSet::from([session_id]), &HashSet::new());
+
+    let woken_again = tokio::time::timeout(INTERVAL * 5, fallback.wait_until_due()).await;
+    assert!(woken_again.is_err());
 }

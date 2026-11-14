@@ -4,19 +4,24 @@
 //! priced once in whatever order its sightings arrive, each sighting in one write. Which write a
 //! sighting takes is read first; each write's own statements decide again, so a write still queued
 //! when the store was read is never counted twice. A record's first sighting is linked to the event
-//! of the row it priced, and a later sighting on a run counts that row's tokens toward the run where
-//! the row was the session's own and no sighting counted it yet. The record is never cleared by a
-//! session's rebuild; it leaves with its session's purge or its account's removal.
+//! of the row it priced, and a later sighting on a run counts that row's tokens toward the run
+//! where the row was the session's own and no sighting counted it yet. The record is never cleared
+//! by a session's rebuild; it leaves with its session's purge or its account's removal, and a
+//! record that counts toward a run not yet ended outlives its account's removal until that run
+//! ends, so the run's count read after a restart still holds it.
 
 use std::borrow::Cow;
+use std::sync::LazyLock;
 
 use rusqlite::Connection;
 use rusqlite::types::Value;
+use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::usage::UsageSighting;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::BoundedText;
+use sidekicks_store::database::schema::RUN_TERMINAL_EVENT_TYPES_SQL;
 use sidekicks_store::database::statement::{
     StatementBindings, StatementResult, WriteStatement, named_bindings, nullable_text_binding,
     text_binding,
@@ -58,6 +63,28 @@ const LINK_SIGHTING_RECORD_SQL: &str = "UPDATE usage_sightings SET event_id = @e
 WHERE sighting_id = (SELECT MAX(sighting_id) FROM usage_sightings
                      WHERE match_key = @match_key AND source = @source)
   AND event_id IS NULL";
+
+// An account's records, each whole, but for one with a sighting that counts toward a run no
+// terminal event has ended: that run's count, read again after a restart, reads the record's row.
+static RELEASE_ACCOUNT_SIGHTINGS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "DELETE FROM usage_sightings
+WHERE account_id = @account_id
+  AND record_id NOT IN (
+    SELECT counted.record_id FROM usage_sightings AS counted
+    WHERE counted.account_id = @account_id AND counted.run_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM session_events AS ended
+                      WHERE ended.category = '{}' AND ended.type IN ({})
+                        AND ended.run_id = counted.run_id))",
+        EventCategory::RunLifecycle.as_str(),
+        *RUN_TERMINAL_EVENT_TYPES_SQL
+    )
+});
+
+// The records that count toward a run whose account is no longer registered, each whole.
+const RELEASE_ENDED_RUN_SIGHTINGS_SQL: &str = "DELETE FROM usage_sightings
+WHERE record_id IN (SELECT record_id FROM usage_sightings WHERE run_id = @run_id)
+  AND account_id NOT IN (SELECT account_id FROM provider_accounts)";
 
 // Whether a source's own id is recorded, as a record's first sighting or as a mark.
 const SIGHTING_KEY_RECORDED_SQL: &str =
@@ -166,6 +193,32 @@ pub fn counted_record(marked: &[StatementResult]) -> Option<i64> {
     match marked.first()?.rows.first()?.as_slice() {
         [Value::Text(_), Value::Integer(record_id)] => Some(*record_id),
         _ => None,
+    }
+}
+
+/// The statement an account's removal writes beside the deletion of its row: it deletes the
+/// account's sighting records, but keeps each that counts toward a run not yet ended, which
+/// [`release_ended_run_sightings_statement`] deletes at that run's end.
+pub fn release_account_sightings_statement(
+    provider_account_id: &ProviderAccountId,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(RELEASE_ACCOUNT_SIGHTINGS_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![text_binding(
+            "@account_id",
+            provider_account_id.as_str(),
+        )]),
+        expected_row_count: None,
+    }
+}
+
+/// The statement a run's terminal change writes: it deletes the sighting records that count toward
+/// `run_id` whose account was removed while the run lived.
+pub fn release_ended_run_sightings_statement(run_id: RunId) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(RELEASE_ENDED_RUN_SIGHTINGS_SQL),
+        bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.text().as_str())]),
+        expected_row_count: None,
     }
 }
 

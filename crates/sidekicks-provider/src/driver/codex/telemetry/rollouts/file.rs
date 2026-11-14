@@ -3,11 +3,15 @@
 //! usage record passes over where it was read before, at the model of the `turn_context` carrying
 //! the record's turn and the tier of the file's own last settings snapshot before it, a spawned
 //! helper's at its root thread's tier; running totals and `token_count` lines are never read.
-//! Each `web_search_call` response item with a `search` action is read as one billed search, by its
-//! own id, at the model and tier of the turn its line names, as a record is; opening a page or
-//! finding in one is no billed call. A turn that settled with no record names the file as one that cannot be read until the file
+//! Each `web_search_call` response item with a `search` action after the file's own first
+//! settings snapshot is read as one billed search, by its own id, at the model and tier of the
+//! turn its line names, as a record is; opening a page or finding in one is no billed call. A
+//! fork's or a helper's file opens with its parent's history copied, then its own snapshot, so a
+//! copied search, like a copied record, which keeps its parent's thread, is never charged again.
+//! A turn that settled with no record names the file as one that cannot be read until the file
 //! yields a record, and the turn the file shows live is kept with its start. Only the payloads of
-//! the kinds read are parsed, and only a usage record that does not read is counted as refused.
+//! the kinds read are parsed, a response item only once it begins as a search, and only a usage
+//! record that does not read is counted as refused.
 
 use std::collections::VecDeque;
 
@@ -32,6 +36,10 @@ const RESPONSE_ITEM_KIND: &str = "response_item";
 
 /// The response item a hosted web search step is written as.
 const WEB_SEARCH_CALL_TYPE: &str = "web_search_call";
+
+/// How a web search step's payload begins: Codex writes a response item compact, its `type` tag
+/// first, so any other item is passed over without a parse.
+const WEB_SEARCH_CALL_START: &str = r#"{"type":"web_search_call""#;
 
 /// The action of the one search step the API bills.
 const BILLED_SEARCH_ACTION: &str = "search";
@@ -327,6 +335,11 @@ impl CodexRolloutFile {
         at_ms: Option<u64>,
         since_ms: u64,
     ) -> Option<CodexRolloutRequest> {
+        // A search ahead of the file's own first settings snapshot is a copied ancestor's,
+        // charged where its own thread made it.
+        if !payload.get().starts_with(WEB_SEARCH_CALL_START) || !self.is_own_settings_seen {
+            return None;
+        }
         let thread = self.thread.as_ref()?;
         let item = read_payload::<ResponseItemPayload>(payload)?;
         let is_billed = item.kind.as_deref() == Some(WEB_SEARCH_CALL_TYPE)

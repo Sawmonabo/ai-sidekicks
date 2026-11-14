@@ -443,6 +443,7 @@ impl ObserverShared {
                     &sent_at,
                     &self.daemon_started_at,
                     spend,
+                    None,
                 )
             })
             .collect();

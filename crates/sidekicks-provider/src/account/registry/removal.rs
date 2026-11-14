@@ -33,6 +33,7 @@ use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::observer::AccountLiveTurns;
 use crate::account::token_custody::{ProviderTokenCustody, TokenCustodyError};
+use crate::account::usage_turns::sightings::release_account_sightings_statement;
 use crate::driver::registry::ProviderRegistry;
 
 // Every row, those whose removal has begun included.
@@ -44,10 +45,6 @@ const SELECT_MARKED_ACCOUNT_PROVIDER_SQL: &str =
 
 const DELETE_MARKED_ACCOUNT_SQL: &str =
     "DELETE FROM provider_accounts WHERE account_id = @account_id AND removal_intent = 1";
-
-// The account's usage sightings, which name it by value, gone in the write that removes it.
-const DELETE_ACCOUNT_SIGHTINGS_SQL: &str =
-    "DELETE FROM usage_sightings WHERE account_id = @account_id";
 
 // The steps parked waiting on the account.
 static WAITING_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -261,11 +258,8 @@ impl ProviderAccountRegistry {
                 bindings: account_binding(),
                 expected_row_count: Some(1),
             },
-            WriteStatement {
-                sql: Cow::Borrowed(DELETE_ACCOUNT_SIGHTINGS_SQL),
-                bindings: account_binding(),
-                expected_row_count: None,
-            },
+            // The account's usage sightings, which name it by value, gone in the same write.
+            release_account_sightings_statement(account_id),
         ])
         .await
         .map(drop)

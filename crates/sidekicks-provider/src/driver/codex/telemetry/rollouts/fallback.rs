@@ -6,16 +6,19 @@
 //! streams is read too; any other is read once the walk from the thread it came from reaches a
 //! thread a session holds. Each record, and each billed web search, is handed to its session with
 //! its sighting, which the usage record passes over where the stream or the export priced the
-//! request first; one read's charges go over together, up to `HAND_OVER_LINES` at a time, before the
-//! read answers the offset it reached. The
-//! first export after a stop ends it, under the export status's lock, and the pass at that end
-//! reads every file on; each file is then read on at each export that names its thread, and at
-//! each turn of its session's thread that settles, until the turn it showed live at that export's
-//! newest record has ended, and let go, its offset kept, so no later stop reads it from its start.
-//! A file no export and no settled turn names costs a pass nothing. A stop an export ended before
-//! the fallback looked is read the same way. While the export arrives, the file of an off-stream
-//! thread an export's response was placed on is read on as the response is placed, so a search
-//! inside that request, which no export carries, is charged; it is kept beside the files let go.
+//! request first; one read's charges go over together, up to `HAND_OVER_LINES` at a time, before
+//! the read answers the offset it reached. The first export after a stop ends it, under the export
+//! status's lock, and the pass at that end reads every file on; each file is then read on at each
+//! export that names its thread, and at each turn of its session's thread that settles, until the
+//! turn it showed live at that export's newest record has ended, and let go, its offset kept, so no
+//! later stop reads it from its start. A pass that a settled turn named and that leaves a session
+//! waiting on its turn's end asks the export status for one wake two intervals out, whose pass
+//! reads that session's files once more and arms nothing; a turn still open after it waits for the
+//! next export, settle or stop. A file no export and no settled turn names costs a pass nothing. A
+//! stop an export ended before the fallback looked is read the same way. While the export arrives,
+//! the file of an off-stream thread an export's response was placed on is read on as the response
+//! is placed, so a search inside that request, which no export carries, is charged; it is kept
+//! beside the files let go.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
@@ -81,6 +84,7 @@ impl CodexLaunchRollouts {
                 last_ended_stop: 0,
                 ended_stops: VecDeque::new(),
                 named: CodexNamedThreads::default(),
+                is_woken: false,
             })),
             wake: Arc::new(Notify::new()),
         }
@@ -127,8 +131,9 @@ impl CodexLaunchRollouts {
     }
 }
 
-// The stamps of a launch's exports and how many were read, and the stops they ended with where
-// each stop's reading starts.
+// The stamps of a launch's exports and how many were read, the stops they ended with where each
+// stop's reading starts, and whether the wake a waiting session asked for fired since the last
+// pass.
 struct CodexExportTimes {
     registered_at_ms: u64,
     newest_export_stamp_ms: Option<u64>,
@@ -139,6 +144,7 @@ struct CodexExportTimes {
     ended_stops: VecDeque<CodexEndedStop>,
     // The threads named since the last pass.
     named: CodexNamedThreads,
+    is_woken: bool,
 }
 
 // A stop an export ended: where its reading starts, and the newest record of that export, the
@@ -303,20 +309,21 @@ impl CodexRolloutFallback {
         stops > self.last_begun_stop || is_read_due
     }
 
-    // Whether an export was read or a thread named since the last pass.
+    // Whether an export was read, a thread named or the wake fired since the last pass.
     fn is_named_since(&self) -> bool {
         let times = lock(&self.rollouts.times);
-        times.exports_read > self.exports_seen || !times.named.is_empty()
+        times.exports_read > self.exports_seen || !times.named.is_empty() || times.is_woken
     }
 
     /// Moves on to the next pass due, answering whether one is: the stops counted since the last
     /// one begun, read from the first one's start, which an export that ended it already set, and
     /// a reading still alive from an earlier stop begins there too; else a read at the exports
-    /// read and the threads named since the last pass. Each stop's start is read under the
-    /// stamps' lock, so an export ending it however soon bounds it.
+    /// read, the threads named and the wake fired since the last pass. Each stop's start is read
+    /// under the stamps' lock, so an export ending it however soon bounds it.
     pub(crate) fn next_pass(&mut self) -> bool {
         let stops = self.rollouts.status.borrow().stops;
         let mut times = lock(&self.rollouts.times);
+        let is_woken = std::mem::take(&mut times.is_woken);
         if stops > self.last_begun_stop {
             self.named = std::mem::take(&mut times.named);
             let first = self.last_begun_stop + 1;
@@ -342,7 +349,7 @@ impl CodexRolloutFallback {
             return true;
         }
         if self.reading.is_some()
-            && (times.exports_read > self.exports_seen || !times.named.is_empty())
+            && (times.exports_read > self.exports_seen || !times.named.is_empty() || is_woken)
         {
             self.exports_seen = times.exports_read;
             self.named = std::mem::take(&mut times.named);
@@ -377,6 +384,8 @@ impl CodexRolloutFallback {
             .ended(stop)
             .map(|ended| ended.newest_record_ms);
         let mut named = std::mem::take(&mut self.named);
+        // The sessions a turn settled on since the last pass, apart from those still waiting.
+        let newly_settled = named.settled().clone();
         named.name_settled(std::mem::take(&mut self.unended_settled));
         let is_past_end = ended_ms.is_some() && is_scanned;
         let found = if is_past_end {
@@ -463,13 +472,13 @@ impl CodexRolloutFallback {
             }
         }
         if let Some(ended_ms) = ended_ms {
-            for followed in self.files.values() {
-                if followed.is_followed_past(ended_ms)
-                    && let Some(session_id) = named.settled_session_of(followed)
-                {
-                    self.unended_settled.insert(session_id);
-                }
-            }
+            let waiting: HashSet<SessionId> = self
+                .files
+                .values()
+                .filter(|followed| followed.is_followed_past(ended_ms))
+                .filter_map(|followed| named.settled_session_of(followed))
+                .collect();
+            self.wait_for_turn_ends(waiting, &newly_settled);
             let ended: Vec<_> = self
                 .files
                 .extract_if(|_path, followed| !followed.is_followed_past(ended_ms))
@@ -482,6 +491,42 @@ impl CodexRolloutFallback {
             }
         }
         self.publish_unreadable();
+    }
+
+    // Keeps `waiting`, the sessions whose settled turn their files do not show ended yet, for the
+    // next pass, and asks the export status for one wake where one of them is among
+    // `newly_settled`, a turn having settled on it since the last pass; the wake's own pass names
+    // none, so it arms nothing, and nothing is armed where no session waits.
+    fn wait_for_turn_ends(
+        &mut self,
+        waiting: HashSet<SessionId>,
+        newly_settled: &HashSet<SessionId>,
+    ) {
+        let is_wake_due = waiting
+            .iter()
+            .any(|session_id| newly_settled.contains(session_id));
+        self.unended_settled.extend(waiting);
+        if !is_wake_due {
+            return;
+        }
+        let Some(tracker) = self.rollouts.tracker.upgrade() else {
+            return;
+        };
+        let (times, wake) = (
+            Arc::clone(&self.rollouts.times),
+            Arc::clone(&self.rollouts.wake),
+        );
+        let armed = tracker.arm_wake(move || {
+            lock(&times).is_woken = true;
+            wake.notify_one();
+        });
+        if let Err(error) = armed {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "a codex launch's wake for a turn's end could not be armed; the next export, \
+                 settle or stop reads its files"
+            );
+        }
     }
 
     // Keeps `followed`, at `path`, as its last read left it among the files let go, the oldest

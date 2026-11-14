@@ -275,6 +275,7 @@ pub(crate) fn test_codex_service_dependencies(
             None,
             watch::channel(0).1,
         )))),
+        request_held: Arc::new(PortRegistration::new("request held")),
         raw_messages: Arc::new(PortRegistration::new("raw provider messages")),
     })
 }

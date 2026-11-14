@@ -20,6 +20,7 @@ use sidekicks_contracts::run::queued::AgentRunQueuedPayload;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::run_facts::{RUN_STATE_EVENT_TYPES, RunStateEventType};
+use sidekicks_provider::account::usage_turns::sightings::release_ended_run_sightings_statement;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
@@ -102,8 +103,8 @@ static ADVANCE_PAST_SKIPPED_VERSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 const DELETE_SESSION_RUNS_SQL: &str = "DELETE FROM runs WHERE session_id = ?";
 
-// Every type the runs fold reads: a run's creation, its parent's correction, a skipped range, an intervention's verdict, a
-// rollback and each state change.
+// Every type the runs fold reads: a run's creation, its parent's correction, a skipped range, an
+// intervention's verdict, a rollback and each state change.
 static RUNS_EVENT_TYPES: LazyLock<Vec<SessionEventType>> = LazyLock::new(|| {
     [
         SessionEventType::AgentRunQueued,
@@ -398,6 +399,9 @@ impl SessionProjectionFold for RunsFold {
             }
         }
         statements.push(swap_run_state_statement(&swap));
+        if RunState::from(swap.new_state).is_terminal() {
+            statements.push(release_ended_run_sightings_statement(swap.run_id));
+        }
         Ok(())
     }
 }

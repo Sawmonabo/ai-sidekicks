@@ -294,6 +294,7 @@ impl CodexDriver {
             provider_accounts: Arc::clone(&services.ports.provider_accounts),
             telemetry_target: Arc::clone(&services.ports.telemetry_target),
             exports: Arc::clone(&exports),
+            request_held: Arc::clone(&services.ports.request_held),
             raw_messages: Arc::clone(&services.ports.raw_provider_messages),
         });
         let registry = Arc::new(CodexServiceRegistry::new(

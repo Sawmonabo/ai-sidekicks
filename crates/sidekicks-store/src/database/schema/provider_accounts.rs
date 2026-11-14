@@ -288,7 +288,8 @@ CREATE INDEX idx_provider_account_usage_turns_unpriced
 -- a session's rebuild clears and writes again: a record is the sightings sharing a record id, the
 -- first one priced as a row and each later one, from another source, passed over as its mark.
 -- Record ids are given in the order the records are written. Each sighting carries its record's
--- session and account, so a record leaves whole with a session's purge or an account's removal.
+-- session and account, so a record leaves whole with a session's purge or an account's removal; a
+-- record counting toward a run not yet ended leaves at that run's end once its account is gone.
 CREATE TABLE usage_sightings (
   sighting_id  INTEGER PRIMARY KEY,
   record_id    INTEGER NOT NULL,

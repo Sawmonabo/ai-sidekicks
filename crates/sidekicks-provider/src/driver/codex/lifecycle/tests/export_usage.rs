@@ -48,15 +48,15 @@ enum Arrival {
 
 /// A live session on a paused clock, its run open on its turns, its spend recorded through an
 /// open gate, [`TEST_TURN`] started and its service's launch registered with the drain running.
-struct ExportingSession {
-    live: LiveCodexSession,
-    usage: Arc<GatedUsage>,
+pub(super) struct ExportingSession {
+    pub(super) live: LiveCodexSession,
+    pub(super) usage: Arc<GatedUsage>,
     exports: Arc<CodexExports>,
     tag: CodexExportTag,
 }
 
 impl ExportingSession {
-    async fn start(turns: &[&str]) -> Self {
+    pub(super) async fn start(turns: &[&str]) -> Self {
         let live = LiveCodexSession::on_turns(turns).await;
         tokio::time::pause();
         let usage = Arc::new(GatedUsage::new(watch::channel(true).1));
@@ -99,13 +99,13 @@ impl ExportingSession {
     }
 
     // An export of `records` under the launch's tag.
-    async fn export_records(&self, records: Vec<LogRecord>) {
+    pub(super) async fn export_records(&self, records: Vec<LogRecord>) {
         self.exports
             .read_telemetry_export(self.tag.holder(), export_tagged(&self.tag, records))
             .await;
     }
 
-    fn complete_turn(&self) {
+    pub(super) fn complete_turn(&self) {
         self.live
             .scripted
             .script
@@ -124,7 +124,7 @@ impl ExportingSession {
 
     // Writes `lines` as the rollout file of `thread_id` in today's day folder, by this system's
     // clock as Codex names its folders, under the service's home; answers its path.
-    fn write_rollout(&self, thread_id: &str, lines: &[String]) -> PathBuf {
+    pub(super) fn write_rollout(&self, thread_id: &str, lines: &[String]) -> PathBuf {
         let today = jiff::Timestamp::now()
             .to_zoned(jiff::tz::TimeZone::system())
             .date();
@@ -145,7 +145,7 @@ impl ExportingSession {
     }
 
     // Answers a fallback pass's listing of the recent helpers with none.
-    async fn answer_helper_listing(&mut self) {
+    pub(super) async fn answer_helper_listing(&mut self) {
         let listing = self.live.scripted.next_request("thread/list").await;
         self.live
             .scripted
@@ -154,7 +154,7 @@ impl ExportingSession {
     }
 }
 
-fn counts(input: u64, output: u64) -> UsageAxisCounts {
+pub(super) fn counts(input: u64, output: u64) -> UsageAxisCounts {
     UsageAxisCounts {
         input: Some(input),
         output: Some(output),
@@ -164,7 +164,7 @@ fn counts(input: u64, output: u64) -> UsageAxisCounts {
 }
 
 // `counts` as a usage reading's breakdown carries them.
-fn wire_counts(counts: &UsageAxisCounts) -> Value {
+pub(super) fn wire_counts(counts: &UsageAxisCounts) -> Value {
     json!({
         "inputTokens": counts.input,
         "outputTokens": counts.output,
@@ -234,7 +234,11 @@ enum ReviewCover {
 
 // A completed response on `thread_id` carrying `counts` and the person's identity, observed at
 // `observed_at_ms`.
-fn stamped_record(thread_id: &str, counts: &UsageAxisCounts, observed_at_ms: u64) -> LogRecord {
+pub(super) fn stamped_record(
+    thread_id: &str,
+    counts: &UsageAxisCounts,
+    observed_at_ms: u64,
+) -> LogRecord {
     LogRecord {
         observed_time_unix_nano: observed_at_ms * 1_000_000,
         ..codex_record(completed_response_attributes(thread_id, counts))
@@ -427,7 +431,7 @@ async fn a_request_turn_waits_for_its_export_once(#[case] turn: RequestTurn) {
 }
 
 // One rollout line of `kind` holding `payload`, stamped at `at_ms`.
-fn rollout_line(at_ms: u64, kind: &str, payload: &Value) -> String {
+pub(super) fn rollout_line(at_ms: u64, kind: &str, payload: &Value) -> String {
     let at = i64::try_from(at_ms)
         .ok()
         .and_then(|at_ms| jiff::Timestamp::from_millisecond(at_ms).ok())
@@ -436,7 +440,13 @@ fn rollout_line(at_ms: u64, kind: &str, payload: &Value) -> String {
 }
 
 // The usage record of `response_id` on the session's thread and `turn_id`, stamped at `at_ms`.
-fn rollout_record(at_ms: u64, turn_id: &str, response_id: &str, input: u64, output: u64) -> String {
+pub(super) fn rollout_record(
+    at_ms: u64,
+    turn_id: &str,
+    response_id: &str,
+    input: u64,
+    output: u64,
+) -> String {
     let usage = json!({
         "input_tokens": input,
         "cached_input_tokens": 0,
@@ -454,7 +464,7 @@ fn rollout_record(at_ms: u64, turn_id: &str, response_id: &str, input: u64, outp
 }
 
 // The context line of `turn_id`, naming its model, stamped at `at_ms`.
-fn turn_context(at_ms: u64, turn_id: &str) -> String {
+pub(super) fn turn_context(at_ms: u64, turn_id: &str) -> String {
     rollout_line(
         at_ms,
         "turn_context",
@@ -478,7 +488,7 @@ fn first_turn_rollout(at_ms: u64) -> Vec<String> {
 }
 
 /// The session's second turn, after [`TEST_TURN`] settles.
-const SECOND_TURN: &str = "turn-2";
+pub(super) const SECOND_TURN: &str = "turn-2";
 
 // Once a request turn settles with no export, the session's own rollout file is read: the
 // response its stream stated is passed over by its sighting and the warm-up the stream never
@@ -737,110 +747,4 @@ async fn a_lost_response_written_after_the_export_returns_counts_once_from_the_f
             (Some(1_000), Some(500)),
         ]
     );
-}
-
-/// The thread of a fork below the session's thread, which the listing names.
-const LISTED_FORK_THREAD: &str = "fork-2";
-
-/// The fork's own turn.
-const FORK_TURN: &str = "fork-turn";
-
-// While the export arrives, a response placed below the session's thread reads on that thread's
-// rollout file: the search inside it, which no export carries, is charged once, and the file's
-// record of the exported response is passed over; a stop's pass that then reads the same file
-// charges nothing more, while it counts the session's own warm-up. Killed by no read as the
-// response is placed (no search row), by the read's record priced again (five rows) and by the
-// stop charging the search again (two search rows).
-#[tokio::test]
-async fn an_off_stream_search_is_charged_once_while_the_export_arrives() {
-    let mut session = ExportingSession::start(&[TEST_TURN, SECOND_TURN]).await;
-    let now = read_unix_time_ms();
-    let fork_meta = json!({"id": LISTED_FORK_THREAD, "forked_from_id": TEST_THREAD});
-    let fork_record = json!({
-        "thread_id": LISTED_FORK_THREAD,
-        "turn_id": FORK_TURN,
-        "response_id": "response-fork",
-        "usage": {
-            "input_tokens": 300, "cached_input_tokens": 0, "output_tokens": 20,
-            "reasoning_output_tokens": 0, "total_tokens": 320,
-        },
-    });
-    let fork_search = json!({
-        "type": "web_search_call", "id": "ws_fork", "status": "completed",
-        "action": {"type": "search", "query": "steer order"},
-        "internal_chat_message_metadata_passthrough": {"turn_id": FORK_TURN},
-    });
-    session.write_rollout(
-        LISTED_FORK_THREAD,
-        &[
-            rollout_line(now, "session_meta", &fork_meta),
-            turn_context(now, FORK_TURN),
-            rollout_line(now, "response_item", &fork_search),
-            rollout_line(now, "token_usage_record", &fork_record),
-        ],
-    );
-    session.write_rollout(
-        TEST_THREAD,
-        &[
-            rollout_line(
-                now,
-                "session_meta",
-                &json!({"id": TEST_THREAD, "source": "cli"}),
-            ),
-            turn_context(now, SECOND_TURN),
-            rollout_record(now, SECOND_TURN, "response-warm-up", 2, 0),
-        ],
-    );
-
-    // Logged well before the files were written, so the stop's pass finds both by their change.
-    session
-        .export_records(vec![stamped_record(
-            LISTED_FORK_THREAD,
-            &counts(300, 20),
-            now - 10_000,
-        )])
-        .await;
-    let list = session.live.scripted.next_request("thread/list").await;
-    session.live.scripted.script.answer(
-        &list,
-        &json!({
-            "data": [{"id": LISTED_FORK_THREAD, "parentThreadId": TEST_THREAD}],
-            "nextCursor": null,
-        }),
-    );
-    answer_region_read(&mut session.live.scripted).await;
-    assert_eq!(session.usage.rows_once_decided(3).await.len(), 2);
-    let searches = |session: &ExportingSession| {
-        lock(&session.usage.metered)
-            .iter()
-            .filter(|metered| metered.delta.request.web_search_requests == Some(1))
-            .count()
-    };
-    assert_eq!(searches(&session), 1);
-
-    // A request turn that sees no export stops the status, and the stop's pass reads both files;
-    // the paused clock moves on first, so the turn begins after the export.
-    tokio::time::sleep(Duration::from_millis(10)).await;
-    session.complete_turn();
-    let script = &session.live.scripted.script;
-    script.send(&turn_started(SECOND_TURN));
-    let second = wire_counts(&counts(3_000, 700));
-    let mut reading = token_usage_frame(TEST_THREAD, &second, &second);
-    reading["params"]["turnId"] = json!(SECOND_TURN);
-    script.send(&reading);
-    script.send(&turn_completed(TEST_THREAD, SECOND_TURN, "completed"));
-    session.answer_helper_listing().await;
-
-    let mut rows = session.usage.rows_once_decided(5).await;
-    rows.sort_unstable();
-    assert_eq!(
-        rows,
-        [
-            (None, None),
-            (Some(2), Some(0)),
-            (Some(300), Some(20)),
-            (Some(3_000), Some(700)),
-        ]
-    );
-    assert_eq!(searches(&session), 1);
 }

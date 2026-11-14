@@ -2,8 +2,10 @@
 //! it is placed: a hosted web search inside that request reaches no export, so its file's search
 //! line is what charges it while the export arrives. The read hands every charge the file states
 //! from the launch's registration on, each passed over where its stream or export priced it, so
-//! the file's offset moves past nothing a later stop would still have to read.
+//! the file's offset moves past nothing a later stop would still have to read. A file the two day
+//! folders around the response miss is looked up once by its thread through Codex's `thread/read`.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use sidekicks_std::mutex_lock::lock;
@@ -18,9 +20,10 @@ use crate::bounded_queue::remember;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::telemetry::placement::CodexOffStreamThread;
 use crate::driver::codex::telemetry::rollouts::file::CodexRolloutFile;
+use crate::driver::codex::thread::view::{CodexThreadFile, request_thread_file};
 
-/// How many placed threads found with no rollout file one launch remembers, so the next response
-/// placed on an ephemeral thread lists no day folder again; past it the oldest is forgotten.
+/// How many placed threads Codex names no rollout file for one launch remembers, so the next
+/// response placed on an ephemeral thread looks for none again; past it the oldest is forgotten.
 const FILELESS_KEPT: usize = 64;
 
 /// A day, in seconds: a thread may have been made the day before its response.
@@ -31,7 +34,8 @@ impl CodexRolloutFallback {
     /// export's response was just placed on, handing each charge it states since the launch
     /// registered to the session the response went to, at its placement; the file is then kept
     /// among the files let go. A file a stop's reading follows is left to that reading's passes,
-    /// which the export named it to, and a thread found with no file is not looked for again.
+    /// which the export named it to; a file neither day folder holds is looked up by its thread,
+    /// and a thread Codex names no file for is not looked for again.
     pub(crate) async fn read_placed(
         &mut self,
         service: &Arc<CodexService>,
@@ -70,21 +74,9 @@ impl CodexRolloutFallback {
                 )
             })
             .await;
-            match found {
-                Ok(Some((path, size))) => (
-                    path,
-                    CodexFollowedRollout {
-                        file: CodexRolloutFile::default(),
-                        offset: 0,
-                        size,
-                        placement: CodexRolloutPlacement::Unplaced { walks: 0 },
-                        is_read_failed: false,
-                    },
-                ),
-                Ok(None) => {
-                    remember(&mut self.fileless, thread_id, FILELESS_KEPT);
-                    return;
-                }
+            let found = match found {
+                Ok(Some(found)) => Some(found),
+                Ok(None) => self.look_up_file(service, &thread_id).await,
                 Err(error) => {
                     tracing::warn!(
                         error = &error as &(dyn std::error::Error + 'static),
@@ -93,7 +85,20 @@ impl CodexRolloutFallback {
                     );
                     return;
                 }
-            }
+            };
+            let Some((path, size)) = found else {
+                return;
+            };
+            (
+                path,
+                CodexFollowedRollout {
+                    file: CodexRolloutFile::default(),
+                    offset: 0,
+                    size,
+                    placement: CodexRolloutPlacement::Unplaced { walks: 0 },
+                    is_read_failed: false,
+                },
+            )
         };
         let since_ms = lock(&self.rollouts.times).registered_at_ms;
         let target = CodexRolloutTarget {
@@ -117,5 +122,36 @@ impl CodexRolloutFallback {
             }
         }
         self.let_go_of(path, followed);
+    }
+
+    // The rollout file of `thread_id` where Codex's `thread/read` names one, with its size; a
+    // thread it names no file for is remembered as fileless, and a lookup that fails, or a file
+    // not written yet, is logged and left to the thread's next placement.
+    async fn look_up_file(
+        &mut self,
+        service: &CodexService,
+        thread_id: &str,
+    ) -> Option<(PathBuf, u64)> {
+        let looked_up = match service.connection() {
+            Ok(connection) => request_thread_file(&connection, thread_id).await,
+            Err(error) => Err(error),
+        };
+        let failure: Box<dyn std::error::Error + Send + Sync> = match looked_up {
+            Ok(CodexThreadFile::At(path)) => match tokio::fs::metadata(&path).await {
+                Ok(metadata) => return Some((path, metadata.len())),
+                Err(error) => Box::new(error),
+            },
+            Ok(CodexThreadFile::Never) => {
+                remember(&mut self.fileless, thread_id.to_owned(), FILELESS_KEPT);
+                return None;
+            }
+            Err(error) => Box::new(error),
+        };
+        tracing::warn!(
+            error = &*failure as &(dyn std::error::Error + 'static),
+            conversation_id = thread_id,
+            "a placed codex thread's rollout file could not be looked up"
+        );
+        None
     }
 }

@@ -86,6 +86,7 @@ use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_servic
 use crate::driver::codex::version::CODEX_CLIENT_NAME;
 use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::ports::RequestHeldListener;
 use crate::port::raw_provider_messages::RawProviderMessages;
 use crate::pricing::receiver::TelemetryTarget;
 use crate::process_identity::ProviderProcessIdentity;
@@ -158,6 +159,9 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) telemetry_target: Arc<PortRegistration<Arc<TelemetryTarget>>>,
     /// The register each launch takes its tag from, which the driver's export reader reads.
     pub(crate) exports: Arc<CodexExports>,
+    /// The repricing's intake, which takes a launch's exported response no session will ever own
+    /// as its account's spend; until it is registered such a response is refused.
+    pub(crate) request_held: Arc<PortRegistration<Arc<dyn RequestHeldListener>>>,
     /// Where every message a service sends on a connection is recorded word for word.
     pub(crate) raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
 }

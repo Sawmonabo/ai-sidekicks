@@ -41,6 +41,11 @@ impl CodexNamedThreads {
         }
     }
 
+    // The sessions a turn settled on.
+    pub(super) fn settled(&self) -> &HashSet<SessionId> {
+        &self.settled
+    }
+
     // Names `sessions`, which a turn settled on.
     pub(super) fn name_settled(&mut self, sessions: impl IntoIterator<Item = SessionId>) {
         if !self.is_every {

@@ -10,11 +10,14 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::DatabaseWriter;
 
@@ -23,6 +26,7 @@ use crate::account::registry::ProviderAccountRegistry;
 use crate::account::usage_turns::unpriced::UnpricedUsageKey;
 use crate::callback_tools::host::CallbackToolHost;
 use crate::command::running_set::RunningCommandSets;
+use crate::driver::contract::account::WindowTurnSpend;
 use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
@@ -150,6 +154,22 @@ pub struct HeldRequest {
     pub row_ids: Vec<FreeFormText<EVENT_FIELD_MAX_LEN>>,
 }
 
+/// A request no session owns that a driver read from its provider's own records: the account's
+/// spend outside any session.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionlessRequest {
+    /// The provider that ran it.
+    pub provider: ProviderId,
+    /// The account it ran on.
+    pub provider_account_id: ProviderAccountId,
+    /// When the provider observed it.
+    pub occurred_at: WireInstant,
+    /// The region the provider processed it in, in the word its pricer reads; `None` for none.
+    pub processing_region: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// What it spent, at its model and tier.
+    pub spend: WindowTurnSpend,
+}
+
 /// The repricing's intake of a request its driver left unpriced.
 pub trait RequestHeldListener: Send + Sync {
     /// Takes `held` into the repricing, marking its listed rows held before it answers; fails as
@@ -157,6 +177,14 @@ pub trait RequestHeldListener: Send + Sync {
     fn request_held(
         &self,
         held: HeldRequest,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+
+    /// Writes each of `requests`, never empty, as a held usage row no session owns, all in one
+    /// write, then takes each one's key into the repricing; fails as the write fails, which writes
+    /// none of them, an account not registered among its refusals.
+    fn sessionless_requests_held(
+        &self,
+        requests: Vec<SessionlessRequest>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 }
 

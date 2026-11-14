@@ -1,7 +1,8 @@
 //! Whether one provider process's telemetry exports are arriving: each export marks them arriving,
 //! and a turn that made a model request with no export from its start to two export intervals
 //! after its settle marks them stopped. The status published beside it names the files its driver
-//! reads in the exports' place and cannot. One tracker per process, dropped with it.
+//! reads in the exports' place and cannot. It also holds one wake its driver asks for while a read
+//! in the exports' place waits on a turn's end. One tracker per process, dropped with it.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -41,7 +42,8 @@ pub(crate) struct PublishedExportStatus {
 }
 
 /// One provider process's export status, fed by its driver's telemetry: an export arriving, and a
-/// turn settling. Holds at most one scheduled check, canceled by an export or by the drop.
+/// turn settling. Holds at most one scheduled check, canceled by an export or by the drop, and at
+/// most one wake, canceled by the next one armed or by the drop.
 pub(crate) struct ExportStatusTracker {
     scheduler: Arc<Scheduler>,
     export_interval: Duration,
@@ -53,6 +55,7 @@ pub(crate) struct ExportStatusTracker {
 struct TrackerState {
     last_export_at: Option<Instant>,
     check: Option<PendingCheck>,
+    wake: Option<ScheduledJobHandle>,
     next_check_id: u64,
     status: watch::Sender<PublishedExportStatus>,
 }
@@ -75,6 +78,7 @@ impl ExportStatusTracker {
             state: Arc::new(Mutex::new(TrackerState {
                 last_export_at: None,
                 check: None,
+                wake: None,
                 next_check_id: 0,
                 status: sender,
             })),
@@ -152,6 +156,31 @@ impl ExportStatusTracker {
         Ok(())
     }
 
+    /// Arms one wake two export intervals out, which runs `wake` and leaves the status as it is;
+    /// a wake still armed is canceled, so the process holds one. Fails only once the scheduler has
+    /// stopped.
+    pub(crate) fn arm_wake(
+        &self,
+        wake: impl FnOnce() + Send + 'static,
+    ) -> Result<(), ScheduleError> {
+        let mut wake = Some(wake);
+        let job = self.scheduler.schedule(
+            "telemetry export wake",
+            JobCondition::Always,
+            self.export_interval * INTERVALS_WAITED,
+            move |_| {
+                if let Some(wake) = wake.take() {
+                    wake();
+                }
+                async { Ok(()) }.boxed()
+            },
+        )?;
+        if let Some(armed) = lock(&self.state).wake.replace(job) {
+            armed.cancel();
+        }
+        Ok(())
+    }
+
     /// The process's published export status.
     pub(crate) fn status(&self) -> watch::Receiver<PublishedExportStatus> {
         self.status.clone()
@@ -170,10 +199,14 @@ impl ExportStatusTracker {
 }
 
 impl Drop for ExportStatusTracker {
-    // The process is gone, so its armed check would decide nothing.
+    // The process is gone, so its armed check would decide nothing and its wake read nothing.
     fn drop(&mut self) {
-        if let Some(check) = lock(&self.state).check.take() {
+        let mut state = lock(&self.state);
+        if let Some(check) = state.check.take() {
             check.job.cancel();
+        }
+        if let Some(wake) = state.wake.take() {
+            wake.cancel();
         }
     }
 }

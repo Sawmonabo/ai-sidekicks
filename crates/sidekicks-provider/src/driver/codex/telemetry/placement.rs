@@ -1,17 +1,22 @@
 //! Where an exported response on a thread no session streams belongs: the walk up its parents, a
 //! bounded cache of what the walk or the join found, the threads whose walk failed lately, the
-//! kept responses it could not place yet, and the join of a thread the listing lacks.
+//! kept responses it could not place yet, the join of a thread the listing lacks, and the charge
+//! of a thread no session will ever hold as its account's spend outside any session.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, json};
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::pricing::{read_region_word, unknown_host_region};
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::telemetry::completed_response::{CodexCompletedResponse, SSE_EVENT_NAME};
 use crate::driver::codex::telemetry::copy_threads::CodexCopyThreads;
@@ -23,10 +28,13 @@ use crate::driver::codex::telemetry::exports::CODEX_EXPORT_INTERVAL;
 use crate::driver::codex::thread::ancestry::{
     CodexThreadPlacement, CodexUnplacedThread, place_codex_thread,
 };
+use crate::driver::codex::thread::view::{CodexThreadFile, request_thread_file};
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use crate::driver::ports::SessionlessRequest;
 use crate::pricing::export_status::INTERVALS_WAITED;
+use crate::usage_delta_accountant::compose_one_turn_spend;
 
 pub(crate) mod join;
 
@@ -42,8 +50,8 @@ pub(crate) const KEPT_RESPONSES: usize = 1_000;
 
 /// One launch's placement state: where its off-stream threads were found or joined, the threads
 /// whose walk failed lately, the responses it keeps until the launch's next export retries them,
-/// its sessions' review windows and turns, and its copies' threads. Its kept responses are
-/// refused as it drops.
+/// its sessions' review windows and turns, its copies' threads, and the region its responses no
+/// session owns are charged at. Its kept responses are refused as it drops.
 #[derive(Default)]
 pub(crate) struct CodexLaunchPlacement {
     // Oldest first, as `kept` and `failed_walks` are, each thread once.
@@ -53,9 +61,19 @@ pub(crate) struct CodexLaunchPlacement {
     kept: VecDeque<CodexKeptResponse>,
     joins: CodexJoinTargets,
     copies: CodexCopyThreads,
+    sessionless_region: CodexSessionlessRegion,
 }
 
-// A thread placed off the stream and where: below a held thread, or joined to a session's turn.
+// The region a launch's responses no session owns are charged at, read once, at the first charge.
+#[derive(Clone, Default)]
+enum CodexSessionlessRegion {
+    #[default]
+    Unread,
+    Read(Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>),
+}
+
+// A thread placed off the stream and where: below a held thread, joined to a session's turn, or
+// nowhere a session holds.
 struct CodexPlacedThread {
     thread_id: String,
     placed: CodexCachedPlacement,
@@ -74,6 +92,9 @@ enum CodexCachedPlacement {
         session_id: SessionId,
         turn_id: String,
     },
+    // Nowhere, ever: Codex keeps no file for the thread and holds it neither loaded nor stored, so
+    // its responses are its account's spend outside any session.
+    Sessionless,
 }
 
 // A response whose thread could not be placed yet: the export it came in, and whether a walk
@@ -277,8 +298,9 @@ pub(crate) fn take_kept_buckets(
 /// cache while what it names still holds, else by walking its parents once; a thread whose walk
 /// failed in the last two export intervals is kept unwalked, a thread not listed after an
 /// earlier walk found it so goes to the join, and one whose walk fails is kept again. A thread
-/// with no held ancestor is refused once, naming its thread. Answers the thread where it was
-/// placed off the stream.
+/// with no held ancestor is refused once, naming its thread, and one the cache holds as no
+/// session's is charged as its account's spend. Answers the thread where it was placed off the
+/// stream.
 pub(crate) async fn place_bucket(
     service: &Arc<CodexService>,
     launch: &Mutex<CodexLaunchPlacement>,
@@ -312,6 +334,10 @@ pub(crate) async fn place_bucket(
         }) => {
             let placed = CodexOffStreamPlacement::OnTurn { turn_id };
             return push_bucket(service, session_id, bucket, Some(&placed));
+        }
+        Some(CodexCachedPlacement::Sessionless) => {
+            charge_sessionless(service, launch, bucket).await;
+            return None;
         }
         None => {}
     }
@@ -370,7 +396,7 @@ pub(crate) async fn place_bucket(
         }
         Ok(CodexThreadPlacement::Unplaced(CodexUnplacedThread::NotListed)) => {
             if bucket.iter().any(|kept| kept.is_unlisted) {
-                return join_unlisted(service, launch, &thread_id, bucket);
+                return join_unlisted(service, launch, &thread_id, bucket).await;
             }
             let unlisted = bucket.into_iter().map(|kept| CodexKeptResponse {
                 is_unlisted: true,
@@ -394,46 +420,166 @@ pub(crate) async fn place_bucket(
 }
 
 // Joins `bucket`, the responses of a thread the listing still lacks after a second walk, to the
-// review window or turn live when its first record was observed, filed on that turn of its
-// session, and remembers the join for the thread's later responses; a review runs only for a
-// turn that asked an approval, so this keeps it on the account that ran it. A bucket nothing
-// covers, and a record with no observed time, is refused. Answers the thread where it was joined.
-fn join_unlisted(
+// review window or turn live when its first record carrying a time was observed, filed on that
+// turn of its session, and remembers the join for the thread's later responses; a review runs
+// only for a turn that asked an approval, so this keeps it on the account that ran it. A bucket
+// nothing covers, or none of whose records carries a time, is settled by its thread's file.
+// Answers the thread where it was joined.
+async fn join_unlisted(
     service: &CodexService,
     launch: &Mutex<CodexLaunchPlacement>,
     thread_id: &str,
     bucket: Vec<CodexKeptResponse>,
 ) -> Option<CodexOffStreamThread> {
-    let (timed, untimed): (Vec<_>, Vec<_>) = bucket
-        .into_iter()
-        .partition(|kept| kept.response.observed_at_ms > 0);
-    if let Some(untimed) = untimed.first() {
-        refuse_response(
-            &untimed.response,
-            "its record carries no time it was observed",
-        );
-    }
-    let first = timed.first()?;
-    let mut placement = lock(launch);
-    let Some((session_id, turn_id)) = placement.joins().target(first.response.observed_at_ms)
-    else {
-        drop(placement);
-        refuse_response(
-            &first.response,
-            "no review window or turn covers its thread",
-        );
+    let target = bucket
+        .iter()
+        .map(|kept| kept.response.observed_at_ms)
+        .find(|observed_at_ms| *observed_at_ms > 0)
+        .and_then(|observed_at_ms| lock(launch).joins().target(observed_at_ms));
+    let Some((session_id, turn_id)) = target else {
+        settle_unjoined(service, launch, thread_id, bucket).await;
         return None;
     };
-    placement.cache(
+    lock(launch).cache(
         thread_id,
         CodexCachedPlacement::Joined {
             session_id,
             turn_id: turn_id.clone(),
         },
     );
-    drop(placement);
     let placed = CodexOffStreamPlacement::OnTurn { turn_id };
-    push_bucket(service, session_id, timed, Some(&placed))
+    push_bucket(service, session_id, bucket, Some(&placed))
+}
+
+// Settles `bucket`, the responses of a thread nothing joins, by where Codex keeps the thread's
+// file. A thread it keeps none for and holds neither loaded nor stored, a memory consolidation
+// worker's among them, no listing will ever place, so its responses, and its later ones, are its
+// account's spend outside any session. A thread with a file may yet be listed under a session,
+// whose read of that file from its launch's registration then counts them, so its bucket is
+// refused once, as one whose lookup fails is.
+async fn settle_unjoined(
+    service: &CodexService,
+    launch: &Mutex<CodexLaunchPlacement>,
+    thread_id: &str,
+    bucket: Vec<CodexKeptResponse>,
+) {
+    let looked_up = match service.connection() {
+        Ok(connection) => request_thread_file(&connection, thread_id).await,
+        Err(error) => Err(error),
+    };
+    let reason = match looked_up {
+        Ok(CodexThreadFile::Never) => {
+            lock(launch).cache(thread_id, CodexCachedPlacement::Sessionless);
+            charge_sessionless(service, launch, bucket).await;
+            return;
+        }
+        Ok(CodexThreadFile::At(_path)) => "no review window or turn covers its thread",
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                conversation_id = thread_id,
+                "a codex thread nothing joins could not be looked up"
+            );
+            "its thread could not be looked up"
+        }
+    };
+    let provider_account_id = bucket
+        .first()
+        .and_then(|kept| kept.response.provider_account_id.clone());
+    refuse_unplaced(thread_id, provider_account_id, reason);
+}
+
+// Hands `bucket`'s responses to the repricing as their accounts' spend outside any session, one
+// held row each in one write, at the region of the service's settings for no folder, since no
+// response names the session whose settings ran it, read once per launch; a read that fails holds
+// the bucket at the unknown host's region and is tried again at the next charge. A response
+// naming no account, or a count past the wire's range, is refused, and so is each one where no
+// repricing is registered or the write fails.
+async fn charge_sessionless(
+    service: &CodexService,
+    launch: &Mutex<CodexLaunchPlacement>,
+    bucket: Vec<CodexKeptResponse>,
+) {
+    let Some(repricing) = service.dependencies().request_held.port() else {
+        for kept in &bucket {
+            refuse_response(&kept.response, "no repricing takes an account's spend yet");
+        }
+        return;
+    };
+    let read = lock(launch).sessionless_region.clone();
+    let processing_region = match read {
+        CodexSessionlessRegion::Read(region) => region,
+        CodexSessionlessRegion::Unread => match read_region_word(service, None).await {
+            Ok(region) => {
+                lock(launch).sessionless_region = CodexSessionlessRegion::Read(region.clone());
+                region
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a codex service's region could not be read; its spend outside any session \
+                     is held"
+                );
+                unknown_host_region()
+            }
+        },
+    };
+    let mut charged = Vec::with_capacity(bucket.len());
+    let mut requests = Vec::with_capacity(bucket.len());
+    for CodexKeptResponse { response, .. } in bucket {
+        let Some(provider_account_id) = response.provider_account_id.clone() else {
+            refuse_response(&response, "its launch names no account it ran on");
+            continue;
+        };
+        let spend = compose_one_turn_spend(
+            DESCRIPTOR.provider_id(),
+            Some(response.model_id.clone()),
+            response.service_tier.clone(),
+            response.counts,
+        );
+        let Some(spend) = spend else {
+            refuse_response(&response, "a count is past the wire's range");
+            continue;
+        };
+        requests.push(SessionlessRequest {
+            provider: DESCRIPTOR.provider_id(),
+            provider_account_id,
+            occurred_at: observed_instant(response.observed_at_ms),
+            processing_region: processing_region.clone(),
+            spend,
+        });
+        charged.push(response);
+    }
+    if requests.is_empty() {
+        return;
+    }
+    match repricing.sessionless_requests_held(requests).await {
+        Ok(()) => {
+            for response in &charged {
+                response.log_read_for_price();
+            }
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = &*error as &(dyn std::error::Error + 'static),
+                "an account's spend outside any session could not be written"
+            );
+            for response in &charged {
+                refuse_response(response, "its account's spend could not be written");
+            }
+        }
+    }
+}
+
+// The instant `observed_at_ms`, in Unix milliseconds, names; now where it is zero, a record that
+// carries no time.
+fn observed_instant(observed_at_ms: u64) -> WireInstant {
+    i64::try_from(observed_at_ms)
+        .ok()
+        .filter(|observed_at_ms| *observed_at_ms > 0)
+        .and_then(|observed_at_ms| jiff::Timestamp::from_millisecond(observed_at_ms).ok())
+        .and_then(WireInstant::from_timestamp)
+        .unwrap_or_else(WireInstant::now)
 }
 
 // Pushes `bucket` onto `session_id`'s queue as one hand-over, each placed at `placed`; answers

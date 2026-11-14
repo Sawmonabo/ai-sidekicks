@@ -26,8 +26,10 @@ use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::account::usage_turns::sightings::release_ended_run_sightings_statement;
 use sidekicks_provider::run::state_entry::{RunStateEntry, RunStateReport};
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
+use sidekicks_store::database::schema::RUN_TERMINAL_EVENT_TYPES_SQL;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{
@@ -43,7 +45,7 @@ use crate::run::projection::{
 use crate::run::provider_choice::ChoiceDialog;
 use crate::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::run::refusals::RunRefusal;
-use crate::run::transitions::{RUN_TERMINAL_EVENT_TYPES_SQL, is_transition_allowed};
+use crate::run::transitions::is_transition_allowed;
 
 /// The position of a terminal write's guard that its run version holds no terminal record yet:
 /// the first statement of the write.
@@ -484,8 +486,13 @@ impl RunWriter {
                     previous_state: run.state,
                     new_state,
                 };
+                // An ended run lets go of the sighting records its count kept past their
+                // account's removal.
                 let mut prelude = if is_terminal {
-                    vec![no_terminal_record_statement(&run_id, swap.run_version)]
+                    vec![
+                        no_terminal_record_statement(&run_id, swap.run_version),
+                        release_ended_run_sightings_statement(run_id),
+                    ]
                 } else {
                     Vec::new()
                 };

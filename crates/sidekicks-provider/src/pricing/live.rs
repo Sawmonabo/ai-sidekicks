@@ -413,7 +413,7 @@ mod tests {
 
     use super::{LivePricing, LiveUsageRow};
     use crate::account::usage_turns::unpriced::{UnpricedRequest, UnpricedUsageKey};
-    use crate::driver::ports::{DriverPorts, HeldRequest, RequestHeldListener};
+    use crate::driver::ports::{DriverPorts, HeldRequest, RequestHeldListener, SessionlessRequest};
     use crate::driver::test_registry::fixed_session_id;
     use crate::port::usage_sink::{
         MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
@@ -561,6 +561,13 @@ mod tests {
         fn request_held(&self, held: HeldRequest) -> BoxedAnswer<'_, ()> {
             lock(&self.held).push(held);
             async { Ok(()) }.boxed()
+        }
+
+        fn sessionless_requests_held(
+            &self,
+            _requests: Vec<SessionlessRequest>,
+        ) -> BoxedAnswer<'_, ()> {
+            unreachable!("the live pricing prices only a session's rows")
         }
     }
 

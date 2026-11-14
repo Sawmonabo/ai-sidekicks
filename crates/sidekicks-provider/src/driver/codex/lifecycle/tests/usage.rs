@@ -40,7 +40,7 @@ use crate::driver::codex::session::side_questions::test_copies::{
 use crate::driver::codex::session::test_fixture::TEST_THREAD;
 use crate::driver::codex::telemetry::exported_response::CodexExportedResponse;
 use crate::driver::codex::telemetry::rollouts::file::CodexRolloutFile;
-use crate::driver::ports::{HeldRequest, RequestHeldListener};
+use crate::driver::ports::{HeldRequest, RequestHeldListener, SessionlessRequest};
 use crate::driver::session_control::ExportHandoverBriefParams;
 use crate::driver::test_registry::{TestProviderAccounts, new_session_id};
 use crate::driver::{CurrentProviderAccount, ProviderAccountReader};
@@ -55,8 +55,8 @@ use crate::usage_delta_accountant::UsageAxisCounts;
 /// A usage record that records nothing until its gate opens, then records each delta in arrival
 /// order as a row of its own, its sighting first decided by the usage record's own statements on a
 /// store test database, so a sighting passed over records no row; it counts each delta it was
-/// handed and each it decided, and keeps each row recorded, each priced request and each request
-/// handed to the repricing.
+/// handed and each it decided, and keeps each row recorded, each priced request, each request
+/// handed to the repricing and each request no session owns handed to it.
 pub(crate) struct GatedUsage {
     gate: watch::Receiver<bool>,
     handed: AtomicUsize,
@@ -65,6 +65,7 @@ pub(crate) struct GatedUsage {
     pub(crate) metered: Mutex<Vec<MeteredUsage>>,
     pub(crate) costs: Mutex<Vec<PricedRequest>>,
     pub(crate) held: Mutex<Vec<HeldRequest>>,
+    pub(crate) sessionless: Mutex<Vec<SessionlessRequest>>,
 }
 
 impl GatedUsage {
@@ -78,6 +79,7 @@ impl GatedUsage {
             metered: Mutex::default(),
             costs: Mutex::default(),
             held: Mutex::default(),
+            sessionless: Mutex::default(),
         }
     }
 
@@ -259,6 +261,14 @@ impl RequestHeldListener for GatedUsage {
         held: HeldRequest,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         lock(&self.held).push(held);
+        async { Ok(()) }.boxed()
+    }
+
+    fn sessionless_requests_held(
+        &self,
+        requests: Vec<SessionlessRequest>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        lock(&self.sessionless).extend(requests);
         async { Ok(()) }.boxed()
     }
 }
@@ -494,6 +504,8 @@ async fn each_billed_search_is_charged_once_on_a_key_and_never_on_a_plan(
         json!({"timestamp": at, "type": "session_meta", "payload": {"id": TEST_THREAD}}),
         json!({"timestamp": at, "type": "turn_context",
             "payload": {"turn_id": TEST_TURN, "model": "gpt-5"}}),
+        json!({"timestamp": at, "type": "event_msg", "payload": {
+            "type": "thread_settings_applied", "thread_id": TEST_THREAD, "thread_settings": {}}}),
         rollout_search_line(at, "ws_3", "search"),
         rollout_search_line(at, "ws_4", "search"),
         rollout_search_line(at, "ws_5", "open_page"),

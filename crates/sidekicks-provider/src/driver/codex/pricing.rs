@@ -36,6 +36,7 @@ use crate::driver::codex::config_read::{
     CodexProcessingRegion, OPENAI_REGION_PREFIXES, read_codex_processing_region,
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
+use crate::driver::codex::session::errors::CodexError;
 use crate::port::usage_sink::{MeteredUsage, UsageSink};
 use crate::pricing::BoxedError;
 use crate::pricing::decimal::ExactDecimal;
@@ -309,8 +310,8 @@ impl CodexRecorderPricing {
 
     // `batch` less each hosted search charged to an account a plan signs in, read once per account
     // per batch, so a plan's search writes no row, event or sighting. A search whose kind reads as
-    // none yet, or cannot be read, is kept: its pricing reads the kind again, logging a failure,
-    // and holds it.
+    // none yet, or whose read fails, which is logged, is kept: its pricing reads the kind again and
+    // holds it.
     async fn drop_plan_searches(
         &self,
         batch: Vec<MeteredUsage>,
@@ -336,7 +337,14 @@ impl CodexRecorderPricing {
             } else {
                 let is_plan = match self.live.read_sign_in_kind(account).await {
                     Ok(sign_in_kind) => is_plan_sign_in(sign_in_kind) == Some(true),
-                    Err(_unread) => false,
+                    Err(error) => {
+                        tracing::warn!(
+                            error = &*error as &(dyn std::error::Error + 'static),
+                            "a codex account's sign-in kind could not be read; its hosted search \
+                             is kept, its pricing held for the kind"
+                        );
+                        false
+                    }
                 };
                 read.push((account.clone(), is_plan));
                 is_plan
@@ -361,21 +369,34 @@ impl CodexRecorderPricing {
         {
             return region.clone();
         }
-        let read = match service.connection() {
-            Ok(connection) => read_codex_processing_region(&connection, folder).await,
-            Err(error) => Err(error),
-        };
-        let region = match read {
-            Ok(region) => region,
+        match read_region_word(service, Some(folder)).await {
+            Ok(word) => {
+                self.region = Some((service.id(), word.clone()));
+                word
+            }
             Err(error) => {
                 report(Box::new(error));
-                return region_word(&CodexProcessingRegion::UnknownHost);
+                unknown_host_region()
             }
-        };
-        let word = region_word(&region);
-        self.region = Some((service.id(), word.clone()));
-        word
+        }
     }
+}
+
+/// The word a row carries for the region of `service`'s model provider, read from its settings
+/// for `folder`, or for no folder. Fails as the read fails.
+pub(crate) async fn read_region_word(
+    service: &CodexService,
+    folder: Option<&Path>,
+) -> Result<Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>, CodexError> {
+    let connection = service.connection()?;
+    let region = read_codex_processing_region(&connection, folder).await?;
+    Ok(region_word(&region))
+}
+
+/// The word a row carries where its service's region could not be read: the unknown host's, which
+/// holds an API key's request.
+pub(crate) fn unknown_host_region() -> Option<BoundedText<1, EVENT_FIELD_MAX_LEN>> {
+    region_word(&CodexProcessingRegion::UnknownHost)
 }
 
 // The word a row carries for `region`: none, the regional host's prefix, or the unknown host's.
