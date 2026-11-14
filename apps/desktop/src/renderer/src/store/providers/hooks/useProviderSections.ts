@@ -1,32 +1,33 @@
 // The providers' sections a view draws, from the app's one provider store. The app holds every
 // screen back until the list has been read, so a view only ever finds it served or failed; a
-// failed list throws to the view's error boundary, which says the region could not be drawn.
+// failed list throws to the view's error boundary, which draws its line with `Try again`.
 
 import { createContext, useContext, type Context } from "react";
 
 import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 
-import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
-import type { ProviderSectionsState } from "../sections.js";
+import { RereadableRefusalError, refuse } from "#renderer/lib/refusal/contract.js";
+import type { ProviderSectionsReading } from "./useProviderSectionsState.js";
 
-/** The app's provider store state, provided above every window. */
-export const ProviderSectionsContext: Context<ProviderSectionsState | undefined> = createContext<
-  ProviderSectionsState | undefined
+/** The app's provider store reading, provided above every window. */
+export const ProviderSectionsContext: Context<ProviderSectionsReading | undefined> = createContext<
+  ProviderSectionsReading | undefined
 >(undefined);
 
 /**
- * Every provider's section, in the service's order. Throws a `RefusalError` where the list could
- * not be read, and an `Error` where no list is provided or it has not been read yet.
+ * Every provider's section, in the service's order. Throws a `RereadableRefusalError` where the
+ * list could not be read, and an `Error` where no list is provided or it has not been read yet.
  */
 export function useProviderSections(): readonly ProviderSection[] {
-  const state = useContext(ProviderSectionsContext);
-  if (state === undefined || state.status === "reading") {
+  const reading = useContext(ProviderSectionsContext);
+  if (reading === undefined || reading.state.status === "reading") {
     throw new Error("Read the providers' sections only under a served provider list.");
   }
-  if (state.status === "failed") {
-    throw new RefusalError(
+  if (reading.state.status === "failed") {
+    throw new RereadableRefusalError(
       refuse("provider-list", "provider-list-unread", "Couldn't load providers"),
+      reading.readAgain,
     );
   }
-  return state.sections;
+  return reading.state.sections;
 }

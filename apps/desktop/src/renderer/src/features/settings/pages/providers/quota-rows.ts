@@ -13,7 +13,7 @@ import type {
   ProviderReadiness,
 } from "@ai-sidekicks/contracts/provider/account/record";
 
-import type { ProviderAccountReadout } from "../account-readout.js";
+import type { ProviderAccountReadout } from "./account-readout.js";
 import { MILLISECONDS_PER_DAY, parseInstant } from "#renderer/lib/instant.js";
 
 /**

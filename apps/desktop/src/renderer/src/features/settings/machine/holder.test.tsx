@@ -6,6 +6,8 @@ import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine/settings";
+
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -14,7 +16,7 @@ import { NEVER_SETTLES } from "#test/helpers/abandoned-pass.js";
 import { machineSettingsHolder } from "./holder.js";
 import type { MachineSettingsStore } from "./store.js";
 import { useMachineSettings } from "./hooks/useMachineSettings.js";
-import { MACHINE_SETTINGS_AT_DEFAULTS, effectiveSettings } from "./snapshot.js";
+import { effectiveSettings } from "./snapshot.js";
 
 /** A service whose feed never delivers and whose writes never answer. */
 const UNANSWERING_SERVICE: PlatformBridge["machineSettings"] = {
@@ -26,7 +28,7 @@ const UNANSWERING_SERVICE: PlatformBridge["machineSettings"] = {
 /** A service whose feed never delivers and whose every write answers the file it holds. */
 const ACCEPTING_SERVICE: PlatformBridge["machineSettings"] = {
   read: () => NEVER_SETTLES,
-  write: () => Promise.resolve({ ...MACHINE_SETTINGS_AT_DEFAULTS, updatesAutomatic: false }),
+  write: () => Promise.resolve({ ...MACHINE_SETTINGS_DEFAULTS, updatesAutomatic: false }),
   subscribe: () => () => undefined,
 };
 
@@ -154,7 +156,7 @@ describe("machine settings — a superseded store", () => {
 
     expect(firstStore.snapshot().reading).toBeUndefined();
     expect(effectiveSettings(firstStore.snapshot()).updatesAutomatic).toBe(
-      MACHINE_SETTINGS_AT_DEFAULTS.updatesAutomatic,
+      MACHINE_SETTINGS_DEFAULTS.updatesAutomatic,
     );
   });
 });

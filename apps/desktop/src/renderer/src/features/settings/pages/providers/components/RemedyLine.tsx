@@ -10,6 +10,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { accountPlaneRemedySentence } from "#renderer/lib/provider-accounts/sentences.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
+import type { SecretsPlace } from "../secrets-place.js";
 import type { ProviderAccountProbeCall, ProviderAccountRegisterCall } from "../sign-in/flow.js";
 import { AccountCheckNow } from "./Account/AccountCheckNow.js";
 import { TokenResupplyForm } from "./Token/TokenResupplyForm.js";
@@ -40,6 +41,8 @@ export function RemedyLine(props: {
   /** Asks for a fresh registry read once a fresh token is stored or the account was checked. */
   readonly requestRegistryRead: () => void;
   readonly probe: ProviderAccountProbeCall;
+  /** Where the service keeps a pasted token, which the token field names. */
+  readonly secretsPlace: SecretsPlace;
 }): ReactNode {
   const { remedy, state, provider, onStartSignIn, startBlockedReason, startRefusal } = props;
   const providerName = useProviderName(provider);
@@ -58,6 +61,7 @@ export function RemedyLine(props: {
             key={props.remedyAccount.accountId}
             account={props.remedyAccount}
             register={props.register}
+            secretsPlace={props.secretsPlace}
             onTokenStored={props.requestRegistryRead}
           />
         )}

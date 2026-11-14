@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { readKeychainRefusalCause } from "#renderer/services/provider-accounts/refusal-details.js";
+import { TOKEN_KEPT_WORDS, type SecretsPlace } from "../secrets-place.js";
 import type { TokenRegistrationOutcome } from "../sign-in/flow.js";
 
 /** The title over every keychain refusal's line. */
@@ -20,12 +21,15 @@ const KEYCHAIN_REFUSAL_LINES: Readonly<Record<KeychainRefusalCause, string>> = {
 const TOKEN_NOT_ACCEPTED_LINE = "The provider did not accept that token.";
 
 /**
- * What a pasted token came to, in the slot under the field it was pasted into: stored, refused
- * by the keychain under one title with one line per cause, not accepted by the provider, or
- * refused for another reason in the service's or the form's own words.
+ * What a pasted token came to, in the slot under the field it was pasted into: saved, in the
+ * words for where the service keeps it, refused by the keychain under one title with one line per
+ * cause, not accepted by the provider, or refused for another reason in the service's or the
+ * form's own words.
  */
 export function RegistrationOutcomeLine(props: {
   readonly outcome: TokenRegistrationOutcome;
+  /** Where the service keeps a saved token, which the saved line names. */
+  readonly secretsPlace: SecretsPlace;
 }): ReactNode {
   const { outcome } = props;
   // While the call is out, `Register` is disabled and the slot stays empty.
@@ -69,7 +73,7 @@ export function RegistrationOutcomeLine(props: {
     <AnnouncedLine
       element="p"
       className="meridian-settings-page__state"
-      words="The token was stored in this computer’s keychain. It is never shown here again."
+      words={TOKEN_KEPT_WORDS[props.secretsPlace].saved}
       politeness="polite"
     />
   );

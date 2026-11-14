@@ -36,6 +36,17 @@ export class ProviderSectionsStore extends SharedFeed<
   public constructor(feed: ProviderSectionsFeed) {
     super(feed, PROVIDER_SECTIONS_FOLD);
   }
+
+  /** Open the feed afresh, settling at the state's next move: the fresh list, or a failure. */
+  public readAgain(): Promise<void> {
+    return new Promise((resolve) => {
+      const release = this.watch(() => {
+        release();
+        resolve();
+      });
+      this.reread();
+    });
+  }
 }
 
 /** The state after one frame. */

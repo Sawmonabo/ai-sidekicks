@@ -23,7 +23,11 @@ const pageBodiesByPageId = new KeyedRegistry<
     "renders depend on composition order",
 });
 
-/** Fill a page's body. A second owner is refused; the same owner replaces its body. */
+/**
+ * Fill a page's body. A second owner is refused; the same owner replaces its body.
+ *
+ * @consumedBy the Remote Control feature's Devices page body
+ */
 export function registerSettingsPageBody(
   pageId: SettingsPageId,
   owner: string,

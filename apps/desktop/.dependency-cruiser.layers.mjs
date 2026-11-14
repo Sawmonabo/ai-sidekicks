@@ -89,29 +89,16 @@ export const FIXTURES = "^fixtures/";
 
 /**
  * The modules that may import `fixtures/`: the fixture implementations beside their
- * boundaries (a `*.fixture.ts` file or a feature's `fixtures/` folder), `app/`'s fixture
+ * boundaries (a `*.fixture.ts` file), `app/`'s fixture
  * composition and pane harness, and the one main-process module that checks a `--fixture`
  * name against the catalog.
  */
 export const FIXTURE_READERS = [
   "\\.fixture\\.tsx?$",
-  `${FEATURES}.+/fixtures/`,
   `${APP}fixture/composition\\.tsx?$`,
   `${APP}pane-harness/`,
   "^src/main/fixture-launch\\.ts$",
 ];
-
-/**
- * A feature's `fixtures/` folder: the fixture of a boundary that feature owns, which a fixture
- * build mounts in place of the real one.
- *
- * A capture group, because the rule that keeps a fixture's stylesheet inside its folder subtracts
- * the importer's own folder from its target set, making it one rule over every feature's fixtures.
- */
-export const FEATURE_FIXTURES = `${FEATURES}(.+)/fixtures/`;
-
-/** A stylesheet anywhere inside a feature's `fixtures/` folder. */
-export const FEATURE_FIXTURES_STYLESHEET = `${FEATURES}.+/fixtures/.+\\.css$`;
 
 /** A feature's public API, the one module another folder may import from it. */
 export const FEATURE_PUBLIC_APIS = `${FEATURES}[^/]+/index\\.ts$`;

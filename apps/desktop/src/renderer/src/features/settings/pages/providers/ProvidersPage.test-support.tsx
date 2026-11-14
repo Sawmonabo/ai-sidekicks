@@ -1,4 +1,4 @@
-// Mounting the accounts fixture body over a registry reading built here, and reading it back.
+// Mounting the Providers page over a registry reading built here, and reading it back.
 // The registry is built from the contract types, so every state a case reaches is one the wire
 // can carry.
 
@@ -16,10 +16,11 @@ import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { NEVER_SETTLES } from "#test/helpers/abandoned-pass.js";
 import {
-  AccountsFixtureBody,
+  ProvidersPage,
   type AccountListReading,
   type AccountOperations,
-} from "./AccountsFixtureBody.js";
+  type ReadAccountList,
+} from "./ProvidersPage.js";
 import { listedFixtureAccounts } from "#renderer/lib/provider-binding/account/reading.test-support.js";
 
 /** Provider-published limit identifiers, which the page must never draw. */
@@ -121,8 +122,9 @@ const READINESS: readonly ProviderReadiness[] = [
 ];
 
 /** A registry that has answered: three accounts, two providers, four stored readings. */
-export const ACCOUNT_REGISTRY: AccountListReading = {
+export const ACCOUNT_REGISTRY: ReadAccountList = {
   phase: "read",
+  secretsPlace: "keychain",
   accounts: listedFixtureAccounts([WORK_ACCOUNT, PERSONAL_ACCOUNT, BATCH_ACCOUNT]),
   readiness: READINESS,
   usageWindows: [
@@ -140,7 +142,7 @@ export const ACCOUNT_REGISTRY: AccountListReading = {
 };
 
 /**
- * Mount the fixture body under the two providers every console screen renders inside.
+ * Mount the page under the two providers every console screen renders inside.
  *
  * A verb the case does not supply never answers.
  */
@@ -160,7 +162,7 @@ export function mountAccountsPage(options: {
   const { container } = render(
     <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
-        <AccountsFixtureBody
+        <ProvidersPage
           registry={options.registry}
           requestRegistryRead={() => undefined}
           operations={operations}

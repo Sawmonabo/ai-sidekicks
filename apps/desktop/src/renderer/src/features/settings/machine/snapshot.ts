@@ -18,12 +18,6 @@ import type { Refusal } from "#renderer/lib/refusal/contract.js";
  */
 export type MachineSettingsMember = ChangeMemberOf<MachineSettingsChange>;
 
-/** The members of the change arms in `Change`, taken arm by arm. */
-type ChangeMemberOf<Change> = Change extends unknown ? keyof Change : never;
-
-/** The settings at their defaults, as the contracts declare them. */
-export const MACHINE_SETTINGS_AT_DEFAULTS: MachineSettings = MACHINE_SETTINGS_DEFAULTS;
-
 /** Everything a settings row needs, rebuilt on transition and held by identity. */
 export interface MachineSettingsSnapshot {
   /** The service's last answer, or `undefined` before its feed first delivered. */
@@ -35,6 +29,9 @@ export interface MachineSettingsSnapshot {
   /** Why the feed could not be opened, until it opens again or delivers. */
   readonly readRefusal: Refusal | undefined;
 }
+
+/** The members of the change arms in `Change`, taken arm by arm. */
+type ChangeMemberOf<Change> = Change extends unknown ? keyof Change : never;
 
 /**
  * What a window reads before its store has been acquired or answered. The binding renders it

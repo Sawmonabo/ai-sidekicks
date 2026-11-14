@@ -22,7 +22,7 @@ function drawnForSealRefusedBy(cause: string): string {
   };
   const { container } = render(
     <LiveAnnouncerProvider>
-      <RegistrationOutcomeLine outcome={{ kind: "refused", refusal }} />
+      <RegistrationOutcomeLine outcome={{ kind: "refused", refusal }} secretsPlace="keychain" />
     </LiveAnnouncerProvider>,
   );
   const lines = [...container.querySelectorAll(".meridian-settings-page__state--failed p")];

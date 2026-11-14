@@ -5,7 +5,9 @@ import "./ErrorBoundary.css";
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
+import { InlineRefusal } from "../Refusal/InlineRefusal.js";
 import { RenderFailureCard } from "./RenderFailureCard.js";
+import { RereadableRefusalError } from "#renderer/lib/refusal/contract.js";
 import { reportTripwire } from "#renderer/lib/tripwires/registry.js";
 import { wireRejectionToError } from "#renderer/lib/wire/errors.js";
 
@@ -18,7 +20,10 @@ export interface ErrorBoundaryProps {
   readonly fallback?: (error: Error, retry: () => void) => ReactNode;
 }
 
-/** Catches a render failure in its subtree, reports it, and offers a retry in place. */
+/**
+ * Catches a render failure in its subtree, reports it, and offers a retry in place; a read that
+ * failed draws its own line with `Try again`.
+ */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   public constructor(props: ErrorBoundaryProps) {
     super(props);
@@ -55,6 +60,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     };
     if (this.props.fallback !== undefined) {
       return this.props.fallback(error, retry);
+    }
+    // A read that failed is asked again, and the region drawn again once it has answered.
+    if (error instanceof RereadableRefusalError) {
+      return (
+        <InlineRefusal
+          code={error.refusal.code}
+          detail={error.refusal.detail}
+          onTryAgain={() => {
+            void error.readAgain().then(retry);
+          }}
+        />
+      );
     }
     return <RenderFailureCard regionName={this.props.regionName} onRetry={retry} />;
   }

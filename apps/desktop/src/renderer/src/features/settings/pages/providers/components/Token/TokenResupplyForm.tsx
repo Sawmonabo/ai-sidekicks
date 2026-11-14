@@ -8,6 +8,7 @@ import {
   type ProviderAccountRegisterCall,
   type TokenRegistrationOutcome,
 } from "../../sign-in/flow.js";
+import { TOKEN_KEPT_WORDS, type SecretsPlace } from "../../secrets-place.js";
 import { RegistrationOutcomeLine } from "../RegistrationOutcomeLine.js";
 
 /**
@@ -22,8 +23,10 @@ export function TokenResupplyForm(props: {
   readonly register: ProviderAccountRegisterCall;
   /** Asks for a fresh registry read once the token is stored, so the row reads its new state. */
   readonly onTokenStored: () => void;
+  /** Where the service keeps the token, which the lines under the field name. */
+  readonly secretsPlace: SecretsPlace;
 }): ReactNode {
-  const { account, register, onTokenStored } = props;
+  const { account, register, onTokenStored, secretsPlace } = props;
   const tokenFieldId = useId();
   const tokenInput = useRef<HTMLInputElement>(null);
   const [outcome, setOutcome] = useState<TokenRegistrationOutcome>(IDLE_TOKEN_REGISTRATION);
@@ -63,9 +66,7 @@ export function TokenResupplyForm(props: {
         spellCheck={false}
         required
       />
-      <p className="meridian-settings-page__aside">
-        The value is stored in this computer&rsquo;s keychain and is never shown here again.
-      </p>
+      <p className="meridian-settings-page__aside">{TOKEN_KEPT_WORDS[secretsPlace].underField}</p>
       <span className="meridian-accounts__resupply-actions">
         <button
           type="submit"
@@ -89,7 +90,7 @@ export function TokenResupplyForm(props: {
           Cancel
         </button>
       </span>
-      <RegistrationOutcomeLine outcome={outcome} />
+      <RegistrationOutcomeLine outcome={outcome} secretsPlace={secretsPlace} />
     </form>
   );
 }

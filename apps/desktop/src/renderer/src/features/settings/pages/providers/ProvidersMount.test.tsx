@@ -1,7 +1,6 @@
-// The Providers page as a fixture launch mounts it: the fixture body registered into the page,
-// its registry read and its sign-in start reaching the scenario's scripted replies through
-// `callDaemon`, and the registry's tail reaching the body; and the account list's own words while
-// it is read and after a refused read.
+// The Providers page over a scenario's bridge: its registry read and its sign-in start reaching
+// the scenario's scripted replies through `callDaemon`, and the registry's tail reaching the page;
+// and the account list's own words while it is read and after a refused read.
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -16,9 +15,8 @@ import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
 import { drawnText, liveRegionText } from "#test/helpers/live-region.js";
 import { settle } from "#test/helpers/settle.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
-import { RegisteredBodyPage } from "../../RegisteredBodyPage.js";
-import { pressFirstStartControl, signInAddressOf } from "./AccountsFixtureBody.test-support.js";
-import { registerAccountsFixtureBody } from "./register-accounts-body.js";
+import { pressFirstStartControl, signInAddressOf } from "./ProvidersPage.test-support.js";
+import { ProvidersMount } from "./ProvidersMount.js";
 
 afterEach(() => {
   cleanup();
@@ -26,11 +24,10 @@ afterEach(() => {
 
 /** The Providers page over `fixture`, before its first registry read lands. */
 function renderProvidersPage(fixture: FixtureBridge): HTMLElement {
-  registerAccountsFixtureBody();
   const { container } = render(
     <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
-        <RegisteredBodyPage pageId="providers" />
+        <ProvidersMount />
       </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,
   );
@@ -71,7 +68,7 @@ function fixtureRefusingFirstRegistryRead(): FixtureBridge {
   };
 }
 
-describe("AccountsFixtureMount", () => {
+describe("ProvidersMount", () => {
   it("draws no reading line for a read inside the short delay, and its own words after a refusal", async () => {
     const fixture = fixtureRefusingFirstRegistryRead();
     const container = renderProvidersPage(fixture);

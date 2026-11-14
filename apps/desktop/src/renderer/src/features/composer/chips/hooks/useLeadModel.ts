@@ -53,7 +53,11 @@ export function useLeadModel(bridge: PlatformBridge, sessionId: SessionId): Lead
   if (lead === undefined || catalog.kind !== "loaded") {
     return NOTHING_READ;
   }
-  return leadModelIn(catalog.value, sections?.status === "served" ? sections.sections : [], lead);
+  return leadModelIn(
+    catalog.value,
+    sections?.state.status === "served" ? sections.state.sections : [],
+    lead,
+  );
 }
 
 /** The session's lead: the one agent with no ancestry. */

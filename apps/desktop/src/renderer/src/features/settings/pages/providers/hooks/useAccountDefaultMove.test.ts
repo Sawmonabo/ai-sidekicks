@@ -7,7 +7,7 @@ import { expect, it, vi } from "vitest";
 
 import { manualGate, type ManualGate } from "#test/helpers/held-calls.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
-import { ACCOUNT_REGISTRY } from "../AccountsFixtureBody.test-support.js";
+import { ACCOUNT_REGISTRY } from "../ProvidersPage.test-support.js";
 import type { ProviderAccountSetCurrentCall } from "../sign-in/flow.js";
 import { useAccountDefaultMove } from "./useAccountDefaultMove.js";
 

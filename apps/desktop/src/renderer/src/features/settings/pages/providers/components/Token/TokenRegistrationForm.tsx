@@ -3,6 +3,7 @@ import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { RegistrationOutcomeLine } from "../RegistrationOutcomeLine.js";
+import { TOKEN_KEPT_WORDS, type SecretsPlace } from "../../secrets-place.js";
 import {
   IDLE_TOKEN_REGISTRATION,
   nameRefusalLine,
@@ -31,8 +32,10 @@ export function TokenRegistrationForm(props: {
   readonly provider: ProviderId;
   /** The accounts already registered, whose names a new one must differ from per provider. */
   readonly accounts: readonly ProviderAccount[];
+  /** Where the service keeps the token, which the lines under the field name. */
+  readonly secretsPlace: SecretsPlace;
 }): ReactNode {
-  const { register, provider, accounts } = props;
+  const { register, provider, accounts, secretsPlace } = props;
   const providerName = useProviderName(provider);
   const nameFieldId = useId();
   const nameRefusalId = useId();
@@ -127,9 +130,7 @@ export function TokenRegistrationForm(props: {
           on the smallest model. Each check counts toward this account&rsquo;s spend.
         </p>
       ) : null}
-      <p className="meridian-settings-page__aside">
-        The value is stored in this computer&rsquo;s keychain and is never shown here again.
-      </p>
+      <p className="meridian-settings-page__aside">{TOKEN_KEPT_WORDS[secretsPlace].underField}</p>
 
       <span className="meridian-accounts__register-actions">
         <button
@@ -155,6 +156,7 @@ export function TokenRegistrationForm(props: {
       </span>
       <RegistrationOutcomeLine
         outcome={nameRefusal === undefined ? outcome : IDLE_TOKEN_REGISTRATION}
+        secretsPlace={secretsPlace}
       />
     </form>
   );

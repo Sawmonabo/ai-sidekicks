@@ -136,7 +136,7 @@ function groupBySession(items: readonly AttentionItem[]): readonly AttentionSess
 }
 
 /** What every view and every announcement calls what this read was of. */
-export const ATTENTION_SUBJECT = "what needs you";
+export const ATTENTION_SUBJECT = "notifications";
 
 /**
  * How complete a read that answered was, as reading states.

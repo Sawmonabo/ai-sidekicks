@@ -33,7 +33,7 @@ export interface AccountPlaneScript {
   readonly register?: ProviderAccountRegisterResponse;
 }
 
-/** The three verbs as recording stubs, keyed the way the fixture body's operations are. */
+/** The three verbs as recording stubs, keyed the way the page's operations are. */
 export interface AccountPlaneCalls {
   readonly signIn: ReturnType<typeof vi.fn<ProviderAccountSignInCall>>;
   readonly cancelSignIn: ReturnType<typeof vi.fn<ProviderAccountSignInCancelCall>>;

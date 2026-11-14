@@ -77,7 +77,7 @@ export interface ProviderSignInStartOutcome {
   readonly attempt: ProviderAccountSignInResponse;
 }
 
-/** What a token registration did, as far as this fixture body may claim. */
+/** What a token registration did, as far as this page may claim. */
 export type TokenRegistrationOutcome =
   | { readonly kind: "idle" }
   | { readonly kind: "submitting" }

@@ -4,10 +4,11 @@
 
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
-import type {
-  MachineSettings,
-  MachineSettingsChange,
-  MachineSettingsReading,
+import {
+  MACHINE_SETTINGS_DEFAULTS,
+  type MachineSettings,
+  type MachineSettingsChange,
+  type MachineSettingsReading,
 } from "@ai-sidekicks/contracts/machine/settings";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
@@ -16,7 +17,7 @@ import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { REOPEN_WAITS_MS } from "#renderer/services/transport/reopen-backoff.js";
 import { TransportReconnectSignal } from "#renderer/services/transport/reconnect.js";
 import { MachineSettingsStore, type MachineSettingsService } from "./store.js";
-import { MACHINE_SETTINGS_AT_DEFAULTS, effectiveSettings } from "./snapshot.js";
+import { effectiveSettings } from "./snapshot.js";
 
 /** One write the service has not answered yet. */
 interface HeldWrite {
@@ -98,7 +99,7 @@ class HandDrivenMachineSettings implements MachineSettingsService {
 }
 
 function settingsWith(change: Partial<MachineSettings>): MachineSettings {
-  return { ...MACHINE_SETTINGS_AT_DEFAULTS, ...change };
+  return { ...MACHINE_SETTINGS_DEFAULTS, ...change };
 }
 
 function startedStore(transportReconnect = new TransportReconnectSignal()): {
@@ -147,7 +148,7 @@ describe("machine settings — a feed that ends", () => {
     });
     const signal = new TransportReconnectSignal();
     const { store, service } = startedStore(signal);
-    service.deliver({ settings: MACHINE_SETTINGS_AT_DEFAULTS });
+    service.deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
 
     service.isAway = true;
     service.endFeed();
@@ -199,7 +200,7 @@ describe("machine settings — a write", () => {
   it("sends one member and installs the file as written, clearing a repair", async () => {
     const { store, service } = startedStore();
     service.deliver({
-      settings: MACHINE_SETTINGS_AT_DEFAULTS,
+      settings: MACHINE_SETTINGS_DEFAULTS,
       repair: { repairedAt: "2026-09-30T12:00:00.000Z", cause: "unparsable" },
     });
 
@@ -214,7 +215,7 @@ describe("machine settings — a write", () => {
 
   it("negative control: a refused write keeps the value, ends pending and says why", async () => {
     const { store, service } = startedStore();
-    service.deliver({ settings: MACHINE_SETTINGS_AT_DEFAULTS });
+    service.deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
 
     const chosen = store.choose("updatesAutomatic", false);
     // As Electron rejects a call main's answer threw on: the channel's name rides the message.
@@ -236,7 +237,7 @@ describe("machine settings — a write", () => {
     // Another window's change arrives while this write is out; installing the write's older
     // answer would take that change off this screen.
     const { store, service } = startedStore();
-    service.deliver({ settings: MACHINE_SETTINGS_AT_DEFAULTS });
+    service.deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
 
     const chosen = store.choose("updatesAutomatic", false);
     service.deliver({

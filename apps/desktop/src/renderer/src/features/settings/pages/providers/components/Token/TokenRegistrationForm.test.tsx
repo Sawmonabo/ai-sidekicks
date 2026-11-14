@@ -37,7 +37,12 @@ const CODEX = "codex" as ProviderId;
 /** Open the form, fill both fields and submit, then let the refusal land. */
 async function submitRefusedWith(code: string): Promise<HTMLInputElement> {
   const { getByRole, getByLabelText } = render(
-    <TokenRegistrationForm register={registerRefusedWith(code)} provider={CODEX} accounts={[]} />,
+    <TokenRegistrationForm
+      register={registerRefusedWith(code)}
+      provider={CODEX}
+      accounts={[]}
+      secretsPlace="keychain"
+    />,
     { wrapper: withAnnouncer(ServedProviderSections) },
   );
   fireEvent.click(getByRole("button", { name: "Paste a token instead" }));
@@ -92,6 +97,7 @@ describe("TokenRegistrationForm — a refusal pressed into twice", () => {
             register={registerRefusedWith(PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE)}
             provider={CODEX}
             accounts={[account({ provider: CODEX, displayLabel: "Metered" })]}
+            secretsPlace="keychain"
           />
         </LiveAnnouncerProvider>
       </ServedProviderSections>,

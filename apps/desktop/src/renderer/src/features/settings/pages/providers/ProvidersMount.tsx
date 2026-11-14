@@ -1,13 +1,15 @@
-// The accounts fixture body over this window's bridge. The registry read, the sign-in, its
+// The Providers page over this window's bridge. The registry read, the sign-in, its
 // cancellation, the token registration, the account check and the default move go through
-// `callDaemon`, so each reply is parsed against the method's registered shape. The registry's
-// tail, opened before the first read, reaches the account fold through
+// `callDaemon`, so each reply is parsed against the method's registered shape. Each registry
+// read also reads the service's status, whose secrets file names where a pasted token is kept.
+// The registry's tail, opened before the first read, reaches the account fold through
 // `ProviderAccountDeliveries`: each read's snapshot is loaded into the fold with the tail held
-// across it, and the body draws the fold's accounts and quota rows, the read's readiness, and
+// across it, and the page draws the fold's accounts and quota rows, the read's readiness, and
 // the newest sign-in the tail reported finished.
 
 import { useCallback, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 
+import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/status";
 import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
@@ -28,26 +30,17 @@ import { ProviderAccountFold } from "#renderer/store/provider-accounts/fold.js";
 import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
 import { providerSectionOf } from "#renderer/store/providers/name.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
-import {
-  AccountsFixtureBody,
-  type AccountListReading,
-  type AccountOperations,
-} from "./AccountsFixtureBody.js";
+import { ProvidersPage, type AccountListReading, type AccountOperations } from "./ProvidersPage.js";
+import { secretsPlaceOf } from "./secrets-place.js";
 
 /** Names the registry read in a refusal, so a failure says which read failed. */
 const ACCOUNT_REGISTRY_READ_ORIGIN = "provider-accounts";
 
 /** What the body is handed before the first read has landed. */
-const UNREAD_REGISTRY: AccountListReading = {
-  phase: "reading",
-  accounts: [],
-  readiness: [],
-  usageWindows: [],
-  newestSignInCompletion: undefined,
-};
+const UNREAD_REGISTRY: AccountListReading = { phase: "reading" };
 
-/** The accounts fixture body, its reads and verbs answered by the daemon this window reaches. */
-export function AccountsFixtureMount(): ReactNode {
+/** The Providers page, its reads and verbs answered by the daemon this window reaches. */
+export function ProvidersMount(): ReactNode {
   const bridge = usePlatformBridge();
   // The scenario's frozen clock under the fixture, the real one otherwise.
   const clock = useClock();
@@ -95,12 +88,13 @@ export function AccountsFixtureMount(): ReactNode {
       : {
           phase: "read",
           accounts: fold.accounts(),
-          readiness: state.value.readiness,
+          readiness: state.value.registry.readiness,
           usageWindows: fold.usageWindows(),
           newestSignInCompletion: deliveries.newestSignInCompletion,
+          secretsPlace: secretsPlaceOf(state.value.status.secretsFile),
         };
   return (
-    <AccountsFixtureBody
+    <ProvidersPage
       registry={registry}
       requestRegistryRead={requestRegistryRead}
       operations={operations}
@@ -108,9 +102,15 @@ export function AccountsFixtureMount(): ReactNode {
   );
 }
 
+/** One read of the page: the registry, and the service's status, which names where tokens go. */
+interface AccountRegistryAnswer {
+  readonly registry: ProviderAccountListResponse;
+  readonly status: DaemonStatusReadResponse;
+}
+
 /** The registry read, the fold its snapshots and tail frames land in, and the tail's deliveries. */
 interface AccountRegistry {
-  readonly registryRead: PushDrivenRead<ProviderAccountListResponse>;
+  readonly registryRead: PushDrivenRead<AccountRegistryAnswer>;
   readonly fold: ProviderAccountFold;
   readonly deliveries: ProviderAccountDeliveries;
 }
@@ -140,16 +140,21 @@ function createAccountRegistry(
       registryRead.refresh("terminal-event");
     },
   });
-  const registryRead = new PushDrivenRead<ProviderAccountListResponse>({
+  const registryRead = new PushDrivenRead<AccountRegistryAnswer>({
     clock,
     origin: ACCOUNT_REGISTRY_READ_ORIGIN,
     read: async (signal) => {
       deliveries.beginHold();
-      let registry: ProviderAccountListResponse;
+      let answer: AccountRegistryAnswer;
       try {
-        registry = unwrapDaemonReply(
-          await callDaemon(bridge, "provider.account.list", {}, { signal }),
-        );
+        const [registryReply, statusReply] = await Promise.all([
+          callDaemon(bridge, "provider.account.list", {}, { signal }),
+          callDaemon(bridge, "daemon.status.read", {}, { signal }),
+        ]);
+        answer = {
+          registry: unwrapDaemonReply(registryReply),
+          status: unwrapDaemonReply(statusReply),
+        };
       } catch (error) {
         if (!signal.aborted) {
           deliveries.releaseHold();
@@ -157,10 +162,10 @@ function createAccountRegistry(
         throw error;
       }
       if (!signal.aborted) {
-        loadRegistrySnapshot(fold, deliveries, registry, sectionOfProvider);
+        loadRegistrySnapshot(fold, deliveries, answer.registry, sectionOfProvider);
         deliveries.releaseHold();
       }
-      return registry;
+      return answer;
     },
     // A tail opened again after it ended reads again, since a change in the gap went unheard.
     subscribe: (onChange) =>

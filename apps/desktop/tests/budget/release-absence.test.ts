@@ -25,11 +25,6 @@
 //   behind `__SMOKE_BUILD__`, which a release build folds, so no main source map may list a
 //   module under `src/main/probes/`.
 //
-// Stylesheets are neither: no source map lists one, and a feature fixture's sheet ships its
-// rules whenever an ungated module imports it. `.dependency-cruiser.mjs` holds that case as an
-// import rule (`fixture-stylesheet-outside-its-folder`,
-// `fixture-stylesheet-from-outside-any-fixtures-folder`).
-//
 // This never skips: a missing build, or one with no source maps, fails with the command that
 // produces one, since a sweep that finds nothing because it read nothing is a false pass. Each
 // check carries a positive control; the module check also carries a planted negative control.
@@ -194,7 +189,6 @@ describe("release build — the fixture code is absent, not merely unreachable",
     const plantedSources = [
       "fixtures/scenarios/planted.ts",
       "src/renderer/src/services/daemon/planted.fixture.ts",
-      "src/renderer/src/features/settings/pages/providers/fixtures/planted.ts",
       "src/renderer/src/app/fixture/composition.ts",
       "src/renderer/src/app/fixture/global-names.ts",
       "src/renderer/src/app/pane-harness/Planted.tsx",

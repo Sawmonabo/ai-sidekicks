@@ -121,7 +121,7 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
   const providerSections = useProviderSectionsState(
     hasServiceAnswered ? providerSectionsFeedFor(bridge) : undefined,
   );
-  const hasAppAnswered = hasServiceAnswered && providerSections.status !== "reading";
+  const hasAppAnswered = hasServiceAnswered && providerSections.state.status !== "reading";
   const windowStoreUsedLast = useCallback(() => windowStores.list()[0]?.store, [windowStores]);
   useMarkdownWorkerWake(sessionStoreRegistry, windows);
   // A View-menu scheme main could not save is told on the window used last.

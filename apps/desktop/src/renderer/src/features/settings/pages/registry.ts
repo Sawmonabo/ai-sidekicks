@@ -204,7 +204,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     note:
       "Sign in to Claude Code and Codex, choose which account new work runs on, and set what " +
       "each provider does on its own. Every sign-in and pasted token stays on this computer.",
-    render: () => createElement(RegisteredBodyPage, { pageId: "providers" }),
+    body: () => import("./providers/body.js"),
   },
   {
     pageId: "mcp-servers",

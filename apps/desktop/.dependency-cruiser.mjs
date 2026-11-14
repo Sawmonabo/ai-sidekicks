@@ -30,8 +30,6 @@ import {
   CROSS_PROCESS_SHARED,
   FEATURE_PUBLIC_APIS,
   FEATURES,
-  FEATURE_FIXTURES,
-  FEATURE_FIXTURES_STYLESHEET,
   FIXTURE_READERS,
   FIXTURES,
   HOOKS,
@@ -260,37 +258,6 @@ export default {
       severity: "error",
       from: { path: BARRELS },
       to: { path: BARRELS, dependencyTypes: ["export"] },
-    },
-    {
-      name: "fixture-stylesheet-outside-its-folder",
-      comment:
-        "A module inside one feature's `fixtures/` folder imported another fixtures folder's " +
-        "stylesheet. A release build removes a feature's fixture by folding its fixture-build " +
-        "ternary. That fold removes JavaScript and says nothing about a stylesheet: a sheet " +
-        "ships its rules whenever a module the release build keeps imports it, and no source " +
-        "map lists a stylesheet, so the release fixture gate cannot see one. Each fixture's " +
-        "sheet enters through that fixture's own entry so that it ships exactly when the " +
-        "fixture does. The importer's own folder is captured and subtracted, so this is one " +
-        "rule over every feature's fixtures.",
-      severity: "error",
-      from: { path: FEATURE_FIXTURES },
-      to: {
-        path: FEATURE_FIXTURES_STYLESHEET,
-        pathNot: `${FEATURES}$1/fixtures/`,
-      },
-    },
-    {
-      name: "fixture-stylesheet-from-outside-any-fixtures-folder",
-      comment:
-        "A module outside every feature's `fixtures/` folder imported a fixture's stylesheet. " +
-        "A feature's chunk root is not gated, so a sheet imported from there or from any other " +
-        "kept module ships its rules in a release renderer that contains none of the fixture " +
-        "they style, and no source map lists a stylesheet, so the release fixture gate cannot " +
-        "see it. Import the fixture's entry instead, which carries the sheet in a fixture " +
-        "build and leaves with the fixture in a release one.",
-      severity: "error",
-      from: { pathNot: FEATURE_FIXTURES },
-      to: { path: FEATURE_FIXTURES_STYLESHEET },
     },
   ],
   options: {

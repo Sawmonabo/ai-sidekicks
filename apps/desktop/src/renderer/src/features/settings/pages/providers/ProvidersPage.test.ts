@@ -1,4 +1,4 @@
-// The accounts fixture body, driven over a registry reading built from the contract types.
+// The Providers page, driven over a registry reading built from the contract types.
 // Every state asserted is one the wire can carry, and the sign-in cases drive the real tracker
 // through plain stub calls.
 
@@ -17,18 +17,18 @@ import {
   signInAddressOf,
   startControls,
   WIRE_LIMIT_IDS,
-} from "./AccountsFixtureBody.test-support.js";
+} from "./ProvidersPage.test-support.js";
 import {
   accountPlaneCalls,
   PROVIDER_SIGN_IN_ATTEMPT,
 } from "./account-plane-bridge.test-support.js";
-import type { AccountListReading } from "./AccountsFixtureBody.js";
+import type { ReadAccountList } from "./ProvidersPage.js";
 
 afterEach(() => {
   cleanup();
 });
 
-describe("AccountsFixtureBody", () => {
+describe("ProvidersPage", () => {
   // Three of the selected account's limits share one window length, so each keeps its own row.
   // A limit identifier never reaches the screen; a row is named by the provider's label, or by
   // its window length where it gave none.
@@ -105,7 +105,7 @@ describe("AccountsFixtureBody", () => {
  * The registry with its Claude default read as a token account whose login expired. Cast: the
  * generated readiness type carries its remedy's schema reference, which no literal satisfies.
  */
-const EXPIRED_TOKEN_REGISTRY: AccountListReading = {
+const EXPIRED_TOKEN_REGISTRY: ReadAccountList = {
   ...ACCOUNT_REGISTRY,
   readiness: ACCOUNT_REGISTRY.readiness.map((entry) =>
     entry.provider === "claude"
@@ -119,12 +119,12 @@ const EXPIRED_TOKEN_REGISTRY: AccountListReading = {
   ),
 };
 
-describe("AccountsFixtureBody — a fresh token for an expired token account", () => {
+describe("ProvidersPage — a fresh token for an expired token account", () => {
   // A fresh token pasted without the account it belongs to would register a second account and
   // leave the expired one, with its spend and history, behind.
   it("replaces the token on the account the remedy names and clears the field", async () => {
     const register = accountPlaneCalls({
-      register: { account: ACCOUNT_REGISTRY.accounts[0] as AccountListReading["accounts"][0] },
+      register: { account: ACCOUNT_REGISTRY.accounts[0] as ReadAccountList["accounts"][0] },
     }).register;
     const { container } = mountAccountsPage({
       registry: EXPIRED_TOKEN_REGISTRY,
@@ -150,6 +150,6 @@ describe("AccountsFixtureBody — a fresh token for an expired token account", (
       ],
     ]);
     expect(field.value).toBe("");
-    expect(container.textContent).toContain("The token was stored in this computer’s keychain.");
+    expect(container.textContent).toContain("Token saved. Stored in the keychain.");
   });
 });

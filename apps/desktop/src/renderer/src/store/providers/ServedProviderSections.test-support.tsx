@@ -10,7 +10,10 @@ import { providerSectionsFixture } from "./sections.test-support.js";
 export function ServedProviderSections(props: { readonly children: ReactNode }): React.JSX.Element {
   return (
     <ProviderSectionsContext.Provider
-      value={{ status: "served", sections: providerSectionsFixture() }}
+      value={{
+        state: { status: "served", sections: providerSectionsFixture() },
+        readAgain: () => Promise.resolve(),
+      }}
     >
       {props.children}
     </ProviderSectionsContext.Provider>

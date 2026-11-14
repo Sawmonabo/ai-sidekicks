@@ -61,7 +61,7 @@ const UNFINISHED_START_CODES: ReadonlySet<string> = new Set([
  */
 const PROVIDER_SIGN_IN_FLOW_KEY = "brokered-sign-in";
 
-/** Everything the accounts fixture body renders the sign-in flow from, in one value. */
+/** Everything the Providers page renders the sign-in flow from, in one value. */
 export interface ProviderSignInFlowTrackerSnapshot {
   /** The flow this window is running, where it is running one. */
   readonly flow: ProviderSignInFlowState;
@@ -101,7 +101,7 @@ export interface ProviderSignInFlowTrackerOptions {
  * One window's brokered sign-in: which flow is running, and which starts were declined.
  *
  * Owns the single-flight claim and decides which settlement installs. The React binding is
- * in `AccountsFixtureBody.tsx`.
+ * in `ProvidersPage.tsx`.
  */
 export class ProviderSignInFlowTracker {
   readonly #startProviderSignIn: (

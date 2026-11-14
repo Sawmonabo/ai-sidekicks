@@ -1,15 +1,15 @@
-// The provider-account fixture body: the states the account registry can be in (an account
+// The Providers page: the states the account registry can be in (an account
 // nothing has observed, a months-old reading, a readiness entry carrying a sign-in remedy,
 // three quota limits sharing one window), drawn from the reading and the calls it is handed. It
 // authors no rule: no eligibility, no health verdict, no remedy.
 //
 // The sign-in is one flow, not one per row: this machine runs one brokered sign-in at a time, so
 // every start control is disabled, with its reason, while one runs.
-// `features/settings/pages/providers/fixtures/sign-in/tracker.ts` owns that rule, and the
+// `features/settings/pages/providers/sign-in/tracker.ts` owns that rule, and the
 // registry's completion report releases a flow the service ended on its own, correlated by attempt
 // id.
 
-import "./AccountsFixtureBody.css";
+import "./ProvidersPage.css";
 
 import type { ProviderReadiness } from "@ai-sidekicks/contracts/provider/account/record";
 import {
@@ -23,7 +23,7 @@ import {
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
 import type { ListedProviderAccount } from "#renderer/lib/provider-accounts/listing.js";
-import { type ProviderAccountReadout } from "../account-readout.js";
+import { type ProviderAccountReadout } from "./account-readout.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { ACCOUNT_LIST_READ_WORDS } from "#renderer/lib/provider-accounts/sentences.js";
@@ -32,6 +32,7 @@ import { AccountRow } from "./components/Account/AccountRow.js";
 import { accountQuotaRowsFrom, readinessForProvider } from "./quota-rows.js";
 import { QuotaTable } from "./components/QuotaTable.js";
 import { ReadinessRow } from "./components/ReadinessRow.js";
+import type { SecretsPlace } from "./secrets-place.js";
 import {
   startProviderSignIn,
   type ProviderAccountSignInCall,
@@ -51,7 +52,7 @@ import {
 } from "./sign-in/tracker.js";
 import { TokenRegistrationForm } from "./components/Token/TokenRegistrationForm.js";
 
-/** The daemon verbs the fixture body drives. Held stable by the caller. */
+/** The daemon verbs the page drives. Held stable by the caller. */
 export interface AccountOperations {
   readonly signIn: ProviderAccountSignInCall;
   readonly cancelSignIn: ProviderAccountSignInCancelCall;
@@ -61,21 +62,25 @@ export interface AccountOperations {
 }
 
 /**
- * What the fixture body renders the account list from: the registry's accounts, readiness
- * projection and quota rows, and whether the first read has landed.
+ * The account list once its first read has landed: the registry's accounts, readiness projection
+ * and quota rows, and where the service keeps a pasted token.
  */
-export interface AccountListReading extends Pick<
+export interface ReadAccountList extends Pick<
   ProviderAccountReadout,
   "accounts" | "readiness" | "usageWindows" | "newestSignInCompletion"
 > {
-  readonly phase: "reading" | "read";
+  readonly phase: "read";
+  readonly secretsPlace: SecretsPlace;
 }
 
+/** What the page renders the account list from: nothing read yet, or the list. */
+export type AccountListReading = { readonly phase: "reading" } | ReadAccountList;
+
 /**
- * The provider-account fixture body: the registry, the sign-in flow and the token registration
+ * The Providers page: the registry, the sign-in flow and the token registration
  * form, drawn from the reading and the verbs it is handed.
  */
-export function AccountsFixtureBody(props: {
+export function ProvidersPage(props: {
   readonly registry: AccountListReading;
   /** Asks for a fresh registry read once a sign-in flow has ended. Held stable by the caller. */
   readonly requestRegistryRead: () => void;
@@ -114,7 +119,7 @@ export function AccountsFixtureBody(props: {
   );
   // The registry's completion report ends a flow the service finished on its own. A repeat of a
   // report already noted finds no flow holding that attempt and changes nothing.
-  const completion = registry.newestSignInCompletion;
+  const completion = registry.phase === "read" ? registry.newestSignInCompletion : undefined;
   useEffect(() => {
     if (completion !== undefined) {
       providerSignInFlowTracker.noteSignInCompleted(completion);
@@ -169,6 +174,7 @@ export function AccountsFixtureBody(props: {
               register={operations.register}
               requestRegistryRead={requestRegistryRead}
               probe={operations.probe}
+              secretsPlace={registry.secretsPlace}
             />
           ))}
         </ul>
@@ -252,6 +258,7 @@ export function AccountsFixtureBody(props: {
               register={operations.register}
               provider={section.provider}
               accounts={registry.accounts}
+              secretsPlace={registry.secretsPlace}
             />
           </Fragment>
         ))}

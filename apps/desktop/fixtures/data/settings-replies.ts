@@ -22,6 +22,8 @@
 // while one whose sign-in is gone is refused with its own remedy. The registry read reflects every
 // answered write.
 
+import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/status";
+import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import {
   MCP_TOOL_OVERRIDE_FACETS,
   type McpApplicationGrade,
@@ -289,6 +291,24 @@ const SIGN_IN_FINISHES_AFTER_MS = 5000;
 /** How long a sign-in code stays good, in scenario time, as a provider's device code does. */
 const SIGN_IN_CODE_LIFETIME_MS = 15 * 60 * 1000;
 
+/**
+ * The service's status as the Providers page reads it: running, with no secrets file, so a pasted
+ * token is kept in the keychain.
+ */
+const DAEMON_STATUS: DaemonStatusReadResponse = {
+  processState: "running",
+  processIdentity: { processId: 4242, bootId: "scenario-boot", processStartTime: "scenario-start" },
+  version: "0.0.0",
+  protocolVersion: CURRENT_PROTOCOL_VERSION,
+  transportEndpoint: "scenario",
+  startedAt: OBSERVED_AT,
+  uptimeMs: 60_000,
+  dataDirectory: "/scenario/data",
+  processor: null,
+  memory: null,
+  recovery: { overall: "healthy", sessions: [] },
+};
+
 /** Every call the two machine-level settings pages make, and what each is answered with. */
 export const SETTINGS_REPLIES: readonly ScenarioReply[] = [
   // Computed, so a binding switched earlier in the playback reads back switched.
@@ -324,6 +344,7 @@ export const SETTINGS_REPLIES: readonly ScenarioReply[] = [
   },
   // Computed, so a moved default and a re-supplied token read back applied.
   { call: "provider.account.list", resultFor: answerAccountList },
+  { call: "daemon.status.read", result: DAEMON_STATUS },
   // Computed, so each attempt carries its own id and its completion names that one.
   {
     call: "provider.account.signIn",

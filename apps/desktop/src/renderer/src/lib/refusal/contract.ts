@@ -40,6 +40,20 @@ export class RefusalError extends Error {
 }
 
 /**
+ * A refusal for a read that can be asked again, thrown to the region's error boundary, which
+ * draws its line with `Try again`. `readAgain` settles once the read has answered again.
+ */
+export class RereadableRefusalError extends RefusalError {
+  public readonly readAgain: () => Promise<void>;
+
+  public constructor(refusal: Refusal, readAgain: () => Promise<void>) {
+    super(refusal);
+    this.name = "RereadableRefusalError";
+    this.readAgain = readAgain;
+  }
+}
+
+/**
  * Builds a refusal. Generic in `Code`, so a producer passing a member of its closed union gets
  * that union back on `code`; a plain `string` yields a plain `Refusal`. A forgotten `origin`
  * fails to compile.

@@ -4,16 +4,16 @@
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type {
-  MachineSettings,
-  MachineSettingsChange,
+import {
+  MACHINE_SETTINGS_DEFAULTS,
+  type MachineSettings,
+  type MachineSettingsChange,
 } from "@ai-sidekicks/contracts/machine/settings";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { TransportReconnectSignal } from "#renderer/services/transport/reconnect.js";
 import { useMachineSettings } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
-import { MACHINE_SETTINGS_AT_DEFAULTS } from "#renderer/features/settings/machine/snapshot.js";
 import { BrowserPage } from "./BrowserPage.js";
 
 /** A settings file whose feed delivers `settings` and whose writes answer the file as written. */
@@ -89,8 +89,8 @@ const ROWS = [
 describe("Settings › Browser — the three switches", () => {
   it.each(ROWS)("$label reads its member and writes only that member", async (row) => {
     const flipped: MachineSettings = {
-      ...MACHINE_SETTINGS_AT_DEFAULTS,
-      [row.member]: !MACHINE_SETTINGS_AT_DEFAULTS[row.member],
+      ...MACHINE_SETTINGS_DEFAULTS,
+      [row.member]: !MACHINE_SETTINGS_DEFAULTS[row.member],
     };
     const file = settingsFile(flipped);
     const page = await renderPage(file);
@@ -102,14 +102,14 @@ describe("Settings › Browser — the three switches", () => {
       switchLabeled(page, row.label).click();
       await crossMacrotaskBoundary();
     });
-    expect(file.writes).toEqual([{ [row.member]: MACHINE_SETTINGS_AT_DEFAULTS[row.member] }]);
+    expect(file.writes).toEqual([{ [row.member]: MACHINE_SETTINGS_DEFAULTS[row.member] }]);
     expect(switchLabeled(page, row.label).getAttribute("aria-checked")).toBe(
-      String(MACHINE_SETTINGS_AT_DEFAULTS[row.member]),
+      String(MACHINE_SETTINGS_DEFAULTS[row.member]),
     );
   });
 
   it("reads Sandbox the background browser off on a file at its defaults", async () => {
-    const page = await renderPage(settingsFile(MACHINE_SETTINGS_AT_DEFAULTS));
+    const page = await renderPage(settingsFile(MACHINE_SETTINGS_DEFAULTS));
     expect(switchLabeled(page, "Sandbox the background browser").getAttribute("aria-checked")).toBe(
       "false",
     );

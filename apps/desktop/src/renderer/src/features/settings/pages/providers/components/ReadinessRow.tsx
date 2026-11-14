@@ -11,6 +11,7 @@ import { formatDateTime, formatZonedDateTime } from "#renderer/lib/wire/figures.
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { PROVIDER_READINESS_STATE_WORDS } from "#renderer/lib/provider-accounts/sentences.js";
 import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
+import type { SecretsPlace } from "../secrets-place.js";
 import type { ProviderAccountProbeCall, ProviderAccountRegisterCall } from "../sign-in/flow.js";
 import { RemedyLine } from "./RemedyLine.js";
 
@@ -37,6 +38,8 @@ export function ReadinessRow(props: {
   /** Asks for a fresh registry read once a fresh token is stored or the account was checked. */
   readonly requestRegistryRead: () => void;
   readonly probe: ProviderAccountProbeCall;
+  /** Where the service keeps a pasted token, which a token remedy's field names. */
+  readonly secretsPlace: SecretsPlace;
 }): ReactNode {
   const { readiness, onStartSignIn, startBlockedReason, startRefusal } = props;
   const clockLocale = useClockLocale();
@@ -75,6 +78,7 @@ export function ReadinessRow(props: {
           register={props.register}
           requestRegistryRead={props.requestRegistryRead}
           probe={props.probe}
+          secretsPlace={props.secretsPlace}
         />
       )}
     </li>

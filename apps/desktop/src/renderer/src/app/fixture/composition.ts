@@ -2,7 +2,6 @@
 // driver reads off the page. The main process has already checked the launch against the
 // catalog, so a scenario or session named here exists.
 
-import { registerAccountsFixtureBody } from "#renderer/features/settings/index.js";
 import { paneRegistry } from "#renderer/registries/panes/registry.js";
 import { screenRegistry } from "#renderer/registries/screens/registry.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
@@ -24,8 +23,7 @@ import { registerPaneHarnessScreen } from "../pane-harness/register-screen.js";
  *
  * A launch that names a session opens it by writing the address before the first render. A
  * fixture launch also registers the pane harness, the screen the endurance tier mounts a
- * registered pane body through, and the Providers page's fixture body, which reads and sends
- * through the scenario's scripted replies.
+ * registered pane body through.
  */
 export function composeFixtureLaunch(): BridgeComposition | undefined {
   const launch = readFixtureLaunch();
@@ -36,7 +34,6 @@ export function composeFixtureLaunch(): BridgeComposition | undefined {
     history.replaceState(null, "", formatRoute({ kind: "session", sessionId: launch.sessionId }));
   }
   registerPaneHarnessScreen(screenRegistry, paneRegistry);
-  registerAccountsFixtureBody();
   return createFixtureComposition(launch.scenarioId);
 }
 

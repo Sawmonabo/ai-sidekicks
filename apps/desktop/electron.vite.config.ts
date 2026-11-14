@@ -61,30 +61,19 @@ const FIXTURE_CATALOG_DIRECTORY: string = fileURLToPath(new URL("./fixtures/", i
 /** A fixture implementation, which sits beside the real boundary it substitutes. */
 const FIXTURE_IMPLEMENTATION_PATTERN = /\.fixture\.[cm]?tsx?$/u;
 
-/** A feature's `fixtures/` folder, which holds a fixture of a boundary that feature owns. */
-const FEATURE_FIXTURES_PATTERN = /\/src\/renderer\/src\/features\/.+\/fixtures\//u;
-
 /**
- * Does this module belong to the fixture corpus: the catalog, a fixture implementation, or a
- * feature's `fixtures/` folder?
+ * Does this module belong to the fixture corpus: the catalog or a fixture implementation?
  *
  * The corpus holds components and pure readings and runs nothing at import time, so the renderer
  * build declares it side-effect-free and drops what nothing references. The declaration is
  * path-scoped rather than a package-wide `sideEffects` claim, because it is true only here: the
  * renderer installs its token sheet and registers its feature contributions at module scope
  * elsewhere, and a blanket declaration would invite the bundler to drop those.
- *
- * A feature's `fixtures/` folder needs it for its stylesheet. Its JavaScript is referenced only
- * from folded fixture branches and leaves the bundle on its own, but the module that imports the
- * folder's stylesheet is a side effect the bundler keeps, and Vite's CSS transform marks the sheet
- * itself `"no-treeshake"`. Declaring that module side-effect-free drops the edge that would pull
- * the sheet into a release renderer.
  */
 function isFixtureCorpusModule(moduleId: string): boolean {
   const normalized = moduleId.split("\\").join("/");
   return (
     FIXTURE_IMPLEMENTATION_PATTERN.test(normalized) ||
-    FEATURE_FIXTURES_PATTERN.test(normalized) ||
     normalized.includes(FIXTURE_CATALOG_DIRECTORY)
   );
 }

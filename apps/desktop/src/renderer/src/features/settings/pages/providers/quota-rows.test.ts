@@ -1,4 +1,4 @@
-// The four derivations the accounts fixture body makes over one account-plane reading. Every case
+// The four derivations the Providers page makes over one account-plane reading. Every case
 // drives the real function, so a test never restates a selection, a supersession rule or a day
 // count. Which reading is current is the fold's decision (`store/provider-accounts/fold.ts`); here,
 // the case handing two readings for one limit shows this module makes no such decision.
@@ -13,7 +13,7 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 
-import type { ProviderAccountReadout } from "../account-readout.js";
+import type { ProviderAccountReadout } from "./account-readout.js";
 import { instantMilliseconds } from "./frozen-instant.test-support.js";
 import {
   accountQuotaRowsFrom,

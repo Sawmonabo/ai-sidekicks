@@ -1,7 +1,7 @@
-/* The accounts fixture body's styles: a registry list, a quota table, and two cards.
+/* The Providers page's styles: a registry list, a quota table, and two cards.
  *
  * Page-local, since a shared settings sheet would carry every page's rules;
- * `AccountsFixtureBody.tsx` imports it. Nothing outside `meridian-accounts__` appears, so no
+ * `ProvidersPage.tsx` imports it. Nothing outside `meridian-accounts__` appears, so no
  * rule outlives the body. Every color is a Meridian custom property and every space a step on
  * the scale. The two dimensions named outright are the quota bar's width, so a column of bars
  * shares one right edge, and the register form's label column, sized to its longest label so

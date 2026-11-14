@@ -116,7 +116,7 @@ describe("the account axis — how it names an account", () => {
       ...pinned,
       registry: { phase: "reading", readRefusal: undefined, accounts: [], readiness: [] },
     });
-    expect(unread.textContent).toContain("Loading your accounts…");
+    expect(unread.textContent).toContain("Loading accounts…");
     // Unread is not removed: nothing says the registry lacks the pinned account.
     expect(unread.textContent).not.toContain("does not carry");
 
@@ -131,7 +131,7 @@ describe("the account axis — how it names an account", () => {
         readiness: [],
       },
     });
-    expect(refused.textContent).toContain("Couldn't load your accounts");
+    expect(refused.textContent).toContain("Couldn't load accounts");
     expect(refused.textContent).not.toContain("transport.closed");
     fireEvent.click(refused.querySelector("button") as HTMLButtonElement);
     expect(reopened).toHaveBeenCalledOnce();

@@ -58,7 +58,7 @@ Every file lives with its narrowest owner, proven by its importers: a file one f
 Fixtures conform to production boundaries and never define them.
 
 - `fixtures/` holds scenario definitions and scripted data only, and never ships: a release build carries no fixture code and no catalog.
-- A fixture implementation sits beside the real owner it substitutes. A feature has a `fixtures/` folder only when it owns the replaced boundary. Code that ships never sits in any `fixtures/` folder, even when it is a default a fixture can replace. `app/fixture/composition.ts` chooses fixture implementations once, at startup; no `if (fixture)` anywhere else.
+- A fixture implementation sits beside the real owner it substitutes, as a `*.fixture.ts` module. Code that ships never sits in any `fixtures/` folder, even when it is a default a fixture can replace. `app/fixture/composition.ts` chooses fixture implementations once, at startup; no `if (fixture)` anywhere else.
 - No `demo/`, fake backend layer or generic fixture method catalog. Fixture-only types stay in `apps/desktop`. Code says `fixture` and `scenario`, never `demo`; a scenario is named for the stable behavior it exercises, never an incidental count or sample content.
 - `fixtures/` imports `src/` only as types. Only fixture implementations, `app/fixture/composition.ts`, `app/pane-harness/`, `tests/` and `src/main/fixture-launch.ts` import `fixtures/`.
 

@@ -1,5 +1,5 @@
 // One brokered sign-in at a time, and where the second press lands. These cases state the
-// page's claim on the tracker: `AccountsFixtureBody.test.ts` asserts the control is disabled
+// page's claim on the tracker: `ProvidersPage.test.ts` asserts the control is disabled
 // with its reason, but a control is a courtesy, so these assert what happens to a press it did
 // not stop (a stale frame, a keyboard activation racing the commit that disabled it). They
 // drive the real `ProviderSignInFlowTracker` over the real `startProviderSignIn` with stub
@@ -26,7 +26,7 @@ const RUNNING_ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 const WAITING_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
 
 /**
- * A tracker over stub calls, bound the way the fixture body binds it. The real
+ * A tracker over stub calls, bound the way the page binds it. The real
  * `startProviderSignIn` is used so a case drives the outcome narrowing it performs too.
  */
 function trackerOver(

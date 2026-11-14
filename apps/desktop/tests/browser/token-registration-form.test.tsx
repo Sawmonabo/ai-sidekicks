@@ -15,7 +15,7 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account
 import type { ProviderAccountRegisterResponse } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { TokenRegistrationForm } from "#renderer/features/settings/pages/providers/fixtures/components/Token/TokenRegistrationForm.js";
+import { TokenRegistrationForm } from "#renderer/features/settings/pages/providers/components/Token/TokenRegistrationForm.js";
 
 /** A secret no fixture, scenario, or component copy could produce by accident. */
 const TYPED_TOKEN = "zzq-never-echoed-token-8213";
@@ -54,7 +54,12 @@ describe("browser — the provider-account token field is write-only in the engi
   async function renderRegistrationForm(): Promise<HTMLElement> {
     const { container } = render(
       <LiveAnnouncerProvider>
-        <TokenRegistrationForm register={registerAnswering} provider="codex" accounts={[]} />
+        <TokenRegistrationForm
+          register={registerAnswering}
+          provider="codex"
+          accounts={[]}
+          secretsPlace="keychain"
+        />
       </LiveAnnouncerProvider>,
     );
     document.body.append(container);
