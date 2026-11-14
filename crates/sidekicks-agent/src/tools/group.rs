@@ -1,7 +1,6 @@
 //! The groups the daemon's own agent tools ride in: which tools each holds, whether a provider
-//! loads them up front or defers them, and which of their calls a cancel can stop. The server
-//! sends `notifications/tools/list_changed` when a session's groups change; this module only says
-//! which loadings changed.
+//! loads them up front or defers them, and which of their calls a cancel can stop. Each tool list
+//! the server answers a spawn is built from the groups its provider gets.
 
 use schemars::JsonSchema;
 use serde_json::Value;

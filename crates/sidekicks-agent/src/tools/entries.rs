@@ -1,14 +1,15 @@
 //! The shared tool server's live entries, one per conversation spawn: the spawn's provider, the
 //! secret of each tool server it opened, the dispatcher bound to that spawn, the tools its hook
-//! rows call and the MCP sessions admitted for it.
+//! rows call, and the marks each server's standing event stream waits on: a changed tool list and
+//! the stream's close.
 //! A spawn holds its entry's guard, so the entry leaves the table when the spawn drops, and every
-//! call the spawn's process left open is canceled with it. A spawn that adopts a conversation the
-//! provider kept from an earlier start of the daemon also answers, while it holds its adoption,
-//! each other conversation of its session with no live entry whose request presents the secret
-//! the daemon's key derives for that conversation's path.
+//! call and standing stream the spawn's process left open ends with it. A spawn that adopts a
+//! conversation the provider kept from an earlier start of the daemon also answers, while it holds
+//! its adoption, each other conversation of its session with no live entry whose request presents
+//! the secret the daemon's key derives for that conversation's path.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::provider::id::ProviderId;
@@ -19,7 +20,6 @@ use sidekicks_provider::port::hook_tool_server::HookToolServer;
 use sidekicks_provider::port::tool_server_route::{ToolServerConversation, ToolServerSpawn};
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::Notify;
-use tokio_util::sync::CancellationToken;
 
 use crate::tools::secret_key::ToolServerSecretKey;
 use crate::tools::server::ToolServerPath;
@@ -41,26 +41,56 @@ struct ToolServerAdoption {
     key: Arc<ToolServerSecretKey>,
 }
 
+/// A tool server a spawn opened.
+struct OpenedServer {
+    /// The server's name on the spawn's route.
+    name: &'static str,
+    /// The secret the spawn's process presents there on every request.
+    token: BearerToken,
+    /// Counts the times the server's tool list changed, which its standing streams announce.
+    tools_changes: AtomicU32,
+    /// Counts the closes its client asked for, each ending the standing streams open before it.
+    stream_closes: AtomicU32,
+}
+
+/// Where a standing event stream of a spawn's server stands: what it announced and which close
+/// ends it.
+pub(crate) struct StandingStreamMarks {
+    /// The server's place among those the spawn opened.
+    server: usize,
+    /// The server's count of tool-list changes the stream announced.
+    tools_changes: u32,
+    /// The server's count of closes when the stream opened.
+    stream_closes: u32,
+}
+
+/// What a standing event stream sends next.
+pub(crate) enum StandingStreamEvent {
+    /// The server's tool list changed since the stream's last announcement.
+    ToolsChanged,
+    /// The stream ends: its client closed it or the spawn dropped.
+    Closed,
+}
+
 /// One session spawn's entry, across every tool server it opened.
 pub struct ToolServerEntry {
     /// The provider the spawn runs.
     provider: ProviderId,
-    /// Each server the spawn opened, with the secret its process presents there on every request.
-    servers: Box<[(&'static str, BearerToken)]>,
+    /// Each server the spawn opened.
+    servers: Box<[OpenedServer]>,
     /// Answers the spawn's tool calls, bound to the spawn's own installation.
     dispatcher: CallbackToolDispatcher,
     /// Lists and answers the tools the spawn's hook rows call; `None` for a spawn with no rows.
     hook_tools: Option<Arc<dyn HookToolServer>>,
-    /// The `Mcp-Session-Id`s admitted for the spawn, each with the server it was minted on.
-    mcp_sessions: Mutex<HashMap<String, (&'static str, CancellationToken)>>,
     /// Set when the spawn drops, since its process is gone and no open call is answered.
     has_ended: AtomicBool,
-    /// Wakes every wait on the spawn's end once, when it drops.
-    end_waiters: Notify,
+    /// Wakes every wait on the spawn's end and every standing stream, at the end, a changed tool
+    /// list or a close.
+    waiters: Notify,
 }
 
 // Counts the inline struct only: not its `Arc`'s counts, the heap its servers' slice and provider
-// id hold, its admitted sessions, the table's slot, or its guard.
+// id hold, the table's slot, or its guard.
 const _: () = assert!(size_of::<ToolServerEntry>() <= 256);
 
 impl ToolServerEntry {
@@ -81,52 +111,77 @@ impl ToolServerEntry {
 
     /// Settles once the spawn dropped, so a call its process left open is canceled.
     pub async fn ended(&self) {
-        // Made before the flag is read, so a drop between the two still wakes it.
-        let woken = self.end_waiters.notified();
-        if self.has_ended.load(Ordering::Acquire) {
-            return;
+        loop {
+            // Made before the flag is read, so a drop between the two still wakes it.
+            let woken = self.waiters.notified();
+            if self.has_ended.load(Ordering::Acquire) {
+                return;
+            }
+            woken.await;
         }
-        woken.await;
     }
 
     // Marks the spawn ended and wakes every wait on it.
     fn end(&self) {
         self.has_ended.store(true, Ordering::Release);
-        self.end_waiters.notify_waiters();
+        self.waiters.notify_waiters();
     }
 
-    // The server named `server_name` the spawn opened, with its secret.
-    fn server(&self, server_name: &str) -> Option<&(&'static str, BearerToken)> {
-        self.servers.iter().find(|(name, _)| *name == server_name)
+    // The place of the server named `server_name` among those the spawn opened.
+    fn server_index(&self, server_name: &str) -> Option<usize> {
+        self.servers
+            .iter()
+            .position(|server| server.name == server_name)
     }
 
-    /// Admits `mcp_session_id`, minted on the spawn's server `server_name`, for the spawn;
-    /// `closed` is canceled once its client closes it.
-    pub(crate) fn admit_mcp_session(
-        &self,
-        server_name: &str,
-        mcp_session_id: String,
-        closed: CancellationToken,
-    ) {
-        let (server, _) = self
-            .server(server_name)
-            .expect("a session is minted only on a server its entry admitted");
-        lock(&self.mcp_sessions).insert(mcp_session_id, (server, closed));
-    }
-
-    /// Whether `mcp_session_id` was admitted for the spawn on `server_name` and not forgotten
-    /// since.
-    pub(crate) fn admits_mcp_session(&self, server_name: &str, mcp_session_id: &str) -> bool {
-        lock(&self.mcp_sessions)
-            .get(mcp_session_id)
-            .is_some_and(|(server, _)| *server == server_name)
-    }
-
-    /// Forgets `mcp_session_id`, once its client closed it, and cancels its `closed` token.
-    pub(crate) fn forget_mcp_session(&self, mcp_session_id: &str) {
-        if let Some((_, closed)) = lock(&self.mcp_sessions).remove(mcp_session_id) {
-            closed.cancel();
+    /// The marks of a standing stream opening now on the spawn's server `server_name`, which the
+    /// entry admitted the stream's request on.
+    pub(crate) fn standing_stream_marks(&self, server_name: &str) -> StandingStreamMarks {
+        let server = self
+            .server_index(server_name)
+            .expect("a stream opens only on a server its entry admitted");
+        let opened = &self.servers[server];
+        StandingStreamMarks {
+            server,
+            tools_changes: opened.tools_changes.load(Ordering::Acquire),
+            stream_closes: opened.stream_closes.load(Ordering::Acquire),
         }
+    }
+
+    /// Waits for what the standing stream at `marks` sends next: one announcement for every
+    /// change since its last, however many arrived, or its end.
+    pub(crate) async fn next_standing_event(
+        &self,
+        marks: &mut StandingStreamMarks,
+    ) -> StandingStreamEvent {
+        let server = &self.servers[marks.server];
+        loop {
+            // Made before the marks are read, so a change between the two still wakes it.
+            let woken = self.waiters.notified();
+            if self.has_ended.load(Ordering::Acquire)
+                || server.stream_closes.load(Ordering::Acquire) != marks.stream_closes
+            {
+                return StandingStreamEvent::Closed;
+            }
+            let tools_changes = server.tools_changes.load(Ordering::Acquire);
+            if tools_changes != marks.tools_changes {
+                marks.tools_changes = tools_changes;
+                return StandingStreamEvent::ToolsChanged;
+            }
+            woken.await;
+        }
+    }
+
+    /// Ends every standing stream open on the spawn's server `server_name`, as its client asks
+    /// when it closes the connection.
+    pub(crate) fn close_standing_streams(&self, server_name: &str) {
+        let server = self
+            .server_index(server_name)
+            .expect("a close is admitted only on a server its entry opened");
+        self.servers[server]
+            .stream_closes
+            .fetch_add(1, Ordering::AcqRel);
+        self.waiters.notify_waiters();
     }
 }
 
@@ -149,14 +204,22 @@ impl ToolServerEntries {
         servers: Vec<(&'static str, BearerToken)>,
     ) -> ToolServerEntryGuard {
         let key = (spawn.session_id, spawn.conversation);
+        let servers = servers
+            .into_iter()
+            .map(|(name, token)| OpenedServer {
+                name,
+                token,
+                tools_changes: AtomicU32::new(0),
+                stream_closes: AtomicU32::new(0),
+            })
+            .collect();
         let entry = Arc::new(ToolServerEntry {
             provider: spawn.provider,
-            servers: servers.into_boxed_slice(),
+            servers,
             dispatcher: spawn.dispatcher,
             hook_tools: spawn.hook_tools,
-            mcp_sessions: Mutex::new(HashMap::new()),
             has_ended: AtomicBool::new(false),
-            end_waiters: Notify::new(),
+            waiters: Notify::new(),
         });
         let guard = ToolServerEntryGuard {
             entries: Arc::downgrade(&self.entries),
@@ -198,15 +261,34 @@ impl ToolServerEntries {
         authorization: Option<&[u8]>,
     ) -> Option<Arc<ToolServerEntry>> {
         if let Some(entry) = lock(&self.entries).get(&(path.session_id, path.conversation))
-            && let Some((_, token)) = entry.server(&path.server_name)
+            && let Some(server) = entry.server_index(&path.server_name)
         {
-            return token.admits(authorization).then(|| Arc::clone(entry));
+            return entry.servers[server]
+                .token
+                .admits(authorization)
+                .then(|| Arc::clone(entry));
         }
         let adoptions = lock(&self.adoptions);
         let adoption = adoptions.get(&path.session_id)?;
-        (adoption.entry.server(&path.server_name).is_some()
+        (adoption.entry.server_index(&path.server_name).is_some()
             && adoption.key.secret_of(path).admits(authorization))
         .then(|| Arc::clone(&adoption.entry))
+    }
+
+    /// Tells every live spawn of `session_id` that opened the tool server `server_name` that its
+    /// tool list there changed, which each standing stream open on it announces once.
+    pub fn raise_tools_changed(&self, session_id: SessionId, server_name: &str) {
+        for ((entry_session, _), entry) in &*lock(&self.entries) {
+            if *entry_session != session_id {
+                continue;
+            }
+            if let Some(server) = entry.server_index(server_name) {
+                entry.servers[server]
+                    .tools_changes
+                    .fetch_add(1, Ordering::AcqRel);
+                entry.waiters.notify_waiters();
+            }
+        }
     }
 }
 
@@ -237,9 +319,9 @@ impl Drop for ToolServerAdoptionGuard {
     }
 }
 
-/// A spawn's hold on its entry: dropping it cancels the calls the spawn left open and takes the
-/// entry out of the table, with the MCP sessions admitted for it, unless a later spawn of the
-/// conversation replaced it already.
+/// A spawn's hold on its entry: dropping it cancels the calls and ends the standing streams the
+/// spawn left open and takes the entry out of the table, unless a later spawn of the conversation
+/// replaced it already.
 #[must_use = "dropping the guard takes the spawn's entry out of the table"]
 pub struct ToolServerEntryGuard {
     /// The table the entry sits in.

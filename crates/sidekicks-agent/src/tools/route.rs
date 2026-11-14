@@ -174,10 +174,10 @@ mod tests {
 
     // Across a restart, a conversation Codex kept running under the earlier start's address and
     // secret is admitted by the spawn that adopts it: the key read back from the keychain derives
-    // the same secret, the session it kept is unknown and answered 404 so it opens a new one, and
-    // the new one is served; once the adoption is let go the address answers nothing. Killed by a
-    // secret minted at random, a key made again at each start, an adoption that answers nothing or
-    // never leaves, and a kept session refused instead of answered 404.
+    // the same secret, and a call under the session id the earlier start handed out is served as
+    // it stands; once the adoption is let go the address answers nothing. Killed by a secret
+    // minted at random, a key made again at each start, and an adoption that answers nothing or
+    // never leaves.
     #[tokio::test]
     async fn an_adopted_conversation_is_admitted_under_its_rebuilt_secret() {
         let (_data_folder, _platform_store, keychain) =
@@ -189,21 +189,14 @@ mod tests {
             .await
             .open(codex_spawn(session_id), &[DAEMON_TOOL_SERVER_NAME]);
         let (path, secret) = path_and_secret(&kept);
-        let kept_session = earlier.open_session(&path, &secret, REVISION).await;
+        let kept_session = earlier.handshake(&path, &secret, REVISION).await;
         drop((kept, earlier));
 
         let later = serve_stub().await;
         let adopted = route_over(&later, keychain.as_ref())
             .await
             .adopt(codex_spawn(session_id), &[DAEMON_TOOL_SERVER_NAME]);
-        let stale = ping(&later, &path, &kept_session, REVISION)
-            .bearer_auth(&secret)
-            .send()
-            .await
-            .expect("an answer");
-        assert_eq!(stale.status(), StatusCode::NOT_FOUND);
-        let new_session = later.open_session(&path, &secret, REVISION).await;
-        let answered = ping(&later, &path, &new_session, REVISION)
+        let answered = ping(&later, &path, &kept_session, REVISION)
             .bearer_auth(&secret)
             .send()
             .await

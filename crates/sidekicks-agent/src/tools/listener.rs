@@ -16,7 +16,7 @@ use axum::http::{StatusCode, Uri};
 use axum::middleware;
 use axum::response::{IntoResponse as _, Response};
 use rmcp::ServerHandler;
-use rmcp::transport::streamable_http_server::session::local::{LocalSessionManager, SessionConfig};
+use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use sidekicks_platforms::{AtomicWriteError, LeftoverSweep, replace_file_atomically};
 use sidekicks_provider::pricing::receiver::refuse_unknown_telemetry_path;
@@ -68,14 +68,14 @@ pub struct ToolServerListener {
     moved_from: Option<u16>,
     /// Every route mounted so far.
     router: Router,
-    /// The daemon's stop, which ends serving and every MCP session.
+    /// The daemon's stop, which ends serving, every call and every standing stream.
     stop: CancellationToken,
 }
 
 impl ToolServerListener {
     /// Binds `127.0.0.1` at the port kept in `data_folder`, or, when none is kept or another
     /// program holds it, at a port the system picks, which it keeps there for the next start.
-    /// Serving and every MCP session end once `stop` is canceled.
+    /// Serving, every call and every standing stream end once `stop` is canceled.
     pub async fn bind(
         data_folder: &Path,
         stop: CancellationToken,
@@ -123,10 +123,11 @@ impl ToolServerListener {
         self.router = mem::replace(&mut self.router, Router::new()).merge(router);
     }
 
-    /// Mounts the tool servers at `/tools/…`, each MCP session served by a handler `server`
-    /// makes, every request admitted against `entries` before rmcp reads it. Sessions on both
-    /// handshake revisions are kept, a body past rmcp's 4 MiB cap is refused, and an idle session
-    /// sends nothing and is never reaped: its client's close or its spawn's end closes it.
+    /// Mounts the tool servers at `/tools/…`, every request admitted against `entries` before
+    /// rmcp reads it. Each `POST` on either handshake revision is served on its own by a handler
+    /// `server` makes, and nothing is kept between two: what a request needs comes from its path
+    /// and its spawn's entry. A body past rmcp's 4 MiB cap is refused, and an idle standing
+    /// stream sends nothing.
     pub fn mount_tool_servers<S>(
         &mut self,
         server: impl Fn() -> S + Send + Sync + 'static,
@@ -134,22 +135,17 @@ impl ToolServerListener {
     ) where
         S: ServerHandler + Send + 'static,
     {
-        let mut session_config = SessionConfig::default();
-        session_config.keep_alive = None;
-        let mut sessions = LocalSessionManager::default();
-        sessions.session_config = session_config;
-        let sessions = Arc::new(sessions);
         let config = StreamableHttpServerConfig::default()
+            .with_legacy_session_mode(false)
             .enforce_origin_validation()
             .with_cancellation_token(self.stop.child_token())
             .with_sse_keep_alive(None);
-        let service =
-            StreamableHttpService::new(move || Ok(server()), Arc::clone(&sessions), config);
-        let admission = Arc::new(ToolServerAdmission::new(
-            entries,
-            sessions,
-            self.stop.child_token(),
-        ));
+        let service = StreamableHttpService::new(
+            move || Ok(server()),
+            Arc::new(NeverSessionManager::default()),
+            config,
+        );
+        let admission = Arc::new(ToolServerAdmission::new(entries, self.stop.child_token()));
         self.mount(
             Router::new()
                 .route_service(&format!("/{TOOL_SERVER_PATH_ROOT}/{{*route}}"), service)
@@ -294,9 +290,9 @@ pub(super) mod tests {
                 .json(body)
         }
 
-        /// Opens an MCP session on `path` at `revision`, presenting `secret`: the handshake and
-        /// its `initialized` notice. Answers the session's id.
-        pub(in crate::tools) async fn open_session(
+        /// The handshake on `path` at `revision` and its `initialized` notice, presenting
+        /// `secret`. Answers the session id the route hands out.
+        pub(in crate::tools) async fn handshake(
             &self,
             path: &str,
             secret: &str,
@@ -308,7 +304,7 @@ pub(super) mod tests {
                 .await
                 .expect("an answer");
             assert_eq!(handshake.status(), StatusCode::OK, "{revision}");
-            let mcp_session = mcp_session_of(&handshake).expect("rmcp mints a session");
+            let mcp_session = mcp_session_of(&handshake).expect("the route hands out an id");
             let notice = json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
             let initialized = self
                 .post(path, &notice)
@@ -401,17 +397,24 @@ pub(super) mod tests {
             .header(HEADER_MCP_PROTOCOL_VERSION, revision)
     }
 
-    /// The client's own close of `mcp_session` on `path` at `revision`, with no secret yet.
-    pub(in crate::tools) fn close(
+    /// The standing stream's `GET` on `path` at `revision`, with no secret yet.
+    pub(in crate::tools) fn standing_get(
         served: &Served,
         path: &str,
-        mcp_session: &str,
         revision: &str,
     ) -> RequestBuilder {
         served
             .client
+            .get(format!("{}{path}", served.base))
+            .header(ACCEPT, "text/event-stream")
+            .header(HEADER_MCP_PROTOCOL_VERSION, revision)
+    }
+
+    /// The client's close on `path` at `revision`, with no secret yet.
+    pub(in crate::tools) fn close(served: &Served, path: &str, revision: &str) -> RequestBuilder {
+        served
+            .client
             .delete(format!("{}{path}", served.base))
-            .header(HEADER_SESSION_ID, mcp_session)
             .header(HEADER_MCP_PROTOCOL_VERSION, revision)
     }
 
@@ -421,21 +424,32 @@ pub(super) mod tests {
         Some(value.to_str().expect("a session id is text").to_owned())
     }
 
-    // Codex and Claude Code each open a session on their own revision, and each is kept and
-    // served: its handshake mints a session id and a ping on it is answered. Killed by turning
-    // `legacy_session_mode` off, which mints no session id.
+    // Codex and Claude Code each shake hands on their own revision and are handed a session id,
+    // and a ping is served with no kept session: under the id handed out and under one this
+    // listener never handed out, as a client sends after a restart. Killed by keeping sessions
+    // (`legacy_session_mode` on answers the unknown id 404) and by handing out no id, which keeps
+    // Codex from opening its standing stream.
     #[tokio::test]
-    async fn sessions_on_both_handshake_revisions_are_kept_and_served() {
+    async fn either_revision_is_handed_an_id_and_served_with_no_kept_session() {
         let served = serve_stub().await;
         let (_spawn, path, secret) = add_spawn(&served.entries, CODEX_SESSION);
-        for revision in ["2025-11-25", "2025-06-18"] {
-            let mcp_session = served.open_session(&path, &secret, revision).await;
+        let calls = ["2025-11-25", "2025-06-18"]
+            .into_iter()
+            .flat_map(|revision| {
+                [
+                    (revision, None),
+                    (revision, Some("an id from an earlier start")),
+                ]
+            });
+        for (revision, sent_id) in calls {
+            let handed_out = served.handshake(&path, &secret, revision).await;
+            let mcp_session = sent_id.map_or(handed_out, str::to_owned);
             let mut answer = ping(&served, &path, &mcp_session, revision)
                 .bearer_auth(&secret)
                 .send()
                 .await
                 .expect("an answer");
-            assert_eq!(answer.status(), StatusCode::OK, "{revision}");
+            assert_eq!(answer.status(), StatusCode::OK, "{revision} {sent_id:?}");
             let mut text = String::new();
             let reading = async {
                 while !text.contains("\"result\"") {
@@ -448,7 +462,10 @@ pub(super) mod tests {
             timeout(Duration::from_secs(10), reading)
                 .await
                 .expect("the ping is answered in time");
-            assert!(text.contains("\"result\""), "{revision}: {text}");
+            assert!(
+                text.contains("\"result\""),
+                "{revision} {sent_id:?}: {text}"
+            );
         }
     }
 

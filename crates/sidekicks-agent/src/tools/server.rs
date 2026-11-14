@@ -1,6 +1,6 @@
 //! The daemon's MCP server for its own agent tools, on rmcp. Every request reads its route afresh
 //! from the HTTP request it came on: the session and tool server its path names, and the spawn
-//! entry its secret admits, so a replaced spawn is never answered from a connection's memory. A
+//! entry its secret admits, so a replaced spawn is never answered from a request's memory. A
 //! listing shows each tool the way the spawn's provider loads it; a call is mapped to the run that
 //! made it, checked against its tool's schema before any handler runs, held with progress, and
 //! canceled when its caller goes away. On the daemon's hooks entry the spawn's driver lists the
@@ -113,7 +113,7 @@ impl fmt::Display for ToolServerPath {
 /// The daemon's server for its own agent tools, one for every session and provider: it reads each
 /// request's spawn entry, asks the spawn's driver which run made a call, and dispatches the call
 /// through the entry's dispatcher, so the host's approval seam and activity records run on it.
-/// A clone shares every part, one for each connection a provider opens.
+/// A clone shares every part, one for each request the listener serves.
 #[derive(Clone)]
 pub struct AgentToolServer {
     /// Every live spawn's entry.
