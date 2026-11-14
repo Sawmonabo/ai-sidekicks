@@ -1,9 +1,10 @@
 //! The sign-in to an MCP server through Claude Code's own client, in a folder the daemon makes
-//! for the sign-in, the read of the whole address a server's entry declares, and the removal of
-//! the folders a stopped daemon's sign-ins left.
+//! for the sign-in, the reads of the whole address a server's entry declares and of the secret of
+//! the client its owner issued, and the removal of the folders a stopped daemon's sign-ins left.
 
 use std::path::Path;
 
+use secrecy::SecretString;
 use serde_json::{Map, Value};
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_store::data_folder::plugin_home;
@@ -13,6 +14,7 @@ use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
 use crate::driver::claude::mcp::organization::read_managed_mcp_servers;
 use crate::driver::claude::mcp::sign_in::address::read_claude_server_addresses;
+use crate::driver::claude::mcp::sign_in::owner_client_secret::read_claude_owner_client_secret;
 use crate::driver::claude::mcp::sign_in::{
     ClaudeMcpSignInSources, remove_left_claude_sign_ins, sign_in_with_claude_client,
 };
@@ -58,6 +60,27 @@ impl ClaudeDriver {
             self.sources
                 .environment_without_home(&request.every_project_rows, &request.project_rows)
         })
+        .await
+    }
+
+    /// Reads the secret of the client the owner of `request`'s server issued, as Claude Code reads
+    /// it: from the entry's helper or member, else the person's own credentials, the entry and the
+    /// helper filled from the environment its address is read with. Fails as that environment's
+    /// composition, the entry's read, the credentials' read or the helper fails.
+    pub(crate) async fn read_mcp_owner_client_secret(
+        &self,
+        request: McpServerAddressRead,
+    ) -> Result<Option<SecretString>, DriverError> {
+        let environment = self
+            .sources
+            .environment_without_home(&request.every_project_rows, &request.project_rows)?;
+        read_claude_owner_client_secret(
+            &self.sign_in_sources().await,
+            &self.credentials,
+            &self.sources.spawner,
+            &request,
+            &environment,
+        )
         .await
     }
 

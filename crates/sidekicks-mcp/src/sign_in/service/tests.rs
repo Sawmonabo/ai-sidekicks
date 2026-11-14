@@ -268,6 +268,7 @@ async fn a_client_id_alone_signs_in_as_that_client_with_no_registration(
         &server.base,
         Some(OwnerIssuedClient {
             client_id: Some(OWNER_CLIENT_ID.to_owned()),
+            client_secret: None,
             callback_url: None,
             callback_port: fixed_port,
         }),
@@ -305,6 +306,7 @@ async fn a_callback_alone_is_listened_on_and_registered() {
         &server.base,
         Some(OwnerIssuedClient {
             client_id: None,
+            client_secret: None,
             callback_url: Some(callback_url.clone()),
             callback_port: None,
         }),
@@ -373,6 +375,7 @@ async fn a_page_that_is_no_web_address_keeps_no_attempt() {
         &server.base,
         Some(OwnerIssuedClient {
             client_id: None,
+            client_secret: None,
             callback_url: Some(callback_url),
             callback_port: None,
         }),

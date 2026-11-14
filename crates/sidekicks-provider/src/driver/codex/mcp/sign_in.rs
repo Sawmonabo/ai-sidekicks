@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
+use secrecy::{ExposeSecret as _, SecretString};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -32,7 +33,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::McpServerOauthLoginParams;
 use crate::driver::codex::config_read::read_codex_config;
 use crate::driver::codex::mcp::config::plugins::{CodexPluginServer, read_plugin_server_entries};
-use crate::driver::codex::mcp::config::server_entry::{OAUTH_MEMBER, URL_MEMBER};
+use crate::driver::codex::mcp::config::server_entry::{URL_MEMBER, read_owner_client_secret};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -76,9 +77,6 @@ const SIGN_IN_FOLDER_NAME_BYTES: usize = 4;
 /// How long past the sign-in's lifetime the wait for Codex's own end of the login runs, since
 /// Codex ends a login that outlived its timeout itself.
 const COMPLETION_MARGIN: Duration = Duration::from_secs(10);
-
-/// The member of a sign-in client that holds its secret.
-const OAUTH_CLIENT_SECRET_MEMBER: &str = "client_secret";
 
 /// Why a sign-in through Codex's own client did not answer credentials. No case carries a
 /// credential value.
@@ -177,12 +175,8 @@ pub(crate) async fn sign_in_with_codex_client(
             })
         })?;
     // Codex keeps no client secret in its saved sign-in, so the one its entry configures is kept.
-    let configured_client_secret = entry
-        .get(OAUTH_MEMBER)
-        .and_then(|oauth| oauth.get(OAUTH_CLIENT_SECRET_MEMBER))
-        .and_then(Value::as_str)
-        .filter(|secret| !secret.is_empty())
-        .map(str::to_owned);
+    let configured_client_secret =
+        read_owner_client_secret(&entry).map(|secret| secret.expose_secret().to_owned());
     let settings = compose_sign_in_settings(&name, entry)
         .map_err(|error| CodexSignInError::FolderUnmade(Box::new(error)))?;
     let folder = SignInFolder::make(
@@ -253,6 +247,26 @@ pub(crate) async fn read_codex_server_addresses(
         }));
     }
     readings
+}
+
+/// The secret the client of `request`'s server entry holds, read as Codex reads it for a sign-in:
+/// from the entry its config or the plugin's file declares; `None` where the entry names no id
+/// and secret. Fails with [`DriverError::NoPersonServerEntry`] for a connector and an entry that
+/// is gone, and as the entry's read fails.
+pub(crate) async fn read_codex_owner_client_secret(
+    registry: &CodexServiceRegistry,
+    home_folder: &Path,
+    request: McpServerAddressRead,
+) -> Result<Option<SecretString>, DriverError> {
+    let entry = CodexServerEntryReader::new(registry, home_folder)
+        .read(&request.binding, request.root_folder.as_deref())
+        .await?
+        .ok_or_else(|| {
+            DriverError::from(NoPersonServerEntry {
+                binding: request.binding.clone(),
+            })
+        })?;
+    Ok(read_owner_client_secret(&entry))
 }
 
 // Reads server entries for one sign-in or one batch of address reads, Codex's config read once at

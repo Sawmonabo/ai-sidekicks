@@ -1,10 +1,12 @@
 //! One server entry of Codex's config or a plugin's MCP file, read into its redacted declaration:
 //! environment and header values are skipped as they are read, the names of the variables a bearer
 //! token and a header are read from are kept, the address is stripped, the sign-in client keeps its
-//! id and callback address only, and the values it gives its tools are kept.
+//! id and callback address only, and the values it gives its tools are kept. The client's secret
+//! is read only for a sign-in, from the entry itself.
 
 use std::collections::BTreeMap;
 
+use secrecy::SecretString;
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 use serde_json::{Map, Value};
@@ -44,6 +46,10 @@ pub(crate) const ENV_HTTP_HEADERS_MEMBER: &str = "env_http_headers";
 pub(crate) const SCOPES_MEMBER: &str = "scopes";
 /// The member of a server entry that holds its sign-in client.
 pub(crate) const OAUTH_MEMBER: &str = "oauth";
+/// The member of a sign-in client that names the id its owner issued.
+const OAUTH_CLIENT_ID_MEMBER: &str = "client_id";
+/// The member of a sign-in client that holds the secret its owner issued with the id.
+const OAUTH_CLIENT_SECRET_MEMBER: &str = "client_secret";
 /// The member of a server entry that names the resource a sign-in asks for.
 pub(crate) const OAUTH_RESOURCE_MEMBER: &str = "oauth_resource";
 /// The member of a server entry that names how an HTTP server is signed in to.
@@ -249,6 +255,27 @@ pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclar
         sign_in_settings,
         tool_defaults,
     })
+}
+
+/// The secret `entry`'s sign-in client holds, which Codex sends at the token exchange and at each
+/// renewal of a client its owner issued; `None` where the entry names no non-empty id and secret,
+/// both of which Codex requires of it. A plugin's camel-case spelling is read once its entry is
+/// composed in Codex's.
+pub(crate) fn read_owner_client_secret(entry: &Map<String, Value>) -> Option<SecretString> {
+    let oauth = entry.get(OAUTH_MEMBER)?;
+    let is_named = |member: &str| {
+        oauth
+            .get(member)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    };
+    if !is_named(OAUTH_CLIENT_ID_MEMBER) || !is_named(OAUTH_CLIENT_SECRET_MEMBER) {
+        return None;
+    }
+    oauth
+        .get(OAUTH_CLIENT_SECRET_MEMBER)
+        .and_then(Value::as_str)
+        .map(SecretString::from)
 }
 
 /// The names of the variables a stdio server reads, once each: each name its entry's `env` sets,

@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use futures::future::BoxFuture;
+use secrecy::SecretString;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
@@ -771,4 +772,15 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         requests: Vec<McpServerAddressRead>,
     ) -> BoxFuture<'_, Vec<Result<McpServerAddressReading, DriverError>>>;
+
+    /// The secret of the client the server's owner issued, read for `request`'s entry where the
+    /// provider's own client reads it at a sign-in; `None` where the entry names no client id or
+    /// the provider keeps no secret for it. The secret is held only in memory. Fails with
+    /// [`DriverError::NoPersonServerEntry`] as the address read does, and as the entry, the
+    /// provider's credential store or the program that prints the secret fails, so an unreadable
+    /// secret never reads as none.
+    fn read_mcp_owner_client_secret(
+        &self,
+        request: McpServerAddressRead,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, DriverError>>;
 }

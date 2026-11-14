@@ -19,6 +19,7 @@ use std::error::Error;
 
 use reqwest::StatusCode;
 use rmcp::transport::auth::{AuthorizationManager, AuthorizationMetadata, OAuthClientConfig};
+use secrecy::{ExposeSecret as _, SecretString};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_std::port_registration::PortRegistration;
 use url::{Host, Url};
@@ -66,7 +67,7 @@ impl RelayAddress {
 
 /// What a sign-in asks of its client: the server, the redirect address its receiver listens on
 /// (an owner-issued one or the daemon's loopback one), the client the server's owner issued for
-/// it, if any, and the scopes it asks for.
+/// it, if any, with its secret, and the scopes it asks for.
 pub(crate) struct ClientRequest<'a> {
     /// The digest the server's sign-in and admitted client are kept under.
     pub(crate) server_digest: &'a ServerAddressDigest,
@@ -74,13 +75,15 @@ pub(crate) struct ClientRequest<'a> {
     pub(crate) redirect_address: &'a Url,
     /// The `client_id` the server's owner issued, when the entry names one.
     pub(crate) owner_client_id: Option<&'a str>,
+    /// The secret issued with `owner_client_id`, which the token exchange and each renewal send.
+    pub(crate) owner_client_secret: Option<&'a SecretString>,
     /// The scopes the sign-in asks for.
     pub(crate) scopes: &'a [String],
 }
 
 /// The client a sign-in goes through, or why the daemon's own cannot: what the launch and the
-/// provider's flow act on.
-#[derive(Debug)]
+/// provider's flow act on. Its `Debug` names the daemon's own client by its id alone, never its
+/// secret.
 pub(crate) enum SignInClient {
     /// The daemon's own client, configured on the manager; the launch builds the authorization
     /// address from it.
@@ -107,6 +110,34 @@ pub(crate) enum SignInClient {
         /// Why the sign-in is refused where no provider's flow admits the server.
         refusal_if_none_admits: SignInUnsupportedReason,
     },
+}
+
+impl std::fmt::Debug for SignInClient {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OwnClient(config) => formatter
+                .debug_tuple("OwnClient")
+                .field(&config.client_id)
+                .finish(),
+            Self::Failed { source } => formatter
+                .debug_struct("Failed")
+                .field("source", source)
+                .finish(),
+            Self::Unsupported { reason } => formatter
+                .debug_struct("Unsupported")
+                .field("reason", reason)
+                .finish(),
+            Self::OwnClientUnfinished => formatter.write_str("OwnClientUnfinished"),
+            Self::ProviderFlow {
+                admitted_provider,
+                refusal_if_none_admits,
+            } => formatter
+                .debug_struct("ProviderFlow")
+                .field("admitted_provider", admitted_provider)
+                .field("refusal_if_none_admits", refusal_if_none_admits)
+                .finish(),
+        }
+    }
 }
 
 /// The client the sign-in described by `request` goes through, its own client configured on
@@ -172,7 +203,11 @@ pub(crate) async fn choose_client(
         .and_then(|relay| client_document_address(&metadata, relay, request.redirect_address));
     manager.set_metadata(metadata);
     if let Some(client_id) = request.owner_client_id {
-        configure(manager, own_client_config(client_id, request))
+        let mut config = own_client_config(client_id, request);
+        if let Some(secret) = request.owner_client_secret {
+            config = config.with_client_secret(secret.expose_secret());
+        }
+        configure(manager, config)
     } else if has_registration_endpoint {
         register(manager, http_client, request).await
     } else if let Some(client_id) = document_client_id {

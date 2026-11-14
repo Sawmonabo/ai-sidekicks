@@ -10,6 +10,7 @@ use std::time::SystemTime;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
+use secrecy::SecretString;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
@@ -32,7 +33,9 @@ use crate::command::channel::stop::StoppedCommandParties;
 use crate::command::helper_background::{HelperBackgroundParams, helper_move_unsupported};
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::mcp::compose_codex_mcp_entry;
-use crate::driver::codex::mcp::sign_in::read_codex_server_addresses;
+use crate::driver::codex::mcp::sign_in::{
+    read_codex_owner_client_secret, read_codex_server_addresses,
+};
 use crate::driver::codex::permission_level::list_codex_modes;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::registry::CodexServiceRegistry;
@@ -777,6 +780,14 @@ impl ProviderDriver for CodexDriver {
         requests: Vec<McpServerAddressRead>,
     ) -> BoxFuture<'_, Vec<Result<McpServerAddressReading, DriverError>>> {
         read_codex_server_addresses(&self.registry, &self.project_rules.home_folder, requests)
+            .boxed()
+    }
+
+    fn read_mcp_owner_client_secret(
+        &self,
+        request: McpServerAddressRead,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, DriverError>> {
+        read_codex_owner_client_secret(&self.registry, &self.project_rules.home_folder, request)
             .boxed()
     }
 }

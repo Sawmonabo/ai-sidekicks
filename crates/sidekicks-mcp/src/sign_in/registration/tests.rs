@@ -368,6 +368,7 @@ async fn each_registration_row_ends_in_its_arm(
         server_digest: &server_digest,
         redirect_address: &redirect_address,
         owner_client_id: row.owner_client_id,
+        owner_client_secret: None,
         scopes: &[],
     };
     let mut client = choose_client(

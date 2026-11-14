@@ -17,9 +17,10 @@
 //! closed and the folder removed whatever the outcome, a dropped sign-in's included. The folder
 //! records the keychain account the item is filed under before the process starts, so a later
 //! start removes the item of a folder a stopped daemon left. The person's own folders are only
-//! read, for the entry.
+//! read: for the entry, and for the secret of a client its owner issued.
 
 pub(crate) mod address;
+pub(crate) mod owner_client_secret;
 pub(crate) mod saved_credentials;
 
 use std::error::Error;

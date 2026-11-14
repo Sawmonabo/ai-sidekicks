@@ -337,8 +337,9 @@ pub(crate) async fn read_claude_credential_file(
     parse_stored_credentials(&bytes).map(Some)
 }
 
-/// Claude Code's stored credentials as the one parse reads them: the claude.ai record and every
-/// MCP sign-in Claude Code saved. It derives no `Debug`, since it holds tokens.
+/// Claude Code's stored credentials as the one parse reads them: the claude.ai record, every MCP
+/// sign-in Claude Code saved and every client secret it keeps for a server's owner-issued client.
+/// It derives no `Debug`, since it holds tokens.
 #[derive(Deserialize)]
 pub(crate) struct ClaudeStoredCredentials {
     #[serde(rename = "claudeAiOauth", default)]
@@ -346,6 +347,18 @@ pub(crate) struct ClaudeStoredCredentials {
     /// Every MCP sign-in Claude Code saved, by a key of its own.
     #[serde(rename = "mcpOAuth", default)]
     pub(crate) mcp_oauth: BTreeMap<String, ClaudeSavedSignIn>,
+    /// The secret `claude mcp add --client-secret` kept for each server, by the same key.
+    #[serde(rename = "mcpOAuthClientConfig", default)]
+    pub(crate) mcp_oauth_client_config: BTreeMap<String, ClaudeStoredClientConfig>,
+}
+
+/// The client settings Claude Code keeps for one server beside its entry: the secret of the
+/// client its owner issued. It derives no `Debug`, since it holds the secret.
+#[derive(Deserialize)]
+pub(crate) struct ClaudeStoredClientConfig {
+    /// The secret, sent with the entry's `oauth.clientId`.
+    #[serde(rename = "clientSecret", default)]
+    pub(crate) client_secret: Option<String>,
 }
 
 /// Why Claude Code's stored credentials could not be read. No case carries a stored value.
@@ -596,8 +609,8 @@ fn default_claude_home(environment: &[(String, String)]) -> Option<PathBuf> {
     Some(environment_home(environment)?.join(".claude"))
 }
 
-// The home `environment` names, else the daemon's own.
-fn environment_home(environment: &[(String, String)]) -> Option<PathBuf> {
+/// The home `environment` names, else the daemon's own.
+pub(crate) fn environment_home(environment: &[(String, String)]) -> Option<PathBuf> {
     let rules = PathRules::NATIVE;
     rules
         .environment_value(environment, rules.home_environment_name())

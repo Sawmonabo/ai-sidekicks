@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
+use secrecy::SecretString;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
@@ -693,6 +694,13 @@ impl ProviderDriver for ClaudeDriver {
         requests: Vec<McpServerAddressRead>,
     ) -> BoxFuture<'_, Vec<Result<McpServerAddressReading, DriverError>>> {
         self.read_mcp_server_addresses(requests).boxed()
+    }
+
+    fn read_mcp_owner_client_secret(
+        &self,
+        request: McpServerAddressRead,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, DriverError>> {
+        self.read_mcp_owner_client_secret(request).boxed()
     }
 }
 

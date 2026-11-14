@@ -244,14 +244,17 @@ mod tests {
 
     use reqwest::Url;
     use rstest::rstest;
-    use secrecy::ExposeSecret;
+    use secrecy::{ExposeSecret, SecretString};
     use serde_json::Value;
     use sidekicks_contracts::mcp::server::config::McpServerAddress;
+    use sidekicks_provider::captured_logs::CapturedLogs;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::TcpStream;
 
     use super::SignInFailureReason;
-    use crate::sign_in::service::{AddressedServer, ProviderAccounts, SignInServer, SignInTarget};
+    use crate::sign_in::service::{
+        AddressedServer, OwnerIssuedClient, ProviderAccounts, SignInServer, SignInTarget,
+    };
     use crate::sign_in::test_service::{
         FakeServerAnswers, NAMED_METADATA_PATH, REFUSED_CODE_DESCRIPTION, REGISTERED_CLIENT_SECRET,
         addressed_target, harness, launch_to_browser, serve_authorization_server,
@@ -531,5 +534,93 @@ mod tests {
                 .is_empty(),
             is_signed_in
         );
+    }
+
+    /// A client its owner issued with a secret signs in with that secret: the code's exchange
+    /// sends it beside the owner's id, and the keychain keeps it with the sign-in for each
+    /// renewal, while no event, no row or file of the database and no log line carries it.
+    /// Killed by the owner's secret left off the client the exchange goes through (no
+    /// `client_secret` in the token form, none kept), and by any event, row or log line that
+    /// writes it.
+    #[tokio::test]
+    async fn an_owners_client_secret_reaches_the_token_endpoint_and_no_row_or_log() {
+        const OWNER_CLIENT_SECRET: &str = "test-owner-client-secret";
+        let (logs, _capture) = CapturedLogs::start();
+        let server = serve_authorization_server(FakeServerAnswers {
+            is_registration_refused: true,
+            ..FakeServerAnswers::default()
+        })
+        .await;
+        let harness = harness().await;
+        let target = SignInTarget {
+            server: SignInServer::Address(Box::new(AddressedServer::new(
+                McpServerAddress::new(&server.base).expect("a server address"),
+                Some(OwnerIssuedClient {
+                    client_id: Some("owner-client".to_owned()),
+                    client_secret: Some(SecretString::from(OWNER_CLIENT_SECRET)),
+                    callback_url: None,
+                    callback_port: None,
+                }),
+                None,
+                None,
+                false,
+            ))),
+            ..addressed_target(&server.base)
+        };
+        let browser_url = launch_to_browser(&harness, &target).await;
+
+        let (status, location) = return_to(&browser_url, &[("code", "test-code")]).await;
+
+        assert_eq!(status, "303");
+        assert_eq!(location.as_deref(), Some("/signed-in"));
+        let forms = server.token_forms.lock().expect("never poisoned").clone();
+        assert_eq!(forms.len(), 1);
+        for field in [
+            ("client_id", "owner-client"),
+            ("client_secret", OWNER_CLIENT_SECRET),
+        ] {
+            assert!(
+                forms[0]
+                    .iter()
+                    .any(|(name, value)| (name.as_str(), value.as_str()) == field),
+                "the token form carries {}",
+                field.0
+            );
+        }
+        let address = McpServerAddress::new(&server.base).expect("a server address");
+        let held = harness
+            .service
+            .custody
+            .test_held_store(&address)
+            .await
+            .held()
+            .await
+            .expect("the keychain answers")
+            .expect("the sign-in is kept");
+        assert_eq!(
+            held.client_secret.as_ref().map(ExposeSecret::expose_secret),
+            Some(OWNER_CLIENT_SECRET)
+        );
+        let completions = Value::from(harness.completions()).to_string();
+        assert!(completions.contains("success"), "{completions}");
+        assert!(!completions.contains(OWNER_CLIENT_SECRET), "{completions}");
+        let database_folder = harness
+            .database
+            .path()
+            .parent()
+            .expect("the database sits in a folder")
+            .to_owned();
+        for file in std::fs::read_dir(&database_folder).expect("the database folder reads") {
+            let path = file.expect("a database file is listed").path();
+            let bytes = std::fs::read(&path).expect("a database file reads");
+            assert!(
+                !bytes
+                    .windows(OWNER_CLIENT_SECRET.len())
+                    .any(|window| window == OWNER_CLIENT_SECRET.as_bytes()),
+                "{} holds the secret",
+                path.display()
+            );
+        }
+        assert!(!logs.text().contains(OWNER_CLIENT_SECRET));
     }
 }

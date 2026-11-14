@@ -166,12 +166,15 @@ impl AddressedServer {
 }
 
 /// A client the server's owner issued for it, from whichever half the entry gives, at least one:
-/// the id to sign in as, with no registration, and the callback address the receiver listens on
-/// and the client is registered with.
+/// the id to sign in as, with no registration, its secret where the provider keeps one, and the
+/// callback address the receiver listens on and the client is registered with.
 #[derive(Clone)]
 pub(crate) struct OwnerIssuedClient {
     /// The `client_id` the owner issued; `None` takes the client the sign-in's order finds.
     pub(crate) client_id: Option<String>,
+    /// The secret issued with `client_id`, as the provider's driver read it for this sign-in; held
+    /// only in memory, and in the keychain with the sign-in it gets.
+    pub(crate) client_secret: Option<SecretString>,
     /// The callback address registered with the client; `None` listens on `callback_port`.
     pub(crate) callback_url: Option<Url>,
     /// The fixed loopback port listened on where no callback address is registered, at the
@@ -435,10 +438,8 @@ impl SignInService {
         let request = ClientRequest {
             server_digest: &digest,
             redirect_address: &redirect_address,
-            owner_client_id: server
-                .owner_client
-                .as_ref()
-                .and_then(|owner| owner.client_id.as_deref()),
+            owner_client_id: owner.and_then(|owner| owner.client_id.as_deref()),
+            owner_client_secret: owner.and_then(|owner| owner.client_secret.as_ref()),
             scopes: &scopes,
         };
         let mut client = choose_client(

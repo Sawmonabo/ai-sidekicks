@@ -255,6 +255,9 @@ async fn the_sign_in_settings_of_an_entry_reach_its_target(
     });
     let mut driver = driver_declaring(vec![declaration]);
     answer_address_read(&mut driver, Ok(declared(DECLARED_ADDRESS)));
+    driver
+        .expect_read_mcp_owner_client_secret()
+        .return_once(|_request| Box::pin(ready(Ok(None))));
     let sources = test_sources(vec![Arc::new(driver)]).await;
 
     let read = sources.target_reads().read(&binding).await;

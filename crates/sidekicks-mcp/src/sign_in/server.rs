@@ -1,6 +1,7 @@
 //! The server an MCP sign-in reaches, read from its binding: the provider's declaration, the whole
 //! address the binding's entry declares as its driver reads it, never the stripped one the
-//! inventory serves, the client the server's owner issued, the scopes and the resource the entry
+//! inventory serves, the client the server's owner issued with the secret its driver reads for it,
+//! held only in memory, the scopes and the resource the entry
 //! asks for, the `https:` address its authorization server's metadata is read at where the entry
 //! names one, the binding's project root on this computer, the environment rows that fill the
 //! address's variables and each provider's current account.
@@ -77,13 +78,14 @@ impl SignInTargetReads {
         }
     }
 
-    /// The target of a sign-in to `binding`. Refuses `mcp.server.signInUnsupported` for a
+    /// The target of a sign-in to `binding`, the secret of a client its owner issued read through
+    /// the provider's driver. Refuses `mcp.server.signInUnsupported` for a
     /// connector, whose sign-in is its account's own, for a server whose declared address does
     /// not read, for an owner's callback that is no address and for a metadata address that is no
     /// `https:` address (`unusableMetadata`), and `mcp.server.notFound` when no
-    /// provider declares the binding; answers an inventory or driver failure as each answers a
-    /// call, and an accounts, settings or project read that fails, or a stored project root that
-    /// is no path, as a fault.
+    /// provider declares the binding; answers an inventory or driver failure, a secret that does
+    /// not read among them, as each answers a call, and an accounts, settings or project read that
+    /// fails, or a stored project root that is no path, as a fault.
     pub(crate) async fn read(
         &self,
         binding: &McpServerBindingRef,
@@ -172,12 +174,32 @@ impl SignInTargetReads {
                 let asks_offline_access_where_listed = settings
                     .as_ref()
                     .is_some_and(|settings| settings.asks_offline_access_where_listed);
-                let owner_client = match owner_client_of(settings) {
+                let mut owner_client = match owner_client_of(settings) {
                     Ok(owner_client) => owner_client,
                     Err(OwnerCallbackUnparsed) => {
                         return Err(unsupported(SignInUnsupportedReason::OwnerCallbackUnserved));
                     }
                 };
+                // Only a client its owner named has a secret its driver reads.
+                if let Some(owner) = owner_client
+                    .as_mut()
+                    .filter(|owner| owner.client_id.is_some())
+                {
+                    owner.client_secret = match driver
+                        .read_mcp_owner_client_secret(McpServerAddressRead {
+                            binding: binding.clone(),
+                            provider_account_id: provider_accounts.get(provider).cloned(),
+                            root_folder: root_folder.clone(),
+                            every_project_rows: every_project_rows.clone(),
+                            project_rows: project_rows.clone(),
+                        })
+                        .await
+                    {
+                        Ok(secret) => secret,
+                        Err(DriverError::NoPersonServerEntry(_)) => return Err(not_found()),
+                        Err(error) => return Err(HandlerError::from(error)),
+                    };
+                }
                 (
                     SignInServer::Address(Box::new(AddressedServer::new(
                         address,
@@ -526,6 +548,7 @@ fn owner_client_of(
     }
     Ok(Some(OwnerIssuedClient {
         client_id,
+        client_secret: None,
         callback_url,
         callback_port,
     }))
