@@ -115,7 +115,7 @@ describe("find — what a query matches", () => {
   });
 });
 
-describe("find — the cap bounds the walk and never the count", () => {
+describe("find — the cap bounds what is held and never the count", () => {
   function oversizedWindow(): readonly ProjectedTranscriptRow[] {
     return Array.from({ length: FIND_MATCH_CAP + 5 }, (_unused, index) =>
       userMessageRow({
@@ -126,7 +126,7 @@ describe("find — the cap bounds the walk and never the count", () => {
     );
   }
 
-  it("walks at most the cap and reports the true total", () => {
+  it("holds at most the cap and reports the true total", () => {
     const result = findInTranscript(oversizedWindow(), "recurring", new Map());
     expect(result.matches).toHaveLength(FIND_MATCH_CAP);
     expect(result.totalMatchCount).toBe(FIND_MATCH_CAP + 5);
@@ -134,7 +134,7 @@ describe("find — the cap bounds the walk and never the count", () => {
 
   it("reads, held across a list growing past the cap, what a whole search reads", () => {
     // Every third row says nothing the query finds, so the held list must skip rows, and the
-    // matches run past the cap, so it must stop the walk there and keep counting.
+    // matches run past the cap, so it must stop holding there and keep counting.
     const grown = Array.from({ length: FIND_MATCH_CAP * 2 }, (_unused, index) =>
       userMessageRow({
         id: `row-${String(index)}`,

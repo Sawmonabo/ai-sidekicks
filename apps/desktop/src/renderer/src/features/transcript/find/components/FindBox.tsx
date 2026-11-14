@@ -31,7 +31,7 @@ export interface FindBoxProps {
 export function FindBox(props: FindBoxProps): React.JSX.Element {
   const { result } = props;
   const inputRef = useCaretOnOpen(props.openRequestCount);
-  const hasMatches = result.matches.length > 0;
+  const hasMatches = result.totalMatchCount > 0;
   const countText = props.areRowsShown ? matchCountText(result, props.currentMatchIndex) : "";
 
   return (
@@ -108,8 +108,8 @@ export function FindBox(props: FindBoxProps): React.JSX.Element {
 }
 
 /**
- * The counter text: none with nothing typed, else `N of M` or `No matches`. The position is of
- * `matches.length`, the set the walk can reach, never of the uncapped total.
+ * The counter text: none with nothing typed, else `N of M` or `No matches`. `M` is every match in
+ * the rows searched, each of which the walk reaches, and `N` the selected one's place among them.
  */
 function matchCountText(result: FindResult, currentMatchIndex: number): string {
   if (result.query.length === 0) {
@@ -119,5 +119,5 @@ function matchCountText(result: FindResult, currentMatchIndex: number): string {
     return "No matches";
   }
   const position = currentMatchIndex < 0 ? 1 : currentMatchIndex + 1;
-  return `${formatCount(position)} of ${formatCount(result.matches.length)}`;
+  return `${formatCount(position)} of ${formatCount(result.totalMatchCount)}`;
 }

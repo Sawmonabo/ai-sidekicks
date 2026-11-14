@@ -45,6 +45,11 @@ export interface TranscriptFolds {
    * either way: asked for a row the fold hides.
    */
   readonly openRunStretchAt: (runGroup: RunGroup, rowId: string, measure: RunWindowMeasure) => void;
+  /**
+   * Hold the newest calls again in each long run's window a find step or a link kept the end of:
+   * asked once the reader pins the follow again.
+   */
+  readonly releaseKeptRunWindowEnds: () => void;
 }
 
 /**
@@ -148,6 +153,11 @@ export function useTranscriptFolds(sessionId: string): TranscriptFolds {
     },
     [runCallWindows, publishRunWindowMoveCount],
   );
+  const releaseKeptRunWindowEnds = useCallback(() => {
+    if (runCallWindows.releaseKeptEnds()) {
+      publishRunWindowMoveCount((moveCount) => moveCount + 1);
+    }
+  }, [runCallWindows, publishRunWindowMoveCount]);
 
   const foldedRunGroupKeys = foldedRunGroupKeysState.value;
   const foldedCallRowIds = foldedCallRowIdsState.value;
@@ -167,6 +177,7 @@ export function useTranscriptFolds(sessionId: string): TranscriptFolds {
       runWindowMoveCount,
       openRunStretch,
       openRunStretchAt,
+      releaseKeptRunWindowEnds,
     }),
     [
       foldedRunGroupKeys,
@@ -182,6 +193,7 @@ export function useTranscriptFolds(sessionId: string): TranscriptFolds {
       runWindowMoveCount,
       openRunStretch,
       openRunStretchAt,
+      releaseKeptRunWindowEnds,
     ],
   );
 }

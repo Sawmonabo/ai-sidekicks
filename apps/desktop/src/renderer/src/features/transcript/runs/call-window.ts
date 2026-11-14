@@ -1,11 +1,11 @@
 // A long run's window of calls: the stretch of a run group's drawn rows the outer list holds,
 // measured in screen heights as the transcript's own window is, and what its edges count. A
 // window holds the run's newest calls until a reader opens an earlier stretch or steps a find to a
-// call outside it, and holds the newest again once a later stretch reaches them. Each edge line is
-// a row of the outer list keyed under its group, so it goes with the group wherever the group
-// goes. The run group fold cuts the window rather than the transcript's window cap: the cap holds
-// one unbroken span of the list and a group's header stands before every row of it, so a cut
-// above a run's window would take the header with it.
+// call outside it, and holds the newest again once a later stretch reaches them or the reader pins
+// the follow again. Each edge line is a row of the outer list keyed under its group, so it goes
+// with the group wherever the group goes. The run group fold cuts the window rather than the
+// transcript's window cap: the cap holds one unbroken span of the list and a group's header stands
+// before every row of it, so a cut above a run's window would take the header with it.
 
 import {
   TRANSCRIPT_LET_GO_SCREEN_HEIGHTS,
@@ -54,7 +54,7 @@ export interface RunWindowEdgeRow {
  * The windows of one session's long runs, by run group key. A window holding a run's newest calls
  * keeps the retained share of screens and lets its oldest calls go only once it passes the let-go
  * distance, so heights settling as rows are measured do not move it row by row. A window a reader
- * moved keeps both of its ends until the next press.
+ * moved keeps both of its ends until the next press, or until the reader pins the follow again.
  */
 export class RunCallWindows {
   readonly #heldByKey = new Map<string, HeldWindow>();
@@ -121,19 +121,22 @@ export class RunCallWindows {
   }
 
   /**
-   * Move the window onto `rowId`, one of the run's drawn rows, when it stops short of that row: a
-   * stretch of screens before the row and the retained share from there on, as a press on the
-   * earlier edge opens. A window that holds the row stays as it is, so a short run keeps every row.
-   * A moved window keeps both ends until the next press, its newest call included, so no cut from
-   * the newest end as the run grows or its rows are measured can take the row back out.
+   * Move the window onto `rowId`, one of the run's rows, when it stops short of that row: a stretch
+   * of screens before the row and the retained share from there on, as a press on the earlier edge
+   * opens. A row that draws nothing is reached through the first drawn call after it, or the last
+   * call where none follows, so the window holds the row and a call a person sees beside it. A
+   * window that holds the row stays as it is, so a short run keeps every row. A moved window keeps
+   * both ends until the next press, its newest call included, so no cut from the newest end as the
+   * run grows or its rows are measured can take the row back out.
    */
   public openStretchAt(runGroup: RunGroup, rowId: string, measure: RunWindowMeasure): void {
     const current = this.windowOf(runGroup, measure);
     const walk = new CallWalk(runGroup, measure);
-    const callIndex = walk.callIndexOf(rowId);
+    const position = runGroup.rowIds.indexOf(rowId);
+    const callIndex = position === -1 ? undefined : walk.callIndexReaching(position);
     if (
       callIndex === undefined ||
-      (callIndex >= current.firstCallIndex && callIndex < current.endCallIndex)
+      (position >= current.firstRowPosition && position <= current.lastRowPosition)
     ) {
       return;
     }
@@ -144,6 +147,21 @@ export class RunCallWindows {
       walk.endIndexAfter(firstCallIndex, TRANSCRIPT_RETAINED_SCREEN_HEIGHTS),
     );
     this.#hold(runGroup, walk, firstCallIndex, endCallIndex, true);
+  }
+
+  /**
+   * Hold the newest calls again in every window a find step or a link kept the end of: the reader
+   * pinned the follow, so the tail followed is each run's newest call. Answers whether any moved.
+   */
+  public releaseKeptEnds(): boolean {
+    let hasReleased = false;
+    for (const [runGroupKey, held] of this.#heldByKey) {
+      if (held.isEndKept) {
+        this.#heldByKey.delete(runGroupKey);
+        hasReleased = true;
+      }
+    }
+    return hasReleased;
   }
 
   /** The window the last `windowOf` resolved for a run group, by its key. */
@@ -279,7 +297,10 @@ const EDGE_KEY_SEPARATOR = "#window-";
 interface HeldWindow {
   readonly firstCallRowId: string;
   readonly lastCallRowId: string | undefined;
-  /** Whether the last row stays the end even at the newest call: a find step moved the window. */
+  /**
+   * Whether the last row stays the end even at the newest call: a find step or a link moved the
+   * window, and the reader has not pinned the follow since.
+   */
   readonly isEndKept: boolean;
 }
 
@@ -318,18 +339,18 @@ class CallWalk {
     if (position === -1) {
       return undefined;
     }
-    const positions = this.#runGroup.drawnRowPositions;
-    let low = 0;
-    let high = positions.length;
-    while (low < high) {
-      const middle = (low + high) >>> 1;
-      if ((positions[middle] ?? 0) < position) {
-        low = middle + 1;
-      } else {
-        high = middle;
-      }
-    }
-    return positions[low] === position ? low : undefined;
+    const callIndex = this.#firstCallIndexFrom(position);
+    return this.#runGroup.drawnRowPositions[callIndex] === position ? callIndex : undefined;
+  }
+
+  /**
+   * The index of the first drawn row at or after `position` among the group's rows, else of the
+   * last drawn row; `undefined` for a group that draws none.
+   */
+  public callIndexReaching(position: number): number | undefined {
+    return this.callCount === 0
+      ? undefined
+      : Math.min(this.#firstCallIndexFrom(position), this.callCount - 1);
   }
 
   /** The summed height of the drawn rows from `firstCallIndex` up to `endCallIndex`. */
@@ -390,5 +411,21 @@ class CallWalk {
       earlierCount: (this.#runGroup.releasedEarlier?.count ?? 0) + firstCallIndex,
       laterCount: this.callCount - endCallIndex + (this.#runGroup.releasedLater?.count ?? 0),
     };
+  }
+
+  /** The index of the first drawn row at or after `position`, or `callCount` past the last. */
+  #firstCallIndexFrom(position: number): number {
+    const positions = this.#runGroup.drawnRowPositions;
+    let low = 0;
+    let high = positions.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if ((positions[middle] ?? 0) < position) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    return low;
   }
 }

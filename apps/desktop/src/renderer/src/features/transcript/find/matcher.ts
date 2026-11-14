@@ -1,8 +1,10 @@
 // The matcher behind the find field. It runs over every row the window holds, folded away or not,
 // and searches the text a row draws, read on demand from what the window already holds: a
 // person's whole message, a tool row's heading with its result chip, and a system message's line.
-// While a query is set the log moves under it on every admitted event, so a held search reads only
-// the rows that moved.
+// Every match is counted, and a window of them around the selection is held for the walk, which
+// moves with the selection, so a step reaches every match however many there are. While a query is
+// set the log moves under it on every admitted event, so a held search reads only the rows that
+// moved.
 
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { toolRowHeadingOf, toolRowHeadingText } from "../rows/tool-heading.js";
@@ -12,9 +14,8 @@ import { rowGrowthOf } from "../window/row-positions.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
- * Matches the find field ranks and offers next/previous over.
- * A one-character query matches most of the window; the cap keeps the next/previous walk
- * terminating, and the true match count rides beside the capped denominator.
+ * The most matches a result holds at once: a window of them around the selection, which a step
+ * past either end moves. It bounds what is held, never what is counted or reached.
  */
 export const FIND_MATCH_CAP = 500;
 
@@ -36,19 +37,23 @@ export interface FindMatch {
 /** What one query over one window produced. */
 export interface FindResult {
   readonly query: string;
-  /** Every match, capped at `FIND_MATCH_CAP`. The walk is over these. */
+  /** At most `FIND_MATCH_CAP` consecutive matches, in log order, around the selection. */
   readonly matches: readonly FindMatch[];
-  /**
-   * The uncapped match count, so a capped count never understates how broad the query is. Not
-   * the counter's denominator: the walk is over `matches`.
-   */
+  /** Where `matches[0]` stands among every match, so a held match's place is this plus its own. */
+  readonly firstHeldIndex: number;
+  /** Every match in the rows searched, held or not: the count's denominator. */
   readonly totalMatchCount: number;
+  /** The first match, which a walk lands on past the last one and enters on going forward. */
+  readonly firstMatch: FindMatch | undefined;
+  /** The last match, which a walk lands on before the first one and enters on going back. */
+  readonly lastMatch: FindMatch | undefined;
 }
 
 /**
  * One query's result over the rows the window holds, held across the lists it is handed. A list
  * that only grew at its end, its earlier rows projected again with what find reads unchanged,
- * costs its new rows; any other list is searched whole.
+ * costs its new rows; any other list, or a selection a step from would leave the held matches, is
+ * searched whole.
  */
 export class FindMatchList {
   #rows: readonly ProjectedTranscriptRow[] = [];
@@ -56,26 +61,33 @@ export class FindMatchList {
   #result: FindResult = EMPTY_FIND_RESULT;
 
   /**
-   * The result of `query` over `rows`, exactly as `findInTranscript` answers it. A row both lists
-   * hold is read against the system messages of the pass that last read it, so an append reads
-   * only the rows it added or replaced.
+   * The result of `query` over `rows`, holding the matches a step either way from `selected`
+   * lands on. It counts what `findInTranscript` counts; its held matches may stand elsewhere,
+   * since a list that grew keeps the window it held. A row both lists hold is read against the
+   * system messages of the pass that last read it, so an append reads only the rows it added or
+   * replaced.
    */
   public resultOf(
     rows: readonly ProjectedTranscriptRow[],
     query: string,
     systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>,
+    selected?: FindMatch,
   ): FindResult {
     const trimmedQuery = query.trim();
-    if (rows === this.#rows && trimmedQuery === this.#result.query) {
+    const isSameQuery = trimmedQuery === this.#result.query;
+    if (isSameQuery && rows === this.#rows && holdsStepsFrom(this.#result, selected)) {
       return this.#result;
     }
     const grown =
-      trimmedQuery.length > 0 && trimmedQuery === this.#result.query
+      isSameQuery && trimmedQuery.length > 0 && rows !== this.#rows
         ? this.#grownResult(rows, systemMessageByRowId)
         : undefined;
     this.#rows = rows;
     this.#systemMessageByRowId = systemMessageByRowId;
-    this.#result = grown ?? findInTranscript(rows, query, systemMessageByRowId);
+    this.#result =
+      grown !== undefined && holdsStepsFrom(grown, selected)
+        ? grown
+        : findInTranscript(rows, query, systemMessageByRowId, selected);
     return this.#result;
   }
 
@@ -100,29 +112,39 @@ export class FindMatchList {
         return undefined;
       }
     }
+    // Only a window that reaches the newest match takes the appended ones, while it has room.
+    const isHeldToNewest = held.firstHeldIndex + held.matches.length === held.totalMatchCount;
     const appendedMatches: FindMatch[] = [];
-    let totalMatchCount = held.totalMatchCount;
+    let { totalMatchCount, firstMatch, lastMatch } = held;
     for (let position = growth.appendedFrom; position < rows.length; position += 1) {
       const row = rows[position] as ProjectedTranscriptRow;
       if (!rowMatches(row, needle, systemMessageByRowId)) {
         continue;
       }
+      const match = matchOf(row);
       totalMatchCount += 1;
-      if (held.matches.length + appendedMatches.length < FIND_MATCH_CAP) {
-        appendedMatches.push({ rowId: row.id, sequence: row.sequence });
+      firstMatch ??= match;
+      lastMatch = match;
+      if (isHeldToNewest && held.matches.length + appendedMatches.length < FIND_MATCH_CAP) {
+        appendedMatches.push(match);
       }
     }
     return {
       query: held.query,
       // A copy of at most the capped list, so the result published before stays as it was.
       matches: appendedMatches.length === 0 ? held.matches : [...held.matches, ...appendedMatches],
+      firstHeldIndex: held.firstHeldIndex,
       totalMatchCount,
+      firstMatch,
+      lastMatch,
     };
   }
 }
 
 /**
- * Runs a query over the rows one window holds.
+ * Runs a query over the rows one window holds, counting every match and holding those around
+ * `selected`: up to half the cap before it and the rest from it on, or the first `FIND_MATCH_CAP`
+ * with nothing selected. Rows are in sequence order, as a log is.
  *
  * Case-insensitive literal substring, not the palette's subsequence matcher, which would match
  * nearly every row on a short query. An empty or whitespace-only query matches nothing.
@@ -131,55 +153,94 @@ export function findInTranscript(
   rows: readonly ProjectedTranscriptRow[],
   query: string,
   systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>,
+  selected?: FindMatch,
 ): FindResult {
   const trimmedQuery = query.trim();
   if (trimmedQuery.length === 0) {
     return EMPTY_FIND_RESULT;
   }
   const needle = trimmedQuery.toLowerCase();
-  const matches: FindMatch[] = [];
+  // The rows of the newest matches before the selection: cut back by half each time they reach the
+  // cap, so a match costs the same however many come before it. Rows, so a match not held makes
+  // no object.
+  const rowsBefore: ProjectedTranscriptRow[] = [];
+  let matchBeforeCount = 0;
+  const matchesFrom: FindMatch[] = [];
   let totalMatchCount = 0;
+  let firstRow: ProjectedTranscriptRow | undefined;
+  let lastRow: ProjectedTranscriptRow | undefined;
 
   for (const row of rows) {
     if (!rowMatches(row, needle, systemMessageByRowId)) {
       continue;
     }
     totalMatchCount += 1;
-    if (matches.length < FIND_MATCH_CAP) {
-      matches.push({ rowId: row.id, sequence: row.sequence });
+    firstRow ??= row;
+    lastRow = row;
+    if (selected !== undefined && row.sequence < selected.sequence) {
+      matchBeforeCount += 1;
+      rowsBefore.push(row);
+      if (rowsBefore.length === FIND_MATCH_CAP) {
+        rowsBefore.splice(0, HELD_BEFORE_SELECTION);
+      }
+    } else if (
+      matchesFrom.length + Math.min(rowsBefore.length, HELD_BEFORE_SELECTION) <
+      FIND_MATCH_CAP
+    ) {
+      matchesFrom.push(matchOf(row));
     }
   }
 
+  const heldBefore = rowsBefore.slice(-HELD_BEFORE_SELECTION).map(matchOf);
   return {
     query: trimmedQuery,
-    matches,
+    matches: [...heldBefore, ...matchesFrom],
+    firstHeldIndex: matchBeforeCount - heldBefore.length,
     totalMatchCount,
+    firstMatch: firstRow === undefined ? undefined : matchOf(firstRow),
+    lastMatch: lastRow === undefined ? undefined : matchOf(lastRow),
   };
 }
 
 /**
- * Where the next or previous match sits from `selected`, wrapping in both directions.
+ * Where the next or previous match sits from `selected`, as its place among every match, wrapping
+ * in both directions.
  *
  * With nothing selected both directions enter the list: next lands on the first match, previous
  * on the last. A selected hit whose row has left the list is stepped past by its place in the
  * log, so the walk moves on to the next live hit in that direction rather than starting over.
- * Returns `undefined` only when there is nothing to walk.
+ * Returns `undefined` when there is nothing to walk, or when `result` does not hold the match a
+ * step lands on, which a result `FindMatchList` held for `selected` always does.
  */
 export function stepFindMatch(
   result: FindResult,
   selected: FindMatch | undefined,
   direction: FindStepDirection,
 ): { readonly index: number; readonly match: FindMatch } | undefined {
-  const count = result.matches.length;
+  const count = result.totalMatchCount;
   if (count === 0) {
     return undefined;
   }
-  const index =
-    selected === undefined
-      ? entryIndexFor(direction, count)
-      : steppedIndexFrom(result.matches, selected, direction);
-  const match = result.matches[index];
+  let index: number;
+  if (selected === undefined) {
+    index = direction === "next" ? 0 : count - 1;
+  } else {
+    const neighbors = heldNeighborsOf(result.matches, selected);
+    const heldIndex = direction === "next" ? neighbors.after : neighbors.before;
+    // `+ count` before the modulus: JavaScript's `%` keeps the sign of the dividend,
+    // so stepping back from the first match would land on -1 rather than on the last match.
+    index = (((result.firstHeldIndex + heldIndex) % count) + count) % count;
+  }
+  const match = matchAt(result, index);
   return match === undefined ? undefined : { index, match };
+}
+
+/** How many matches before the selection a result holds: half the cap. */
+const HELD_BEFORE_SELECTION = FIND_MATCH_CAP / 2;
+
+/** The match a matching row makes. */
+function matchOf(row: ProjectedTranscriptRow): FindMatch {
+  return { rowId: row.id, sequence: row.sequence };
 }
 
 /** Whether the text a row draws holds `needle`, already lowercased. */
@@ -215,43 +276,59 @@ function drawnTextOf(
   }
 }
 
-/** Where a walk that has not started enters the list from. */
-function entryIndexFor(direction: FindStepDirection, count: number): number {
-  return direction === "next" ? 0 : count - 1;
-}
-
-/** The next position along from `selected`, wrapping in both directions. */
-function steppedIndexFrom(
+/**
+ * Where in `matches` the match before and the match after `selected` stand, either one past the
+ * list's end when it holds none that way. A selected hit whose row has left is placed by its
+ * sequence.
+ */
+function heldNeighborsOf(
   matches: readonly FindMatch[],
   selected: FindMatch,
-  direction: FindStepDirection,
-): number {
-  const count = matches.length;
-  const currentIndex = matches.findIndex((match) => match.rowId === selected.rowId);
-  if (currentIndex < 0) {
-    return liveIndexPast(matches, selected.sequence, direction);
+): { readonly before: number; readonly after: number } {
+  const heldIndex = matches.findIndex((match) => match.rowId === selected.rowId);
+  if (heldIndex >= 0) {
+    return { before: heldIndex - 1, after: heldIndex + 1 };
   }
-  const step = direction === "next" ? 1 : -1;
-  // `+ count` before the modulus: JavaScript's `%` keeps the sign of the dividend,
-  // so stepping back from index 0 would land on -1 rather than on the last match.
-  return (((currentIndex + step) % count) + count) % count;
+  const laterIndex = matches.findIndex((match) => match.sequence > selected.sequence);
+  const after = laterIndex < 0 ? matches.length : laterIndex;
+  return { before: after - 1, after };
 }
 
-/** The first live match past `sequence` in `direction`, wrapping when none lies that way. */
-function liveIndexPast(
-  matches: readonly FindMatch[],
-  sequence: number,
-  direction: FindStepDirection,
-): number {
-  if (direction === "next") {
-    const index = matches.findIndex((match) => match.sequence > sequence);
-    return index < 0 ? 0 : index;
+/**
+ * Whether a step either way from `selected` lands on a match `result` holds: one held beside it,
+ * or, past an end of every match, the first or the last.
+ */
+function holdsStepsFrom(result: FindResult, selected: FindMatch | undefined): boolean {
+  if (selected === undefined || result.totalMatchCount === 0) {
+    return true;
   }
-  const index = matches.findLastIndex((match) => match.sequence < sequence);
-  return index < 0 ? matches.length - 1 : index;
+  const { before, after } = heldNeighborsOf(result.matches, selected);
+  const reachesBefore = before >= 0 || result.firstHeldIndex === 0;
+  const reachesAfter =
+    after < result.matches.length ||
+    result.firstHeldIndex + result.matches.length === result.totalMatchCount;
+  return reachesBefore && reachesAfter;
+}
+
+/** The match at `index` among every match, or `undefined` where `result` does not hold it. */
+function matchAt(result: FindResult, index: number): FindMatch | undefined {
+  if (index === 0) {
+    return result.firstMatch;
+  }
+  if (index === result.totalMatchCount - 1) {
+    return result.lastMatch;
+  }
+  return result.matches[index - result.firstHeldIndex];
 }
 
 /**
  * What an empty query finds: one object, so a log moving under an empty field changes no result.
  */
-const EMPTY_FIND_RESULT: FindResult = { query: "", matches: [], totalMatchCount: 0 };
+const EMPTY_FIND_RESULT: FindResult = {
+  query: "",
+  matches: [],
+  firstHeldIndex: 0,
+  totalMatchCount: 0,
+  firstMatch: undefined,
+  lastMatch: undefined,
+};

@@ -79,10 +79,12 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): Messa
     [eventId, unfurledWindow, transcriptWindow, drawsRow],
   );
 
-  // Settled once per link, when the row is first drawn or what hid it first opened, so a reader
-  // who folds the group afterwards is not overruled on the next append.
+  // Settled once per link, when it has a drawn row to land on, and what hid the row is opened at
+  // most once before that, so a reader who folds the group afterwards is not overruled on the
+  // next append.
   const unfoldRow = inputs.unfoldRow;
   const settledCursor = useRef<string | undefined>(undefined);
+  const unfoldedCursor = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (messageAnchorCursor === undefined || settledCursor.current === messageAnchorCursor) {
       return;
@@ -91,8 +93,12 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): Messa
       settledCursor.current = messageAnchorCursor;
       return;
     }
-    if (eventId !== undefined && unfoldRow(eventId)) {
-      settledCursor.current = messageAnchorCursor;
+    if (
+      eventId !== undefined &&
+      unfoldedCursor.current !== messageAnchorCursor &&
+      unfoldRow(eventId)
+    ) {
+      unfoldedCursor.current = messageAnchorCursor;
     }
   }, [landingRowKey, eventId, messageAnchorCursor, unfoldRow]);
 

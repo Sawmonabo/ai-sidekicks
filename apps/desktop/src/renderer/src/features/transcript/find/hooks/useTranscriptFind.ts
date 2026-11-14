@@ -22,7 +22,7 @@ export interface TranscriptFindState {
   readonly query: string;
   readonly result: FindResult;
   /**
-   * Where the walk is in the current result, or `-1` with nothing selected.
+   * Where the selected match stands among every match, or `-1` with nothing selected.
    *
    * Derived from the selected row, not held as an ordinal: the result recomputes as the log
    * moves, and a held ordinal could outlive a shorter list.
@@ -65,19 +65,20 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
   // on to the next live one.
   const [selectedMatch, setSelectedMatch] = useState<FindMatch | undefined>(undefined);
 
+  // Held around the selection, so a step either way lands on a match the result holds.
   const result = useMemo(
-    () => findMatchList.resultOf(rows, query, systemMessageByRowId),
-    [findMatchList, rows, query, systemMessageByRowId],
+    () => findMatchList.resultOf(rows, query, systemMessageByRowId, selectedMatch),
+    [findMatchList, rows, query, systemMessageByRowId, selectedMatch],
   );
 
   // Looked up, not remembered, so a recomputed result reports where the walk actually is.
-  const currentMatchIndex = useMemo(
-    () =>
+  const currentMatchIndex = useMemo(() => {
+    const heldIndex =
       selectedMatch === undefined
         ? -1
-        : result.matches.findIndex((match) => match.rowId === selectedMatch.rowId),
-    [result, selectedMatch],
-  );
+        : result.matches.findIndex((match) => match.rowId === selectedMatch.rowId);
+    return heldIndex < 0 ? -1 : result.firstHeldIndex + heldIndex;
+  }, [result, selectedMatch]);
 
   const setQuery = useCallback((next: string) => {
     setQueryValue(next);

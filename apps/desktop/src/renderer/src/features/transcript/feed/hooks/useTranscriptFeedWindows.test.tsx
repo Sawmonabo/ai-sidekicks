@@ -1,7 +1,9 @@
-// The body lengths the feed hands the viewport's measurement table. A reply the reveal still
-// draws pairs its whole body's length with the height of the part drawn so far, so it would pull
-// its kind's line of height on body length down; the feed reports no length for it until its lane
-// is retired. The chain is the shipped one: a real store, the real reveal binding, the real table.
+// The feed's window chain. The body lengths it hands the viewport's measurement table: a reply
+// the reveal still draws pairs its whole body's length with the height of the part drawn so far,
+// so it would pull its kind's line of height on body length down; the feed reports no length for
+// it until its lane is retired. And a long run's window a find step kept the end of, which
+// `Jump to latest` puts back on the run's newest call. The chain is the shipped one: a real store,
+// the real reveal binding, the real table and viewport controller.
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +18,13 @@ import {
   transcriptFixtureStampAt,
   transcriptFixtureStreamCursor,
 } from "../../logs.test-support.js";
+import {
+  longRunCallIds,
+  longRunEvents,
+  onlyRunGroupOf,
+  openSessionStoreWithLongRun,
+} from "../../runs/call-window.test-support.js";
+import { runWindowEdgeKey } from "../../runs/call-window.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { ViewportController } from "../../viewport/controller.js";
 import { useTranscriptFeedWindows } from "./useTranscriptFeedWindows.js";
@@ -88,5 +97,63 @@ describe("the transcript feed windows — the body lengths the viewport estimate
     controller.measurements.publishEstimates();
 
     expect(controller.measurements.heightOf(unmeasured)).toBe(300);
+  });
+});
+
+describe("the transcript feed windows — Jump to latest after a find step", () => {
+  it("shows a live run's newest call with no later line under it", () => {
+    // A run long enough that its window holds a few screens of its calls, ending on a call.
+    const eventCount = 1205;
+    const grownEventCount = eventCount + 40;
+    const sessionStore = openSessionStoreWithLongRun(eventCount);
+    const clock = new ManualClock();
+    const feed = renderHook(
+      () =>
+        useTranscriptFeedWindows({
+          sessionStore,
+          clock,
+          messageAnchorCursor: undefined,
+          readTranscriptPage: undefined,
+          drawsBody: () => true,
+          prepareRow: () => undefined,
+        }),
+      {
+        wrapper: ({ children }) => (
+          <FixtureBridgeProvider
+            fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}
+          >
+            {children}
+          </FixtureBridgeProvider>
+        ),
+      },
+    );
+    const runGroup = onlyRunGroupOf(feed.result.current.unfurledWindow);
+    const newestCallId = longRunCallIds(longRunEvents(eventCount)).at(-1) ?? "";
+    const lastRowKey = (): string | undefined =>
+      feed.result.current.transcriptWindow.viewportRows.at(-1)?.key;
+    // A press on the earlier edge leaves the newest call past the window's later edge.
+    act(() => {
+      feed.result.current.openRunStretch(runGroup, "earlier");
+    });
+    expect(lastRowKey()).toBe(runWindowEdgeKey(runGroup.key, "later"));
+
+    // The find step onto the newest call: open what hides it, then land on it.
+    act(() => {
+      expect(feed.result.current.unfoldRow(newestCallId)).toBe(true);
+    });
+    act(() => {
+      feed.result.current.viewport.jumpToRow(newestCallId);
+    });
+    expect(feed.result.current.viewport.snapshot.reading.mode).not.toBe("following");
+    act(() => {
+      sessionStore.applyBatch(longRunEvents(grownEventCount).slice(eventCount));
+    });
+    expect(lastRowKey()).toBe(runWindowEdgeKey(runGroup.key, "later"));
+
+    act(() => {
+      feed.result.current.viewport.jumpToTail();
+    });
+    expect(feed.result.current.viewport.snapshot.reading.mode).toBe("following");
+    expect(lastRowKey()).toBe(longRunCallIds(longRunEvents(grownEventCount)).at(-1));
   });
 });
