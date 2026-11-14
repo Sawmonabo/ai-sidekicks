@@ -10,6 +10,7 @@ mod account;
 pub(crate) mod kept_records;
 pub(super) mod lasting_launch;
 mod terminal;
+mod unreadable_record;
 
 use std::io;
 use std::path::{Path, PathBuf};

@@ -362,7 +362,8 @@ async fn a_one_shot_pass_records_its_counts_as_the_session_s_spend(
     if is_registered && is_account_home {
         let holder = bearers
             .resolve(&DESCRIPTOR.provider_id(), presented)
-            .expect("the exec's token is admitted while it runs");
+            .expect("the exec's token is admitted while it runs")
+            .holder();
         let records: Vec<_> = exported
             .iter()
             .map(|&(input, output)| {
@@ -396,9 +397,10 @@ async fn a_one_shot_pass_records_its_counts_as_the_session_s_spend(
         "the stand-in names nothing"
     );
     assert!(arguments.iter().any(|argument| argument == "--json"));
-    assert_eq!(
-        bearers.resolve(&DESCRIPTOR.provider_id(), presented),
-        None,
+    assert!(
+        bearers
+            .resolve(&DESCRIPTOR.provider_id(), presented)
+            .is_none(),
         "the exec's token is refused once it ended"
     );
     let expected: Vec<_> = expected_rows

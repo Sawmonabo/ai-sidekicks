@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use interprocess::local_socket::traits::tokio::Listener as _;
+use serde_json::json;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, ProcessRecord, bind_socket_listener,
     pin_child_process, read_socket_link, replace_socket_link, short_socket_folder,
@@ -9,9 +10,9 @@ use sidekicks_platforms::{
 use tokio::time::Instant;
 
 use super::stand_in::{
-    CRASH_WAIT, StandInServices, account_home, cut_short_planned_restart, home_record_file,
-    is_running, mark_kept_records_draining, send_signal, services_on, stand_in_services,
-    this_daemon, wait_for_end_and_record_removal, wait_until_gone,
+    CRASH_WAIT, StandInServices, account_home, another_daemon, cut_short_planned_restart,
+    home_record_file, is_running, mark_kept_records_draining, send_signal, services_on,
+    stand_in_services, this_daemon, wait_for_end_and_record_removal, wait_until_gone,
 };
 use crate::driver::PROVIDER_REGISTRATIONS;
 use crate::driver::codex::DESCRIPTOR;
@@ -210,6 +211,67 @@ async fn a_former_service_that_never_answers_its_join_is_stopped_and_the_next_st
         launched_process
             .is_some_and(|process| process != first_process && process != second_process),
         "the next start did not launch a service of its own"
+    );
+}
+
+// Fails when a kept record that does not read, here one whose telemetry lacks the port an earlier
+// build never wrote, fails the start, is left in place, or leaves the service it names running
+// beside the fresh launch rather than asking it to drain.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_over_a_record_that_does_not_read_drains_its_service_and_launches_fresh() {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let services = stand_in_services(|program| Arc::new(program));
+    let startup_timeout = services.dependencies.startup_timeout;
+    let former_daemon = another_daemon(&services);
+    let former = former_daemon
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
+    former
+        .ensure_started(startup_timeout)
+        .await
+        .expect("the former service starts");
+    let former_process = former.process_id().expect("the former runs a process");
+    former_daemon
+        .shutdown(DaemonStopIntent::Restart, daemon_stop_deadline())
+        .await;
+    let record_file = home_record_file(&services);
+    let kept = std::fs::read(record_file.path()).expect("the former service is recorded");
+    let mut unreadable: serde_json::Value =
+        serde_json::from_slice(&kept).expect("the record is JSON");
+    unreadable["telemetry"] = json!({"token": "kept-token", "resourceTag": 1});
+    std::fs::write(record_file.path(), unreadable.to_string()).expect("the record is rewritten");
+
+    let daemon = this_daemon(&services);
+    let service = daemon
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
+    let started = service.ensure_started(startup_timeout).await;
+    let launched_process = service.process_id();
+    let is_former_drained = wait_until_gone(former_process).await;
+    let left = record_file
+        .lock()
+        .and_then(|locked| locked.read())
+        .expect("the home's record reads");
+    daemon
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
+
+    assert!(started.is_ok(), "{started:?}");
+    assert!(
+        launched_process.is_some_and(|process| process != former_process),
+        "the start did not launch a service of its own"
+    );
+    assert!(
+        is_former_drained,
+        "the service the record named was left running"
+    );
+    assert_eq!(
+        left, None,
+        "the record that does not read was left in place"
     );
 }
 

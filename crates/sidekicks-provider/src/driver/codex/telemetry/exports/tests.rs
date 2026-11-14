@@ -22,6 +22,7 @@ use crate::bounded_poll::poll_until;
 use crate::driver::codex::event_normalizer::{
     CODEX_TURN_COMPLETED_METHOD, CODEX_TURN_STARTED_METHOD,
 };
+use crate::driver::codex::pricing::compose_codex_live_pricing;
 use crate::driver::codex::service::supervisor::CodexServiceId;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_account_service_for, start_scripted_codex_service,
@@ -36,6 +37,7 @@ use crate::driver::codex::telemetry::exported_response::{
     CodexExportedResponse, CodexOffStreamPlacement,
 };
 use crate::driver::diagnostics::RecordedEvents;
+use crate::driver::ports::DriverPorts;
 use crate::driver::test_registry::new_session_id;
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader as _};
 use crate::usage_delta_accountant::UsageAxisCounts;
@@ -128,6 +130,7 @@ async fn a_launch_holds_one_export_check_only_while_request_turns_wait_for_an_ex
     let exports = CodexExports::new(
         Arc::clone(&scheduler),
         Arc::new(PortRegistration::new("request held")),
+        compose_codex_live_pricing(&DriverPorts::new()),
         TaskTracker::new(),
     );
     let scripted = start_scripted_codex_service();
@@ -209,6 +212,7 @@ impl TwoLaunches {
         let exports = Arc::new(CodexExports::new(
             Arc::clone(&scheduler),
             Arc::new(PortRegistration::new("request held")),
+            compose_codex_live_pricing(&DriverPorts::new()),
             TaskTracker::new(),
         ));
         let drain = exports
@@ -241,7 +245,7 @@ impl TwoLaunches {
     async fn next_exported(&mut self) -> CodexExportedResponse {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                if let CodexSessionInbound::ExportedResponses(exported, _charge) =
+                if let CodexSessionInbound::ExportedResponses(exported) =
                     self.b_session.task.next_item().await
                     && let Some(first) = exported.into_iter().next()
                 {

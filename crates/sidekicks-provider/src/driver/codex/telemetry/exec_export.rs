@@ -130,6 +130,7 @@ fn compose_exec_export(
     let bearer = target
         .bearers()
         .mint(DESCRIPTOR.provider_id(), tag.holder())?;
+    bearer.keep_during_reads(tag.read_guard());
     let mut config_overrides = compose_daemon_export_overrides(target);
     config_overrides.push(SHELL_ENVIRONMENT_OFF.to_owned());
     let mut environment = compose_daemon_export_environment(&bearer, &tag);

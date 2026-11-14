@@ -60,10 +60,10 @@ FROM provider_accounts WHERE account_id = @account_id";
 const INSERT_SESSIONLESS_USAGE_TURN_SQL: &str = "INSERT INTO provider_account_usage_turns
   (turn_id, account_id, provider, occurred_at, model_id, input_tokens, output_tokens,
    cache_read_tokens, cache_write_tokens, reasoning_tokens, speed, processing_region,
-   observed_credential_generation, daemon_started_at, is_held)
+   web_search_requests, observed_credential_generation, daemon_started_at, is_held)
 SELECT @turn_id, account_id, provider, @occurred_at, @model_id, @input_tokens, @output_tokens,
   @cache_read_tokens, @cache_write_tokens, @reasoning_tokens, @speed, @processing_region,
-  credential_generation, @daemon_started_at, 1
+  @web_search_requests, credential_generation, @daemon_started_at, 1
 FROM provider_accounts WHERE account_id = @account_id AND removal_intent = 0";
 
 // As a turn no session owns above, written only where its sighting is not passed over.
@@ -248,18 +248,24 @@ pub fn mint_sessionless_turn_id() -> FreeFormText<EVENT_FIELD_MAX_LEN> {
     FreeFormText::new(mint_uuid_v7().to_string()).expect("a UUID is a usage row id")
 }
 
-/// The statement that writes the turn `turn_id` no session owns, `spend` at its model and tier on
-/// `provider_account_id`'s account at `occurred_at` under the daemon start `daemon_started_at`,
-/// processed in `processing_region`: held from the write, as a whole request, and charged to the
-/// account's generation as its row stands at the write. Refused by its row count for an account
-/// not registered; with `sighting`, written only where the sighting is not passed over, as
-/// [`sightings::sessionless_sighting_statements`] then decides it, and never refused.
+/// The statement that writes the turn `turn_id` no session owns, `spend` at its model and tier
+/// with `web_search_requests` hosted searches on `provider_account_id`'s account at `occurred_at`
+/// under the daemon start `daemon_started_at`, processed in `processing_region`: held from the
+/// write, as a whole request, and charged to the account's generation as its row stands at the
+/// write. An account being removed or not registered writes no row, which its row count reads,
+/// and so does a `sighting` passed over, as [`sightings::sessionless_sighting_statements`] then
+/// decides it; the statement is never refused.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each is one column of the row, and a struct for them would be built at its one call"
+)]
 pub fn sessionless_usage_turn_statement(
     turn_id: &FreeFormText<EVENT_FIELD_MAX_LEN>,
     provider_account_id: &ProviderAccountId,
     occurred_at: &WireInstant,
     daemon_started_at: &WireInstant,
     spend: &WindowTurnSpend,
+    web_search_requests: Option<SafeInt<0>>,
     processing_region: Option<&BoundedText<1, EVENT_FIELD_MAX_LEN>>,
     sighting: Option<&UsageSighting>,
 ) -> WriteStatement {
@@ -278,13 +284,14 @@ pub fn sessionless_usage_turn_statement(
             "@processing_region",
             processing_region.map(BoundedText::as_str),
         ),
+        count_binding("@web_search_requests", web_search_requests),
         text_binding("@daemon_started_at", daemon_started_at.as_str()),
     ];
     let Some(sighting) = sighting else {
         return WriteStatement {
             sql: Cow::Borrowed(INSERT_SESSIONLESS_USAGE_TURN_SQL),
             bindings: StatementBindings::Named(bindings),
-            expected_row_count: Some(1),
+            expected_row_count: None,
         };
     };
     bindings.extend(sightings::sighting_bindings(sighting));

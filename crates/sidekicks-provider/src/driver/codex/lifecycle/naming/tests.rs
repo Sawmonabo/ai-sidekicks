@@ -13,9 +13,8 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::{CODEX_NAMING_DEADLINE, TitleRequest, draw_title};
-use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::lifecycle::CodexDriver;
-use crate::driver::codex::pricing::{CodexRecorderPricing, CodexRequestPricer};
+use crate::driver::codex::pricing::{CodexRecorderPricing, compose_codex_live_pricing};
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
 use crate::driver::codex::service::registry::{CodexHomeResolver, CodexServiceRegistry};
 use crate::driver::codex::service::supervisor::CodexService;
@@ -32,7 +31,6 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::driver::test_registry::{new_agent_id, new_session_id, test_driver_services};
 use crate::port::run_host::test_host::RecordingRunEngine;
-use crate::pricing::live::LivePricing;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
@@ -115,11 +113,7 @@ fn filing_over(ports: &DriverPorts) -> SessionUsageFiling {
         session_id: new_session_id(),
         binding_id: mint_runtime_binding_id(),
         provider_account_id: test_provider_account_id(),
-        pricing: CodexRecorderPricing::new(Arc::new(LivePricing::new(
-            DESCRIPTOR.provider_id(),
-            Arc::new(CodexRequestPricer),
-            ports,
-        ))),
+        pricing: CodexRecorderPricing::new(compose_codex_live_pricing(ports)),
     }
 }
 

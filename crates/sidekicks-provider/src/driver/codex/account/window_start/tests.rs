@@ -246,7 +246,8 @@ async fn one_exec_runs_in_the_account_s_home_and_its_counts_are_the_spend(
         if is_registered {
             let holder = bearers
                 .resolve(&DESCRIPTOR.provider_id(), presented.map(str::as_bytes))
-                .expect("the turn's token is admitted while it runs");
+                .expect("the turn's token is admitted while it runs")
+                .holder();
             let records: Vec<_> = exported
                 .iter()
                 .map(|(model, tier, counts)| exported_record(model, tier, counts))

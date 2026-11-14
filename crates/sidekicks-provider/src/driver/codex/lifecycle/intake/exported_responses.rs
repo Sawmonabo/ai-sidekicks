@@ -4,8 +4,9 @@
 //! sightings are recorded together, so they take one commit. One its rollout file stated is filed
 //! on the run the stored rows name at its record's time, and a spawned helper's takes its root
 //! thread's tier from the stored rows then. One the session cannot file, since its record was let
-//! go, its time or stored rows do not read, or it has no binding to file on, is charged through
-//! the hand-over's launch charge as its account's spend outside any session, with its sighting.
+//! go, its time or stored rows do not read, or it has no binding to file on, is charged as its
+//! account's spend outside any session, with its sighting, at the region the session's rows are
+//! stamped with.
 
 use std::sync::Arc;
 
@@ -19,20 +20,14 @@ use crate::driver::codex::lifecycle::intake::routed_frames::attribute_codex_usag
 use crate::driver::codex::telemetry::exported_response::{
     CodexExportedResponse, CodexOffStreamPlacement, CodexRolloutLine,
 };
-use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
-use crate::driver::codex::telemetry::sighting::compose_codex_sighting;
 use crate::driver::codex::web_search::CodexWebSearch;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 
 impl CodexSessionIntake {
     /// Prices `hand_over`, the completed responses the drain or the rollout fallback pushed onto
     /// the session together, each with its sighting, recorded as one batch; those the session
-    /// cannot file are charged through `charge` as their accounts' spend outside any session.
-    pub(super) async fn price_exported_responses(
-        &mut self,
-        hand_over: Vec<CodexExportedResponse>,
-        charge: CodexLaunchCharge,
-    ) {
+    /// cannot file are charged as their accounts' spend outside any session.
+    pub(super) async fn price_exported_responses(&mut self, hand_over: Vec<CodexExportedResponse>) {
         let sink = self.parts.ports.usage.port().map(Arc::clone);
         let mut usage = Vec::with_capacity(hand_over.len());
         let mut unfiled = Vec::new();
@@ -54,9 +49,11 @@ impl CodexSessionIntake {
             }
         }
         self.record_usage(usage).await;
-        if !unfiled.is_empty() {
-            charge.charge_exported(unfiled);
-        }
+        let unfiled = unfiled
+            .into_iter()
+            .map(CodexExportedResponse::into_sighted)
+            .collect();
+        self.charge_unfiled(unfiled).await;
     }
 
     // `exported`'s spend with its sighting, filed as its owner thread's on the turn it is filed on,
@@ -89,21 +86,9 @@ impl CodexSessionIntake {
             }
             Some(CodexRolloutLine::Response { request_key }) => {
                 delta.request.request_key = Some(request_key.clone());
-                delta.sighting = compose_codex_sighting(
-                    UsageSightingSource::File,
-                    &response.conversation_id,
-                    &response.counts,
-                    Some(request_key.as_str()),
-                );
+                delta.sighting = exported.sighting();
             }
-            None => {
-                delta.sighting = compose_codex_sighting(
-                    UsageSightingSource::Export,
-                    &response.conversation_id,
-                    &response.counts,
-                    None,
-                );
-            }
+            None => delta.sighting = exported.sighting(),
         }
         delta.attributed_turn_id = turn_id;
         let filing_run = exported

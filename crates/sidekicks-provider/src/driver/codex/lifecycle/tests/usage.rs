@@ -558,17 +558,13 @@ async fn each_billed_search_is_charged_once_on_a_key_and_never_on_a_plan(
     })
     .collect();
     assert!(
-        live.scripted.service.push_session_item(
-            &live.session_id,
-            CodexSessionInbound::ExportedResponses(
-                hand_over,
-                live.scripted
-                    .service
-                    .dependencies()
-                    .exports
-                    .launch_charge(live.scripted.service.id())
+        live.scripted
+            .service
+            .push_session_item(
+                &live.session_id,
+                CodexSessionInbound::ExportedResponses(hand_over)
             )
-        )
+            .is_ok()
     );
 
     let (charged, expected) = if is_plan {

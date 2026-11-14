@@ -445,6 +445,7 @@ impl ObserverShared {
                     spend,
                     None,
                     None,
+                    None,
                 )
             })
             .collect();

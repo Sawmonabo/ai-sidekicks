@@ -582,6 +582,7 @@ impl RequestHeldListener for HeldRequestRepricing {
                         &request.occurred_at,
                         &daemon_started_at,
                         &request.spend,
+                        request.web_search_requests,
                         request.processing_region.as_ref(),
                         request.sighting.as_ref(),
                     );

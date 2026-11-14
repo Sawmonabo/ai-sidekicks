@@ -20,7 +20,6 @@ use crate::driver::codex::session::inbound::{
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::telemetry::exported_response::CodexExportedResponse;
-use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::error::DriverError;
 
@@ -90,11 +89,7 @@ impl CodexSessionInboundHandler for ArrivalOrder {
         unreachable!("no account moves")
     }
 
-    fn exported_responses(
-        &mut self,
-        _responses: Vec<CodexExportedResponse>,
-        _charge: CodexLaunchCharge,
-    ) -> BoxFuture<'_, ()> {
+    fn exported_responses(&mut self, _responses: Vec<CodexExportedResponse>) -> BoxFuture<'_, ()> {
         async {}.boxed()
     }
 }

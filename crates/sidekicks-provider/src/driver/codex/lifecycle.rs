@@ -32,7 +32,6 @@ use crate::command::askpass::command_askpass_program_path;
 use crate::command::channel::command_channel_root;
 use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
-use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::CodexAccountLegs;
 use crate::driver::codex::account_home_logs::AccountHomeLogExpiry;
 use crate::driver::codex::calibration::CodexCompactionLimits;
@@ -50,7 +49,7 @@ use crate::driver::codex::lifecycle::intake::CodexSessionIntake;
 use crate::driver::codex::lifecycle::service_events::CodexDriverServiceEvents;
 use crate::driver::codex::lifecycle::views::CodexSessionViews;
 use crate::driver::codex::model_windows::CodexModelWindowCache;
-use crate::driver::codex::pricing::CodexRequestPricer;
+use crate::driver::codex::pricing::compose_codex_live_pricing;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::rules::CodexProjectRuleFiles;
 use crate::driver::codex::run::control::{CodexRunControl, CodexRunControlDependencies};
@@ -148,7 +147,8 @@ pub(crate) struct CodexDriver {
     // runs in.
     capability_read: tokio::sync::Mutex<()>,
     tasks: TaskTracker,
-    // The export drain and its launches' work, apart from `tasks` so the shutdown stops them first.
+    // The export drain, its launches' work and each write of a charge outside any session, apart
+    // from `tasks`, whose sessions charge on them, so the shutdown waits for them last.
     export_tasks: TaskTracker,
     link: Arc<CodexDriverLink>,
     /// Codex's live pricing, which every session's recorder and every copy price through and a
@@ -259,9 +259,11 @@ impl CodexDriver {
             tasks: tasks.clone(),
         });
         let export_tasks = TaskTracker::new();
+        let pricing = compose_codex_live_pricing(&services.ports);
         let exports = Arc::new(CodexExports::new(
             Arc::clone(&services.scheduler),
             Arc::clone(&services.ports.request_held),
+            Arc::clone(&pricing),
             export_tasks.clone(),
         ));
         // One drain takes every service's exported responses to their sessions.
@@ -368,11 +370,7 @@ impl CodexDriver {
             tasks,
             export_tasks,
             link,
-            pricing: Arc::new(LivePricing::new(
-                DESCRIPTOR.provider_id(),
-                Arc::new(CodexRequestPricer),
-                &services.ports,
-            )),
+            pricing,
             exports,
             parts: OnceLock::new(),
         }

@@ -28,7 +28,6 @@ use crate::driver::codex::session::inbound::{
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::telemetry::exported_response::CodexExportedResponse;
-use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::account::{FirstRequestAfterMove, SessionAccountMove};
 use crate::driver::contract::error::DriverError;
@@ -242,11 +241,7 @@ impl CodexSessionInboundHandler for SessionQueue {
         async move { binding_move.land(&*self.moves, &self.recorder).await }.boxed()
     }
 
-    fn exported_responses(
-        &mut self,
-        _responses: Vec<CodexExportedResponse>,
-        _charge: CodexLaunchCharge,
-    ) -> BoxFuture<'_, ()> {
+    fn exported_responses(&mut self, _responses: Vec<CodexExportedResponse>) -> BoxFuture<'_, ()> {
         async {}.boxed()
     }
 

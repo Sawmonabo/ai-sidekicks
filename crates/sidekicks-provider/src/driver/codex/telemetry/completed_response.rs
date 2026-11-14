@@ -2,12 +2,14 @@
 
 use opentelemetry_proto::tonic::logs::v1::{LogRecord, ResourceLogs};
 use serde_json::Map;
+use sidekicks_contracts::event::usage::{UsageSighting, UsageSightingSource};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::pricing::compose_codex_request_facts;
+use crate::driver::codex::telemetry::sighting::compose_codex_sighting;
 use crate::pricing::receiver::records::{
     RecordRefusal, find_attribute, is_text, read_count, read_text,
 };
@@ -71,6 +73,16 @@ impl CodexCompletedResponse {
                 self.model_id.as_str(),
                 self.service_tier.as_ref().map(BoundedText::as_str),
             ),
+        )
+    }
+
+    /// The response's sighting as its export stated it, keyed by its thread and counts.
+    pub(crate) fn export_sighting(&self) -> Option<UsageSighting> {
+        compose_codex_sighting(
+            UsageSightingSource::Export,
+            &self.conversation_id,
+            &self.counts,
+            None,
         )
     }
 

@@ -142,6 +142,7 @@ fn compose_daemon_export(
     let bearer = target
         .bearers()
         .mint(DESCRIPTOR.provider_id(), tag.holder())?;
+    bearer.keep_during_reads(tag.read_guard());
     let mut environment = compose_daemon_export_environment(&bearer, &tag);
     environment.push((
         BATCH_INTERVAL_VARIABLE.to_owned(),
@@ -219,6 +220,7 @@ pub(crate) fn restore_daemon_export(
         tracing::warn!("a joined codex service's record keeps no token its exports can present");
         return None;
     };
+    bearer.keep_during_reads(tag.read_guard());
     Some(CodexLaunchTelemetry {
         tag,
         bearer,

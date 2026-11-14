@@ -2,6 +2,7 @@
 //! drain placed it off the session's stream, or a charge its rollout file stated while the export
 //! was absent, a response's counts or a hosted web search.
 
+use sidekicks_contracts::event::usage::{UsageSighting, UsageSightingSource};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
@@ -11,12 +12,15 @@ use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
 use crate::driver::codex::telemetry::rollouts::file::{
     CodexRolloutCharge, CodexRolloutRequest, CodexRolloutTier,
 };
+use crate::driver::codex::telemetry::sessionless_spend::CodexSightedResponse;
+use crate::driver::codex::telemetry::sighting::{
+    compose_codex_search_sighting, compose_codex_sighting,
+};
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// One completed response the export or a rollout file stated, or a search a rollout file stated
 /// riding on a response of no counts, with the account it ran on, and where the drain placed it
 /// when no session streams its thread.
-#[derive(Clone)]
 pub(crate) struct CodexExportedResponse {
     /// The response, carrying the account it ran on.
     pub(crate) response: CodexCompletedResponse,
@@ -130,6 +134,38 @@ impl CodexExportedResponse {
                 filing_run: None,
             }),
         })
+    }
+
+    /// The response's sighting: its export's, its rollout line's, keyed by Codex's id of the
+    /// response, or for a search its search's, keyed by the search's id.
+    pub(crate) fn sighting(&self) -> Option<UsageSighting> {
+        let response = &self.response;
+        match self.rollout.as_ref().map(|rollout| &rollout.line) {
+            None => response.export_sighting(),
+            Some(CodexRolloutLine::Response { request_key }) => compose_codex_sighting(
+                UsageSightingSource::File,
+                &response.conversation_id,
+                &response.counts,
+                Some(request_key.as_str()),
+            ),
+            Some(CodexRolloutLine::Search { search_id }) => {
+                compose_codex_search_sighting(UsageSightingSource::File, search_id)
+            }
+        }
+    }
+
+    /// The response as no session takes it, with its sighting and, for a search, its one search.
+    pub(crate) fn into_sighted(self) -> CodexSightedResponse {
+        let sighting = self.sighting();
+        let web_searches = match self.rollout.map(|rollout| rollout.line) {
+            Some(CodexRolloutLine::Search { .. }) => Some(1),
+            None | Some(CodexRolloutLine::Response { .. }) => None,
+        };
+        CodexSightedResponse {
+            response: self.response,
+            sighting,
+            web_searches,
+        }
     }
 
     /// The thread the response is filed as: the child it was placed through, else its own.

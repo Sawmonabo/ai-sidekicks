@@ -12,7 +12,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
-use sidekicks_contracts::event::usage::UsageSightingSource;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::mpsc;
@@ -36,7 +35,6 @@ use crate::driver::codex::telemetry::rollouts::fallback::{
     CodexFallbackDue, CodexLaunchRollouts, CodexRolloutFallback,
 };
 use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
-use crate::driver::codex::telemetry::sighting::compose_codex_sighting;
 
 // What the reader hands the drain, each with the service that ran it and its launch's placement
 // state and charge: the completed responses of the export numbered `export_number`, handed over
@@ -474,12 +472,7 @@ async fn file_copy(
         mut filing, folder, ..
     } = copy;
     let mut delta = response.meter();
-    delta.sighting = compose_codex_sighting(
-        UsageSightingSource::Export,
-        &response.conversation_id,
-        &response.counts,
-        None,
-    );
+    delta.sighting = response.export_sighting();
     filing.file(delta, service, &folder).await;
     response.log_read_for_price();
 }
@@ -532,9 +525,10 @@ fn deliver_moved(
 }
 
 /// Pushes `exported`, one hand-over, onto `session_id`'s queue on `service` as one item, which the
-/// session prices together, with `charge`, the launch's that read it, which charges what the
-/// session cannot file. A hand-over no session takes is charged through `charge` at once, each
-/// response with its own sighting, an export's or its rollout line's. An empty one pushes nothing.
+/// session prices together and charges what it cannot file of at its own region. A hand-over no
+/// session takes is handed back and charged through `charge`, the launch's that read it, at once,
+/// each response with its own sighting, an export's, its rollout line's or its search's. An empty
+/// one pushes nothing.
 pub(crate) fn push_exported_responses(
     service: &CodexService,
     session_id: SessionId,
@@ -544,11 +538,13 @@ pub(crate) fn push_exported_responses(
     if exported.is_empty() {
         return;
     }
-    let untaken = exported.clone();
-    if !service.push_session_item(
+    let pushed = service.push_session_item(
         &session_id,
-        CodexSessionInbound::ExportedResponses(exported, charge.clone()),
-    ) {
+        CodexSessionInbound::ExportedResponses(exported),
+    );
+    if let Err(untaken) = pushed
+        && let CodexSessionInbound::ExportedResponses(untaken) = *untaken
+    {
         charge.charge_exported(untaken);
     }
 }

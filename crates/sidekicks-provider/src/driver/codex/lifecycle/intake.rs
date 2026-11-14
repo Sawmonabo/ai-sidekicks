@@ -10,16 +10,18 @@
 //! their place among the frames too. Each completed response the export or a rollout file states
 //! is priced as it arrives, with its sighting, which the usage record passes over where another
 //! sighting of the same request was priced first; one the session cannot file, its record let go
-//! or no run's binding to file on, is charged through its launch's charge as its account's spend
-//! outside any session.
+//! or no run's binding to file on, is charged as its account's spend outside any session through
+//! the session's recorder, after the spend metered before it, at the region its rows are stamped
+//! with, read before the charge goes out.
 //!
 //! A full usage queue holds the task until the sink takes a batch, so no spend is lost: while the
 //! database writer stalls, this session's frames, asks and calls wait behind it, as every other
 //! write of the session would. Its inbound queue stays unbounded, since the connection's reader
 //! serves every session of the service, and is logged as it grows past each depth mark.
 
+use std::error::Error;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -51,7 +53,7 @@ use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnEndW
 use crate::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
 };
-use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::calls::{CodexSessionTask, run_codex_session_call};
 use crate::driver::codex::session::context_reading::{
     CodexFixedStart, CodexSessionContextReadings,
@@ -70,12 +72,14 @@ use crate::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_sessi
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::session::thread_turns::{CodexSettledTurn, CodexThreadTurns, TurnFrame};
 use crate::driver::codex::telemetry::exported_response::CodexExportedResponse;
-use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
+use crate::driver::codex::telemetry::sessionless_spend::{
+    CodexSessionlessSpend, CodexSightedResponse,
+};
 use crate::driver::codex::thread::permission_profiles;
 use crate::driver::codex::transport::connection::{CodexForgottenRequest, read_codex_object};
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::contract::error::DriverError;
-use crate::port::usage_sink::MeteredUsage;
+use crate::port::usage_sink::{MeteredUsage, UsageSink};
 
 mod exported_responses;
 pub(crate) mod routed_frames;
@@ -106,22 +110,52 @@ pub(crate) struct CodexSessionIntake {
     // export status and which an exported response is filed on.
     thread_turns: CodexThreadTurns,
     // The session's one usage recorder, fed in metering order with the account moves between the
-    // spends; opened at the first spend metered once the usage service registered, and ended when
-    // the session's task ends.
+    // spends; opened at the first spend metered once the usage service registered or the first
+    // charge of what the session cannot file, and ended when the session's task ends.
     usage_recorder: Option<mpsc::Sender<UsageRecorderItem>>,
+    // The driver's charge of what the session cannot file.
+    sessionless: Arc<CodexSessionlessSpend>,
+    // Where that charge reads its region, as the record stood at its last charge or its let-go.
+    unfiled_place: CodexUnfiledPlace,
 }
 
 // What the session's usage recorder takes, in metering order: spend, with the account its bindings
-// charge then and the service and folder whose region prices it, or a move of the session's
-// bindings onto another account, made once the spend before it is recorded.
+// charge then, the service and folder whose region prices it and the sink it is recorded through;
+// what the session cannot file, charged at that region; or a move of the session's bindings onto
+// another account, made once the spend before it is recorded.
 enum UsageRecorderItem {
-    Usage(
-        Vec<MeteredUsage>,
-        ProviderAccountId,
-        Arc<CodexService>,
-        PathBuf,
-    ),
+    Usage {
+        batch: Vec<MeteredUsage>,
+        account: ProviderAccountId,
+        service: Arc<CodexService>,
+        folder: PathBuf,
+        sink: Arc<dyn UsageSink>,
+    },
+    Unfiled {
+        sighted: Vec<CodexSightedResponse>,
+        place: CodexUnfiledPlace,
+    },
     AccountMove(CodexBindingMove),
+}
+
+// The service and folder whose region what the session cannot file is charged at, held weakly so
+// a record let go keeps no service alive.
+#[derive(Clone)]
+struct CodexUnfiledPlace {
+    service: Weak<CodexService>,
+    service_id: CodexServiceId,
+    folder: PathBuf,
+}
+
+impl CodexUnfiledPlace {
+    // Where `record`'s rows are priced.
+    fn of(record: &CodexSessionRecord) -> Self {
+        Self {
+            service: Arc::downgrade(&record.service),
+            service_id: record.service.id(),
+            folder: record.thread_settings.working_directory.clone(),
+        }
+    }
 }
 
 impl CodexSessionIntake {
@@ -136,6 +170,8 @@ impl CodexSessionIntake {
     ) -> Self {
         parts.views.show(&record);
         let session_id = record.session_id;
+        let sessionless = Arc::clone(record.service.dependencies().exports.sessionless_spend());
+        let unfiled_place = CodexUnfiledPlace::of(&record);
         Self {
             session_id,
             record: Some(record),
@@ -145,6 +181,8 @@ impl CodexSessionIntake {
             context_readings: CodexSessionContextReadings::new(session_id, fixed_start),
             thread_turns: CodexThreadTurns::default(),
             usage_recorder: None,
+            sessionless,
+            unfiled_place,
         }
     }
 
@@ -190,9 +228,10 @@ impl CodexSessionIntake {
                 arm_export_check(record, &settled);
             }
         }
-        let usage =
+        let (usage, unbound) =
             apply_codex_routed_frames(&Self::routed_frames_intake(parts), record, routed).await;
         self.record_usage(usage).await;
+        self.charge_unfiled(unbound).await;
     }
 
     // Hands `usage` to the session's recorder, which records each delta in metering order on the
@@ -206,60 +245,119 @@ impl CodexSessionIntake {
         if usage.is_empty() {
             return;
         }
-        let provider_account_id = record.provider_account_id.clone();
+        // Before the usage service registers its record there is nothing to record into.
+        let Some(sink) = self.parts.ports.usage.port().map(Arc::clone) else {
+            return;
+        };
+        let item = UsageRecorderItem::Usage {
+            batch: usage,
+            account: record.provider_account_id.clone(),
+            service: Arc::clone(&record.service),
+            folder: record.thread_settings.working_directory.clone(),
+            sink,
+        };
+        self.send_to_recorder(item).await;
+    }
+
+    // Charges `unfiled`, what the session cannot file, as its accounts' spend outside any session
+    // through the session's recorder, so it follows the spend metered before it and goes out at
+    // the region the session's rows are stamped with, once that is read.
+    async fn charge_unfiled(&mut self, unfiled: Vec<CodexSightedResponse>) {
+        if unfiled.is_empty() {
+            return;
+        }
+        if let Some(record) = &self.record {
+            self.unfiled_place = CodexUnfiledPlace::of(record);
+        }
+        let item = UsageRecorderItem::Unfiled {
+            sighted: unfiled,
+            place: self.unfiled_place.clone(),
+        };
+        self.send_to_recorder(item).await;
+    }
+
+    // Sends `item` to the session's recorder, opening it first; one the recorder can no longer
+    // take is reported with the deltas or charges it held.
+    async fn send_to_recorder(&mut self, item: UsageRecorderItem) {
+        let report = self.compose_usage_report();
+        let recorder = self.usage_recorder.get_or_insert_with(|| {
+            Self::open_recorder(&self.parts, &self.sessionless, report.clone())
+        });
+        if let Err(refused) = recorder.send(item).await {
+            let lost = match refused.0 {
+                UsageRecorderItem::Usage { batch, .. } => batch.len(),
+                UsageRecorderItem::Unfiled { sighted, .. } => sighted.len(),
+                UsageRecorderItem::AccountMove(_) => 0,
+            };
+            report(Box::new(UsageRecorderEnded { lost }));
+        }
+    }
+
+    // How the recorder reports a failure: as a failed usage delivery of the session, under the
+    // account its record runs on.
+    fn compose_usage_report(
+        &self,
+    ) -> impl Fn(Box<dyn Error + Send + Sync>) + Clone + Send + Sync + use<> {
+        let provider_account_id = self
+            .record
+            .as_ref()
+            .map(|record| record.provider_account_id.clone());
         let session_id = self.session_id;
-        let report = move |error: Box<dyn std::error::Error + Send + Sync>| {
+        move |error: Box<dyn Error + Send + Sync>| {
             CodexTransportDiagnostic::PortDeliveryFailed {
-                provider_account_id: Some(provider_account_id.clone()),
+                provider_account_id: provider_account_id.clone(),
                 port: CodexDeliveryPort::Usage,
                 session_id: Some(session_id),
                 error,
             }
             .report();
-        };
-        if self.usage_recorder.is_none() {
-            // Before the usage service registers its record there is nothing to record into.
-            let Some(sink) = self.parts.ports.usage.port().map(Arc::clone) else {
-                return;
-            };
-            let (sender, mut items) = mpsc::channel::<UsageRecorderItem>(USAGE_RECORDER_QUEUE);
-            let report = report.clone();
-            let bindings = Arc::clone(&self.parts.runtime_bindings);
-            let account_moves = Arc::clone(&self.parts.ports.session_account_moves);
-            let mut pricing = CodexRecorderPricing::new(Arc::clone(&self.parts.pricing));
-            self.parts.tasks.spawn(async move {
-                while let Some(item) = items.recv().await {
-                    match item {
-                        UsageRecorderItem::Usage(batch, account, service, folder) => {
-                            pricing
-                                .record(&*sink, batch, &account, &service, &folder, &report)
-                                .await;
-                        }
-                        UsageRecorderItem::AccountMove(binding_move) => {
-                            binding_move.land(&*bindings, &account_moves).await;
-                        }
+        }
+    }
+
+    // Opens the session's recorder on the driver's tasks: it records each batch, charges what the
+    // session cannot file and lands each account move, in the order they were sent.
+    fn open_recorder(
+        parts: &CodexDriverParts,
+        sessionless: &Arc<CodexSessionlessSpend>,
+        report: impl Fn(Box<dyn Error + Send + Sync>) + Send + Sync + 'static,
+    ) -> mpsc::Sender<UsageRecorderItem> {
+        let (sender, mut items) = mpsc::channel::<UsageRecorderItem>(USAGE_RECORDER_QUEUE);
+        let bindings = Arc::clone(&parts.runtime_bindings);
+        let account_moves = Arc::clone(&parts.ports.session_account_moves);
+        let sessionless = Arc::clone(sessionless);
+        let mut pricing = CodexRecorderPricing::new(Arc::clone(&parts.pricing));
+        parts.tasks.spawn(async move {
+            while let Some(item) = items.recv().await {
+                match item {
+                    UsageRecorderItem::Usage {
+                        batch,
+                        account,
+                        service,
+                        folder,
+                        sink,
+                    } => {
+                        pricing
+                            .record(&*sink, batch, &account, &service, &folder, &report)
+                            .await;
+                    }
+                    UsageRecorderItem::Unfiled { sighted, place } => {
+                        let region = pricing
+                            .read_unfiled_region(
+                                &place.service,
+                                place.service_id,
+                                &place.folder,
+                                &report,
+                            )
+                            .await;
+                        sessionless.charge(sighted, region.as_ref());
+                    }
+                    UsageRecorderItem::AccountMove(binding_move) => {
+                        binding_move.land(&*bindings, &account_moves).await;
                     }
                 }
-            });
-            self.usage_recorder = Some(sender);
-        }
-        let Some(recorder) = &self.usage_recorder else {
-            return;
-        };
-        let folder = record.thread_settings.working_directory.clone();
-        let item = UsageRecorderItem::Usage(
-            usage,
-            record.provider_account_id.clone(),
-            Arc::clone(&record.service),
-            folder,
-        );
-        if let Err(refused) = recorder.send(item).await {
-            let lost = match refused.0 {
-                UsageRecorderItem::Usage(batch, ..) => batch.len(),
-                UsageRecorderItem::AccountMove(_) => 0,
-            };
-            report(Box::new(UsageRecorderEnded { lost }));
-        }
+            }
+        });
+        sender
     }
 
     // Moves the session onto `account_move`'s account at this place among its frames: its record
@@ -490,6 +588,8 @@ impl CodexSessionIntake {
         let Some(record) = self.record.take() else {
             return;
         };
+        // What the session cannot file after this is charged at the region it was priced at.
+        self.unfiled_place = CodexUnfiledPlace::of(&record);
         if let Some(turn_id) = self.thread_turns.live_turn(&record.thread_id) {
             let exports = &record.service.dependencies().exports;
             exports.turn_ended(
@@ -624,12 +724,8 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
         self.move_account(account_move).boxed()
     }
 
-    fn exported_responses(
-        &mut self,
-        exported: Vec<CodexExportedResponse>,
-        charge: CodexLaunchCharge,
-    ) -> BoxFuture<'_, ()> {
-        self.price_exported_responses(exported, charge).boxed()
+    fn exported_responses(&mut self, exported: Vec<CodexExportedResponse>) -> BoxFuture<'_, ()> {
+        self.price_exported_responses(exported).boxed()
     }
 
     fn next_deadline(&self) -> Option<Instant> {

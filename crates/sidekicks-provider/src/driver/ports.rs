@@ -18,6 +18,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::DatabaseWriter;
@@ -169,6 +170,8 @@ pub struct SessionlessRequest {
     pub processing_region: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
     /// What it spent, at its model and tier.
     pub spend: WindowTurnSpend,
+    /// The hosted web searches it ran; `None` for none.
+    pub web_search_requests: Option<SafeInt<0>>,
     /// Its sighting, which a session's later sighting of the same request is passed over by, and
     /// which passes it over where a session's sighting priced it first; `None` for none.
     pub sighting: Option<UsageSighting>,
@@ -199,9 +202,9 @@ pub trait RequestHeldListener: Send + Sync {
 
     /// Writes each of `requests`, never empty, as a held usage row no session owns, all in one
     /// write, then takes the key of each written into the repricing; a request whose sighting is
-    /// passed over writes no row and marks its sighting. Answers each request's outcome in order.
-    /// Fails as the write fails, which writes none of them, an account not registered among its
-    /// refusals where the request has no sighting.
+    /// passed over writes no row and marks its sighting, and one whose account is being removed or
+    /// is not registered writes nothing. Answers each request's outcome in order. Fails as the
+    /// write fails, which writes none of them.
     fn sessionless_requests_held(
         &self,
         requests: Vec<SessionlessRequest>,

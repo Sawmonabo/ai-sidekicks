@@ -69,13 +69,17 @@ WHERE NOT {SIGHTING_PASSED_OVER_CONDITION}
 });
 
 // The mark of a sighting on the oldest record of its key that holds none from its source, on that
-// record's account and session, `@session_id` where the record has none, unless its source's own
-// id is recorded already. It counts toward `@run_id` where the record's row was the session's own,
+// record's account and its opener's session, `@session_id` where the opener has none, unless its
+// source's own id is recorded already: the opener is read by name, since a record's marks may
+// carry other sessions. It counts toward `@run_id` where the record's row was the session's own,
 // on no run, or a row no session owns, and no sighting of the record counts toward one yet; it
 // returns the run it counts toward and its record.
 const MARK_SIGHTING_SQL: &str = "INSERT INTO usage_sightings
   (record_id, match_key, source, sighting_key, session_id, account_id, run_id)
-SELECT record_id, @match_key, @source, @sighting_key, COALESCE(session_id, @session_id),
+SELECT record_id, @match_key, @source, @sighting_key,
+  COALESCE((SELECT opener.session_id FROM usage_sightings AS opener
+            WHERE opener.record_id = usage_sightings.record_id
+            ORDER BY opener.sighting_id LIMIT 1), @session_id),
   account_id,
   CASE WHEN COUNT(run_id) = 0 AND (
     EXISTS (SELECT 1 FROM usage_sightings AS opener

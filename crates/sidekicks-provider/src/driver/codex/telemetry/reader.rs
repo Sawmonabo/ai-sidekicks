@@ -1,8 +1,9 @@
 //! The reader the receiver hands each Codex export: the launch or exec its token was minted for
 //! checked against the tag its resource carries, and each completed response its records state
 //! stamped with the account it ran on and handed off to the drain, or for an exec collected for
-//! the exec's caller; a launch whose service is gone charges its last exports under the account
-//! its service ran on last.
+//! the exec's caller; a launch whose service is gone charges its last exports, each under the
+//! account its service ran on at its time. The receiver holds the tag's guard across the read of
+//! an export it admitted, so the launch it was admitted for is still registered.
 
 use std::collections::HashSet;
 
@@ -32,9 +33,9 @@ impl CodexExports {
     // carries the tag of `holder`'s launch, whose token the export presented, and marks that
     // launch exporting; or collects each for `holder`'s exec, when the resource carries its tag.
     // A resource whose tag is absent, unreadable or another's is refused once under the account;
-    // the responses of a launch whose service is gone are charged outside any session under the
-    // account its service ran on last, and those of a launch whose tag is gone are each refused,
-    // naming their thread.
+    // the responses of a launch whose service is gone are charged outside any session, each under
+    // the account its service ran on at its time, and those of a launch whose tag is gone are each
+    // refused, naming their thread.
     fn read_resource_logs(&self, holder: TelemetryHolderId, resource_logs: &ResourceLogs) {
         let (read, tracker) = match self.export_read(holder, read_resource_tag(resource_logs)) {
             CodexLaunchLookup::Read(read, tracker) => (read, tracker),
@@ -89,16 +90,10 @@ impl CodexExports {
         };
         let arrived_at_ms = read_unix_time_ms();
         let current_account = service.provider_account_id();
-        read.charge.keep_account(current_account.clone());
         let mut responses = read_codex_completed_responses(resource_logs, current_account.as_ref());
         for response in &mut responses {
-            // The account its turn ran on, read by the time Codex observed it; one carrying no
-            // time is read at its export's arrival.
-            let ran_at_ms = match response.observed_at_ms {
-                0 => arrived_at_ms,
-                observed_at_ms => observed_at_ms,
-            };
-            response.provider_account_id = service.account_at(ran_at_ms);
+            response.provider_account_id =
+                service.account_at(ran_at_ms(response.observed_at_ms, arrived_at_ms));
         }
         // The export's responses go over together, so the session prices them in one commit.
         if !responses.is_empty() {
@@ -189,15 +184,25 @@ fn collect_exec_responses(
     }
 }
 
+// When a response Codex observed at `observed_at_ms` ran, in Unix milliseconds: that time, else
+// its export's arrival, `arrived_at_ms`, for one carrying no time.
+fn ran_at_ms(observed_at_ms: u64, arrived_at_ms: u64) -> u64 {
+    match observed_at_ms {
+        0 => arrived_at_ms,
+        observed_at_ms => observed_at_ms,
+    }
+}
+
 // Charges each completed response `resource_logs` states outside any session, under the account
-// `charge`'s launch's service ran on last, since its service is gone and no session takes it.
+// `charge`'s launch's service ran on at the response's time, since its service is gone and no
+// session takes it.
 fn charge_ended(resource_logs: &ResourceLogs, charge: &CodexLaunchCharge) {
-    let provider_account_id = charge.account();
-    let mut responses = read_codex_completed_responses(resource_logs, provider_account_id.as_ref());
+    let arrived_at_ms = read_unix_time_ms();
+    let latest_account = charge.account_at(arrived_at_ms);
+    let mut responses = read_codex_completed_responses(resource_logs, latest_account.as_ref());
     for response in &mut responses {
-        response
-            .provider_account_id
-            .clone_from(&provider_account_id);
+        response.provider_account_id =
+            charge.account_at(ran_at_ms(response.observed_at_ms, arrived_at_ms));
     }
     charge.charge(responses);
 }

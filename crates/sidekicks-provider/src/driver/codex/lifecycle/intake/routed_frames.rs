@@ -1,6 +1,6 @@
 //! Applying what a session's frame delivery reported, in delivery order, its spend attributed to
-//! the binding it files on, and a reading no binding takes charged as its account's spend outside
-//! any session.
+//! the binding it files on, and a reading no binding takes handed back to be charged as its
+//! account's spend outside any session.
 
 use std::sync::Arc;
 
@@ -18,11 +18,11 @@ use crate::driver::codex::notification_routing::{CodexContextWindowReading, Code
 use crate::driver::codex::run::control::CodexRunControl;
 use crate::driver::codex::run::routes::CodexRunRoutes;
 use crate::driver::codex::run::steer::{remember_codex_prompt_hook_run, take_blocked_codex_steers};
-use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
-use crate::driver::codex::telemetry::placement::{read_launch_region, refuse_unplaced};
+use crate::driver::codex::telemetry::placement::refuse_unplaced;
+use crate::driver::codex::telemetry::sessionless_spend::CodexSightedResponse;
 use crate::driver::ports::DriverPorts;
 use crate::port::run_host::RunHost;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
@@ -52,14 +52,14 @@ pub(crate) struct CodexRoutedFramesIntake<'parts> {
 /// Codex echoed, which its frame already landed, each prompt's hook runs remembered, each turn's
 /// task list published, and for each ended turn its blocked steers refused and those a pause or a
 /// retry dropped given back, its end recorded where no run moved, its route retired, its pause or
-/// continue acted on and its owed fork let go. A reading with no binding to file on is charged as
-/// its account's spend outside any session, with its stream sighting. Answers the spend it
-/// metered, for the session's task to record.
+/// continue acted on and its owed fork let go. Answers the spend it metered, for the session's task
+/// to record, and each reading with no binding to file on, with its stream sighting, for the task
+/// to charge as its account's spend outside any session.
 pub(crate) async fn apply_codex_routed_frames(
     intake: &CodexRoutedFramesIntake<'_>,
     record: &mut CodexSessionRecord,
     routed: CodexRoutedFrames,
-) -> Vec<MeteredUsage> {
+) -> (Vec<MeteredUsage>, Vec<CodexSightedResponse>) {
     let session_id = record.session_id;
     // Each reading's run is read before a turn's end in the same batch retires its route.
     for reading in routed.context_windows {
@@ -77,7 +77,7 @@ pub(crate) async fn apply_codex_routed_frames(
             Err(delta) => unbound.push((*delta, ran_on)),
         }
     }
-    charge_unbound_readings(&record.service, unbound).await;
+    let unbound = compose_unbound_charges(unbound);
     for dispatch in routed.dispatches {
         if let Some(publisher) = intake.ports.turn_readings.port() {
             for tasks in dispatch.turn_tasks {
@@ -133,7 +133,7 @@ pub(crate) async fn apply_codex_routed_frames(
             intake.config_forks.note_turn_settled(record);
         }
     }
-    metered_usage
+    (metered_usage, unbound)
 }
 
 // Adds a delta of the session's own conversation to its live turn's tokens received and publishes
@@ -221,34 +221,14 @@ pub(super) fn attribute_codex_usage(
     })
 }
 
-// Charges each of `unbound`, a stream reading no binding takes, with the account it ran on, as its
-// account's spend outside any session with its stream sighting, through the charge of
-// `service`'s newest launch, at the region of its settings for no folder, read once. A reading
-// that names no model, or a hosted web search, which no spend outside a session prices, is
+// The charge of each of `unbound`, a stream reading no binding takes, with the account it ran on,
+// its stream sighting and any hosted web searches it states. A reading that names no model is
 // refused, naming its thread.
-async fn charge_unbound_readings(
-    service: &CodexService,
+fn compose_unbound_charges(
     unbound: Vec<(MeteredUsageDelta, Option<ProviderAccountId>)>,
-) {
-    if unbound.is_empty() {
-        return;
-    }
-    let charge = service.dependencies().exports.launch_charge(service.id());
-    read_launch_region(service, &charge).await;
+) -> Vec<CodexSightedResponse> {
     let mut sighted = Vec::with_capacity(unbound.len());
     for (delta, provider_account_id) in unbound {
-        if delta
-            .request
-            .web_search_requests
-            .is_some_and(|searches| searches > 0)
-        {
-            refuse_unplaced(
-                &delta.thread_id,
-                provider_account_id,
-                "no session took the web search it states",
-            );
-            continue;
-        }
         let Some(model_id) = delta.request.model_id else {
             refuse_unplaced(
                 &delta.thread_id,
@@ -265,9 +245,13 @@ async fn charge_unbound_readings(
             observed_at_ms: 0,
             provider_account_id,
         };
-        sighted.push((response, delta.sighting));
+        sighted.push(CodexSightedResponse {
+            response,
+            sighting: delta.sighting,
+            web_searches: delta.request.web_search_requests,
+        });
     }
-    charge.charge_sighted(sighted);
+    sighted
 }
 
 // The run a frame of the session's own conversation naming `turn_id` belongs to, and the binding

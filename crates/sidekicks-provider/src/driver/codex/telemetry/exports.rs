@@ -2,7 +2,9 @@
 //! its export status, placement state, copies' threads and rollout fallback, and the hand-off of
 //! each completed response its exports state, and of each request turn it settles, to the drain;
 //! each launch's charge of the responses no session holds, which its placement makes as it ends
-//! and which outlives its service while its tag lives, so its last exports are charged; and the
+//! and which outlives its service while its tag lives, so its last exports are charged, each under
+//! the account its service ran on at its time; the driver's charge a session's unfiled responses
+//! go through; and the
 //! tag of each one-shot exec that exports, with the responses its exports state, collected for the
 //! exec's caller.
 
@@ -36,6 +38,7 @@ use crate::driver::codex::telemetry::sessionless_spend::{
 };
 use crate::driver::ports::RequestHeldListener;
 use crate::pricing::export_status::{ExportStatus, ExportStatusTracker};
+use crate::pricing::live::LivePricing;
 use crate::pricing::receiver::bearers::TelemetryHolderId;
 
 #[cfg(test)]
@@ -86,7 +89,7 @@ pub(crate) struct CodexExportTag {
     number: u64,
     kind: CodexTagKind,
     resource_tag: u64,
-    _registered: Arc<()>,
+    registered: Arc<()>,
 }
 
 impl CodexExportTag {
@@ -105,6 +108,12 @@ impl CodexExportTag {
     /// The tag the launch's resource carries, which its service's record keeps.
     pub(crate) fn resource_tag(&self) -> u64 {
         self.resource_tag
+    }
+
+    /// The tag's guard, which keeps the launch or exec registered while held, for the reads of
+    /// exports already admitted under its token to hold.
+    pub(crate) fn read_guard(&self) -> Arc<()> {
+        Arc::clone(&self.registered)
     }
 }
 
@@ -136,7 +145,7 @@ struct CodexLaunchExports {
 
 // A launch whose service is gone while its process still exports under its tag: the tag's guard,
 // the tag its resource carries, its gone service, and the launch's charge, which charges its last
-// exports under the account its service ran on.
+// exports under the account its service ran on at each one's time.
 struct CodexEndedLaunch {
     registered: Weak<()>,
     resource_tag: u64,
@@ -244,16 +253,18 @@ impl CodexLaunchExports {
 
 impl CodexExports {
     /// A register whose launches' export checks run on `scheduler`, and whose responses no
-    /// session holds are handed to the repricing `request_held` registers, on a task of `tasks`.
+    /// session holds are handed to the repricing `request_held` registers, on a task of `tasks`,
+    /// a search's account's sign-in kind read through `pricing`.
     pub(crate) fn new(
         scheduler: Arc<Scheduler>,
         request_held: Arc<PortRegistration<Arc<dyn RequestHeldListener>>>,
+        pricing: Arc<LivePricing>,
         tasks: TaskTracker,
     ) -> Self {
         let (hand_off, items) = mpsc::channel(CODEX_EXPORT_HAND_OFF_DEPTH);
         let stop = CancellationToken::new();
         Self {
-            sessionless: Arc::new(CodexSessionlessSpend::new(request_held, tasks)),
+            sessionless: Arc::new(CodexSessionlessSpend::new(request_held, pricing, tasks)),
             scheduler,
             launches: Mutex::new(CodexLaunchExports {
                 next_number: 0,
@@ -313,16 +324,10 @@ impl CodexExports {
         }
     }
 
-    /// The charge of `service_id`'s newest launch, for a stream reading no binding takes, so the
-    /// launch's region is read once; where the service has no exporting launch, a charge of no
-    /// launch, its region not read yet.
-    pub(crate) fn launch_charge(&self, service_id: CodexServiceId) -> CodexLaunchCharge {
-        self.with_live(|launches| {
-            launches
-                .newest_of(service_id)
-                .map(|launch| launch.charge.clone())
-        })
-        .unwrap_or_else(|| CodexLaunchCharge::new(&self.sessionless))
+    /// The driver's charge of the responses no session takes, which a session charges what it
+    /// cannot file through at its own region.
+    pub(crate) fn sessionless_spend(&self) -> &Arc<CodexSessionlessSpend> {
+        &self.sessionless
     }
 
     /// Registers an exporting launch of `service` under a new number, which its resource carries
@@ -347,8 +352,7 @@ impl CodexExports {
         ));
         let registered = Arc::new(());
         let rollouts = CodexLaunchRollouts::new(&tracker, read_unix_time_ms());
-        let charge = CodexLaunchCharge::new(&self.sessionless);
-        charge.keep_account(service.provider_account_id());
+        let charge = CodexLaunchCharge::new(&self.sessionless, service.account_timeline());
         let placement = Arc::new(Mutex::new(CodexLaunchPlacement::new(charge.clone())));
         // The launch's task follows its export status from its start, so its fallback reads as
         // the status turns stopped.
@@ -383,7 +387,7 @@ impl CodexExports {
             number,
             kind: CodexTagKind::Service,
             resource_tag,
-            _registered: registered,
+            registered,
         }
     }
 
@@ -413,7 +417,7 @@ impl CodexExports {
             number,
             kind: CodexTagKind::Exec,
             resource_tag: number,
-            _registered: registered,
+            registered,
         };
         (tag, responses)
     }

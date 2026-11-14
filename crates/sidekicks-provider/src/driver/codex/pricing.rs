@@ -19,7 +19,7 @@
 //! is recorded unpriced.
 
 use std::path::Path;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Weak};
 
 use sidekicks_contracts::event::usage::UsageCostSource;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
@@ -37,6 +37,7 @@ use crate::driver::codex::config_read::{
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::ports::DriverPorts;
 use crate::port::usage_sink::{MeteredUsage, UsageSink};
 use crate::pricing::BoxedError;
 use crate::pricing::decimal::ExactDecimal;
@@ -81,6 +82,15 @@ pub(crate) fn compose_codex_request_facts(model: &str, tier: Option<&str>) -> Us
 
 /// Codex's rule for pricing its requests from the held price table by the account's sign-in kind.
 pub(crate) struct CodexRequestPricer;
+
+/// The driver's one live pricing of Codex's requests, writing through `ports`.
+pub(crate) fn compose_codex_live_pricing(ports: &DriverPorts) -> Arc<LivePricing> {
+    Arc::new(LivePricing::new(
+        DESCRIPTOR.provider_id(),
+        Arc::new(CodexRequestPricer),
+        ports,
+    ))
+}
 
 impl RequestPricer for CodexRequestPricer {
     fn needs_sign_in_kind(&self) -> bool {
@@ -258,7 +268,21 @@ impl CodexRecorderPricing {
         folder: &Path,
         report: &impl Fn(BoxedError),
     ) {
-        let batch = self.drop_plan_searches(batch, binding_account).await;
+        let batch = drop_plan_searches(&self.live, batch, |metered| {
+            metered
+                .delta
+                .request
+                .web_search_requests
+                .is_some()
+                .then(|| {
+                    metered
+                        .provider_account_id
+                        .as_ref()
+                        .unwrap_or(binding_account)
+                        .clone()
+                })
+        })
+        .await;
         if batch.is_empty() {
             return;
         }
@@ -308,54 +332,6 @@ impl CodexRecorderPricing {
         }
     }
 
-    // `batch` less each hosted search charged to an account a plan signs in, read once per account
-    // per batch, so a plan's search writes no row, event or sighting. A search whose kind reads as
-    // none yet, or whose read fails, which is logged, is kept: its pricing reads the kind again and
-    // holds it.
-    async fn drop_plan_searches(
-        &self,
-        batch: Vec<MeteredUsage>,
-        binding_account: &ProviderAccountId,
-    ) -> Vec<MeteredUsage> {
-        let mut read: Vec<(ProviderAccountId, bool)> = Vec::new();
-        let mut kept = Vec::with_capacity(batch.len());
-        for metered in batch {
-            if metered.delta.request.web_search_requests.is_none() {
-                kept.push(metered);
-                continue;
-            }
-            let account = metered
-                .provider_account_id
-                .as_ref()
-                .unwrap_or(binding_account);
-            let is_read = read
-                .iter()
-                .find(|(read_account, _)| read_account == account)
-                .map(|(_, is_plan)| *is_plan);
-            let is_plan = if let Some(is_plan) = is_read {
-                is_plan
-            } else {
-                let is_plan = match self.live.read_sign_in_kind(account).await {
-                    Ok(sign_in_kind) => is_plan_sign_in(sign_in_kind) == Some(true),
-                    Err(error) => {
-                        tracing::warn!(
-                            error = &*error as &(dyn std::error::Error + 'static),
-                            "a codex account's sign-in kind could not be read; its hosted search \
-                             is kept, its pricing held for the kind"
-                        );
-                        false
-                    }
-                };
-                read.push((account.clone(), is_plan));
-                is_plan
-            };
-            if !is_plan {
-                kept.push(metered);
-            }
-        }
-        kept
-    }
-
     // The region of `service`'s model provider, read once per service; a failed read is reported
     // and answers the unknown host's region, kept for no later batch.
     async fn read_region(
@@ -380,6 +356,71 @@ impl CodexRecorderPricing {
             }
         }
     }
+
+    /// The region what a session cannot file is charged at: the one its rows are stamped with, of
+    /// `service`'s settings for `folder`, read as [`Self::record`] reads it; where the service is
+    /// gone, the region last read for `service_id`, else the unknown host's. A failed read is
+    /// handed to `report`.
+    pub(crate) async fn read_unfiled_region(
+        &mut self,
+        service: &Weak<CodexService>,
+        service_id: CodexServiceId,
+        folder: &Path,
+        report: &impl Fn(BoxedError),
+    ) -> Option<RegionWord> {
+        if let Some(service) = service.upgrade() {
+            return self.read_region(&service, folder, report).await;
+        }
+        match &self.region {
+            Some((read_for, region)) if *read_for == service_id => region.clone(),
+            Some(_) | None => unknown_host_region(),
+        }
+    }
+}
+
+/// `items` less each hosted search charged to an account a plan signs in, each account's kind
+/// read through `live` once per call, so a plan's search writes no row, event or sighting;
+/// `search_account` names the account of an item that is a search, `None` for any other. A search
+/// whose kind reads as none yet, or whose read fails, which is logged, is kept: its pricing reads
+/// the kind again and holds it.
+pub(crate) async fn drop_plan_searches<Item>(
+    live: &LivePricing,
+    items: Vec<Item>,
+    search_account: impl Fn(&Item) -> Option<ProviderAccountId>,
+) -> Vec<Item> {
+    let mut read: Vec<(ProviderAccountId, bool)> = Vec::new();
+    let mut kept = Vec::with_capacity(items.len());
+    for item in items {
+        let Some(account) = search_account(&item) else {
+            kept.push(item);
+            continue;
+        };
+        let is_read = read
+            .iter()
+            .find(|(read_account, _)| *read_account == account)
+            .map(|(_, is_plan)| *is_plan);
+        let is_plan = if let Some(is_plan) = is_read {
+            is_plan
+        } else {
+            let is_plan = match live.read_sign_in_kind(&account).await {
+                Ok(sign_in_kind) => is_plan_sign_in(sign_in_kind) == Some(true),
+                Err(error) => {
+                    tracing::warn!(
+                        error = &*error as &(dyn std::error::Error + 'static),
+                        "a codex account's sign-in kind could not be read; its hosted search is \
+                         kept, its pricing held for the kind"
+                    );
+                    false
+                }
+            };
+            read.push((account, is_plan));
+            is_plan
+        };
+        if !is_plan {
+            kept.push(item);
+        }
+    }
+    kept
 }
 
 /// The word a row carries for the region of `service`'s model provider, read from its settings

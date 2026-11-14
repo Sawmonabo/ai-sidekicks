@@ -7,14 +7,19 @@
 //! and read or written only under the one lock of its Codex folder's records, so two daemons never
 //! start two services on one socket. The lock's file is never removed: a lock follows
 //! the open file, so removing a file someone waits on would hand the next taker a lock on another
-//! file.
+//! file. A record that does not read, damaged, cut short or of another shape, is told apart by its
+//! error, which names where and how the read failed and never the text, since it holds a live
+//! token; what can still be read of it is the process and sockets it named.
 
+use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::error::Category;
 use sidekicks_platforms::{
     LeftoverSweep, ProcessRecord, create_private_folder, real_path, replace_file_atomically,
 };
@@ -98,6 +103,65 @@ impl LastingServiceRecord {
     }
 }
 
+/// What a record that does not read still names, each field kept only where it reads by itself:
+/// the process it kept and the sockets it listened on.
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ServiceRecordRemnant {
+    /// The process the record kept.
+    #[serde(default, deserialize_with = "read_if_whole")]
+    pub(crate) process: Option<ProcessRecord>,
+    /// The home's own control socket.
+    #[serde(default, deserialize_with = "read_if_whole")]
+    pub(crate) home_socket: Option<PathBuf>,
+    /// Where the service's socket really was.
+    #[serde(default, deserialize_with = "read_if_whole")]
+    pub(crate) physical_socket: Option<PathBuf>,
+}
+
+// One field of a record that does not read, kept where it reads whole by itself.
+fn read_if_whole<'de, D: Deserializer<'de>, Field: DeserializeOwned>(
+    deserializer: D,
+) -> Result<Option<Field>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(Field::deserialize(value).ok())
+}
+
+/// A kept record whose text does not read as a record: where and how the read failed, never what
+/// it met there, since serde's own message for a wrong type prints the value, and the record holds
+/// the launch's live telemetry token.
+#[derive(Debug, thiserror::Error)]
+#[error("the record does not read as a record: {kind}, at line {line}, column {column}")]
+pub(crate) struct UnreadableServiceRecord {
+    kind: &'static str,
+    line: usize,
+    column: usize,
+}
+
+impl UnreadableServiceRecord {
+    // The failure `error` reports, without its message.
+    fn of(error: &serde_json::Error) -> Self {
+        let kind = match error.classify() {
+            Category::Io => "its bytes could not be read",
+            Category::Syntax => "it is not JSON",
+            Category::Eof => "it is cut short",
+            Category::Data => "it is not of the record's shape",
+        };
+        Self {
+            kind,
+            line: error.line(),
+            column: error.column(),
+        }
+    }
+
+    /// Whether `error`, a record's read, failed because its file does not read as a record.
+    pub(crate) fn is_cause_of(error: &io::Error) -> bool {
+        error
+            .get_ref()
+            .is_some_and(<dyn Error + Send + Sync + 'static>::is::<UnreadableServiceRecord>)
+    }
+}
+
 /// The record file of the lasting service on one socket of a Codex folder.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct LastingServiceRecordFile {
@@ -128,8 +192,7 @@ impl LastingServiceRecordFile {
         Ok(Self::at(record))
     }
 
-    /// Where the record's file sits, for a test that writes one by hand.
-    #[cfg(test)]
+    /// Where the record's file sits, which a record that does not read is logged by.
     pub(crate) fn path(&self) -> &Path {
         &self.record
     }
@@ -283,14 +346,27 @@ impl LockedServiceRecord {
     }
 
     /// The record kept, or `None` when none is. Blocking. Fails with the read's error, and with
-    /// `InvalidData` for a file that does not read as a record.
+    /// `InvalidData` carrying an [`UnreadableServiceRecord`] for a file that does not read as a
+    /// record.
     pub(crate) fn read(&self) -> io::Result<Option<LastingServiceRecord>> {
         let Some(text) = std::fs::read(&self.file.record).none_if_missing()? else {
             return Ok(None);
         };
-        serde_json::from_slice(&text)
-            .map(Some)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+        serde_json::from_slice(&text).map(Some).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                UnreadableServiceRecord::of(&error),
+            )
+        })
+    }
+
+    /// What the kept file still names, for one that does not read as a record; nothing for a
+    /// file that is no JSON object or is gone. Blocking. Fails with the read's error.
+    pub(crate) fn read_remnant(&self) -> io::Result<ServiceRecordRemnant> {
+        let Some(text) = std::fs::read(&self.file.record).none_if_missing()? else {
+            return Ok(ServiceRecordRemnant::default());
+        };
+        Ok(serde_json::from_slice(&text).unwrap_or_default())
     }
 
     /// Keeps `record` in place of any record kept before, whole or not at all. Blocking. Fails

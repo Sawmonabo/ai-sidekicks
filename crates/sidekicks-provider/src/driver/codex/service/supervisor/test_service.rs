@@ -58,6 +58,7 @@ use crate::driver::child_records::{DaemonChildRecords, UnrecordedChildren};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::exec_relay::CodexExecRelayDependencies;
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
+use crate::driver::codex::pricing::compose_codex_live_pricing;
 use crate::driver::codex::service::command_line::{
     TerminalServiceHooks, read_terminal_service_hooks,
 };
@@ -92,6 +93,7 @@ use crate::driver::codex::transport::connection::scripted_service::{
     SCRIPTED_MESSAGE_LIMIT, ScriptedService, connect_scripted_service,
 };
 use crate::driver::contract::error::DriverError;
+use crate::driver::ports::DriverPorts;
 #[cfg(test)]
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
@@ -278,6 +280,7 @@ pub(crate) fn test_codex_service_dependencies(
                 watch::channel(0).1,
             )),
             Arc::clone(&request_held),
+            compose_codex_live_pricing(&DriverPorts::new()),
             TaskTracker::new(),
         )),
         request_held,
