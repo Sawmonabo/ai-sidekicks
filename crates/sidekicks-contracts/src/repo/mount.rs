@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use strum::{IntoStaticStr, VariantArray};
 
 use crate::event::version::EVENT_FIELD_MAX_LEN;
+use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::Never;
@@ -174,6 +175,39 @@ pub enum RepoMountHealth {
     },
 }
 
+/// Why a moved repository's captures are held: `accessDenied` when the service may not read a
+/// folder the move names, which granting it clears; `folderUnresolved` when that folder does not
+/// resolve for another reason; `recordUnreadable` when the service's stored record of the project's
+/// folders does not read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum CapturesHeldCause {
+    /// The service may not read the folder.
+    AccessDenied,
+    /// The folder does not resolve.
+    FolderUnresolved,
+    /// The stored record of the project's folders does not read.
+    RecordUnreadable,
+}
+
+/// A moved repository's captures that cannot be carried to its new folder yet: no capture of the
+/// project is taken, so nothing done in it can be undone, until they are.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CapturesHeld {
+    /// What holds them.
+    pub cause: CapturesHeldCause,
+    /// The folder that holds them, absent when the stored record of the project's folders does
+    /// not read.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FilesystemPath")]
+    pub folder: Option<FilesystemPath>,
+}
+
 /// The `repoMount.health.changed` payload: a mount's health after the daemon's re-probe changed
 /// it, or a re-attach or a move made it, sent on the stream of every session on that mount.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -185,6 +219,14 @@ pub struct RepoMountHealthChangedPayload {
     /// Its health now.
     #[garde(dive)]
     pub health: RepoMountHealth,
+    /// Its moved repository's captures, present while they cannot be carried to its new folder.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "CapturesHeld")]
+    pub captures_held: Option<CapturesHeld>,
     /// The mount a re-attach or a move ended to make this one or, for a session that never heard
     /// of that one, the nearest earlier one whose health it heard; present only on the new mount's
     /// first health to a session that was on one of them, so whatever it drew for the ended mount
@@ -282,6 +324,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RepoMountState>().checked(),
         Definition::read::<VcsType>().checked(),
         Definition::read::<RepoMountHealth>().checked(),
+        Definition::read::<CapturesHeldCause>().checked(),
+        Definition::read::<CapturesHeld>().checked(),
         Definition::read::<RepoMountHealthChangedPayload>().checked(),
         Definition::read::<WorkspaceLifecyclePayload>().checked(),
     ],

@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::repo::mount::{
-    LifecycleActor, RepoMountHealth, RepoMountHealthChangedPayload, RepoMountId, WorkspaceId,
-    WorkspaceLifecyclePayload, WorkspaceState,
+    CapturesHeld, LifecycleActor, RepoMountHealth, RepoMountHealthChangedPayload, RepoMountId,
+    WorkspaceId, WorkspaceLifecyclePayload, WorkspaceState,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_store::events::log_service::{EventLogAppendReceipt, EventLogService};
@@ -100,7 +100,8 @@ impl WorkspaceEventEmitter {
     }
 
     /// Appends `repoMount.health.changed` on `session_id`'s log: the mount `repo_mount_id` now
-    /// reads `health`, naming `replaced_repo_mount_id` when a re-attach or a move ended that mount
+    /// reads `health`, with `captures_held` while its moved repository's captures are held, naming
+    /// `replaced_repo_mount_id` when a re-attach or a move ended that mount
     /// to make this one or, for a session that never heard of that one, when it is the nearest
     /// earlier one whose health the session heard; none for a session that was on none of them.
     /// The payload names no session, so it is given beside it. Fails as [`SessionEventEmitError`]
@@ -110,12 +111,14 @@ impl WorkspaceEventEmitter {
         session_id: SessionId,
         repo_mount_id: RepoMountId,
         health: RepoMountHealth,
+        captures_held: Option<CapturesHeld>,
         replaced_repo_mount_id: Option<RepoMountId>,
         linkage: SessionEventLinkage,
     ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let event = SessionEvent::RepoMountHealthChanged(RepoMountHealthChangedPayload {
             repo_mount_id,
             health,
+            captures_held,
             replaced_repo_mount_id,
         });
         let draft = SessionEventDraft::of_session(session_id, &event)?;

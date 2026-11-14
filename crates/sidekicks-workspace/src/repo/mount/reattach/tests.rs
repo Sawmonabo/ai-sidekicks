@@ -114,7 +114,7 @@ impl ReattachFixture {
                 data_folder: roots.scratch.path().join("data"),
                 common_folder_columns: Vec::new(),
                 attach_notice: Arc::default(),
-                health: roots.mount_health(health_events(&roots)),
+                health: roots.mount_health(health_events(&roots), Arc::clone(&packing)),
             },
         ));
         Self {
@@ -435,7 +435,7 @@ async fn a_reattachs_refused_first_health_is_sent_once_by_the_next_health_pass()
     )));
     fixture
         .roots
-        .mount_health(Arc::clone(&events))
+        .mount_health(Arc::clone(&events), Arc::clone(&fixture.packing))
         .reprobe()
         .await
         .expect("the owed first health is sent");
@@ -455,7 +455,7 @@ async fn a_reattachs_refused_first_health_is_sent_once_by_the_next_health_pass()
         .expect("the record stands as a stop before the clear leaves it");
     fixture
         .roots
-        .mount_health(events)
+        .mount_health(events, Arc::clone(&fixture.packing))
         .start_probe()
         .await
         .expect("the session that has it is owed nothing");
@@ -484,7 +484,7 @@ async fn a_move_before_a_reattachs_first_health_names_the_mount_the_session_hear
     )));
     fixture
         .roots
-        .mount_health(Arc::clone(&events))
+        .mount_health(Arc::clone(&events), Arc::clone(&fixture.packing))
         .reprobe()
         .await
         .expect("the session hears its folder is another repository");
@@ -513,7 +513,7 @@ async fn a_move_before_a_reattachs_first_health_names_the_mount_the_session_hear
 
     fixture
         .roots
-        .mount_health(events)
+        .mount_health(events, Arc::clone(&fixture.packing))
         .reprobe()
         .await
         .expect("the owed first health is sent");

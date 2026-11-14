@@ -8,10 +8,11 @@
 //! pending carry of every move a carry has not yet finished. The capture folders' packing holds
 //! the carry pending from the move's write, and from the start for each record a stop left: while
 //! it is pending, a capture folder of any of its names opens only once its owner's folder is
-//! renamed, so no capture is taken at the newest name beside an old folder. A record that does not
-//! read, or names a folder that does not resolve, holds only its own mount: each opener of a
-//! capture folder it names is refused with the cause, and one whose folders resolve at an
-//! opener's ask is carried then. The carry renames the folders from each old name, then, in one
+//! renamed, so no capture is taken at the newest name beside an old folder. A record or a stored
+//! folder that does not read, or a folder that does not resolve, holds only its own mount, which
+//! its health tells with the cause and the folder: each opener of a capture folder it names is
+//! refused with the cause, and one whose folders resolve at an opener's ask, or at a later move of
+//! the mount, is carried then. The carry renames the folders from each old name, then, in one
 //! write led by the clear of that record as the carry read it, rewrites the rows, which ends it; a
 //! newer move took the record forward when the clear finds it changed, and that move's carry
 //! covers the chain. A stop after the move's write keeps the record, and the next start's carry
@@ -35,7 +36,7 @@ use sidekicks_store::database::writer::WriteError;
 use tokio_util::sync::CancellationToken;
 
 use super::RepoMountReattachService;
-use crate::git::turn_snapshot::capture_folder::carry::{CaptureCarry, CaptureCarryUnmade};
+use crate::git::turn_snapshot::capture_folder::carry::CaptureCarry;
 use crate::git::turn_snapshot::capture_folder::{CAPTURES_SEGMENT, real_path_name};
 use crate::git::turn_snapshot::capture_steps::joined;
 use crate::git::turn_snapshot::kept_index::remove_kept_indexes;
@@ -160,9 +161,10 @@ struct CarryRead {
 impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
     /// Holds pending the carry of every moved mount whose carry a stop cut off, so no capture
     /// folder of theirs opens before it is carried, and answers the carries to run. Run at the
-    /// start, before anything captures. A record that does not read, or names a folder that does
-    /// not resolve, is logged and holds only its own mount, whose capture folders each opener is
-    /// refused until an opener's ask makes its carry. Fails only as the read of the records fails.
+    /// start, before anything captures and before the mounts' first health. A record or a stored
+    /// folder that does not read, or a folder that does not resolve, is logged and holds only its
+    /// own mount, which its health tells, and whose capture folders each opener is refused until an
+    /// opener's ask makes its carry. Fails only as the read of the records fails.
     pub async fn expect_moved_captures(&self) -> Result<UncarriedCaptures, CaptureCarryError> {
         let uncarried = self
             .reads
@@ -171,25 +173,20 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         let mut carries = Vec::with_capacity(uncarried.len());
         for mount in uncarried {
             let repo_mount_id = mount.repo_mount_id;
-            let moved_to = match serde_json::from_str::<PathBuf>(&mount.moved_to) {
-                Ok(moved_to) => moved_to,
-                Err(unread) => {
-                    // No folder is known, so no capture folder of the mount can be named or held.
-                    tracing::warn!(
-                        %repo_mount_id,
-                        error = &unread as &(dyn Error + 'static),
-                        "a moved project's folder could not be read, so its captures cannot be \
-                         carried; a later start tries again"
-                    );
-                    continue;
-                }
-            };
-            let moved_from = serde_json::from_str::<Vec<PathBuf>>(&mount.moved_from)
-                .map_err(CaptureCarryUnmade::new);
+            let moved_from = serde_json::from_str::<Vec<PathBuf>>(&mount.moved_from);
+            let moved_to = serde_json::from_str::<PathBuf>(&mount.moved_to);
+            if let Err(unread) = &moved_to {
+                tracing::warn!(
+                    %repo_mount_id,
+                    error = unread as &(dyn Error + 'static),
+                    "a moved project's stored folder could not be read, so its captures are held \
+                     until its row is repaired"
+                );
+            }
             match self
                 .packing
                 .carries()
-                .expect_record(moved_from, &moved_to)
+                .expect_record(repo_mount_id, moved_from, moved_to)
                 .await
             {
                 Ok(carry) => carries.push((repo_mount_id, carry)),
@@ -227,8 +224,10 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
     }
 
     /// Carries, as the start's carry does, each moved mount's captures whose carry an opener's ask
-    /// made in this run, until `stop` fires; a carry made before `stop` fired is run first. Logs
-    /// each one that failed, which keeps its record for the next start.
+    /// made in this run, until `stop` fires; a carry made before `stop` fired is run first. Then
+    /// probes the mount's health again, so the hold it told ends. Logs each one that failed, which
+    /// keeps its record for the next start; a mount moved again since finds its record gone, and
+    /// that move's chain carries it.
     pub async fn carry_lifted_captures(&self, stop: &CancellationToken) {
         loop {
             let lifted = tokio::select! {
@@ -236,36 +235,21 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 lifted = self.packing.carries().next_lifted() => lifted,
                 () = stop.cancelled() => return,
             };
-            let uncarried = match self
-                .reads
-                .read(ReadLength::Short, read_uncarried_mounts)
-                .await
-            {
-                Ok(uncarried) => uncarried,
-                Err(error) => {
-                    tracing::warn!(
-                        error = &error as &(dyn Error + 'static),
-                        "the moved projects whose captures can now be carried could not be read; \
-                         the next start carries them"
-                    );
-                    continue;
-                }
-            };
-            for carry in lifted {
-                // A mount moved again since is carried by that move's chain.
-                let Some(mount) = uncarried.iter().find(|mount| {
-                    serde_json::from_str::<PathBuf>(&mount.moved_to)
-                        .is_ok_and(|moved_to| components_equal(&moved_to, carry.moved_to()))
-                }) else {
-                    continue;
-                };
-                let repo_mount_id = mount.repo_mount_id;
+            for (repo_mount_id, carry) in lifted {
                 if let Err(error) = self.carry_captures(repo_mount_id, &carry).await {
                     tracing::warn!(
                         %repo_mount_id,
                         error = &error as &(dyn Error + 'static),
                         "a moved project's captures could not be carried to its new folder; its \
                          next start tries again"
+                    );
+                }
+                if let Err(error) = self.health.reprobe_mount(repo_mount_id).await {
+                    tracing::warn!(
+                        %repo_mount_id,
+                        error = &error as &(dyn Error + 'static),
+                        "a moved project's health could not be probed once its captures were \
+                         carried; its next pass tells it"
                     );
                 }
             }

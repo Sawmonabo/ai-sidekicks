@@ -23,6 +23,9 @@ use sidekicks_store::events::session::appender::SessionEventLinkage;
 use super::{RepoMountService, RepoMountServiceError};
 use crate::event_emitter::EmitWorkspaceEventInput;
 use crate::repo::errors::RepoRefusal;
+use crate::repo::mount::health::first_verdict::{
+    MOVED_SESSIONS_METADATA_PATH, REPLACED_REPO_MOUNT_METADATA_PATH,
+};
 use crate::schema::MountOrigin;
 
 // The detach write's statements, by position: the running check refuses when it finds a run, and
@@ -78,11 +81,14 @@ static ARCHIVE_DEPENDENTS_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // Compare-and-swap: `attached` in the predicate is the legal predecessor and the mutual exclusion
-// between concurrent detaches and re-attaches.
+// between concurrent detaches and re-attaches. A first verdict still owed is owed to no one once
+// the mount is gone, so its record goes with it.
 static DETACH_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE repo_mounts
-      SET state = '{}', updated_at = @now
+      SET state = '{}', updated_at = @now,
+          metadata = json_remove(metadata, '{MOVED_SESSIONS_METADATA_PATH}',
+                                 '{REPLACED_REPO_MOUNT_METADATA_PATH}')
     WHERE id = @repo_mount_id AND state = '{}'",
         <&'static str>::from(RepoMountState::Detached),
         <&'static str>::from(RepoMountState::Attached),

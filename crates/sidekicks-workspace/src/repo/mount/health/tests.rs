@@ -19,6 +19,7 @@ use tokio_util::sync::CancellationToken;
 use super::{REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY, RepoMountHealthReprobe};
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::git::process::test_git_runner;
+use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::repo::root_resolver::RepoRootResolver;
 use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
@@ -115,6 +116,7 @@ async fn a_changed_mount_health_reaches_each_session_once_and_a_failed_send_is_s
         writer,
         Arc::new(WorkspaceEventEmitter::new(event_log)),
         RepoRootResolver::new(test_git_runner()),
+        Arc::new(CapturePacking::new(test_git_runner(), Arc::default())),
         CancellationToken::new(),
     );
 

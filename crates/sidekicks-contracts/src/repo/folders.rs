@@ -13,7 +13,9 @@ use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::machine::id::MachineId;
 use crate::place::{Place, WslPlace};
 use crate::project::{ProjectId, ProjectName};
-use crate::repo::mount::{RepoMountHealth, RepoMountId, RepoMountState, VcsType, WorkspaceId};
+use crate::repo::mount::{
+    CapturesHeld, RepoMountHealth, RepoMountId, RepoMountState, VcsType, WorkspaceId,
+};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
@@ -389,6 +391,14 @@ pub struct RepoMountReadResponse {
     /// Its health, probed for this read.
     #[garde(dive)]
     pub health: RepoMountHealth,
+    /// Its moved repository's captures, present while they cannot be carried to its new folder.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "CapturesHeld")]
+    pub captures_held: Option<CapturesHeld>,
     /// When it was attached.
     #[garde(dive)]
     pub attached_at: WireInstant,

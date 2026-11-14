@@ -10,6 +10,8 @@
 //!   (`repoMount.health.changed`), `healthy` when the log says nothing, so a change while the
 //!   daemon was down still reaches it. A send that fails leaves that session's verdict where it
 //!   was, so the next pass sends it again.
+//! - A verdict also says what holds a moved repository's captures while its carry cannot be made,
+//!   so the hold and its end reach each session on the mount as a health change.
 //! - A mount a re-attach or a move made owes its first verdict, naming the mount it replaced, to
 //!   each session on it until every one has it (see `first_verdict`).
 //! - Mounts are probed as many at once as the machine has processors, one pass per mount at a
@@ -26,6 +28,7 @@
 //!   a later move can know the repository wherever its folder goes.
 
 pub(crate) mod first_verdict;
+mod verdict;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -36,7 +39,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
-use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::folders::RepoMountRootResolutionReason;
 use sidekicks_contracts::repo::mount::{
@@ -53,17 +55,17 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::database::stored_column::{
-    StoredJsonFault, optional_text_column, place_column, text_column,
-};
+use sidekicks_store::database::stored_column::{optional_text_column, place_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use self::first_verdict::REPLACED_REPO_MOUNT_METADATA_PATH;
+use self::verdict::{MountVerdict, read_logged_verdicts};
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::git::process::GIT_COMMAND_TIMEOUT;
+use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::projector::{
     FilesystemPathProbe, HealthProjectionError, RepoMountHealthRow, RepoMountIdentityObservation,
     compute_repo_mount_health,
@@ -130,19 +132,6 @@ static SELECT_SESSIONS_ON_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
   WHERE repo_mount_id = @repo_mount_id AND state <> '{}'
   ORDER BY session_id",
         <&'static str>::from(WorkspaceState::Archived)
-    )
-});
-
-// The health of the newest change a session's log holds for a mount, as JSON text.
-static SELECT_LAST_LOGGED_HEALTH_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT json_extract(payload, '$.health')
-   FROM session_events
-  WHERE session_id = @session_id AND type = '{}'
-    AND json_extract(payload, '$.repoMountId') = @repo_mount_id
-  ORDER BY sequence DESC
-  LIMIT 1",
-        SessionEventType::RepoMountHealthChanged.as_str()
     )
 });
 
@@ -302,29 +291,6 @@ pub enum ReprobeError {
     Passes(#[from] SettleFailures<Arc<MountPassFailure>>),
 }
 
-/// The facts that make two health readings one verdict; the instant changes on every probe.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MountVerdict {
-    Healthy,
-    Unreachable,
-    IdentityMismatch { is_repository: bool },
-}
-
-impl MountVerdict {
-    // What a session holds before anything was said to it.
-    const ASSUMED: Self = Self::Healthy;
-
-    fn of(health: &RepoMountHealth) -> Self {
-        match health {
-            RepoMountHealth::Healthy { .. } => Self::Healthy,
-            RepoMountHealth::Unreachable { .. } => Self::Unreachable,
-            RepoMountHealth::IdentityMismatch { is_repository, .. } => Self::IdentityMismatch {
-                is_repository: *is_repository,
-            },
-        }
-    }
-}
-
 // What a probe that runs out of time reads as.
 #[derive(Clone, Copy, Debug)]
 enum ProbeTimeoutReading {
@@ -382,6 +348,7 @@ pub struct RepoMountHealthReprobe {
     writer: Arc<DatabaseWriter>,
     events: Arc<WorkspaceEventEmitter>,
     resolver: RepoRootResolver,
+    packing: Arc<CapturePacking>,
     stop: CancellationToken,
     passes: KeyedLock<RepoMountId>,
     pass_requests: AtomicU64,
@@ -390,13 +357,15 @@ pub struct RepoMountHealthReprobe {
 
 impl RepoMountHealthReprobe {
     /// The re-probe reading rows through `reads` and recording a healthy mount's first commit
-    /// through `writer`, asking `resolver` for each root's repository and sending each change
-    /// through `events`; canceling `stop` ends every pass and every send.
+    /// through `writer`, asking `resolver` for each root's repository and `packing` whether a
+    /// moved repository's captures are held, and sending each change through `events`; canceling
+    /// `stop` ends every pass and every send.
     pub fn new(
         reads: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,
         events: Arc<WorkspaceEventEmitter>,
         resolver: RepoRootResolver,
+        packing: Arc<CapturePacking>,
         stop: CancellationToken,
     ) -> Self {
         Self {
@@ -404,6 +373,7 @@ impl RepoMountHealthReprobe {
             writer,
             events,
             resolver,
+            packing,
             stop,
             passes: KeyedLock::new(),
             pass_requests: AtomicU64::new(0),
@@ -539,7 +509,8 @@ impl RepoMountHealthReprobe {
         let Some(health) = self.probe_within_bound(&mount, on_timeout).await? else {
             return self.answer_no_verdict(&mount);
         };
-        let verdict = MountVerdict::of(&health);
+        let captures_held = self.packing.carries().captures_held(repo_mount_id);
+        let verdict = MountVerdict::of(&health, captures_held.clone());
 
         let sessions = self
             .reads
@@ -588,7 +559,7 @@ impl RepoMountHealthReprobe {
             let heard = self
                 .lock_mounts()
                 .get(&repo_mount_id)
-                .and_then(|memory| memory.heard.get(&session_id).copied())
+                .and_then(|memory| memory.heard.get(&session_id).cloned())
                 .unwrap_or(MountVerdict::ASSUMED);
             // A session owed the first verdict is sent it whatever it holds, naming the replaced
             // mount it heard of when it was on that mount's chain.
@@ -602,6 +573,7 @@ impl RepoMountHealthReprobe {
                     session_id,
                     repo_mount_id,
                     health.clone(),
+                    captures_held.clone(),
                     owed_verdict.flatten(),
                     SessionEventLinkage::default(),
                 )
@@ -609,7 +581,7 @@ impl RepoMountHealthReprobe {
             match sent {
                 Ok(_receipt) => {
                     if let Some(memory) = self.lock_mounts().get_mut(&repo_mount_id) {
-                        memory.heard.insert(session_id, verdict);
+                        memory.heard.insert(session_id, verdict.clone());
                     }
                     sends.push(Ok(()));
                 }
@@ -637,7 +609,7 @@ impl RepoMountHealthReprobe {
         } else {
             Ok(())
         };
-        let recorded = if verdict == MountVerdict::Healthy {
+        let recorded = if verdict.is_root_healthy() {
             self.record_root_commit(&mount).await
         } else {
             Ok(())
@@ -851,41 +823,6 @@ fn read_sessions_on_mount(
             |row| text_column(row, 0, |text| SessionId::new(&text)),
         )?
         .collect::<rusqlite::Result<_>>()?)
-}
-
-// The verdict each of `sessions` last read in its log for the mount, `healthy` where it read none.
-fn read_logged_verdicts(
-    connection: &Connection,
-    repo_mount_id: RepoMountId,
-    sessions: &[SessionId],
-) -> Result<Vec<(SessionId, MountVerdict)>, MountHealthReadError> {
-    let mut statement = connection.prepare_cached(&SELECT_LAST_LOGGED_HEALTH_SQL)?;
-    let repo_mount_id = repo_mount_id.text();
-    sessions
-        .iter()
-        .map(|session_id| {
-            let logged = statement
-                .query_row(
-                    named_params! {
-                        "@session_id": session_id.text().as_str(),
-                        "@repo_mount_id": repo_mount_id.as_str(),
-                    },
-                    |row| {
-                        text_column(row, 0, |text| {
-                            serde_json::from_str::<RepoMountHealth>(&text)
-                                .map_err(StoredJsonFault::from)
-                        })
-                    },
-                )
-                .optional()?;
-            Ok((
-                *session_id,
-                logged
-                    .as_ref()
-                    .map_or(MountVerdict::ASSUMED, MountVerdict::of),
-            ))
-        })
-        .collect()
 }
 
 #[cfg(test)]

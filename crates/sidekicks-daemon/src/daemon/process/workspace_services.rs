@@ -37,6 +37,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::execution_root::{ExecutionRootService, ExecutionRootServiceDeps};
 use sidekicks_workspace::folder::usage::RepoFolderUsage;
 use sidekicks_workspace::git::process::GitRunner;
+use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::git::worktree::copy_progress::WorktreeCopiesUnderWay;
 use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
 use sidekicks_workspace::git::worktree::path_holds::PathHolds;
@@ -277,6 +278,8 @@ pub(crate) struct RepoMountMethods {
     pub(crate) projects: Arc<ProjectService>,
     /// The repository mounts.
     pub(crate) mounts: Arc<RepoMountService>,
+    /// The capture folders' packing, which says whether a moved repository's captures are held.
+    pub(crate) packing: Arc<CapturePacking>,
     /// The folders the service can reach and the sessions using each.
     pub(crate) usage: Arc<RepoFolderUsage>,
     /// Re-attaches a mount whose folder holds another repository now, or moves a lost one to a
@@ -399,6 +402,7 @@ pub(crate) fn build_workspace_services(start: WorkspaceServiceStart<'_>) -> Work
         repo_mounts: RepoMountMethods {
             projects,
             mounts: Arc::clone(&repo.mounts),
+            packing: Arc::clone(&repo.packing),
             usage: Arc::new(RepoFolderUsage::new(
                 Arc::clone(&reads),
                 repo.occupancy.clone(),

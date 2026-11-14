@@ -35,6 +35,7 @@ pub(crate) fn register_repo_mounts(
     let RepoMountMethods {
         projects,
         mounts,
+        packing,
         usage,
         reattach,
         setup,
@@ -53,7 +54,13 @@ pub(crate) fn register_repo_mounts(
         move |request: RepoMountRequest, _context: HandlerContext| {
             let usage = Arc::clone(&reading);
             let mounts = Arc::clone(&mounts);
-            async move { Ok(usage.read_mount(&mounts, &request.repo_mount_id).await?) }.boxed()
+            let packing = Arc::clone(&packing);
+            async move {
+                Ok(usage
+                    .read_mount(&mounts, &packing, &request.repo_mount_id)
+                    .await?)
+            }
+            .boxed()
         },
     )?;
     let listing = Arc::clone(&usage);

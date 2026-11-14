@@ -260,6 +260,7 @@ pub(crate) fn build_repo_services(
         writer,
         Arc::clone(&workspace_events),
         RepoRootResolver::new(git.clone()),
+        Arc::clone(&packing),
         stop.clone(),
     ));
     Ok(RepoServices {

@@ -31,6 +31,7 @@ use sidekicks_store::database::stored_column::{
 };
 
 use crate::folder::canonical_path::canonical_folder_path;
+use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::git::worktree::occupancy::{MountOccupancyReader, OccupancyReadError, StandingSession};
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
 use crate::repo::errors::RepoRefusal;
@@ -259,13 +260,15 @@ impl RepoFolderUsage {
     }
 
     /// `repoMount.read`: the mount's stored facts with a freshly probed health, read through
-    /// `mounts`, and where it came from, its project's name and every session bound to it. Refuses
+    /// `mounts`, what holds its moved repository's captures, read from `packing`, and where it came
+    /// from, its project's name and every session bound to it. Refuses
     /// `repoMount.notFound` for an unknown mount and for a detached one whose project was
     /// forgotten, `repoMount.rootResolutionFailed` when git cannot answer for its root, and fails
     /// as a read fails.
     pub async fn read_mount(
         &self,
         mounts: &RepoMountService,
+        packing: &CapturePacking,
         repo_mount_id: &RepoMountId,
     ) -> Result<RepoMountReadResponse, RepoFolderUsageError> {
         let usage = self.read_usage(repo_mount_id).await?;
@@ -279,6 +282,7 @@ impl RepoFolderUsage {
             vcs_type: row.vcs_type,
             state: row.state,
             health,
+            captures_held: packing.carries().captures_held(*repo_mount_id),
             attached_at: row.attached_at,
             origin: usage.origin,
             display_name: usage.display_name,

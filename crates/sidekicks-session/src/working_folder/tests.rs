@@ -666,6 +666,10 @@ async fn a_live_workflow_run_is_named_by_a_carrys_and_a_reattachs_refusal() {
     );
 
     let roots = &fixture.roots;
+    let packing = Arc::new(CapturePacking::new(
+        test_git_runner(),
+        Arc::new(GitFloorReports::default()),
+    ));
     let reattach = RepoMountReattachService::new(RepoMountReattachServiceDeps {
         writer: Arc::clone(&roots.log.writer),
         reads: Arc::clone(&roots.reads),
@@ -675,16 +679,14 @@ async fn a_live_workflow_run_is_named_by_a_carrys_and_a_reattachs_refusal() {
         worktree_events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&roots.log.service))),
         resolver: RepoRootResolver::new(test_git_runner()),
         holders,
-        packing: Arc::new(CapturePacking::new(
-            test_git_runner(),
-            Arc::new(GitFloorReports::default()),
-        )),
+        packing: Arc::clone(&packing),
         data_folder: roots.scratch.path().join("data"),
         common_folder_columns: Vec::new(),
         attach_notice: Arc::default(),
-        health: roots.mount_health(Arc::new(WorkspaceEventEmitter::new(Arc::clone(
-            &roots.log.service,
-        )))),
+        health: roots.mount_health(
+            Arc::new(WorkspaceEventEmitter::new(Arc::clone(&roots.log.service))),
+            packing,
+        ),
     });
     roots.replace_repository().await;
     let refused = reattach

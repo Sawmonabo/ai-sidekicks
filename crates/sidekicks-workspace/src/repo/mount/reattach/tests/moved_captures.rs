@@ -7,6 +7,7 @@ use std::sync::Arc;
 use rusqlite::params;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::repo::folders::RepoMountMoveRequest;
+use sidekicks_contracts::repo::mount::CapturesHeldCause;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{CAN_OPEN_INSIDE_UNREADABLE_FOLDER, is_superuser, make_unreadable};
 use sidekicks_store::data_folder::session_storage_folder;
@@ -251,38 +252,85 @@ async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
 
 // A capture taken before a first move is found and read after a second move made before the first
 // move's carry ran: the second move's write takes the first record forward and its carry renames
-// the folder from the oldest name. Killed by the record left on the ended mount (the folder stays
-// at the oldest name and the context names the oldest folder) and by a carry from the middle name
-// only.
+// the folder from the oldest name. So it is when the start could not make the first carry, its
+// middle folder one the daemon may not enter, which the mount's health tells, and the second move
+// commits once that folder reads again, before any opener asks: the move makes the carry it took
+// forward, the hold ends, and one capture folder is left, at the newest name. Killed by the record
+// left on the ended mount (the folder stays at the oldest name and the context names the oldest
+// folder), by a carry from the middle name only, by an unmade carry the move leaves behind or
+// keys to the ended mount's folders, and by a hold the health never tells or never ends.
 #[tokio::test]
 async fn a_capture_taken_before_two_moves_is_found_and_read_after_both() {
-    let fixture = ReattachFixture::new().await;
-    let captured = capture_before_a_move(&fixture).await;
-    let scratch = fixture
-        .roots
-        .repository
-        .parent()
-        .expect("the repository sits in the scratch folder")
-        .to_path_buf();
-    let moved = scratch.join("moved");
-    std::fs::rename(&fixture.roots.repository, &moved).expect("the repository moves");
-    let first = fixture
-        .move_to(MOUNT_ID, &moved)
-        .await
-        .expect("the mount follows its repository");
-    let middle_name = real_path_name(&moved.join(".git"))
-        .await
-        .expect("the middle common folder resolves");
-    stop_before_the_carry(&fixture, &captured, Some(&middle_name)).await;
+    // A folder the daemon may not enter cannot be made everywhere.
+    let can_lock_a_folder = !is_superuser() && !CAN_OPEN_INSIDE_UNREADABLE_FOLDER;
+    for is_middle_folder_locked in [false, true] {
+        if is_middle_folder_locked && !can_lock_a_folder {
+            continue;
+        }
+        let fixture = ReattachFixture::new().await;
+        let captured = capture_before_a_move(&fixture).await;
+        let scratch = fixture
+            .roots
+            .repository
+            .parent()
+            .expect("the repository sits in the scratch folder")
+            .to_path_buf();
+        let locked = scratch.join("locked");
+        std::fs::create_dir(&locked).expect("the middle folder's parent is made");
+        let moved = locked.join("moved");
+        std::fs::rename(&fixture.roots.repository, &moved).expect("the repository moves");
+        let first = fixture
+            .move_to(MOUNT_ID, &moved)
+            .await
+            .expect("the mount follows its repository");
+        let middle_name = real_path_name(&moved.join(".git"))
+            .await
+            .expect("the middle common folder resolves");
+        if is_middle_folder_locked {
+            leave_the_carry(&fixture, &captured, Some(&middle_name));
+            let unreadable = make_unreadable(&locked).expect("the folder is made unreadable");
+            fixture
+                .service
+                .expect_moved_captures()
+                .await
+                .expect("one record holds back no start");
+            let held = fixture
+                .packing
+                .carries()
+                .captures_held(first.repo_mount_id)
+                .expect("the mount's health tells the hold");
+            assert_eq!(held.cause, CapturesHeldCause::AccessDenied);
+            let held_folder = held.folder.expect("the hold names the folder to grant");
+            assert!(
+                Path::new(held_folder.as_str()).ends_with("locked/moved/.git"),
+                "the hold names the middle folder: {held_folder:?}"
+            );
+            drop(unreadable);
+        } else {
+            stop_before_the_carry(&fixture, &captured, Some(&middle_name)).await;
+        }
 
-    let moved_again = scratch.join("moved-again");
-    std::fs::rename(&moved, &moved_again).expect("the repository moves again");
-    fixture
-        .move_to(first.repo_mount_id.text().as_str(), &moved_again)
-        .await
-        .expect("the mount follows its repository again");
+        let moved_again = scratch.join("moved-again");
+        std::fs::rename(&moved, &moved_again).expect("the repository moves again");
+        let second = fixture
+            .move_to(first.repo_mount_id.text().as_str(), &moved_again)
+            .await
+            .expect("the mount follows its repository again");
 
-    assert_found_at(&fixture, &captured, &moved_again.join(".git")).await;
+        assert_found_at(&fixture, &captured, &moved_again.join(".git")).await;
+        let carries = fixture.packing.carries();
+        assert_eq!(
+            (
+                carries.captures_held(first.repo_mount_id),
+                carries.captures_held(second.repo_mount_id)
+            ),
+            (None, None)
+        );
+        let capture_folders = std::fs::read_dir(captured.owner.join(CAPTURES_SEGMENT))
+            .expect("the owner's captures folder lists")
+            .count();
+        assert_eq!(capture_folders, 1, "no capture folder is left unnamed");
+    }
 }
 
 // A start whose stored carry of one project's captures cannot be made, its record unread or its

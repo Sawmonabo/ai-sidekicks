@@ -71,7 +71,7 @@ use self::write::{
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::execution_root::{ExecutionRootError, ExecutionRootService};
 use crate::folder::canonical_path::canonical_folder_path;
-use crate::git::turn_snapshot::capture_folder::carry::CaptureCarry;
+use crate::git::turn_snapshot::capture_folder::carry::{CaptureCarry, WrittenCarry};
 use crate::git::turn_snapshot::capture_folder::real_path_name;
 use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::git::worktree::event_emitter::{EmitWorktreeEventInput, WorktreeEventEmitter};
@@ -445,14 +445,17 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         };
         let move_carry = CaptureCarry::new(&moved_from, &target.common_folder)
             .await
-            .map_err(RepoMountReattachError::Folder)?;
+            .map_err(|unresolved| RepoMountReattachError::Folder(unresolved.into()))?;
         let replaced_name = real_path_name(old_anchor)
             .await
             .map_err(RepoMountReattachError::Folder)?;
-        let carry_write = self
-            .packing
-            .carries()
-            .expect_write(replaced_name, move_carry);
+        let carry_write = self.packing.carries().expect_write(
+            repo_mount_id,
+            old_anchor.to_path_buf(),
+            replaced_name,
+            bindings.new_repo_mount_id,
+            move_carry,
+        );
         #[cfg(test)]
         self.write_pause.pass().await;
 
@@ -488,9 +491,24 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
 
         // The re-attach is committed: every follow-up is tried, and the failures answered together.
         // The captures go first, so a run admitted on the new mount finds them at the new name. A
-        // chain still unmade waits for an opener's ask, which makes and runs it.
+        // chain the ended mount could not make is tried again now, with this move's folders; one
+        // still unmade is held, which the new mount's health tells, until an opener's ask makes it.
+        let carry = match carry {
+            WrittenCarry::Made(carry) => (is_moved || carry.is_rename()).then_some(carry),
+            WrittenCarry::Unmade(unmade) => match self.packing.carries().make(&unmade).await {
+                Ok(carry) => carry,
+                Err(still_unmade) => {
+                    tracing::warn!(
+                        %new_repo_mount_id,
+                        error = &still_unmade as &(dyn Error + 'static),
+                        "a moved project's captures still cannot be carried; its capture folders \
+                         open for no one until they can"
+                    );
+                    None
+                }
+            },
+        };
         if let Some(carry) = &carry
-            && (is_moved || carry.is_rename())
             && let Err(failure) = self.carry_captures(new_repo_mount_id, carry).await
         {
             failures.push(RepoMountReattachFollowUpFailure::Captures(failure));

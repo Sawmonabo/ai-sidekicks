@@ -288,6 +288,10 @@ impl ExecutionRootFixture {
                 params![self.repository.join(".git").to_string_lossy(), MOUNT_ID],
             )
             .expect("the mount records its anchor");
+        let packing = Arc::new(CapturePacking::new(
+            test_git_runner(),
+            Arc::new(GitFloorReports::default()),
+        ));
         let reattach = Arc::new(RepoMountReattachService::new(
             RepoMountReattachServiceDeps {
                 writer: Arc::clone(&self.log.writer),
@@ -300,16 +304,14 @@ impl ExecutionRootFixture {
                 holders: Arc::new(RunsTableHolders {
                     reads: Arc::clone(&self.reads),
                 }),
-                packing: Arc::new(CapturePacking::new(
-                    test_git_runner(),
-                    Arc::new(GitFloorReports::default()),
-                )),
+                packing: Arc::clone(&packing),
                 data_folder: self.scratch.path().join("data"),
                 common_folder_columns: Vec::new(),
                 attach_notice: Arc::default(),
-                health: self.mount_health(Arc::new(WorkspaceEventEmitter::new(Arc::clone(
-                    &self.log.service,
-                )))),
+                health: self.mount_health(
+                    Arc::new(WorkspaceEventEmitter::new(Arc::clone(&self.log.service))),
+                    packing,
+                ),
             },
         ));
         let records = Arc::new(ProjectRecords::new(Arc::clone(&self.reads), sessions));
@@ -326,13 +328,19 @@ impl ExecutionRootFixture {
         })
     }
 
-    /// The mounts' health re-probe over these rows, sending each verdict through `events`.
-    pub fn mount_health(&self, events: Arc<WorkspaceEventEmitter>) -> Arc<RepoMountHealthReprobe> {
+    /// The mounts' health re-probe over these rows, reading the captures `packing` holds and
+    /// sending each verdict through `events`.
+    pub fn mount_health(
+        &self,
+        events: Arc<WorkspaceEventEmitter>,
+        packing: Arc<CapturePacking>,
+    ) -> Arc<RepoMountHealthReprobe> {
         Arc::new(RepoMountHealthReprobe::new(
             Arc::clone(&self.reads),
             Arc::clone(&self.log.writer),
             events,
             RepoRootResolver::new(test_git_runner()),
+            packing,
             CancellationToken::new(),
         ))
     }

@@ -26,13 +26,28 @@ type RepoMountHealth =
       isRepository: boolean;
       checkedAt: string;
     };
+// Why a moved repository's captures are held: "accessDenied" when the service may not read a
+// folder the move names, which granting it clears; "folderUnresolved" when that folder does not
+// resolve for another reason; "recordUnreadable" when the service's stored record of the project's
+// folders does not read.
+type CapturesHeldCause = "accessDenied" | "folderUnresolved" | "recordUnreadable";
+// A moved repository's captures that cannot be carried to its new folder yet: no capture of the
+// project is taken, so nothing done in it can be undone, until they are (Spec-007 §Repo Mount
+// Health (V1 Definition)).
+interface CapturesHeld {
+  cause: CapturesHeldCause;
+  folder?: string; // the folder that holds them; absent for "recordUnreadable"
+}
 // repoMount.health.changed — sent by the daemon's re-probe on the stream of every session on the
-// mount whenever the verdict changes, and, for a mount a committed re-attach or move made, with the
+// mount whenever the verdict, or what holds its captures, changes, and, for a mount a committed re-attach or move made, with the
 // new mount's first verdict, which the re-probe's pass of the new mount sends right after the
 // commit; the session's lost-folder banner reads it (Spec-007 §Fallback Behavior).
 interface RepoMountHealthChangedPayload {
   repoMountId: RepoMountId;
   health: RepoMountHealth;
+  // Present while the moved repository's captures are held, beside any `health`; the change that
+  // drops it is the hold's end.
+  capturesHeld?: CapturesHeld;
   // The mount a re-attach (`repoMount.reattach`) or a move (`repoMount.move`) turned `detached` to
   // make this one; present only on that first verdict, once on each session the commit moved onto
   // the new mount, the ended mount's sessions, so the banner drawn for the ended mount ends on this
@@ -84,6 +99,7 @@ interface RepoMountReadResponse {
   vcsType: VcsType;
   state: RepoMountState;
   health: RepoMountHealth; // derived projection (defined above), never persisted
+  capturesHeld?: CapturesHeld; // present while the moved repository's captures are held
   attachedAt: string;
   origin: RepoMountOrigin;
   displayName?: ProjectName; // its project's name; absent on a chat's own workspace, which belongs to no project
