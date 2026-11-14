@@ -81,10 +81,10 @@ fn is_counted(method: &str) -> bool {
 const SLOTLESS_REPLIES_MAX: usize = 100;
 
 /// Serves one accepted connection until it closes, its replies and streams going out through
-/// `outbox`: the reader runs here, the writer on its own task. Every close cancels every call in
-/// flight, drops the connection's subscriptions, handshake state and heartbeats, lets the writer
-/// send what lane 0 holds for at most [`CONNECTION_CLOSE_WAIT`], and reports exactly one
-/// `on_disconnect`.
+/// `outbox`: the reader runs here, the writer on its own task. Every close reports exactly one
+/// `on_disconnect` as the reading ends, then cancels every call in flight, drops the connection's
+/// subscriptions, handshake state and heartbeats, and lets the writer send what lane 0 holds for
+/// at most [`CONNECTION_CLOSE_WAIT`].
 pub(crate) async fn serve_connection<S>(
     stream: S,
     outbox: Arc<Outbox>,
@@ -121,6 +121,9 @@ pub(crate) async fn serve_connection<S>(
         .read(FramedRead::new(read_half, FrameCodec), &stop)
         .await;
 
+    // Before its calls and subscriptions end, so what the connection bound is released as its end
+    // rather than as each subscription's.
+    close.disconnect();
     calls.cancel();
     services.subscriptions.cleanup_transport(transport);
     services.negotiator.cleanup_transport(transport);
@@ -134,7 +137,6 @@ pub(crate) async fn serve_connection<S>(
         ),
         Err(_elapsed) => writing.abort(),
     }
-    close.disconnect();
 }
 
 /// How a connection's close stands: open, closing for its first reason, or reported.
@@ -145,8 +147,8 @@ enum CloseState {
     Disconnected,
 }
 
-/// A connection's close: the first reason wins, every error before the disconnect is reported,
-/// and the disconnect is reported once.
+/// A connection's close: the first reason wins, every error is logged and each one before the
+/// disconnect reported, and the disconnect is reported once.
 pub(crate) struct ConnectionClose {
     transport: TransportId,
     hooks: Arc<dyn SupervisionHooks>,
@@ -174,24 +176,27 @@ impl ConnectionClose {
         }
     }
 
-    /// Reports `error` and asks the connection to close for `reason`; nothing once the disconnect
-    /// was reported, so no error follows it.
+    /// Logs `error` and asks the connection to close for `reason`; reports it too unless the
+    /// disconnect was reported, so no error follows it, as the writer's last sends can fail.
     pub(crate) fn fail(&self, reason: SupervisionDisconnectReason, error: &(dyn Error + 'static)) {
         let mut state = self.lock();
-        match *state {
-            CloseState::Disconnected => return,
+        let is_disconnected = match *state {
+            CloseState::Disconnected => true,
             CloseState::Open => {
                 *state = CloseState::Closing(reason);
                 self.requested.cancel();
+                false
             }
-            CloseState::Closing(_) => {}
-        }
+            CloseState::Closing(_) => false,
+        };
         tracing::warn!(
             transport = self.transport.0,
             error,
             "A connection of the local socket failed"
         );
-        self.hooks.on_error(self.transport, error);
+        if !is_disconnected {
+            self.hooks.on_error(self.transport, error);
+        }
     }
 
     /// Reports the connection's disconnect, once, with the reason its close was first asked for.

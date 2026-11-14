@@ -449,10 +449,54 @@ impl ShellRecord {
             .collect()
     }
 
+    /// Ends the open output subscriptions of the ended connection `transport_id` as their own ends
+    /// would, but for their bindings, before they end, so those ends find nothing left; answers
+    /// whether the connection had any.
+    pub(crate) fn end_connection_streams(&self, transport_id: TransportId) -> bool {
+        !self.end_streams(transport_id, |_| true).is_empty()
+    }
+
     /// The output offset the shell's output has reached, its exit's cursor.
     pub(crate) fn output_offset(&self) -> u64 {
         let screen = self.lock_state().screen.clone();
         screen.map_or(0, |screen| lock_screen(&screen).scrollback().output_offset)
+    }
+
+    // Takes out the open output subscriptions of `transport_id` that `is_ended` picks, stops
+    // counting the connection as a watcher once none of its own is left, and closes the pastes
+    // those panes left open; answers the subscriptions it took out.
+    fn end_streams(
+        &self,
+        transport_id: TransportId,
+        is_ended: impl Fn(SubscriptionId) -> bool,
+    ) -> Vec<SubscriptionId> {
+        let (ended, is_last_of_connection) = {
+            let mut state = self.lock_state();
+            let ended: Vec<SubscriptionId> = state
+                .streams
+                .iter()
+                .filter(|&(subscription_id, bound)| {
+                    *bound == transport_id && is_ended(*subscription_id)
+                })
+                .map(|(subscription_id, _)| *subscription_id)
+                .collect();
+            for subscription_id in &ended {
+                state.streams.remove(subscription_id);
+            }
+            let is_last_of_connection = !state.streams.values().any(|other| *other == transport_id);
+            (ended, is_last_of_connection)
+        };
+        if ended.is_empty() {
+            return ended;
+        }
+        if is_last_of_connection {
+            let change = self.lock_flow_control().remove_watcher(transport_id);
+            self.apply_read_change(change);
+        }
+        for subscription_id in &ended {
+            self.input.close_paste_of(*subscription_id);
+        }
+        ended
     }
 
     fn apply_read_change(&self, change: Option<ReadChange>) {
@@ -527,16 +571,11 @@ impl ShellOutputSource for ShellRecord {
     }
 
     fn end_output_subscription(&self, subscription_id: SubscriptionId, transport_id: TransportId) {
-        let is_last_of_connection = {
-            let mut state = self.lock_state();
-            if state.streams.remove(&subscription_id).is_none() {
-                return;
-            }
-            !state.streams.values().any(|other| *other == transport_id)
-        };
-        if is_last_of_connection {
-            let change = self.lock_flow_control().remove_watcher(transport_id);
-            self.apply_read_change(change);
+        if self
+            .end_streams(transport_id, |ended| ended == subscription_id)
+            .is_empty()
+        {
+            return;
         }
         let lease = Arc::clone(&self.lease);
         let terminal_id = self.terminal_id.clone();
@@ -549,7 +588,6 @@ impl ShellOutputSource for ShellRecord {
                 );
             }
         });
-        self.input.close_paste_of(subscription_id);
     }
 }
 

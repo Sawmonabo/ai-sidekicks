@@ -1,12 +1,13 @@
-//! The serving socket's watch: a connection that fails is logged, its handshake and subscriptions
-//! dropped by the connection's own close, and a listener that fails marks the daemon degraded in
-//! its status read.
+//! The serving socket's watch: a connection's end releases the shells' holds bound to it, a
+//! connection that fails is logged, its handshake and subscriptions dropped by the connection's own
+//! close, and a listener that fails marks the daemon degraded in its status read.
 
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::daemon::status::DaemonProcessState;
 use sidekicks_ipc::registry::TransportId;
+use sidekicks_shell::table::ShellTable;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::ipc::local_gateway::{SupervisionDisconnectReason, SupervisionHooks};
@@ -57,10 +58,14 @@ impl ProcessStateTracker {
 pub(crate) struct ServingSocketHooks {
     /// The daemon's place in its life, degraded on a listener failure.
     pub(super) process_state: Arc<ProcessStateTracker>,
+    /// Every session's shells, whose holds bound to a connection its end releases.
+    pub(super) shells: Arc<ShellTable>,
 }
 
 impl SupervisionHooks for ServingSocketHooks {
-    fn on_disconnect(&self, _transport: TransportId, _reason: SupervisionDisconnectReason) {}
+    fn on_disconnect(&self, transport: TransportId, _reason: SupervisionDisconnectReason) {
+        self.shells.release_connection(transport);
+    }
 
     fn on_error(&self, transport: TransportId, error: &(dyn Error + 'static)) {
         tracing::warn!(

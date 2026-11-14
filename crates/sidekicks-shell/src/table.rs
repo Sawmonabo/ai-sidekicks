@@ -411,18 +411,25 @@ impl ShellTable {
         }
     }
 
-    /// Ends a closed connection's bindings on every shell's hold, a hold ending with its last as a
-    /// disconnect. Called before the connection's subscriptions end, so their ends find nothing
-    /// left; a release that cannot be appended goes to the service log.
-    #[expect(
-        dead_code,
-        reason = "the gateway's connection end releases the connection's holds"
-    )]
-    pub(crate) fn release_connection(&self, transport_id: TransportId) {
+    /// Ends a closed connection's output subscriptions and their bindings on every shell's hold, a
+    /// hold ending with its last binding as a disconnect. Called before the connection's
+    /// subscriptions end, so their ends find nothing left. Starts each release without waiting on
+    /// it; a release that cannot be appended goes to the service log with its connection.
+    pub fn release_connection(&self, transport_id: TransportId) {
         for shell in self.shared.every_shell() {
+            // Each binding rides an open subscription of its connection, or that subscription's
+            // own end is releasing it already.
+            if !shell.end_connection_streams(transport_id) {
+                continue;
+            }
             self.shared.deps.runtime.spawn(async move {
                 if let Err(error) = shell.lease.release_connection(transport_id).await {
-                    log_failure(&shell, "could not release its hold at a disconnect", &error);
+                    tracing::warn!(
+                        terminal = shell.terminal_id.as_str(),
+                        transport = transport_id.0,
+                        error = &error as &(dyn Error + 'static),
+                        "a shell's hold could not be released at its connection's end"
+                    );
                 }
             });
         }

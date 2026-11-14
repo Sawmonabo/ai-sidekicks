@@ -59,7 +59,8 @@ pub(crate) enum SupervisionDisconnectReason {
 /// Watches the listener and each connection. Every connection ends with exactly one
 /// `on_disconnect`, and no `on_error` for that connection follows it.
 pub(crate) trait SupervisionHooks: Send + Sync {
-    /// The connection `transport` ended for `reason`.
+    /// The connection `transport` ended for `reason`: told as its reading ends, before its calls
+    /// are canceled and its subscriptions end. Called on the connection's task, so it never waits.
     fn on_disconnect(&self, transport: TransportId, reason: SupervisionDisconnectReason);
 
     /// The connection `transport` failed: its caller could not be read, or its stream faulted.
@@ -114,8 +115,8 @@ impl LocalGateway {
         Ok(Self { stop, accepting })
     }
 
-    /// Closes the listener, then each connection, each of which sends what lane 0 holds within
-    /// [`CONNECTION_CLOSE_WAIT`] and reports `ServerClose`; resolves once every connection ended.
+    /// Closes the listener, then each connection, each of which reports `ServerClose` and sends
+    /// what lane 0 holds within [`CONNECTION_CLOSE_WAIT`]; resolves once every connection ended.
     pub(crate) async fn stop(self) {
         self.stop.cancel();
         if let Err(error) = self.accepting.await {

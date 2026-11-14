@@ -2,16 +2,18 @@
 //! record as one that did not start.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
+use sidekicks_contracts::terminal::control::TerminalControlChangedPayload;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_platforms::{Spawner, create_private_folder};
 use sidekicks_provider::port::command_capture::unregistered_capture;
 use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_terminal::{CommandLine, Terminals};
 use sidekicks_workspace::working_folder::SessionWorkingFolder;
 use tempfile::TempDir;
@@ -35,6 +37,9 @@ pub struct TableFixture {
     /// The terminals its shells start in.
     #[cfg(test)]
     pub(crate) terminals: Arc<Terminals>,
+    /// Each change of a shell's holder, in the order the table told them.
+    #[cfg(test)]
+    pub(crate) changes: Arc<Mutex<Vec<TerminalControlChangedPayload>>>,
     _scratch: TempDir,
 }
 
@@ -83,11 +88,18 @@ pub async fn table_fixture(gate: watch::Receiver<bool>) -> TableFixture {
     let orphan_guard = open_orphan_guard(&data_folder)
         .await
         .expect("the orphan guard opens");
+    let changes: Arc<Mutex<Vec<TerminalControlChangedPayload>>> = Arc::default();
     let table = ShellTable::new(ShellTableDeps {
         terminals: Arc::clone(&terminals),
         machine_device_id: DeviceId::new("device-machine".to_owned()).expect("a device id"),
         release_version: "0.0.0-test".to_owned(),
-        append_control_change: Arc::new(|_change| async { Ok(()) }.boxed()),
+        append_control_change: {
+            let changes = Arc::clone(&changes);
+            Arc::new(move |change: TerminalControlChangedPayload| {
+                lock(&changes).push(change);
+                async { Ok(()) }.boxed()
+            })
+        },
         read_working_folder: working_folder_read(working_folder.clone(), gate),
         read_shell_settings: Arc::new(|_session| {
             async {
@@ -123,6 +135,8 @@ pub async fn table_fixture(gate: watch::Receiver<bool>) -> TableFixture {
         working_folder,
         #[cfg(test)]
         terminals,
+        #[cfg(test)]
+        changes,
         _scratch: scratch,
     }
 }

@@ -1,7 +1,7 @@
 //! The shell table's open, retry, deletion, close and reorder, each shell's terminal failing to
 //! start so no shell runs: one shell per key, a deletion that leaves no shell behind, the refusals
-//! of a request naming no shell, the drop of a record after its runtime stopped, and a command's
-//! end mark reaching the list's followers.
+//! of a request naming no shell, the drop of a record after its runtime stopped, a command's end
+//! mark reaching the list's followers, and a connection's end releasing its device's hold.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,6 +9,7 @@ use std::time::Duration;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::terminal::control::TerminalControlChangedPayload;
 use sidekicks_contracts::terminal::{
     TerminalCloseRequest, TerminalCommandEnd, TerminalId, TerminalListUpdate, TerminalOpenRequest,
     TerminalReorderRequest,
@@ -19,10 +20,12 @@ use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_ipc::registry::{HandlerError, TransportId};
 use sidekicks_ipc::stream::feed::{CreditGate, Feed};
 use sidekicks_ipc::stream::latest_value::LatestValueFeed;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_terminal::OutputFilter as _;
 use tokio::sync::watch;
 
 use super::ShellTable;
+use crate::control_lease::{ShellConnection, ShellLeaseCaller};
 use crate::output::stream::ShellOutputSource;
 use crate::test_table::{SESSION, session, table_fixture};
 
@@ -361,4 +364,115 @@ async fn a_command_s_end_mark_reaches_the_list_and_a_printed_or_empty_end_does_n
     assert_eq!(end.exit_code.get(), 3);
     assert!(end.ended_at.timestamp().is_some(), "{end:?}");
     assert_eq!(record.marks.last_command_end(), Some(end));
+}
+
+/// The pane `pane` of `device`'s connection `transport`.
+fn pane_caller(device: &str, transport: u64, pane: u8) -> ShellLeaseCaller {
+    ShellLeaseCaller {
+        connection: ShellConnection {
+            device_id: DeviceId::new(device.to_owned()).expect("a device id"),
+            transport_id: TransportId(transport),
+        },
+        output_subscription_id: SubscriptionId::new(&format!(
+            "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c02{pane:02}"
+        ))
+        .expect("a subscription id"),
+    }
+}
+
+/// The bound on each wait for a release the table started to land.
+const RELEASE_BOUND: Duration = Duration::from_secs(10);
+
+// Fails when a connection's end leaves its device's hold standing, releases it while another of
+// the device's connections still binds it, tells the release as anything but a disconnect, or
+// lets the ended connection's pane bind the hold again before its subscription ends.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connection_s_end_releases_a_hold_as_a_disconnect_once_no_other_binding_remains() {
+    let (_gate, gate_reader) = watch::channel(true);
+    let fixture = table_fixture(gate_reader).await;
+    let terminal_id = fixture
+        .table
+        .open(open_request(1))
+        .await
+        .expect("the open answers")
+        .terminal_id;
+    let record = fixture
+        .table
+        .shared
+        .held_shell(&session(), &terminal_id)
+        .expect("the shell is held");
+    // Two connections of the device and one of another device, each streaming the shell to a pane.
+    let first = pane_caller("device", 1, 1);
+    let second = pane_caller("device", 2, 2);
+    let other = pane_caller("device-other", 3, 3);
+    for pane in [&first, &second, &other] {
+        record.add_stream(pane.output_subscription_id, pane.connection.transport_id);
+    }
+    for pane in [&first, &second] {
+        record
+            .lease
+            .take(pane, false)
+            .await
+            .expect("the device takes the shell");
+    }
+    let refused = record.lease.take(&other, false).await;
+
+    // As the gateway ends a connection: its end first, then each of its subscriptions' ends.
+    fixture.table.release_connection(TransportId(1));
+    let rebound = record.lease.take(&first, false).await;
+    record.end_output_subscription(first.output_subscription_id, TransportId(1));
+    // The first connection's binding is gone once the hold no longer admits it.
+    tokio::time::timeout(RELEASE_BOUND, async {
+        while record
+            .lease
+            .admit_from_holding_connection(&first.connection, || ())
+            .await
+            .is_ok()
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the first connection's binding ends in time");
+    let kept = record.lease.take(&other, false).await;
+    fixture.table.release_connection(TransportId(2));
+    record.end_output_subscription(second.output_subscription_id, TransportId(2));
+    let taken = tokio::time::timeout(RELEASE_BOUND, async {
+        loop {
+            match record.lease.take(&other, false).await {
+                Ok(taken) => break taken,
+                Err(_held) => tokio::task::yield_now().await,
+            }
+        }
+    })
+    .await;
+
+    assert_eq!(
+        refused.expect_err("another device's take is refused").code,
+        RefusalCode::TerminalControlHeldByOther
+    );
+    assert_eq!(
+        rebound
+            .expect_err("the ended connection's pane binds nothing")
+            .code,
+        RefusalCode::TerminalOutputSubscriptionNotFound
+    );
+    assert_eq!(
+        kept.expect_err("the device's other connection keeps the hold")
+            .code,
+        RefusalCode::TerminalControlHeldByOther
+    );
+    taken.expect("another device takes the shell once the device's last connection ended");
+    let changes = lock(&fixture.changes);
+    assert!(
+        matches!(
+            changes.as_slice(),
+            [
+                TerminalControlChangedPayload::Taken { .. },
+                TerminalControlChangedPayload::AutoReleasedDisconnect { .. },
+                TerminalControlChangedPayload::Taken { .. },
+            ]
+        ),
+        "{changes:?}"
+    );
 }

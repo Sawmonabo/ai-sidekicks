@@ -422,7 +422,7 @@ impl DaemonProcess {
                 providers: &providers,
                 artifacts: &artifacts,
                 machine,
-                machine_device_id,
+                machine_device_id: machine_device_id.clone(),
                 scheduler: Arc::clone(&scheduler),
                 search_index: Arc::clone(&search_index),
                 clock: Arc::clone(&wall_clock),
@@ -509,7 +509,7 @@ impl DaemonProcess {
         );
         self.in_flight = Some(gates.in_flight);
         let services = GatewayServices {
-            device_id: Some(inputs.machine_device_id),
+            device_id: Some(machine_device_id),
             dispatch: gates.dispatch,
             registry,
             negotiator,
@@ -517,6 +517,7 @@ impl DaemonProcess {
             presence: inputs.presence,
             hooks: Arc::new(ServingSocketHooks {
                 process_state: Arc::clone(&self.process_state),
+                shells: inputs.shells,
             }),
         };
         self.gateway = Some(

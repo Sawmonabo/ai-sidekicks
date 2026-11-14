@@ -65,6 +65,7 @@ use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_session::run::held_tool_calls::StoredHeldToolCalls;
 use sidekicks_session::search::index::live::LiveIndex;
 use sidekicks_shell::orphan::guard::OrphanGuard;
+use sidekicks_shell::table::ShellTable;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
@@ -241,8 +242,8 @@ pub(crate) struct MethodInputs {
     pub(crate) worktree_setup: Arc<WorktreeSetupRunner>,
     /// Makes worktrees and answers the new-worktree form's suggestion.
     pub(crate) worktree_creator: Arc<WorktreeCreator>,
-    /// This machine's device, the device of every connection to its socket.
-    pub(crate) machine_device_id: DeviceId,
+    /// Every session's shells, whose holds a connection's end releases.
+    pub(crate) shells: Arc<ShellTable>,
     /// The devices' heartbeats, which the presence methods answer from and each closing
     /// connection drops its own from.
     pub(crate) presence: Arc<PresenceRegister>,
@@ -542,7 +543,7 @@ pub(crate) async fn register_method_inputs(
     let shells = Arc::new(
         build_shell_table(ShellTableStart {
             terminals: Arc::clone(&session.terminals),
-            machine_device_id: machine_device_id.clone(),
+            machine_device_id,
             reads: Arc::clone(&reads),
             appender: Arc::clone(&session.appender),
             settings: Arc::clone(&settings),
@@ -788,7 +789,7 @@ pub(crate) async fn register_method_inputs(
             questions: Arc::clone(&session.questions),
             damaged_history: stored.damaged_history,
             highlighter: Arc::clone(&session.highlighter),
-            shells,
+            shells: Arc::clone(&shells),
             session_changes: Arc::clone(&session.changes),
             mcp_client: Arc::clone(&mcp_client),
             review_notes: Arc::clone(&repo.review_notes),
@@ -847,7 +848,7 @@ pub(crate) async fn register_method_inputs(
         clones: clones.ok(),
         worktree_setup,
         worktree_creator,
-        machine_device_id,
+        shells,
         presence,
         attention,
         web_address_sender,
