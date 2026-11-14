@@ -138,7 +138,11 @@ export function joinCodexModelWindows(
     const defaultRow: ProviderModel = { ...model, contextWindow };
     return largerWindow === undefined
       ? [defaultRow]
-      : [defaultRow, { ...defaultRow, contextWindow: largerWindow, largerWindow: true }];
+      : [
+          defaultRow,
+          // The mark stays on the default row, so a catalog marks at most one row.
+          { ...defaultRow, contextWindow: largerWindow, largerWindow: true, isDefault: false },
+        ];
   });
 }
 

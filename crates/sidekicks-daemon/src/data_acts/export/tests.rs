@@ -18,6 +18,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::events::session::read::HYDRATED_PAGE_TEXT_BYTES;
+use sidekicks_workspace::test_rows::insert_held_managed_mount;
 use tokio::sync::watch;
 
 use super::unfinished::{
@@ -38,13 +39,18 @@ const PLANTED_SECRETS: [&str; 5] = [
     "planted-private-key-c47d",
 ];
 
-// Stores `bytes` as one of the session's files named `file_name`, answering its manifest's id.
+// The id of the one file a test stores.
+const MANIFEST_ID: &str = "0192f0c1-7a3b-7c00-8000-000000000001";
+
+// Stores `bytes` as one of the session's files named `file_name` under the manifest id
+// `manifest_id`, answering it.
 async fn store_file(
     log: &TranscriptTestLog,
     payloads: &PayloadStore,
     spool: &Path,
     bytes: &[u8],
     file_name: &str,
+    manifest_id: &str,
 ) -> String {
     let content_hash = ContentHash::of_sha256(&Sha256::digest(bytes));
     fs::write(spool, bytes).expect("the spool is written");
@@ -52,7 +58,6 @@ async fn store_file(
         .admit(spool.to_path_buf(), &content_hash, async { Ok(()) })
         .await
         .expect("the bytes are stored");
-    let manifest_id = "0192f0c1-7a3b-7c00-8000-000000000001".to_owned();
     log.session_log
         .writer
         .execute(
@@ -68,7 +73,7 @@ async fn store_file(
             ],
         )
         .expect("the manifest is written");
-    manifest_id
+    manifest_id.to_owned()
 }
 
 // Writes the account's credential home and the data folder's secrets beside the store, each
@@ -173,6 +178,7 @@ async fn an_export_holds_every_part_decoded_and_no_credential() {
         &store_folder.path().join("spooled"),
         b"the file's own bytes",
         "../notes.txt",
+        MANIFEST_ID,
     )
     .await;
     let exports = DataExports::new(DataExportDeps {
@@ -462,6 +468,7 @@ async fn a_failed_export_leaves_no_folder_and_the_same_folder_starts_again() {
         &store_folder.path().join("spooled"),
         bytes,
         "notes.txt",
+        MANIFEST_ID,
     )
     .await;
     let object = payloads.object_path_of(&ContentHash::of_sha256(&Sha256::digest(bytes)));
@@ -537,4 +544,88 @@ async fn a_start_removes_a_cut_short_export_only_while_its_marker_is_in_it(
             .join(RUNNING_EXPORT_RECORD_FILE_NAME)
             .exists()
     );
+}
+
+// A chat's export carries every version of the chat folder it holds once, its own and the ones the
+// other holding chat recorded, and so does the other chat's. Killed by the export reading the
+// session's own manifests only.
+#[tokio::test]
+async fn a_chats_export_carries_every_version_of_its_folder_once() {
+    let log = TranscriptTestLog::new(crate::daemon::schema::schema_parts());
+    let planning = log.session_log.session_id.text().as_str().to_owned();
+    let fresh = mint_uuid_v7().to_string();
+    let mount_id = mint_uuid_v7().to_string();
+    let writer = &log.session_log.writer;
+    for session_id in [&planning, &fresh] {
+        insert_session_row(writer, session_id, None, None);
+    }
+    insert_held_managed_mount(writer, &mount_id, Path::new("/chats/planning"), &planning);
+    writer
+        .execute(
+            "INSERT INTO managed_folder_holds (repo_mount_id, session_id) VALUES (?1, ?2)",
+            params![mount_id, fresh],
+        )
+        .expect("the fresh chat's hold is admitted");
+    let store_folder = tempfile::tempdir().expect("the store folder is made");
+    let payloads =
+        PayloadStore::new(store_folder.path().join("objects")).expect("the payload store opens");
+    let mut version_ids = Vec::new();
+    for (version_number, session_id) in [(1, &planning), (2, &fresh)] {
+        let manifest_id = store_file(
+            &log,
+            &payloads,
+            &store_folder
+                .path()
+                .join(format!("spooled-{version_number}")),
+            format!("version {version_number}").as_bytes(),
+            "notes.md",
+            &mint_uuid_v7().to_string(),
+        )
+        .await;
+        writer
+            .execute(
+                "UPDATE artifact_manifests SET session_id = ?1, workspace_path = 'notes.md', \
+                 repo_mount_id = ?2, version_number = ?3 WHERE id = ?4",
+                params![session_id, mount_id, version_number, manifest_id],
+            )
+            .expect("the file is a version of the folder's path");
+        version_ids.push(manifest_id);
+    }
+    let exports = exports_of(&log, store_folder.path());
+    let outside = tempfile::tempdir().expect("the person's folder is made");
+    let destination = outside.path().join("sidekicks-export");
+
+    let job_id = exports
+        .start(destination.clone())
+        .expect("the export starts");
+    let ended = wait_until_finished(&exports, job_id).await;
+
+    assert!(
+        matches!(ended, DataExportProgress::Completed { .. }),
+        "{ended:?}"
+    );
+    for session_id in [&planning, &fresh] {
+        let session_files = destination.join("files").join(session_id);
+        let mut exported: Vec<String> = fs::read_dir(&session_files)
+            .expect("the chat's files are exported")
+            .map(|entry| {
+                entry
+                    .expect("the chat's files list")
+                    .file_name()
+                    .into_string()
+                    .expect("a manifest id is text")
+            })
+            .collect();
+        exported.sort();
+        let mut expected = version_ids.clone();
+        expected.sort();
+        assert_eq!(exported, expected, "the export of {session_id}");
+        for (version_number, manifest_id) in (1..).zip(&version_ids) {
+            assert_eq!(
+                fs::read_to_string(session_files.join(manifest_id).join("notes.md"))
+                    .expect("the version is exported under its own name"),
+                format!("version {version_number}")
+            );
+        }
+    }
 }

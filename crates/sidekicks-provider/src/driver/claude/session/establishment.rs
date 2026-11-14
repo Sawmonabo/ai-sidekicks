@@ -40,6 +40,7 @@ use self::resume::ClaudeContinuedTurn;
 use self::spawn_sources::ClaudeSpawnSources;
 use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeSessionChannel};
+use crate::driver::claude::delivery::file_tool_writes::ClaudeFileToolWrites;
 use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeKeptCallsSource;
 use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
 use crate::driver::claude::frame_routing::ClaudeFrameRouting;
@@ -539,6 +540,7 @@ impl ClaudeSessionEstablishment {
             Arc::clone(&permission_mode),
             kept_calls,
             ToolCallArgumentStore::new(&sources.data_folder, session_id),
+            ClaudeFileToolWrites::start(Arc::clone(&sources.ports.file_tool_writes)),
         ));
         let is_continuing_turn = continued_turn.is_some();
         if let Some(turn) = continued_turn {

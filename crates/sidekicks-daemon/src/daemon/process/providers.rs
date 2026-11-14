@@ -15,6 +15,7 @@ use serde_json::{Map, Value};
 use sidekicks_approval::permission_asks::PermissionAsks;
 use sidekicks_approval::reviewer_denials::ReviewerDenials;
 use sidekicks_approval::rules::ApprovalRules;
+use sidekicks_artifact::chat_file_versions::ChatFileVersions;
 use sidekicks_artifact::plans::service::PlansService;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::folders::RepoMountRootResolutionReason;
@@ -380,6 +381,8 @@ pub(crate) struct DriverPortOwners {
     pub(crate) raw_provider_messages: Arc<RawMessageRecorder>,
     /// The `tool_traces` recorder, which each driver hands every tool call it delivers.
     pub(crate) tool_traces: Arc<ToolTraceRecorder>,
+    /// The chats' file versions, which take each write a provider's own file tool makes.
+    pub(crate) chat_versions: Arc<ChatFileVersions>,
 }
 
 /// The places the daemon runs sessions in: this computer's own system alone, its login shell's
@@ -464,6 +467,7 @@ pub(crate) fn register_driver_ports(
         .raw_provider_messages
         .register(owners.raw_provider_messages)?;
     ports.tool_traces.register(owners.tool_traces)?;
+    ports.file_tool_writes.register(owners.chat_versions)?;
     ports.run_pauses.register(owners.run_pauses)
 }
 

@@ -79,6 +79,7 @@ use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::schema::schema_parts;
 
 mod erasure;
+mod folder_holds;
 mod forks;
 mod hand_offs;
 mod races_and_failures;

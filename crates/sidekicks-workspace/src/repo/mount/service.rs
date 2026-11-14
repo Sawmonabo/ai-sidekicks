@@ -2,8 +2,7 @@
 //! mount belongs to the machine and serves one project: attach stamps the daemon's machine id and
 //! the root's place, writes no workspace and appends no event. A managed mount is a chat's
 //! workspace folder, written at that chat's create with the chat's hold on it, held by every chat
-//! working in it, and deleted with the chat it is made for; it also keeps the count of the files
-//! in it.
+//! working in it, and deleted with its last holder; it also keeps the count of the files in it.
 //!
 //! - A repository is attached once per machine and place: its identity is its git common folder,
 //!   kept on the mount as `metadata.commonDir` and compared inside the insert, with the active-root
@@ -56,7 +55,7 @@ use crate::row_guards::{COMMON_DIR_METADATA_PATH, ROOT_COMMIT_METADATA_PATH};
 use crate::schema::MountOrigin;
 
 /// The statements the service's reads keep prepared on each read connection.
-pub const REPO_MOUNT_SERVICE_STATEMENT_CAPACITY: usize = 5;
+pub const REPO_MOUNT_SERVICE_STATEMENT_CAPACITY: usize = 6;
 
 // An attached mount of a repository the machine has no active mount of in that place, compared by
 // identity anchor inside the write; zero rows refuses it.
@@ -126,11 +125,13 @@ const SELECT_FOLDER_HOLDERS_SQL: &str = "SELECT hold.session_id
 const UPDATE_DOCUMENT_COUNT_SQL: &str = "UPDATE repo_mounts SET document_count = @count
     WHERE managed_session_id = @session_id AND document_count <> @count";
 
-// The workspaces on the chat's managed mount.
-const MANAGED_WORKSPACE_IDS_SQL: &str = "SELECT workspace.id
-     FROM workspaces AS workspace
-     JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
-    WHERE mount.managed_session_id = @session_id";
+// The managed mount made for a chat, whose id names its folder.
+const SELECT_MANAGED_MOUNT_ID_SQL: &str =
+    "SELECT id FROM repo_mounts WHERE managed_session_id = @session_id";
+
+// The workspaces on the managed mount.
+const MANAGED_WORKSPACE_IDS_SQL: &str =
+    "SELECT id FROM workspaces WHERE repo_mount_id = @repo_mount_id";
 
 // Each row that names a workspace on the mount goes before it, and each workspace and hold before
 // the mount, because every foreign key holds on DELETE too. A chat's run writes no run context, so
@@ -138,13 +139,9 @@ const MANAGED_WORKSPACE_IDS_SQL: &str = "SELECT workspace.id
 static DELETE_MANAGED_MOUNT_SQL: LazyLock<[String; 4]> = LazyLock::new(|| {
     [
         format!("DELETE FROM branch_contexts WHERE workspace_id IN ({MANAGED_WORKSPACE_IDS_SQL})"),
-        "DELETE FROM workspaces
-    WHERE repo_mount_id IN (SELECT id FROM repo_mounts WHERE managed_session_id = @session_id)"
-            .to_owned(),
-        "DELETE FROM managed_folder_holds
-    WHERE repo_mount_id IN (SELECT id FROM repo_mounts WHERE managed_session_id = @session_id)"
-            .to_owned(),
-        "DELETE FROM repo_mounts WHERE managed_session_id = @session_id".to_owned(),
+        "DELETE FROM workspaces WHERE repo_mount_id = @repo_mount_id".to_owned(),
+        "DELETE FROM managed_folder_holds WHERE repo_mount_id = @repo_mount_id".to_owned(),
+        "DELETE FROM repo_mounts WHERE id = @repo_mount_id".to_owned(),
     ]
 });
 
@@ -555,17 +552,35 @@ impl RepoMountService {
         Ok(repo_mount_id)
     }
 
-    /// Deletes a chat's managed mount row and every row on it, its holds included, in one write. A
-    /// session with no managed mount writes nothing, so a repeat is safe. Fails with the write's
+    /// Deletes the managed mount row `repo_mount_id` and every row on it, its holds included, in
+    /// one write. A mount already gone matches nothing, so a repeat is safe. Fails with the write's
     /// failure.
     pub(crate) async fn delete_managed(
         &self,
-        session_id: SessionId,
+        repo_mount_id: RepoMountId,
     ) -> Result<(), RepoMountServiceError> {
         self.writer
-            .write(managed_mount_deletion_statements(session_id))
+            .write(managed_mount_deletion_statements(repo_mount_id))
             .await?;
         Ok(())
+    }
+
+    /// The managed mount made for the chat, `None` when it has none. Fails with the read's failure.
+    pub(crate) async fn read_managed_mount_id(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<RepoMountId>, RepoMountServiceError> {
+        self.reads
+            .read(ReadLength::Short, move |connection| {
+                Ok(connection
+                    .prepare_cached(SELECT_MANAGED_MOUNT_ID_SQL)?
+                    .query_row(
+                        named_params! { "@session_id": session_id.text().as_str() },
+                        |row| text_column(row, 0, |text| RepoMountId::new(&text)),
+                    )
+                    .optional()?)
+            })
+            .await
     }
 
     /// Stores `count` as the files in the workspace folder made for the chat; answers every chat
@@ -702,17 +717,17 @@ impl RepoMountService {
     }
 }
 
-/// The statements that delete a chat's managed mount row with every workspace and hold on it and
-/// the branch rows naming those workspaces, in foreign-key order; a session with none matches
-/// nothing. They go in one write, alone or inside the purge's.
-pub fn managed_mount_deletion_statements(session_id: SessionId) -> Vec<WriteStatement> {
+/// The statements that delete the managed mount row `repo_mount_id` with every workspace and hold
+/// on it and the branch rows naming those workspaces, in foreign-key order; a mount already gone
+/// matches nothing. They go in one write, alone or inside the purge's.
+pub fn managed_mount_deletion_statements(repo_mount_id: RepoMountId) -> Vec<WriteStatement> {
     DELETE_MANAGED_MOUNT_SQL
         .iter()
         .map(|sql| WriteStatement {
             sql: Cow::Owned(sql.clone()),
             bindings: StatementBindings::Named(vec![text_binding(
-                "@session_id",
-                session_id.text().as_str(),
+                "@repo_mount_id",
+                repo_mount_id.text().as_str(),
             )]),
             expected_row_count: None,
         })
@@ -827,5 +842,6 @@ fn read_active_mount(
 pub(crate) struct StoredMachineIdInvalid;
 
 pub(crate) mod detach;
+pub mod held_folders;
 #[cfg(test)]
 mod tests;

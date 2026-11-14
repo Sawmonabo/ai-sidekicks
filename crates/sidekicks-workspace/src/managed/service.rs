@@ -256,16 +256,18 @@ impl ManagedWorkspaceService {
             .attach_managed(session_id, &workspace_path, self.place.as_ref())
             .await?;
         if let Err(creation_failure) = self.make_repository(&workspace_path).await {
-            return Err(match self.remove(session_id, &workspace_path).await {
-                Ok(()) => creation_failure,
-                Err(removal_failure) => {
-                    ManagedWorkspaceError::MadeAndNotRemoved(Box::new(CleanupFailures::new(
-                        creation_failure,
-                        vec![removal_failure],
-                        "making a chat's managed workspace",
-                    )))
-                }
-            });
+            return Err(
+                match self.remove(&workspace_path, Some(repo_mount_id)).await {
+                    Ok(()) => creation_failure,
+                    Err(removal_failure) => {
+                        ManagedWorkspaceError::MadeAndNotRemoved(Box::new(CleanupFailures::new(
+                            creation_failure,
+                            vec![removal_failure],
+                            "making a chat's managed workspace",
+                        )))
+                    }
+                },
+            );
         }
         Ok(ManagedWorkspace {
             repo_mount_id,
@@ -274,19 +276,23 @@ impl ManagedWorkspaceService {
         })
     }
 
-    /// Deletes the chat's workspace folder whole, then its mount row and every row on it. A
-    /// session with no managed workspace changes nothing, so a repeat is safe. Fails with the
-    /// removal's or the write's failure.
+    /// Deletes the workspace folder made for the chat whole, then its mount row and every row on
+    /// it. A session with no managed workspace changes nothing, so a repeat is safe. Fails with the
+    /// read's, the removal's or the write's failure.
     pub async fn delete(&self, session_id: SessionId) -> Result<(), ManagedWorkspaceError> {
-        self.remove(session_id, &self.workspace_path_of(session_id))
+        let repo_mount_id = self.repo_mounts.read_managed_mount_id(session_id).await?;
+        self.remove(&self.workspace_path_of(session_id), repo_mount_id)
             .await
     }
 
-    /// Deletes the chat's workspace folder whole and leaves its rows, for a caller that deletes
-    /// them in its own write. A session with no managed workspace changes nothing. Fails with the
-    /// removal's failure.
-    pub async fn delete_folder(&self, session_id: SessionId) -> Result<(), ManagedWorkspaceError> {
-        sidekicks_std::file::remove_tree_awaited(&self.workspace_path_of(session_id))
+    /// Deletes the workspace folder made for `founding_session_id`, the id its managed mount
+    /// keeps, whole and leaves its rows, for a caller that deletes them in its own write. A folder
+    /// already gone changes nothing. Fails with the removal's failure.
+    pub async fn delete_folder(
+        &self,
+        founding_session_id: SessionId,
+    ) -> Result<(), ManagedWorkspaceError> {
+        sidekicks_std::file::remove_tree_awaited(&self.workspace_path_of(founding_session_id))
             .await
             .map_err(ManagedWorkspaceError::Removal)
     }
@@ -344,13 +350,15 @@ impl ManagedWorkspaceService {
     // The folder before the rows: a removal that fails leaves the row naming what is still on disk.
     async fn remove(
         &self,
-        session_id: SessionId,
         workspace_path: &Path,
+        repo_mount_id: Option<RepoMountId>,
     ) -> Result<(), ManagedWorkspaceError> {
         sidekicks_std::file::remove_tree_awaited(workspace_path)
             .await
             .map_err(ManagedWorkspaceError::Removal)?;
-        self.repo_mounts.delete_managed(session_id).await?;
+        if let Some(repo_mount_id) = repo_mount_id {
+            self.repo_mounts.delete_managed(repo_mount_id).await?;
+        }
         Ok(())
     }
 }

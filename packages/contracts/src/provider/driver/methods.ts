@@ -167,6 +167,7 @@ export const ProviderModelSchema: z.ZodType<ProviderModel, ProviderModel> = z
       .optional(),
     fast: z.boolean(),
     largerWindow: z.boolean(),
+    isDefault: z.boolean(),
     contextWindow: z.number().int().positive().optional(),
   })
   .strict();

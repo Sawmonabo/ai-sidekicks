@@ -533,6 +533,7 @@ pub(crate) async fn register_method_inputs(
             bun_program: bun,
             raw_provider_messages: Arc::new(raw_message_recorder(data_folder, &configuration)),
             tool_traces: Arc::new(tool_trace_recorder(data_folder, &configuration)),
+            chat_versions: Arc::clone(&session.chat_versions),
         },
     )?;
     let shells = Arc::new(

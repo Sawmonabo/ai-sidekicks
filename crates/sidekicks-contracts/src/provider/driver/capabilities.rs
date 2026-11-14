@@ -47,6 +47,9 @@ pub struct ProviderModel {
     pub fast: bool,
     /// Whether this row is the model's larger window, offered beside its default row.
     pub larger_window: bool,
+    /// Whether the provider's own catalog marks this model as the one a new session starts on, a
+    /// mark apart from the window; at most one row of a catalog is marked.
+    pub is_default: bool,
     /// The window in tokens as the provider reports it; absent until a reading arrives.
     #[serde(
         default,

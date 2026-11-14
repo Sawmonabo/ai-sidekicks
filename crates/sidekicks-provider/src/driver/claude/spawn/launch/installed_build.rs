@@ -44,10 +44,11 @@ use crate::driver::claude::spawn::launch::control_only::{
 use crate::driver::claude::spawn::launch::figures::{
     read_claude_creation_figures, read_claude_reply_reserve,
 };
-use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
-use crate::driver::claude::spawn::launch::listed_commands::read_claude_session_commands;
 use crate::driver::claude::spawn::launch::one_turn::{
     ClaudeOneTurnOutcome, ClaudeOneTurnRequest, run_claude_one_turn,
+};
+use crate::driver::claude::spawn::launch::session_listing::{
+    ClaudeSessionListing, read_claude_session_listing,
 };
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
 use crate::driver::claude::spawn::one_shot_command::compose_claude_subcommand_arguments;
@@ -56,6 +57,7 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     GetCapabilitiesResult, SpawnedVersionBindingCarriers,
 };
+use crate::driver::session_control::SubagentDefinition;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::spawned_version::{
     ProviderVersionHandshakeRequest, ResolvedProviderExecutable, read_spawned_version,
@@ -115,15 +117,17 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<String, ClaudeLaunchError>>;
 
-    /// Reads the commands a session at rest lists from a process that keeps nothing, started in
-    /// `environment` in `working_directory` on `provider_account_id`'s account, in the reply's
-    /// order. Fails as the command's resolution, the start or `initialize` fails.
-    fn read_session_commands(
+    /// Reads the commands and agents a session at rest lists from a process that keeps nothing,
+    /// started in `environment` in `working_directory` on `provider_account_id`'s account and
+    /// offered `definitions` as its agents, in the reply's order. Fails as the command's
+    /// resolution, the start or `initialize` fails.
+    fn read_session_listing(
         &self,
         environment: Vec<(String, String)>,
         working_directory: PathBuf,
         provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'static, Result<Vec<ClaudeListedCommand>, ClaudeLaunchError>>;
+        definitions: Vec<SubagentDefinition>,
+    ) -> BoxFuture<'static, Result<ClaudeSessionListing, ClaudeLaunchError>>;
 
     /// Reads the model catalog from a process that keeps nothing, started in `environment` on
     /// `provider_account_id`'s account.
@@ -381,12 +385,13 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
         .boxed()
     }
 
-    fn read_session_commands(
+    fn read_session_listing(
         &self,
         environment: Vec<(String, String)>,
         working_directory: PathBuf,
         provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'static, Result<Vec<ClaudeListedCommand>, ClaudeLaunchError>> {
+        definitions: Vec<SubagentDefinition>,
+    ) -> BoxFuture<'static, Result<ClaudeSessionListing, ClaudeLaunchError>> {
         let (launcher, command_search) =
             (Arc::clone(&self.launcher), Arc::clone(&self.command_search));
         let home_folder = self.home_folder.clone();
@@ -396,12 +401,13 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
             let has_managed_mcp_file =
                 has_readable_managed_mcp_file(DESCRIPTOR.managed_settings_folder().as_deref())
                     .await;
-            read_claude_session_commands(
+            read_claude_session_listing(
                 &launcher,
                 &executable,
                 working_directory,
                 provider_account_id,
                 has_managed_mcp_file,
+                &definitions,
             )
             .await
         }
