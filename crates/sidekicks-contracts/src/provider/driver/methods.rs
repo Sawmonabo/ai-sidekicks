@@ -36,13 +36,21 @@ ts_constants! {
     PROVIDER_TIMEOUT_CODE = RefusalCode::ProviderTimeout;
 }
 
-/// The request of `provider.model.list`: the session whose model control reads the catalog.
+/// The request of `provider.model.list`: the session whose model control reads the catalog, or
+/// none for every installed provider's models across its accounts, as a page with no session reads
+/// them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct ProviderModelListRequest {
-    /// The session.
-    pub session_id: SessionId,
+    /// The session; absent for the list no session asks for.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SessionId")]
+    pub session_id: Option<SessionId>,
 }
 
 /// The request of `provider.mode.list`: the session whose level control reads the report.
@@ -90,7 +98,8 @@ macro_rules! provider_report_arm {
 provider_report_arm! {
     /// A provider whose catalog was read: its models.
     ProviderModelsListed {
-        /// Its models.
+        /// Its models in the provider's own order, each named by its id and display name; a model
+        /// the provider hides is never listed.
         pub models: Vec<ProviderModel>,
         /// Only a failed read carries a failure.
         #[serde(
@@ -120,7 +129,10 @@ provider_report_arm! {
 }
 
 /// One installed provider's outcome in the `provider.model.list` reply: its models, or the failure
-/// its catalog's read answered, so one provider's outage never hides another's models.
+/// its catalog's read answered, so one provider's outage never hides another's models. With no
+/// session named, the models are every registered account's, each row once, the default account's
+/// first, and the failure, carried only when no account's read listed, is the default account's
+/// where it has one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ProviderModelReport {
@@ -130,8 +142,8 @@ pub enum ProviderModelReport {
     Failed(ProviderModelsFailed),
 }
 
-/// The reply of `provider.model.list`: one outcome per installed provider, the session's own
-/// provider first, then the provider table's order.
+/// The reply of `provider.model.list`: one outcome per installed provider, in the provider table's
+/// order, with the session's own provider first where a session is named.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -220,7 +232,8 @@ pub struct ProviderCommandListRequest {
 methods! {
     /// The driver methods a client calls: their names, how each answers, and their shapes.
     pub const PROVIDER_DRIVER_METHOD_DESCRIPTORS = [
-        /// Lists each provider's models for a session's model control.
+        /// Lists each installed provider's models, for a session's model control or, with no
+        /// session named, for a page that has none.
         ProviderModelList = query "provider.model.list" {
             mutating: false,
             params: ProviderModelListRequest,

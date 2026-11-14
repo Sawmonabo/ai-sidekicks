@@ -265,10 +265,12 @@ pub struct ListProviderCommandsParams {
 /// to read it against, `None` for the provider's current account, which the driver resolves.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListModelsParams {
-    /// The session, only where this is the session's own provider; `None` for any other.
+    /// The session, only where this is the session's own provider; `None` for any other, and for
+    /// a list no session asks for.
     pub session_id: Option<SessionId>,
-    /// The account: the session's own bound account for its own provider; `None` for the
-    /// provider's current account, refused as no account is registered or none is current.
+    /// The account: the session's own bound account for its own provider, or each registered
+    /// account in turn for a list no session asks for; `None` for the provider's current account,
+    /// refused as no account is registered or none is current.
     pub provider_account_id: Option<ProviderAccountId>,
 }
 

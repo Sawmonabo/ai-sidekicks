@@ -191,7 +191,7 @@ async fn one_providers_failed_read_never_hides_the_others(#[case] second: Second
     });
     let fixture = fixture(vec![first, failing]);
 
-    let models = list_models(&fixture.sources, fixture.session_id)
+    let models = list_models(&fixture.sources, Some(fixture.session_id))
         .await
         .expect("the model list answers");
     let modes = list_modes(&fixture.sources, fixture.session_id)
@@ -290,7 +290,7 @@ async fn the_sessions_own_provider_lists_first_on_its_own_account() {
         )
         .expect("the test creates the session's lead");
 
-    let listed = list_models(&fixture.sources, fixture.session_id)
+    let listed = list_models(&fixture.sources, Some(fixture.session_id))
         .await
         .expect("the list answers");
 

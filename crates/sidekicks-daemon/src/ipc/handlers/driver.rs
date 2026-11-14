@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::provider::declaration::ProviderDeclarationText;
+use sidekicks_contracts::provider::driver::capabilities::{ProviderModel, find_provider_model_row};
 use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandBinding, ProviderCommandListResponse,
 };
@@ -35,6 +36,7 @@ use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
+use sidekicks_provider::account::registry::record::query_accounts;
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
@@ -42,6 +44,7 @@ use sidekicks_provider::driver::contract::params_and_results::{
     CompactContextParams, ListModelsParams, ListModesParams, ListProviderCommandsParams,
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::pricing::rule::RequestPricer;
 use sidekicks_provider::pricing::store::HeldPriceList;
 use sidekicks_session::directory::lookups::session_exists;
 use sidekicks_session::driver_resolution::read_session_driver;
@@ -57,9 +60,9 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 
 /// The statements the driver methods prepare on a read connection: the session's row, the lead's
-/// binding, the run's row, its bindings and its provider, the session's live runs, a binding's row
-/// and whether the log names an agent.
-pub(crate) const DRIVER_METHODS_STATEMENT_CAPACITY: usize = 8;
+/// binding, the run's row, its bindings and its provider, the session's live runs, a binding's row,
+/// whether the log names an agent, and the registered accounts.
+pub(crate) const DRIVER_METHODS_STATEMENT_CAPACITY: usize = 9;
 
 /// What the driver methods read and act through.
 pub(crate) struct DriverMethodSources {
@@ -199,26 +202,29 @@ fn declaration_text(text: &'static str) -> ProviderDeclarationText {
         .expect("the provider table's build check holds a descriptor's words")
 }
 
-// Each installed provider's catalog, the session's own provider first and read against its bound
-// account, every other one against its default account; a provider whose bare command name no
-// search found is not installed and is left out, and one whose read failed, a typed command path
-// with nothing runnable at it among them, carries its failure. Every model listed is marked in use
-// on the held price list, so its prices are read from then on, and one whose row the held copy
-// carries but prices at no rate for a speed the listing offers is fetched for at once.
+// One provider's read of its catalog: the provider, the rule that prices its requests, and what
+// the read answered.
+type CatalogRead = (
+    ProviderId,
+    Option<Arc<dyn RequestPricer>>,
+    Result<Vec<ProviderModel>, DriverError>,
+);
+
+// Each installed provider's catalog: with a session, its own provider first, read against its
+// bound account; with none, every provider in the table's order, read against each of its
+// accounts. A provider whose bare command name no search found is not installed and is left out,
+// and one whose read failed, a typed command path with nothing runnable at it among them, carries
+// its failure. Every model listed is marked in use on the held price list, so its prices are read
+// from then on, and one whose row the held copy carries but prices at no rate for a speed the
+// listing offers is fetched for at once.
 async fn list_models(
     sources: &DriverMethodSources,
-    session_id: SessionId,
+    session_id: Option<SessionId>,
 ) -> Result<ProviderModelListResponse, HandlerError> {
-    let drivers = read_drivers_own_first(sources, session_id).await?;
-    let reads = drivers.into_iter().map(|(provider, driver, own_lead)| {
-        let read = driver.list_models(ListModelsParams {
-            session_id: own_lead.is_some().then_some(session_id),
-            provider_account_id: own_lead.and_then(|lead| lead.binding.provider_account_id),
-        });
-        let pricer = driver.request_pricer();
-        async move { (provider.clone(), pricer, read.await) }
-    });
-    let reads = join_all(reads).await;
+    let reads = match session_id {
+        Some(session_id) => read_session_catalogs(sources, session_id).await?,
+        None => read_account_catalogs(sources).await?,
+    };
     if let Some(price_list) = sources.price_list.port() {
         let listed = || {
             (reads.iter())
@@ -262,6 +268,102 @@ async fn list_models(
         })
         .collect();
     Ok(ProviderModelListResponse { providers })
+}
+
+// The catalogs a session's model control reads: the session's own provider first, read against
+// the session and its bound account, every other one against its default account.
+async fn read_session_catalogs(
+    sources: &DriverMethodSources,
+    session_id: SessionId,
+) -> Result<Vec<CatalogRead>, HandlerError> {
+    let drivers = read_drivers_own_first(sources, session_id).await?;
+    let reads = drivers.into_iter().map(|(provider, driver, own_lead)| {
+        let read = driver.list_models(ListModelsParams {
+            session_id: own_lead.is_some().then_some(session_id),
+            provider_account_id: own_lead.and_then(|lead| lead.binding.provider_account_id),
+        });
+        let pricer = driver.request_pricer();
+        async move { (provider.clone(), pricer, read.await) }
+    });
+    Ok(join_all(reads).await)
+}
+
+// The catalogs no session asks for: every provider in the table's order, read against each of its
+// registered accounts at once, its default account first, the reads merged into one catalog; a
+// provider with no account is read once against none, which its driver refuses for want of one.
+async fn read_account_catalogs(
+    sources: &DriverMethodSources,
+) -> Result<Vec<CatalogRead>, HandlerError> {
+    let mut accounts = sources
+        .pool
+        .read(ReadLength::Short, |reader| query_accounts(reader, None))
+        .await?;
+    // Stable, so the rest keep their oldest-first order.
+    accounts.sort_by_key(|account| !account.is_default);
+    let reads = sources.providers.drivers().map(|(provider, driver)| {
+        let mut account_ids: Vec<_> = (accounts.iter())
+            .filter(|account| account.provider == *provider)
+            .map(|account| Some(account.account_id.clone()))
+            .collect();
+        if account_ids.is_empty() {
+            account_ids.push(None);
+        }
+        let account_reads = account_ids.into_iter().map(move |provider_account_id| {
+            driver.list_models(ListModelsParams {
+                session_id: None,
+                provider_account_id,
+            })
+        });
+        let pricer = driver.request_pricer();
+        async move {
+            let catalog = merge_account_catalogs(provider, join_all(account_reads).await);
+            (provider.clone(), pricer, catalog)
+        }
+    });
+    Ok(join_all(reads).await)
+}
+
+// One provider's catalog over its accounts' reads, in the order they were asked: each row once, by
+// its id and window, where the first read to list it put it. It fails only when no read listed,
+// with the first read's failure; every failure left out is logged.
+fn merge_account_catalogs(
+    provider: &ProviderId,
+    reads: Vec<Result<Vec<ProviderModel>, DriverError>>,
+) -> Result<Vec<ProviderModel>, DriverError> {
+    let mut reads = reads.into_iter();
+    let first = reads
+        .next()
+        .expect("a provider is read against one account at least");
+    reads.fold(first, |merged, read| match (merged, read) {
+        (Ok(mut catalog), Ok(models)) => {
+            for model in models {
+                if find_provider_model_row(&catalog, model.id.as_str(), model.larger_window)
+                    .is_none()
+                {
+                    catalog.push(model);
+                }
+            }
+            Ok(catalog)
+        }
+        (Ok(catalog), Err(failure)) | (Err(failure), Ok(catalog)) => {
+            log_unlisted_account(provider, &failure);
+            Ok(catalog)
+        }
+        (Err(kept), Err(failure)) => {
+            log_unlisted_account(provider, &failure);
+            Err(kept)
+        }
+    })
+}
+
+// Logs one account's failed read the merged catalog leaves out, which another account's listed
+// models or the first account's failure stands for.
+fn log_unlisted_account(provider: &ProviderId, failure: &DriverError) {
+    tracing::warn!(
+        provider = provider.as_str(),
+        error = failure as &(dyn std::error::Error + 'static),
+        "one account's models could not be read"
+    );
 }
 
 // Every registered driver, the session's own provider first and the rest in the table's order,

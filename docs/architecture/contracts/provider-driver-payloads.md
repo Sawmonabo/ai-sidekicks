@@ -229,7 +229,8 @@ interface ListProviderCommandsParams {
 
 // The DRIVER-FACING params of `listModels`. The daemon names the session and its own bound account
 // for the session's own provider, and neither for every other provider, which reads its default
-// account.
+// account. For a list no session asks for it names no session and each registered account of the
+// provider in turn, or no account for a provider that has none.
 interface ListModelsParams {
   sessionId: SessionId | null;
   providerAccountId: ProviderAccountId | null;
@@ -254,11 +255,23 @@ interface ProviderReadFailure {
   providerFailureDetail?: string;
 }
 
-// `provider.model.list {sessionId}` answers one outcome per installed provider, the session's own
-// provider first and then the provider table's order; a provider whose bare command name no search
+// The request of `provider.model.list`: the session whose model control reads the catalog, or no
+// session for a page that has none, such as Settings › General's `Commit and pull request text`.
+interface ProviderModelListRequest {
+  sessionId?: SessionId;
+}
+
+// `provider.model.list` answers one outcome per installed provider in the provider table's order,
+// the order the Provider accounts page lists providers. With `sessionId` the session's own provider
+// comes first, read against the session's own bound account, and every other provider against its
+// default account. Without it no provider is put first, and each is read against every account
+// registered for it at once, the reads merged into one catalog: each row once, by its id and
+// window, the default account's rows first; the entry fails only when no account's read listed,
+// with the default account's failure where it has one. A provider whose bare command name no search
 // found is not installed and has no entry. Each entry is its catalog or the failure its read
 // answered, so one provider's outage never hides another's models and a failure never reads as an
-// empty catalog.
+// empty catalog. The models are in the provider's own order, and a model the provider hides is
+// never listed.
 type ProviderModelReport =
   | { providerName: ProviderId; models: ProviderModel[] }
   | { providerName: ProviderId; failure: ProviderReadFailure };
