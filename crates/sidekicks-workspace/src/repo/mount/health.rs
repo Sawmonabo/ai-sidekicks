@@ -565,6 +565,7 @@ impl RepoMountHealthReprobe {
                     session_id,
                     repo_mount_id,
                     health.clone(),
+                    None,
                     SessionEventLinkage::default(),
                 )
                 .await;

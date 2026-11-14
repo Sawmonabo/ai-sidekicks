@@ -100,18 +100,21 @@ impl WorkspaceEventEmitter {
     }
 
     /// Appends `repoMount.health.changed` on `session_id`'s log: the mount `repo_mount_id` now
-    /// reads `health`. The payload names no session, so it is given beside it. Fails as
+    /// reads `health`, naming `replaced_repo_mount_id` when a re-attach or a move made it in that
+    /// mount's place. The payload names no session, so it is given beside it. Fails as
     /// [`SessionEventEmitError`] says.
     pub(crate) async fn emit_mount_health_changed(
         &self,
         session_id: SessionId,
         repo_mount_id: RepoMountId,
         health: RepoMountHealth,
+        replaced_repo_mount_id: Option<RepoMountId>,
         linkage: SessionEventLinkage,
     ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let event = SessionEvent::RepoMountHealthChanged(RepoMountHealthChangedPayload {
             repo_mount_id,
             health,
+            replaced_repo_mount_id,
         });
         let draft = SessionEventDraft::of_session(session_id, &event)?;
         Ok(self.appender.append(draft, linkage).await?)

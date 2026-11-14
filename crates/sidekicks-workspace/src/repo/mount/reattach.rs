@@ -21,6 +21,8 @@
 //!   `moved_captures`).
 //! - Once the write commits, the project attach notice is raised, as an attach raises it, so what
 //!   reads the projects' folders reads them again.
+//! - Each session on the new mount hears its first health naming the mount it replaced, so what
+//!   the session drew for the ended mount ends on that fact.
 
 pub mod moved_captures;
 mod moved_folder;
@@ -492,7 +494,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             ..mount
         };
         failures.extend(
-            self.announce_health(&new_mount, &target.common_folder)
+            self.announce_health(&new_mount, &target.common_folder, repo_mount_id)
                 .await,
         );
 
@@ -647,12 +649,13 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         }
     }
 
-    // Sends the new mount's verdict to every session on it, which takes the mismatch banner away;
-    // answers each failure.
+    // Sends the new mount's verdict to every session on it, naming the mount it replaced, which
+    // takes that mount's banner away; answers each failure.
     async fn announce_health(
         &self,
         mount: &AttachedMount,
         anchor: &Path,
+        replaced_repo_mount_id: RepoMountId,
     ) -> Vec<RepoMountReattachFollowUpFailure> {
         let health = match self.probe_health(mount, anchor).await {
             Ok(health) => health,
@@ -681,6 +684,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                     session_id,
                     repo_mount_id,
                     health.clone(),
+                    Some(replaced_repo_mount_id),
                     SessionEventLinkage::default(),
                 )
                 .await

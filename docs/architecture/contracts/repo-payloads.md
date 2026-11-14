@@ -27,11 +27,16 @@ type RepoMountHealth =
       checkedAt: string;
     };
 // repoMount.health.changed — sent by the daemon's re-probe on the stream of every session on the
-// mount whenever the verdict changes; the session's lost-folder banner reads it (Spec-007 §Fallback
-// Behavior).
+// mount whenever the verdict changes, and by a committed re-attach or move with the new mount's
+// first verdict; the session's lost-folder banner reads it (Spec-007 §Fallback Behavior).
 interface RepoMountHealthChangedPayload {
   repoMountId: RepoMountId;
   health: RepoMountHealth;
+  // The mount a re-attach (`repoMount.reattach`) or a move (`repoMount.move`) turned `detached` to
+  // make this one; present only on that first verdict, once on each session on the new mount, the
+  // ended mount's sessions, so the banner drawn for the ended mount ends on this fact. Absent on
+  // every re-probe.
+  replacedRepoMountId?: RepoMountId;
 }
 
 // RepoMountAttach — a mount belongs to the machine, not to one session: attach makes the project's

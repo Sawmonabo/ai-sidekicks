@@ -170,7 +170,10 @@ pub(crate) mod tests {
     /// Whether `channel` holds an answer to `request_id`.
     pub(crate) fn is_answered(channel: &ScriptedChannel, request_id: &str) -> bool {
         channel.writes().iter().any(|write| {
-            matches!(write, ScriptedWrite::Answer { request_id: answered, .. } if answered == request_id)
+            matches!(
+                write,
+                ScriptedWrite::Answer { request_id: answered, .. } if answered == request_id
+            )
         })
     }
 

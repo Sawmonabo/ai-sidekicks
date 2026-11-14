@@ -283,7 +283,7 @@ Payload shape: `{sessionId, repoMountId?, workspaceId?, worktreeId?, state, acto
 
 | Type | Description |
 | --- | --- |
-| `repoMount.health.changed` | The daemon's re-probe changed a mount's health, sent on the stream of every session on that mount; the session's lost-folder banner reads it. Per-type payload: `{repoMountId, health}`, `health` being the mount's `RepoMountHealth`. |
+| `repoMount.health.changed` | The daemon's re-probe changed a mount's health, or a re-attach or a move made a new mount, sent on the stream of every session on that mount; the session's lost-folder banner reads it. Per-type payload: `{repoMountId, health, replacedRepoMountId?}`, `health` being the mount's `RepoMountHealth`; `replacedRepoMountId`, present only on a re-attach's or a move's first verdict for the new mount, names the mount it ended, so the banner drawn for that mount ends on it. |
 | `workspace.preparing` | A workspace is being prepared. |
 | `workspace.prepared` | A workspace has finished preparation and is ready for use. |
 | `workspace.rootLost` | A workspace's working root became unavailable. |

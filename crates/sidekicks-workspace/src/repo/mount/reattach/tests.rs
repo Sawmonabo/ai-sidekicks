@@ -245,7 +245,8 @@ async fn a_reattach_with_nothing_to_recover_is_refused_writing_nothing() {
 #[tokio::test]
 async fn a_reattach_moves_the_workspaces_and_listed_trees_and_retires_the_rest() {
     // Catches the listed trees' move dropped: the listed tree would stay on the old mount and be
-    // retired with the unlisted one.
+    // retired with the unlisted one; and by the replaced mount left off the new mount's health: a
+    // session's banner for the old mount would have no fact to end on.
     let fixture = ReattachFixture::new().await;
     let workspace_id = fixture.roots.bind().await;
     fixture
@@ -325,6 +326,15 @@ async fn a_reattach_moves_the_workspaces_and_listed_trees_and_retires_the_rest()
              AND json_extract(payload, '$.worktreeId') = '{UNLISTED_TREE_ID}'"
         )),
         1
+    );
+    // The session's stream names the mount the re-attach replaced, once, on the new mount's health.
+    assert_eq!(
+        fixture.text(&format!(
+            "SELECT group_concat(type || ' ' || json_extract(payload, '$.repoMountId')) \
+             FROM session_events WHERE session_id = '{SESSION_ID}' \
+             AND json_extract(payload, '$.replacedRepoMountId') = '{MOUNT_ID}'"
+        )),
+        Some(format!("repoMount.health.changed {new_mount}"))
     );
 }
 

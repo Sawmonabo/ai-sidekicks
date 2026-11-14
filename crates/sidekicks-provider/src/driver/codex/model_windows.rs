@@ -399,7 +399,8 @@ mod tests {
     use crate::driver::registry::test_token;
 
     // The catalog's default mark stays on the model's default-window row, so a catalog marks at
-    // most one row. Killed by the larger-window row copying the mark from the row it is cloned from.
+    // most one row. Killed by the larger-window row copying the mark from the row it is cloned
+    // from.
     #[test]
     fn the_codex_window_join_keeps_the_default_mark_off_the_larger_window_row() {
         let model = ProviderModel {

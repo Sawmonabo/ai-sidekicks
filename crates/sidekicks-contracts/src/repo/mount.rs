@@ -175,7 +175,7 @@ pub enum RepoMountHealth {
 }
 
 /// The `repoMount.health.changed` payload: a mount's health after the daemon's re-probe changed
-/// it, sent on the stream of every session on that mount.
+/// it, or a re-attach or a move made it, sent on the stream of every session on that mount.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -185,6 +185,15 @@ pub struct RepoMountHealthChangedPayload {
     /// Its health now.
     #[garde(dive)]
     pub health: RepoMountHealth,
+    /// The mount a re-attach or a move ended to make this one, present only on the new mount's
+    /// first health, so whatever a session drew for the ended mount ends with it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "RepoMountId")]
+    pub replaced_repo_mount_id: Option<RepoMountId>,
 }
 
 /// Who a lifecycle event names as its actor.

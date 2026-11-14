@@ -498,7 +498,8 @@ session_events! {
     /// Emitted when the provider's own output-style command changes the session's output style.
     SessionOutputStyleChanged(#[garde(dive)] SessionOutputStyleChangedPayload) =
         "session.outputStyle.changed",
-    /// Emitted on every session on a mount when the daemon's re-probe changes the mount's health.
+    /// Emitted on every session on a mount when the daemon's re-probe changes the mount's health,
+    /// and by a re-attach or a move naming the mount it replaced.
     RepoMountHealthChanged(#[garde(dive)] RepoMountHealthChangedPayload) =
         "repoMount.health.changed",
     /// Emitted when admission refuses an `agent.run.create`; no run or queue item is left.
