@@ -24,7 +24,8 @@ use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::mpsc;
 
 use self::config::{
-    ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles, read_claude_mcp_config,
+    ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles, add_claude_switch_offs,
+    read_claude_mcp_config,
 };
 use self::machine_probe::{
     ClaudeMcpProbeSources, ClaudeProbePlan, plan_claude_probe, probe_claude_mcp_servers,
@@ -75,8 +76,10 @@ impl From<ClaudeShortProcess> for ClaudeMcpProcess {
 /// organization server is probed under the first account that brings it, and every other binding
 /// under the first account that answered; with no such account no Claude Code process can run, so
 /// each target reads `unknown`, carrying the first account's failure as its failure text where
-/// accounts were asked. An organization server the administrator's MCP file declares is listed and
-/// probed as the file's entry, as Claude Code loads it. Fails as the config read or the probe
+/// accounts were asked. A root's switched-off servers are those the person's own config and each
+/// answering account's config, the one its sessions' processes read, switch off there. An
+/// organization server the administrator's MCP file declares is listed and probed as the file's
+/// entry, as Claude Code loads it. Fails as the config read, an account's environment or the probe
 /// does.
 pub(crate) async fn read_claude_mcp_servers(
     driver: &ClaudeDriver,
@@ -113,7 +116,7 @@ pub(crate) async fn read_claude_mcp_servers(
     }));
     let (reading, account_reads) =
         tokio::join!(read_claude_mcp_config(&config_sources), account_reads);
-    let reading = reading.map_err(|error| DriverError::Internal(Box::new(error)))?;
+    let mut reading = reading.map_err(|error| DriverError::Internal(Box::new(error)))?;
     let mut account_failure = None;
     let mut accounts: Vec<ClaudeMcpAccountServers> = Vec::new();
     for read in account_reads {
@@ -135,6 +138,17 @@ pub(crate) async fn read_claude_mcp_servers(
                 });
             }
         }
+    }
+    let mut environments = Vec::with_capacity(accounts.len());
+    for account in &accounts {
+        let environment = sources
+            .account_environment(&account.provider_account_id)
+            .await?;
+        let files = ClaudePersonConfigFiles::resolve(&environment, &sources.home_folder).await;
+        add_claude_switch_offs(&mut reading, &files.person_config)
+            .await
+            .map_err(|error| DriverError::Internal(Box::new(error)))?;
+        environments.push(environment);
     }
     let ranking = rank_claude_mcp_servers(&reading, &accounts, has_managed_mcp_file);
     let mut probe_readings: Vec<McpProbeReading> = if request.is_refresh {
@@ -197,15 +211,15 @@ pub(crate) async fn read_claude_mcp_servers(
             tool_names: Vec::new(),
         }));
     } else {
-        for (account, targets) in accounts.iter().zip(&targets_by_account) {
+        for ((account, targets), environment) in
+            accounts.iter().zip(&targets_by_account).zip(environments)
+        {
             if targets.is_empty() {
                 continue;
             }
             let probe_sources = ClaudeMcpProbeSources {
                 starts: &*driver.starts,
-                environment: sources
-                    .account_environment(&account.provider_account_id)
-                    .await?,
+                environment,
                 provider_account_id: account.provider_account_id.clone(),
                 has_managed_mcp_file,
                 person: &person,

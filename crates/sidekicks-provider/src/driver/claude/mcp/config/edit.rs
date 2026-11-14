@@ -4,7 +4,7 @@
 //! still the one observed and the file is still the one read, or, where no file is there yet, only
 //! while none is; a project's `.mcp.json`, which Claude Code writes with no lock, is read, compared
 //! and written again while it keeps changing underneath. Every other member keeps its place and
-//! its value. The same guards carry the clear of a server from a project's own switch-off list.
+//! its value.
 
 use std::error::Error;
 use std::fs;
@@ -21,7 +21,7 @@ use sidekicks_std::file::real_location::resolve_real_location;
 
 use super::lock::{ClaudeConfigLock, ClaudeConfigLockError, log_unremoved};
 use super::observe::observed_entry;
-use super::{DISABLED_MCP_SERVERS_MEMBER, MCP_SERVERS_MEMBER, PROJECTS_MEMBER, value_at};
+use super::{MCP_SERVERS_MEMBER, PROJECTS_MEMBER, value_at};
 use crate::driver::mcp_server::write::{
     McpServerEntry, McpServerObservedEntry, McpServerWriteOutcome, McpServerWriteRefusal,
     provider_words_without_values,
@@ -60,73 +60,6 @@ pub(super) enum ClaudeEditTarget {
         /// The file's path, before any link is followed.
         path: PathBuf,
     },
-}
-
-/// What one edit changes in a config file.
-#[derive(Clone)]
-enum ClaudeConfigChange {
-    /// Writes `edited` as the entry at `keys`, the server's name last, while the entry there is
-    /// still `before`.
-    Entry {
-        keys: Vec<String>,
-        edited: Value,
-        before: McpServerObservedEntry,
-    },
-    /// Takes `server_name` out of the switch-off list of the project at `project_key`.
-    SwitchOn {
-        project_key: String,
-        server_name: String,
-    },
-}
-
-impl ClaudeConfigChange {
-    // Makes the change in `config`: `Ok(true)` where it changed it, `Ok(false)` where `config`
-    // already holds it, and the try's end where the change cannot be made.
-    fn apply(self, config: &mut Value) -> Result<bool, EditTry> {
-        match self {
-            Self::Entry {
-                keys,
-                edited,
-                before,
-            } => {
-                let held = value_at(config, &keys);
-                if observed_entry(held) != before {
-                    return Err(EditTry::Ended(McpServerWriteOutcome::Refused(
-                        McpServerWriteRefusal::EntryChanged,
-                    )));
-                }
-                if held == Some(&edited) {
-                    return Ok(false);
-                }
-                let (server_name, containers) = keys
-                    .split_last()
-                    .expect("an entry's place ends with its server's name");
-                let Some(servers) = servers_object(config, containers) else {
-                    return Err(config_file_invalid(
-                        "a member holding the server in Claude Code's config is not a JSON object",
-                    ));
-                };
-                servers.insert(server_name.clone(), edited);
-                Ok(true)
-            }
-            Self::SwitchOn {
-                project_key,
-                server_name,
-            } => {
-                let switched_off = config
-                    .get_mut(PROJECTS_MEMBER)
-                    .and_then(|projects| projects.get_mut(&project_key))
-                    .and_then(|project| project.get_mut(DISABLED_MCP_SERVERS_MEMBER))
-                    .and_then(Value::as_array_mut);
-                let Some(switched_off) = switched_off else {
-                    return Ok(false);
-                };
-                let listed = switched_off.len();
-                switched_off.retain(|name| name.as_str() != Some(server_name.as_str()));
-                Ok(switched_off.len() != listed)
-            }
-        }
-    }
 }
 
 /// How one try of an edit ended.
@@ -177,47 +110,6 @@ where
         MCP_SERVERS_MEMBER.to_owned(),
         server_name.as_str().to_owned(),
     ]);
-    let change = ClaudeConfigChange::Entry {
-        keys,
-        edited: Value::Object(entry.members().clone()),
-        before: before.clone(),
-    };
-    edit_config(path, &target, change, deadline, on_rename_due).await
-}
-
-/// Takes `server_name` out of the list of servers Claude Code's own `/mcp` switched off for the
-/// project at `project_key` in the person's config at `path`, under Claude Code's lock, waited for
-/// until `deadline`, the file left as it is where the list does not name the server. Answers as
-/// [`edit_claude_mcp_entry`] does, an absent file answering `Applied` with nothing made.
-pub(crate) async fn switch_on_in_claude_project(
-    path: PathBuf,
-    project_key: String,
-    server_name: &str,
-    deadline: tokio::time::Instant,
-) -> McpServerWriteOutcome {
-    let target = ClaudeEditTarget::PersonConfig {
-        path: path.clone(),
-        project_key: None,
-    };
-    let change = ClaudeConfigChange::SwitchOn {
-        project_key,
-        server_name: server_name.to_owned(),
-    };
-    edit_config(&path, &target, change, deadline, || ()).await
-}
-
-// Makes `change` in `target`'s file at `path`, with `on_rename_due` called on each try just before
-// its unchanged check.
-async fn edit_config<RenameDue>(
-    path: &Path,
-    target: &ClaudeEditTarget,
-    change: ClaudeConfigChange,
-    deadline: tokio::time::Instant,
-    on_rename_due: RenameDue,
-) -> McpServerWriteOutcome
-where
-    RenameDue: FnOnce() + Clone + Send + 'static,
-{
     // Claude Code writes through a link to its config, so the edit goes to the link's target.
     let file = match resolve_real_location(path).await {
         Ok(file) => file,
@@ -226,8 +118,8 @@ where
         }
     };
     match target {
-        ClaudeEditTarget::PersonConfig { .. } => {
-            let lock = match ClaudeConfigLock::take(path, deadline).await {
+        ClaudeEditTarget::PersonConfig { path, .. } => {
+            let lock = match ClaudeConfigLock::take(&path, deadline).await {
                 Ok(lock) => lock,
                 Err(ClaudeConfigLockError::Held) => {
                     return McpServerWriteOutcome::Refused(McpServerWriteRefusal::ConfigFileBusy);
@@ -236,7 +128,17 @@ where
                     return refused_by_daemon("Claude Code's config could not be locked", &failure);
                 }
             };
-            match edit_once(&file, change, PERSON_CONFIG_MODE, Some(lock), on_rename_due).await {
+            match edit_once(
+                &file,
+                &keys,
+                entry,
+                before,
+                PERSON_CONFIG_MODE,
+                Some(lock),
+                on_rename_due,
+            )
+            .await
+            {
                 EditTry::Ended(outcome) => outcome,
                 EditTry::FileChanged => {
                     McpServerWriteOutcome::Refused(McpServerWriteRefusal::ConfigFileChanged)
@@ -247,7 +149,9 @@ where
             for _try in 0..SERVERS_FILE_TRIES {
                 if let EditTry::Ended(outcome) = edit_once(
                     &file,
-                    change.clone(),
+                    &keys,
+                    entry,
+                    before,
                     SERVERS_FILE_MODE,
                     None,
                     on_rename_due.clone(),
@@ -262,13 +166,15 @@ where
     }
 }
 
-// One try on a blocking thread: the file read, the change made and renamed in place, or the file
-// made with `new_file_mode` where it is not there. The thread owns `lock`, where one is held, and
-// releases it once the try ends, so a caller dropped meanwhile never frees the lock ahead of the
-// rename.
+// One try on a blocking thread: the file read, the entry compared and the edit renamed in place,
+// or the file made with `new_file_mode` where it is not there. The thread owns `lock`, where one
+// is held, and releases it once the try ends, so a caller dropped meanwhile never frees the lock
+// ahead of the rename.
 async fn edit_once<RenameDue>(
     file: &Path,
-    change: ClaudeConfigChange,
+    keys: &[String],
+    entry: &McpServerEntry,
+    before: &McpServerObservedEntry,
     new_file_mode: u32,
     lock: Option<ClaudeConfigLock>,
     on_rename_due: RenameDue,
@@ -276,11 +182,18 @@ async fn edit_once<RenameDue>(
 where
     RenameDue: FnOnce() + Send + 'static,
 {
-    let file = file.to_path_buf();
+    let (file, keys, edited, before) = (
+        file.to_path_buf(),
+        keys.to_vec(),
+        Value::Object(entry.members().clone()),
+        before.clone(),
+    );
     match tokio::task::spawn_blocking(move || {
         let tried = edit_file(
             &file,
-            change,
+            &keys,
+            edited,
+            &before,
             new_file_mode,
             lock.as_ref().map(|_held| LOCK_HOLD_MAX),
             on_rename_due,
@@ -310,7 +223,9 @@ where
 // after it.
 fn edit_file(
     file: &Path,
-    change: ClaudeConfigChange,
+    keys: &[String],
+    edited: Value,
+    before: &McpServerObservedEntry,
     new_file_mode: u32,
     hold_max: Option<Duration>,
     on_rename_due: impl FnOnce(),
@@ -346,15 +261,26 @@ fn edit_file(
             ));
         }
     };
-    match change.apply(&mut config) {
-        Ok(true) => {}
-        Ok(false) => {
-            return EditTry::Ended(McpServerWriteOutcome::Applied {
-                reload_failure: None,
-            });
-        }
-        Err(ended) => return ended,
+    let held = value_at(&config, keys);
+    if observed_entry(held) != *before {
+        return EditTry::Ended(McpServerWriteOutcome::Refused(
+            McpServerWriteRefusal::EntryChanged,
+        ));
     }
+    if held == Some(&edited) {
+        return EditTry::Ended(McpServerWriteOutcome::Applied {
+            reload_failure: None,
+        });
+    }
+    let (server_name, containers) = keys
+        .split_last()
+        .expect("an entry's place ends with its server's name");
+    let Some(servers) = servers_object(&mut config, containers) else {
+        return config_file_invalid(
+            "a member holding the server in Claude Code's config is not a JSON object",
+        );
+    };
+    servers.insert(server_name.clone(), edited);
     // Two-space indentation and no closing newline, as Claude Code writes its config.
     let rendered = match serde_json::to_string_pretty(&config) {
         Ok(rendered) => rendered,

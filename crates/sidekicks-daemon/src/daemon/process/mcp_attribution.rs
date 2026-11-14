@@ -1,11 +1,11 @@
 //! The fills of the MCP attribution table outside the inventory's own reads: one once the
-//! providers' first reads landed, and one after each project attach, so a session's reports
-//! resolve to their servers before any list.
+//! providers' first reads landed, and one after each project attach, re-attach or move, so a
+//! session's reports resolve to their servers before any list.
 
 use std::sync::Arc;
 
 use sidekicks_mcp::inventory_service::McpInventoryService;
-use sidekicks_workspace::repo::mount::service::RepoMountService;
+use sidekicks_workspace::repo::mount::attach_notice::ProjectAttachNotice;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -15,11 +15,11 @@ pub(crate) struct McpAttributionFills {
 }
 
 impl McpAttributionFills {
-    /// Fills the table through `inventory` now, then again after each project mount `mounts`
-    /// attaches, attaches during a fill taking one fill after it, until `stop` is canceled.
+    /// Fills the table through `inventory` now, then again after each raise of `attach_notice`,
+    /// raises during a fill taking one fill after it, until `stop` is canceled.
     pub(crate) fn start(
         inventory: Arc<McpInventoryService>,
-        mounts: Arc<RepoMountService>,
+        attach_notice: Arc<ProjectAttachNotice>,
         stop: CancellationToken,
     ) -> Self {
         let task = tokio::spawn(async move {
@@ -29,7 +29,7 @@ impl McpAttributionFills {
                     () = stop.cancelled() => return,
                 }
                 tokio::select! {
-                    () = mounts.wait_for_project_attach() => {}
+                    () = attach_notice.wait() => {}
                     () = stop.cancelled() => return,
                 }
             }

@@ -13,8 +13,9 @@ use sidekicks_contracts::mcp::server::inventory::McpToolOverride;
 use sidekicks_contracts::mcp::server::{
     McpBindingScope, McpServerBindingId, McpServerBindingRef, McpServerName, McpToolName,
 };
-use sidekicks_contracts::place::{DistroName, PlacedPath, WslPlace};
+use sidekicks_contracts::place::{DistroName, WslPlace};
 use sidekicks_contracts::plugin::PluginToken;
+use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_ipc::stream::latest_value::{KeyedLatestValueFeed, KeyedLatestValueOutlet};
@@ -220,8 +221,8 @@ pub(crate) struct McpStoredBinding {
     pub(crate) enabled_override: Option<bool>,
     /// The tool overrides, in tool-name order.
     pub(crate) tool_overrides: Vec<McpToolOverride>,
-    /// The project roots a server the provider brings itself is switched off for, in root order.
-    pub(crate) switched_off_in: Vec<PlacedPath>,
+    /// The projects a server the provider brings itself is switched off for, in id order.
+    pub(crate) switched_off_in: Vec<ProjectId>,
 }
 
 /// What the store keeps for one provider's bindings.
@@ -281,10 +282,10 @@ static PROVIDER_TOOL_OVERRIDES_SQL: &str =
   ORDER BY scope, scope_ref, scope_place, server_name, tool_name";
 
 static PROVIDER_PROJECT_SWITCHES_SQL: &str =
-    "SELECT scope, scope_ref, scope_place, server_name, project_root, project_place
+    "SELECT scope, scope_ref, scope_place, server_name, project_id
   FROM mcp_project_server_switches
   WHERE provider = @provider
-  ORDER BY scope, scope_ref, scope_place, server_name, project_root, project_place";
+  ORDER BY scope, scope_ref, scope_place, server_name, project_id";
 
 // A row already present is left as it is, its switch and baseline kept.
 static RECORD_BINDING_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -330,13 +331,18 @@ static LAST_DECLARED_DIGEST_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// Every binding that last read as a moved sign-in's old digest reads as its new one.
+const MOVE_LAST_DECLARED_DIGEST_SQL: &str = "UPDATE mcp_server_bindings
+  SET last_declared_address_digest = @new_digest
+  WHERE last_declared_address_digest = @old_digest";
+
 // A server already switched off for the project keeps its row.
 static SWITCH_OFF_IN_PROJECT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO mcp_project_server_switches
-  (provider, scope, scope_ref, scope_place, server_name, project_root, project_place, updated_at)
-  VALUES (@provider, @scope, @scope_ref, @scope_place, @server_name, @project_root,
-    @project_place, {DATABASE_NOW_SQL})
+  (provider, scope, scope_ref, scope_place, server_name, project_id, updated_at)
+  VALUES (@provider, @scope, @scope_ref, @scope_place, @server_name, @project_id,
+    {DATABASE_NOW_SQL})
   ON CONFLICT DO NOTHING"
     )
 });
@@ -344,7 +350,7 @@ static SWITCH_OFF_IN_PROJECT_SQL: LazyLock<String> = LazyLock::new(|| {
 static SWITCH_ON_IN_PROJECT_SQL: &str = "DELETE FROM mcp_project_server_switches
   WHERE provider = @provider AND scope = @scope AND scope_ref = @scope_ref
     AND scope_place = @scope_place AND server_name = @server_name
-    AND project_root = @project_root AND project_place = @project_place";
+    AND project_id = @project_id";
 
 /// Writes the bindings' governance rows and reads them back.
 #[derive(Clone)]
@@ -410,17 +416,14 @@ impl McpBindingStore {
                 let mut statement = connection.prepare_cached(PROVIDER_PROJECT_SWITCHES_SQL)?;
                 let mut rows = statement.query(named_params! { "@provider": provider.as_str() })?;
                 while let Some(row) = rows.next()? {
-                    let project_root = PlacedPath {
-                        path: text_column(row, 4, FilesystemPath::new)?,
-                        place: text_column(row, 5, read_place)?,
-                    };
+                    let project_id = text_column(row, 4, |text| ProjectId::new(&text))?;
                     // Every switch row has its binding's row, which its foreign key holds.
                     stored
                         .bindings
                         .entry(read_key(&provider, row)?)
                         .or_default()
                         .switched_off_in
-                        .push(project_root);
+                        .push(project_id);
                 }
                 Ok(stored)
             })
@@ -530,23 +533,32 @@ pub(crate) fn enabled_override_statement(key: &McpBindingKey, is_enabled: bool) 
     }
 }
 
-/// The statements that switch `key`'s binding on or off for `project_root`: switched off, the
-/// binding's row where it has none and the project's switch row; switched on, that switch row
-/// deleted.
+/// The statement that has every binding whose address last read as `old` read as `new`, the same
+/// server's digest under a new address key.
+pub(crate) fn move_last_declared_digest_statement(
+    old: &ServerAddressDigest,
+    new: &ServerAddressDigest,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(MOVE_LAST_DECLARED_DIGEST_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@old_digest", old.as_str()),
+            text_binding("@new_digest", new.as_str()),
+        ]),
+        expected_row_count: None,
+    }
+}
+
+/// The statements that switch `key`'s binding on or off for the project `project_id`: switched
+/// off, the binding's row where it has none and the project's switch row; switched on, that switch
+/// row deleted.
 pub(crate) fn project_switch_statements(
     key: &McpBindingKey,
-    project_root: &PlacedPath,
+    project_id: ProjectId,
     is_enabled: bool,
 ) -> Vec<WriteStatement> {
     let mut bindings = key_bindings(key);
-    bindings.push(text_binding("@project_root", project_root.path.as_str()));
-    bindings.push(text_binding(
-        "@project_place",
-        project_root
-            .place
-            .as_ref()
-            .map_or("", |place| place.distro.as_str()),
-    ));
+    bindings.push(text_binding("@project_id", project_id.text().as_str()));
     let bindings = StatementBindings::Named(bindings);
     if is_enabled {
         return vec![WriteStatement {

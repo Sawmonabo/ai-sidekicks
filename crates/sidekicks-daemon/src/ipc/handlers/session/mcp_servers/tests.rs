@@ -229,7 +229,7 @@ async fn a_switch_is_kept_with_the_session_and_sent_to_its_feed() {
             driver
                 .expect_switch_session_mcp_servers()
                 .times(1)
-                .returning(move |session_id, run_id, tool_servers, _switched_on| {
+                .returning(move |session_id, run_id, tool_servers| {
                     lock(&recorded).push((session_id, run_id, tool_servers.clone()));
                     let bindings = Arc::clone(&bindings);
                     Box::pin(async move {
@@ -343,9 +343,8 @@ async fn a_server_the_provider_switched_off_lists_off_with_nothing_waiting() {
 }
 
 // A press of on for a server the provider switched off, which the row shows off while the
-// session's own switch is on, goes to the driver once with the set holding it on and the server
-// named, so the driver clears the provider's switch-off. Killed by the request compared with the
-// session's stored switch, which reads on and sends nothing, and by an on that names no server.
+// session's own switch is on, goes to the driver once with the set holding it on. Killed by the
+// request compared with the session's stored switch, which reads on and sends nothing.
 #[tokio::test]
 async fn on_for_a_server_the_provider_switched_off_reaches_the_driver() {
     let calls = Arc::new(Mutex::new(Vec::new()));
@@ -356,8 +355,8 @@ async fn on_for_a_server_the_provider_switched_off_reaches_the_driver() {
             driver
                 .expect_switch_session_mcp_servers()
                 .times(1)
-                .returning(move |_session_id, _run_id, tool_servers, switched_on| {
-                    lock(&recorded).push((tool_servers, switched_on));
+                .returning(move |_session_id, _run_id, tool_servers| {
+                    lock(&recorded).push(tool_servers);
                     Box::pin(async { Ok(McpSessionSwitch::Applied) })
                 });
             driver
@@ -384,7 +383,7 @@ async fn on_for_a_server_the_provider_switched_off_reaches_the_driver() {
         binding: fixture.binding.clone(),
         is_enabled: true,
     }];
-    assert_eq!(*lock(&calls), vec![(on, Some(fixture.server_name.clone()))]);
+    assert_eq!(*lock(&calls), vec![on]);
 }
 
 // A server one leg's provider switched off while another leg runs it lists on with that leg's

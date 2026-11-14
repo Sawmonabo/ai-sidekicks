@@ -530,7 +530,6 @@ impl ProviderDriver for CodexDriver {
         session_id: SessionId,
         run_id: RunId,
         tool_servers: Vec<SessionToolServer>,
-        _switched_on: Option<McpServerName>,
     ) -> BoxFuture<'_, Result<McpSessionSwitch, DriverError>> {
         // Each start, resume and fork switches each server the set switches on by name over
         // Codex's own `enabled = false`, so the switch's fork alone clears it.

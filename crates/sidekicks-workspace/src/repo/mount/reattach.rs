@@ -19,6 +19,8 @@
 //!   copies stay on the old mount.
 //! - A move carries each owner's captures of the repository to the new folder's name (see
 //!   `moved_captures`).
+//! - Once the write commits, the project attach notice is raised, as an attach raises it, so what
+//!   reads the projects' folders reads them again.
 
 pub mod moved_captures;
 mod moved_folder;
@@ -70,6 +72,7 @@ use crate::git::worktree::event_emitter::{EmitWorktreeEventInput, WorktreeEventE
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
 use crate::projector::{HealthProjectionError, RepoMountHealthRow};
 use crate::repo::errors::RepoRefusal;
+use crate::repo::mount::attach_notice::ProjectAttachNotice;
 use crate::repo::mount::health::{
     MountHealthProbeError, MountHealthReadError, probe_repo_mount_health, read_sessions_on_mount,
 };
@@ -250,6 +253,8 @@ pub struct RepoMountReattachServiceDeps<W = RecommendedWatcher> {
     /// Every stored common folder of a capture's repository outside this crate's tables, which a
     /// move rewrites beside the run contexts' own.
     pub common_folder_columns: Vec<CommonFolderColumn>,
+    /// Raised once a re-attach or a move commits, since the project's folder is a new mount's.
+    pub attach_notice: Arc<ProjectAttachNotice>,
 }
 
 /// Re-attaches a mount whose folder holds another repository now, or moves a lost one to a picked
@@ -268,6 +273,7 @@ pub struct RepoMountReattachService<W = RecommendedWatcher> {
     data_folder: PathBuf,
     // The run contexts' common folder first, then the deps' columns.
     common_folder_columns: Vec<CommonFolderColumn>,
+    attach_notice: Arc<ProjectAttachNotice>,
     /// Where a test holds a re-attach between its checks and its write.
     #[cfg(test)]
     pub(crate) write_pause: PausePoint,
@@ -291,6 +297,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 .into_iter()
                 .chain(deps.common_folder_columns)
                 .collect(),
+            attach_notice: deps.attach_notice,
             #[cfg(test)]
             write_pause: PausePoint::default(),
         }
@@ -418,6 +425,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             Ok(results) => results,
             Err(error) => return Err(self.refusal_of_write(error, &bindings).await),
         };
+        self.attach_notice.raise();
         let new_repo_mount_id = bindings.new_repo_mount_id;
         let mut failures = Vec::new();
         let written = match read_written(&results) {

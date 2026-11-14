@@ -304,6 +304,7 @@ impl ExecutionRootFixture {
                 )),
                 data_folder: self.scratch.path().join("data"),
                 common_folder_columns: Vec::new(),
+                attach_notice: Arc::default(),
             },
         ));
         let records = Arc::new(ProjectRecords::new(Arc::clone(&self.reads), sessions));

@@ -5,8 +5,7 @@
 //! only, and a remote address is held whole only in memory, for the duplicate match. The one read
 //! that keeps values takes a single server's entry for the probe that sends it, which drops it
 //! once sent. Beside the read sit the observe, compose, guarded edit and write of one server's
-//! entry in the person's own config, which keep values only in memory, and the clear of a server
-//! from a project's own switch-off list.
+//! entry in the person's own config, which keep values only in memory.
 
 mod compose;
 mod edit;
@@ -18,7 +17,6 @@ mod policy;
 mod write;
 
 pub(crate) use self::compose::compose_claude_mcp_entry;
-pub(crate) use self::edit::switch_on_in_claude_project;
 pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudePluginFolders, ClaudeServerEntryReader};
 
 use std::collections::BTreeMap;
@@ -73,10 +71,6 @@ pub(crate) const MCP_SERVERS_MEMBER: &str = "mcpServers";
 
 /// The member of the person's config that holds each project's own settings, by its root.
 pub(crate) const PROJECTS_MEMBER: &str = "projects";
-
-/// The member of a project's entry in the person's config listing the servers Claude Code's own
-/// `/mcp` switched off there.
-pub(crate) const DISABLED_MCP_SERVERS_MEMBER: &str = "disabledMcpServers";
 
 /// The member of a server entry naming the address an `http` or `sse` entry reaches.
 pub(crate) const URL_MEMBER: &str = "url";
@@ -420,6 +414,36 @@ pub(crate) async fn read_claude_mcp_config(
         roots,
         server_policy: read_server_policy(user_settings.as_ref(), &managed_settings),
     })
+}
+
+/// Adds to each root of `reading` the names Claude Code's own per-project switch turns off there
+/// in the config file at `person_config`, the one a session's process reads from its account's
+/// config folder, each name once. A file that is absent, not the daemon's to read or not JSON of
+/// the expected shape adds none; fails with the path and the system's error on any other read
+/// failure.
+pub(crate) async fn add_claude_switch_offs(
+    reading: &mut ClaudeMcpConfigReading,
+    person_config: &Path,
+) -> Result<(), ClaudeSettingsReadError> {
+    let Some(config) = read_json_file::<ClaudePersonConfigFile>(person_config).await? else {
+        return Ok(());
+    };
+    let Some(projects) = config.projects.read() else {
+        return Ok(());
+    };
+    for root in &mut reading.roots {
+        let switched_off = projects
+            .get(root.root.path.as_str())
+            .and_then(Tolerated::read)
+            .map(|entry| read_names(&entry.disabled_mcp_servers))
+            .unwrap_or_default();
+        for name in switched_off {
+            if !root.switched_off_server_names.contains(&name) {
+                root.switched_off_server_names.push(name);
+            }
+        }
+    }
+    Ok(())
 }
 
 // A value the read takes when it has the shape it expects, and skips otherwise, so one malformed

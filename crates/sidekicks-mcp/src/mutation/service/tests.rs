@@ -388,7 +388,7 @@ impl Fixture {
             .expect("the test counts the rows")
     }
 
-    fn run(&self, sql: &str) {
+    pub(super) fn run(&self, sql: &str) {
         self.database
             .reader()
             .execute_batch(sql)

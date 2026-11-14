@@ -147,6 +147,15 @@ pub enum McpRefusal {
         /// Why, in the provider's words or the daemon's, with no config value.
         words: String,
     },
+    /// A per-project switch named a folder no attached project is at; nothing was written.
+    #[error(
+        "{}: no attached project is at the folder the switch names",
+        binding_words(.binding)
+    )]
+    ProjectNotFound {
+        /// The binding the switch was for.
+        binding: Box<McpServerBindingRef>,
+    },
     /// No server with the binding's provider, scope, reference and name is in the inventory.
     #[error("{} was not found", binding_words(.binding))]
     ServerNotFound {
@@ -261,6 +270,11 @@ impl From<McpRefusal> for DomainError {
             McpRefusal::ServerConfigWriteConflict { binding, conflict } => (
                 RefusalCode::McpServerConfigWriteConflict,
                 Some(write_conflict_fields(&binding, &conflict)),
+                None,
+            ),
+            McpRefusal::ProjectNotFound { binding } => (
+                RefusalCode::ProjectNotFound,
+                Some(binding_fields(&binding)),
                 None,
             ),
             McpRefusal::ServerNotFound { binding } => (

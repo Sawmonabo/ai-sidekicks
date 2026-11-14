@@ -42,7 +42,11 @@ use sidekicks_store::database::statement::{StatementBindings, WriteStatement, te
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use tokio::sync::{Notify, watch};
 
-use crate::binding::store::{McpBindingKey, McpBindingStore, McpBindingStoreError};
+use crate::binding::store::{
+    McpBindingKey, McpBindingStore, McpBindingStoreError, move_last_declared_digest_statement,
+};
+use crate::client::tasks::McpServerEndpoint;
+use crate::command_receipts::move_endpoint_statement;
 use crate::errors::McpRefusal;
 use crate::mutation::service::CONFIG_UNREAD_WORDS;
 use crate::mutation::service::removal_sign_out::{McpRemovalSignOut, McpRemovalSignOutHold};
@@ -75,6 +79,17 @@ const MOVE_OWED_SIGN_OUT_SQL: &str = "INSERT INTO mcp_server_owed_sign_outs (ser
 
 const CLEAR_MOVED_OWED_SIGN_OUT_SQL: &str =
     "DELETE FROM mcp_server_owed_sign_outs WHERE server_address_digest = @old_digest";
+
+// The admitted client at a moved sign-in's old digest, kept at its new one; a row already there is
+// kept as it is.
+const MOVE_ADMITTED_CLIENT_SQL: &str = "INSERT INTO mcp_server_admitted_clients
+    (server_address_digest, admitted_oauth_client, own_client_unfinished_at)
+  SELECT @new_digest, admitted_oauth_client, own_client_unfinished_at
+    FROM mcp_server_admitted_clients WHERE server_address_digest = @old_digest
+  ON CONFLICT (server_address_digest) DO NOTHING";
+
+const CLEAR_MOVED_ADMITTED_CLIENT_SQL: &str =
+    "DELETE FROM mcp_server_admitted_clients WHERE server_address_digest = @old_digest";
 
 /// Why an owed sign-out, or a binding's last declared address, was not read or kept.
 #[derive(Debug, thiserror::Error)]
@@ -173,6 +188,9 @@ impl OwedSignOutStore {
     }
 }
 
+// Each row naming a moved sign-in's server follows it to its new digest in this one write: the
+// owed sign-out, each binding's last declared address, the server's admitted client and each task
+// accepted on it, so no settle reads a binding off the server and no client registers again.
 impl ServerDigestRows for OwedSignOutStore {
     fn rewrite_digests<'a>(
         &'a self,
@@ -182,22 +200,15 @@ impl ServerDigestRows for OwedSignOutStore {
             .iter()
             .flat_map(|(old, new)| {
                 [
-                    WriteStatement {
-                        sql: MOVE_OWED_SIGN_OUT_SQL.into(),
-                        bindings: StatementBindings::Named(vec![
-                            text_binding("@old_digest", old.as_str()),
-                            text_binding("@new_digest", new.as_str()),
-                        ]),
-                        expected_row_count: None,
-                    },
-                    WriteStatement {
-                        sql: CLEAR_MOVED_OWED_SIGN_OUT_SQL.into(),
-                        bindings: StatementBindings::Named(vec![text_binding(
-                            "@old_digest",
-                            old.as_str(),
-                        )]),
-                        expected_row_count: None,
-                    },
+                    moved_digest_statement(MOVE_OWED_SIGN_OUT_SQL, old, Some(new)),
+                    moved_digest_statement(CLEAR_MOVED_OWED_SIGN_OUT_SQL, old, None),
+                    move_last_declared_digest_statement(old, new),
+                    moved_digest_statement(MOVE_ADMITTED_CLIENT_SQL, old, Some(new)),
+                    moved_digest_statement(CLEAR_MOVED_ADMITTED_CLIENT_SQL, old, None),
+                    move_endpoint_statement(
+                        &McpServerEndpoint::at_address(old),
+                        &McpServerEndpoint::at_address(new),
+                    ),
                 ]
             })
             .collect();
@@ -205,6 +216,21 @@ impl ServerDigestRows for OwedSignOutStore {
             self.writer.write(statements).await?;
             Ok(())
         })
+    }
+}
+
+// The statement `sql` run for a moved sign-in's `old` digest and, where it takes one, its `new`.
+fn moved_digest_statement(
+    sql: &'static str,
+    old: &ServerAddressDigest,
+    new: Option<&ServerAddressDigest>,
+) -> WriteStatement {
+    let mut bindings = vec![text_binding("@old_digest", old.as_str())];
+    bindings.extend(new.map(|new| text_binding("@new_digest", new.as_str())));
+    WriteStatement {
+        sql: sql.into(),
+        bindings: StatementBindings::Named(bindings),
+        expected_row_count: None,
     }
 }
 

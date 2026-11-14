@@ -197,6 +197,7 @@ pub(crate) fn build_execution_root_services(
             packing: Arc::clone(&repo.packing),
             data_folder,
             common_folder_columns: vec![CHECKPOINT_COMMON_FOLDER],
+            attach_notice: Arc::clone(repo.mounts.attach_notice()),
         },
     ));
     let session_working_folders = Arc::new(SessionWorkingFolders::new(SessionWorkingFoldersDeps {

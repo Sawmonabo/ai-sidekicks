@@ -17,6 +17,7 @@ use sidekicks_contracts::mcp::server::requests::{
 };
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpToolName};
 use sidekicks_contracts::place::PlacedPath;
+use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::True;
@@ -126,10 +127,24 @@ pub struct McpInventoryService {
     sources: McpInventorySources,
 }
 
-/// The sources one read shares across its providers: the attached roots and every account.
+/// The sources one read shares across its providers: each attached project with its root, the
+/// roots the read adds besides and every account.
 struct McpInventoryContext {
-    attached_roots: Vec<PlacedPath>,
+    attached_projects: Vec<(ProjectId, PlacedPath)>,
+    extra_roots: Vec<PlacedPath>,
     accounts: Vec<AccountHome>,
+}
+
+impl McpInventoryContext {
+    // Every root the drivers read: the attached projects', then the ones the read adds.
+    fn attached_roots(&self) -> Vec<PlacedPath> {
+        self.attached_projects
+            .iter()
+            .map(|(_project_id, root)| root)
+            .chain(&self.extra_roots)
+            .cloned()
+            .collect()
+    }
 }
 
 impl McpInventoryService {
@@ -273,7 +288,7 @@ impl McpInventoryService {
         extra_roots: &[PlacedPath],
     ) -> Result<Vec<(ProviderId, Vec<McpServerDeclaration>)>, McpInventoryError> {
         let mut context = self.read_context().await?;
-        context.attached_roots.extend(extra_roots.iter().cloned());
+        context.extra_roots = extra_roots.to_vec();
         let mut declarations = Vec::new();
         for (provider, driver) in self.sources.providers.drivers() {
             let rows = self
@@ -302,8 +317,11 @@ impl McpInventoryService {
     /// fails keeps the table as it was, is logged and is recorded as a failed fill; a failed read
     /// of the attached roots fills nothing, is logged and records every provider's fill as failed.
     pub async fn fill_attribution(&self) {
-        let attached_roots = match self.read_attached_roots().await {
-            Ok(roots) => roots,
+        let attached_roots: Vec<PlacedPath> = match self.read_attached_projects().await {
+            Ok(projects) => projects
+                .into_iter()
+                .map(|(_project_id, root)| root)
+                .collect(),
             Err(error) => {
                 tracing::warn!(
                     error = &error as &(dyn std::error::Error + 'static),
@@ -384,27 +402,44 @@ impl McpInventoryService {
         }
     }
 
-    // The attached roots and the accounts, read once for every provider of one read.
+    /// The attached project whose root is `root`, or `None` where no attached project's is.
+    /// Fails as the attached projects cannot be read.
+    pub(crate) async fn attached_project_at(
+        &self,
+        root: &PlacedPath,
+    ) -> Result<Option<ProjectId>, McpInventoryError> {
+        Ok(self
+            .read_attached_projects()
+            .await?
+            .into_iter()
+            .find(|(_project_id, attached)| attached == root)
+            .map(|(project_id, _root)| project_id))
+    }
+
+    // The attached projects and the accounts, read once for every provider of one read.
     async fn read_context(&self) -> Result<McpInventoryContext, McpInventoryError> {
-        let (attached_roots, accounts) = tokio::join!(
-            self.read_attached_roots(),
+        let (attached_projects, accounts) = tokio::join!(
+            self.read_attached_projects(),
             read_account_homes(&self.sources.reads)
         );
         Ok(McpInventoryContext {
-            attached_roots: attached_roots?,
+            attached_projects: attached_projects?,
+            extra_roots: Vec::new(),
             accounts: accounts.map_err(McpInventoryError::Accounts)?,
         })
     }
 
-    // The attached projects' roots.
-    async fn read_attached_roots(&self) -> Result<Vec<PlacedPath>, McpInventoryError> {
+    // Each attached project with its root.
+    async fn read_attached_projects(
+        &self,
+    ) -> Result<Vec<(ProjectId, PlacedPath)>, McpInventoryError> {
         self.sources
             .projects
             .read_attached_roots()
             .await
             .map_err(McpInventoryError::Projects)?
             .iter()
-            .map(attached_root_path)
+            .map(|root| attached_root_path(root).map(|path| (root.project_id, path)))
             .collect::<Result<_, _>>()
             .map_err(McpInventoryError::ProjectRoot)
     }
@@ -435,7 +470,7 @@ impl McpInventoryService {
             .await?
             .into_iter()
             .map(|(key, row)| {
-                let entry = self.entry(&key, row);
+                let entry = self.entry(&key, row, context);
                 (key, entry)
             })
             .collect())
@@ -486,7 +521,7 @@ impl McpInventoryService {
                 stored
             });
         let request = McpServersReadRequest {
-            attached_roots: context.attached_roots.clone(),
+            attached_roots: context.attached_roots(),
             provider_account_ids,
             is_refresh,
             probe,
@@ -544,8 +579,13 @@ impl McpInventoryService {
     }
 
     // One row's inventory entry: the declaration and the status, and what the store keeps where
-    // it answered.
-    fn entry(&self, key: &McpBindingKey, row: McpBindingRow) -> McpServerInventoryEntry {
+    // it answered, each project the daemon switched it off in named by the root it is at now.
+    fn entry(
+        &self,
+        key: &McpBindingKey,
+        row: McpBindingRow,
+        context: &McpInventoryContext,
+    ) -> McpServerInventoryEntry {
         let enabled = row.own_switch();
         let McpBindingRow {
             declaration,
@@ -594,12 +634,14 @@ impl McpInventoryService {
             declaration
                 .disabled_in
                 .into_iter()
-                .chain(
-                    stored
-                        .switched_off_in
-                        .into_iter()
-                        .map(McpOverrideOrigin::Placed),
-                )
+                .chain(stored.switched_off_in.iter().filter_map(|project_id| {
+                    // A project with no attached mount has no root to name until it has one.
+                    context
+                        .attached_projects
+                        .iter()
+                        .find(|(attached, _root)| attached == project_id)
+                        .map(|(_project_id, root)| McpOverrideOrigin::Placed(root.clone()))
+                }))
                 .collect(),
         );
         let tools = tool_readings(

@@ -1,9 +1,10 @@
 //! The set of tool servers a session opens with: every binding the person has at user scope and
 //! at the project scope of the session's root, `local` ones included, each switched as its own
-//! switch and its project's switch read, composed from what the attribution table last read of the
-//! provider's own config and what the binding store keeps. An opening waits on the table's first
-//! fill of the provider, so no set is composed from a table not yet read; where that fill failed,
-//! the openings that meet it share one read of the provider.
+//! switch reads, and none the provider's own per-project switch keeps out of the root, composed
+//! from what the attribution table last read of the provider's own config and what the binding
+//! store keeps. An opening waits on the table's first fill of the provider, so no set is composed
+//! from a table not yet read; where that fill failed, the openings that meet it share one read of
+//! the provider.
 
 use std::sync::Arc;
 
@@ -74,11 +75,11 @@ impl McpSessionToolServers {
 
     /// The set a session of `provider` at `root`, none for a chat, opens with: each binding of
     /// the provider's own config the table last read at user scope, and at project or `local`
-    /// scope of `root`, switched on where its own switch is on and neither the provider nor the
-    /// daemon switches it off in `root`, once the table's first fill of the provider ended; where
-    /// that fill failed, after one read of the provider through the inventory, which refills the
-    /// table for every opening waiting on it. Fails where that read fails too, and as the root's
-    /// path or the store's one short read fails.
+    /// scope of `root`, but for one the provider's own per-project switch turns off in `root`,
+    /// each switched on where its own switch is on, once the table's first fill of the provider
+    /// ended; where that fill failed, after one read of the provider through the inventory, which
+    /// refills the table for every opening waiting on it. Fails where that read fails too, and as
+    /// the root's path or the store's one short read fails.
     pub async fn compose(
         &self,
         provider: &ProviderId,
@@ -97,9 +98,12 @@ impl McpSessionToolServers {
         Ok(
             resolve_declared_rows(declarations.iter().collect(), Some(&stored))
                 .into_iter()
-                .filter(|row| is_in_session_scope(&row.declaration.binding, root.as_ref()))
+                .filter(|row| {
+                    is_in_session_scope(&row.declaration.binding, root.as_ref())
+                        && !is_switched_off_in(row, root.as_ref())
+                })
                 .map(|row| SessionToolServer {
-                    is_enabled: is_switched_on(&row, root.as_ref()),
+                    is_enabled: row.own_switch() == Some(true),
                     binding: row.declaration.binding,
                 })
                 .collect(),
@@ -138,17 +142,12 @@ fn is_in_session_scope(binding: &McpServerBindingRef, root: Option<&PlacedPath>)
     }
 }
 
-// Whether `row`'s own switch is on and neither the provider's per-project list nor the daemon's
-// per-project switch takes it off in `root`.
-fn is_switched_on(row: &McpBindingRow, root: Option<&PlacedPath>) -> bool {
-    let is_switched_off_in_root = root.is_some_and(|root| {
+// Whether the provider's own per-project switch turns `row` off in `root`, which keeps it out of
+// every session there: such a server has no row in the session and no switch to press.
+fn is_switched_off_in(row: &McpBindingRow, root: Option<&PlacedPath>) -> bool {
+    root.is_some_and(|root| {
         row.declaration
             .disabled_in
             .contains(&McpOverrideOrigin::Placed(root.clone()))
-            || row
-                .stored
-                .as_ref()
-                .is_some_and(|stored| stored.switched_off_in.contains(root))
-    });
-    row.own_switch() == Some(true) && !is_switched_off_in_root
+    })
 }

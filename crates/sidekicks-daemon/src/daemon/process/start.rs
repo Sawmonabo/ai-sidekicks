@@ -640,11 +640,11 @@ impl DaemonProcess {
         self.mcp_attribution_fills = Some(McpAttributionFills::start(
             mcp_inventory,
             Arc::clone(
-                &self
-                    .repo
+                self.repo
                     .as_ref()
                     .expect("the repository services are built before their work begins")
-                    .mounts,
+                    .mounts
+                    .attach_notice(),
             ),
             self.work_stop.clone(),
         ));

@@ -109,7 +109,9 @@ CREATE TABLE mcp_receipt_key_pin (
 -- Owner: Plan-022 (T22.2.12)
 -- The daemon's own per-project switch for a server a provider brings itself (Claude Code's claude.ai
 -- connectors and the servers an administrator layer declares): one row per such server switched off for one project, deleted when it is switched
--- back on. Claude Code's own `disabledMcpServers` is read, never written; a server named there is off for
+-- back on and with the project. The row names the project by its id, so the switch follows the project when
+-- its folder moves or is re-attached, and the inventory lists it under the root the project's attached mount
+-- is at now. Claude Code's own `disabledMcpServers` is read, never written; a server named there is off for
 -- that project as well.
 CREATE TABLE mcp_project_server_switches (
   provider      TEXT NOT NULL,  -- the provider's open id, as in mcp_server_bindings
@@ -117,10 +119,9 @@ CREATE TABLE mcp_project_server_switches (
   scope_ref     TEXT NOT NULL DEFAULT '',  -- the provider account's id (connector); '' (managed)
   scope_place   TEXT NOT NULL DEFAULT '',  -- '' for both scopes; kept so the key matches the binding's
   server_name   TEXT NOT NULL,
-  project_root  TEXT NOT NULL,             -- canonical project root the switch is off for
-  project_place TEXT NOT NULL DEFAULT '',  -- the WSL 2 distribution that root is in; '' for a root outside one
+  project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,  -- the project the switch is off for
   updated_at    TEXT NOT NULL,
-  PRIMARY KEY (provider, scope, scope_ref, scope_place, server_name, project_root, project_place),
+  PRIMARY KEY (provider, scope, scope_ref, scope_place, server_name, project_id),
   CHECK((scope = 'managed') = (scope_ref = '')),
   CHECK(scope_place = ''),  -- neither scope a switch takes has a distribution
   FOREIGN KEY (provider, scope, scope_ref, scope_place, server_name)
@@ -129,7 +130,7 @@ CREATE TABLE mcp_project_server_switches (
 ) STRICT;
 ```
 
-A server is named in every row and keychain attribute by its **server address digest**: HMAC-SHA256 of its canonical address (scheme and host case, default port, trailing slash and fragment folded) under one 32-byte key, lowercase hex. The key is one item of the MCP sign-ins' credential-store service, made from the system's random source on first use and read once per daemon life; a store that cannot give it refuses the call as `mcp.bindingStoreUnavailable` and changes no row. An item there that holds no key is refused the same way and never replaced, since every sign-in filed under its digests would be lost with it. A key that is gone while sign-ins are filed is made again, and each sign-in is filed under the new key's digest of the address its secret holds before the new key is written, so a stop part-way leaves the key gone and the next start finishes the move. A command receipt names a task's server at an address by the same digest (`mcp_server_endpoint`, [Local SQLite Schema](local-sqlite-schema.md)), so no row lets a guessed address be confirmed without the key. The address itself, whose user name, password and query are credentials ([Spec-024 §Implementation Notes](../../specs/024-mcp-server-configuration-and-governance.md#implementation-notes), transient-secret handling), is kept only inside the sign-in's credential-store secret.
+A server is named in every row and keychain attribute by its **server address digest**: HMAC-SHA256 of its canonical address (scheme and host case, default port, trailing slash and fragment folded) under one 32-byte key, lowercase hex. The key is one item of the MCP sign-ins' credential-store service, made from the system's random source on first use and read once per daemon life; a store that cannot give it refuses the call as `mcp.bindingStoreUnavailable` and changes no row. An item there that holds no key is refused the same way and never replaced, since every sign-in filed under its digests would be lost with it. A key that is gone while sign-ins are filed is made again, and each sign-in is filed under the new key's digest of the address its secret holds before the new key is written, so a stop part-way leaves the key gone and the next start finishes the move. In one write before the key is written, every row naming a moved sign-in's old digest follows it to the new one: its owed sign-out, each binding's `last_declared_address_digest`, its `mcp_server_admitted_clients` row and each command receipt's `mcp_server_endpoint`, so no settle reads a binding off its server and no client registers twice. A command receipt names a task's server at an address by the same digest (`mcp_server_endpoint`, [Local SQLite Schema](local-sqlite-schema.md)), so no row lets a guessed address be confirmed without the key. The address itself, whose user name, password and query are credentials ([Spec-024 §Implementation Notes](../../specs/024-mcp-server-configuration-and-governance.md#implementation-notes), transient-secret handling), is kept only inside the sign-in's credential-store secret.
 
 ```sql
 -- Owner: Plan-022

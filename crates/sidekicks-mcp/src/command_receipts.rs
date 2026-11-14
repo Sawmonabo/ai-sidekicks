@@ -82,6 +82,9 @@ static COMPLETE_AT_SESSION_CLOSE_SQL: LazyLock<String> = LazyLock::new(|| {
 static COMPLETE_SQL: LazyLock<String> =
     LazyLock::new(|| format!("{} AND backgrounded = 0", *COMPLETE_AT_SESSION_CLOSE_SQL));
 
+const MOVE_ENDPOINT_SQL: &str = "UPDATE command_receipts SET mcp_server_endpoint = @new_endpoint
+  WHERE mcp_server_endpoint = @old_endpoint";
+
 const BACKGROUND_SQL: &str = "UPDATE command_receipts SET backgrounded = 1
   WHERE command_id = ? AND completed_at IS NULL AND backgrounded = 0";
 
@@ -240,6 +243,22 @@ pub(crate) fn hand_off_statement(
     outcome: CommandOutcome,
 ) -> WriteStatement {
     end_statement(&HAND_OFF_SQL, receipt_id, outcome)
+}
+
+/// The statement that has every task accepted on the server at `old` name it at `new`, the same
+/// server's endpoint under a new address key, so the task still resumes on it.
+pub(crate) fn move_endpoint_statement(
+    old: &McpServerEndpoint,
+    new: &McpServerEndpoint,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(MOVE_ENDPOINT_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@old_endpoint", old.as_str()),
+            text_binding("@new_endpoint", new.as_str()),
+        ]),
+        expected_row_count: None,
+    }
 }
 
 /// A claimed receipt with no end, as the restart's sweep reads it.

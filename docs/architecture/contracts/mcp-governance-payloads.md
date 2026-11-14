@@ -401,7 +401,8 @@ interface McpLiveApplicationResult {
 // projectRoot required on a
 // `connector` or `managed` binding and refused on every other, with `place`, the WSL 2 distribution
 // the root is in, its path in Linux form there: the daemon's own switch for that one project, never
-// Claude Code's `disabledMcpServers`
+// Claude Code's `disabledMcpServers`, kept under the project at that root so it follows the
+// project's folder; a root no attached project is at is refused `project.notFound`
 //   mcp.toolOverride.update   McpServerBindingRef & {clientIdempotencyKey: string, override:
 // McpToolOverride} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication}
 //   mcp.toolOverride.clear McpServerBindingRef & {clientIdempotencyKey: string, toolName: string,

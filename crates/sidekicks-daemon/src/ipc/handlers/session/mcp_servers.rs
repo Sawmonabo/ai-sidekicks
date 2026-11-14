@@ -408,8 +408,8 @@ fn is_shown_enabled(tool_server: &SessionToolServer, legs: &[McpServerReading]) 
 // Switches `server_name` on or off for the session alone: refused `session.notFound` for a
 // session the daemon does not hold and `mcp.server.notRunning` for a server its stored set does
 // not hold, the switch only narrowing that set; the state the row shows changes nothing; another
-// goes to the driver with the whole set and the stored leg's run, an `on` naming the server so
-// the provider's own switch-off goes too, and the session's feeds send again.
+// goes to the driver with the whole set and the stored leg's run, and the session's feeds send
+// again.
 async fn switch_session_server(
     methods: &McpServerMethods,
     switches: &SessionMcpSwitches,
@@ -439,12 +439,7 @@ async fn switch_session_server(
     if is_shown_enabled(switched, &legs) != enabled {
         switched.is_enabled = enabled;
         let answer = driver
-            .switch_session_mcp_servers(
-                session_id,
-                run_id,
-                tool_servers,
-                enabled.then(|| server_name.clone()),
-            )
+            .switch_session_mcp_servers(session_id, run_id, tool_servers)
             .await;
         // A failed apply may follow a stored write, so the feeds read the set again either way.
         switches.note_switched(session_id, answer.as_ref().ok().copied());

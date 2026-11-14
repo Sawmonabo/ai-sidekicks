@@ -98,6 +98,7 @@ impl ReattachFixture {
                 )),
                 data_folder: roots.scratch.path().join("data"),
                 common_folder_columns: Vec::new(),
+                attach_notice: Arc::default(),
             },
         ));
         Self { roots, service }

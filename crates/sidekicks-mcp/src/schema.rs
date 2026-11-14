@@ -231,7 +231,8 @@ CREATE TABLE mcp_receipt_key_pin (
 
 -- ---------------------------------------------------------------------------
 -- mcp_project_server_switches: the daemon's own switch for a server a provider brings itself, one
--- row per such server switched off for one project, deleted when it is switched back on.
+-- row per such server switched off for one project, deleted when it is switched back on and with
+-- the project.
 -- ---------------------------------------------------------------------------
 CREATE TABLE mcp_project_server_switches (
   provider       TEXT NOT NULL,
@@ -239,11 +240,10 @@ CREATE TABLE mcp_project_server_switches (
   scope_ref      TEXT NOT NULL DEFAULT '',
   scope_place    TEXT NOT NULL DEFAULT '',
   server_name    TEXT NOT NULL,
-  -- The project root the server is off for, and the distribution that root is in ('' elsewhere).
-  project_root   TEXT NOT NULL,
-  project_place  TEXT NOT NULL DEFAULT '',
+  -- The project the server is off for, by its id, so the switch follows the project's folder.
+  project_id     TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   updated_at     TEXT NOT NULL,
-  PRIMARY KEY (provider, scope, scope_ref, scope_place, server_name, project_root, project_place),
+  PRIMARY KEY (provider, scope, scope_ref, scope_place, server_name, project_id),
   CHECK((scope = '{managed}') = (scope_ref = '')),
   -- Neither scope a switch takes has a distribution.
   CHECK(scope_place = ''),
@@ -286,6 +286,7 @@ mod tests {
     use sidekicks_contracts::mcp::server::inventory::McpAssignableIdempotencyClass;
     use sidekicks_contracts::mcp::server::{McpApprovalMode, McpBindingScope};
     use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_workspace::test_rows::project_and_mount_rows;
     use strum::VariantArray;
 
     use super::{McpMutationReceiptStatus, schema_parts};
@@ -310,6 +311,15 @@ mod tests {
              VALUES ('provider-a', ?1, ?2, ?3, ?4, 't', 't')",
             params![scope, scope_ref, scope_place, server_name],
         )
+    }
+
+    // The project `project-1`, which a project switch names.
+    fn insert_project(connection: &Connection) {
+        for row in project_and_mount_rows("project-1", None) {
+            connection
+                .execute_batch(&row)
+                .expect("the project is stored");
+        }
     }
 
     fn count_rows(connection: &Connection, table: &str) -> i64 {
@@ -430,8 +440,8 @@ mod tests {
     )]
     #[case::outsider_switch_scope(
         "INSERT INTO mcp_project_server_switches (provider, scope, scope_ref, server_name,
-           project_root, updated_at)
-         VALUES ('provider-a', 'project', '/repo', 'server', '/repo', 't')"
+           project_id, updated_at)
+         VALUES ('provider-a', 'project', '/repo', 'server', 'project-1', 't')"
     )]
     #[case::user_with_ref(
         "INSERT INTO mcp_server_bindings (provider, scope, scope_ref, server_name,
@@ -452,6 +462,7 @@ mod tests {
         insert_binding(&connection, "user", "", "", "server").expect("the user binding is stored");
         insert_binding(&connection, "project", "/repo", "", "server")
             .expect("the project binding is stored");
+        insert_project(&connection);
 
         let refusal = connection
             .execute(statement, [])
@@ -484,6 +495,7 @@ mod tests {
         let (_database, connection) = open_database();
         insert_binding(&connection, "connector", "account-1", "", "Slack")
             .expect("the connector binding is stored");
+        insert_project(&connection);
         connection
             .execute(
                 "INSERT INTO mcp_tool_overrides (provider, scope, scope_ref, server_name, tool_name,
@@ -495,8 +507,8 @@ mod tests {
         connection
             .execute(
                 "INSERT INTO mcp_project_server_switches (provider, scope, scope_ref, server_name,
-                   project_root, updated_at)
-                 VALUES ('provider-a', 'connector', 'account-1', 'Slack', '/repo', 't')",
+                   project_id, updated_at)
+                 VALUES ('provider-a', 'connector', 'account-1', 'Slack', 'project-1', 't')",
                 [],
             )
             .expect("the switch is stored");

@@ -304,6 +304,7 @@ methods! {
                 McpServerIdempotencyConflict,
                 McpServerConfigFileInvalid,
                 ProviderUnavailable,
+                ProjectNotFound,
             ],
         },
         /// Sets one tool's override.

@@ -476,12 +476,11 @@ impl ProviderDriver for ClaudeDriver {
 
     fn switch_session_mcp_servers(
         &self,
-        session_id: SessionId,
+        _session_id: SessionId,
         run_id: RunId,
         tool_servers: Vec<SessionToolServer>,
-        switched_on: Option<McpServerName>,
     ) -> BoxFuture<'_, Result<McpSessionSwitch, DriverError>> {
-        self.switch_session_mcp_servers(session_id, run_id, tool_servers, switched_on)
+        self.switch_session_mcp_servers(run_id, tool_servers)
             .boxed()
     }
 

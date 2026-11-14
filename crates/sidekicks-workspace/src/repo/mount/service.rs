@@ -44,11 +44,11 @@ use sidekicks_store::database::stored_column::{
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError, sqlite_error_code};
 use sidekicks_store::events::session::appender::SessionEventEmitError;
-use tokio::sync::Notify;
 
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::projector::{HealthProjectionError, RepoMountHealthRow};
 use crate::repo::errors::{RepoRefusal, refuse_distribution};
+use crate::repo::mount::attach_notice::ProjectAttachNotice;
 use crate::repo::mount::health::{MountHealthProbeError, probe_repo_mount_health};
 use crate::repo::root_resolver::RepoRootResolver;
 use crate::row_guards::{COMMON_DIR_METADATA_PATH, ROOT_COMMIT_METADATA_PATH};
@@ -308,8 +308,8 @@ pub struct RepoMountService {
     events: Arc<WorkspaceEventEmitter>,
     resolver: RepoRootResolver,
     machine_id: MachineId,
-    // Raised once a project's mount is attached, a raise no one waits for kept for the next wait.
-    project_attached: Notify,
+    // Raised once a project's mount is attached, and shared with the re-attach, which raises it too.
+    attach_notice: Arc<ProjectAttachNotice>,
     /// Where a test holds a detach between its row read and its write.
     #[cfg(test)]
     pub(crate) detach_pause: PausePoint,
@@ -334,7 +334,7 @@ impl RepoMountService {
             events,
             resolver,
             machine_id,
-            project_attached: Notify::new(),
+            attach_notice: Arc::default(),
             #[cfg(test)]
             detach_pause: PausePoint::default(),
             #[cfg(test)]
@@ -414,15 +414,15 @@ impl RepoMountService {
         })
     }
 
-    /// Settles once a project's mount was attached since the last wait settled, at once when one
-    /// was attached with no one waiting; attaches meanwhile settle one wait.
-    pub async fn wait_for_project_attach(&self) {
-        self.project_attached.notified().await;
+    /// The notice raised each time a project's mount is attached, which a re-attach or a move of
+    /// a project's mount raises too.
+    pub fn attach_notice(&self) -> &Arc<ProjectAttachNotice> {
+        &self.attach_notice
     }
 
     /// Keeps a resolved target as the mount of `project_id`, in one write after
     /// `project_statements` (the project row a new project needs, written with its mount or not
-    /// at all), then raises [`Self::wait_for_project_attach`]. Refuses `repoMount.alreadyAttached`
+    /// at all), then raises [`Self::attach_notice`]. Refuses `repoMount.alreadyAttached`
     /// when the repository was attached since it was resolved; fails with the write's failure
     /// otherwise.
     pub(crate) async fn insert_attached_mount(
@@ -461,7 +461,7 @@ impl RepoMountService {
                 )
                 .await);
         }
-        self.project_attached.notify_one();
+        self.attach_notice.raise();
         Ok(RepoMountAttachResponse {
             repo_mount_id,
             state: RepoMountState::Attached,
