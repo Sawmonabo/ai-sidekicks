@@ -229,7 +229,7 @@ async fn a_claude_steer_lands_where_claude_code_took_it() {
     session.frame(&started(steer));
     settle().await;
     let first_turn = SafeInt::<1>::new(1).expect("1 is a turn number");
-    session.stream.continue_turn(
+    let before = session.stream.continue_turn(
         &ClaudeBoundRun {
             run_id,
             binding_id: binding_id("lead"),
@@ -237,6 +237,7 @@ async fn a_claude_steer_lands_where_claude_code_took_it() {
         first_turn,
         None,
     );
+    session.stream.confirm_continued_turn(before);
     session.frame(&reply("message-3"));
     settle().await;
     assert_eq!(landings(&session), [(steer, 1)]);

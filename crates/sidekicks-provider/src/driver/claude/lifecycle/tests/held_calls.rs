@@ -587,10 +587,10 @@ async fn only_a_persons_close_stops_the_surviving_tasks(#[case] cause: SessionCl
 }
 
 // Fails when the start after a restart or a Stop settles a resting session's held calls other than
-// by what Claude Code kept: a call kept nowhere reads ended by the restart or the Stop, and one only
-// recorded stays open for the next resume, while a closed session ends every call kept nowhere or
-// only recorded with its process. The driver is new and no session call composed its pieces, as at
-// a real start. Mutations: the `Restart` column's `Unkept` cell answering `processExit` (call-1
+// by what Claude Code kept: a call kept nowhere reads ended by the restart or the Stop, and one
+// only recorded stays open for the next resume, while a closed session ends every call kept nowhere
+// or only recorded with its process. The driver is new and no session call composed its pieces, as
+// at a real start. Mutations: the `Restart` column's `Unkept` cell answering `processExit` (call-1
 // reads it after a restart); the record ignored after a restart (call-3 closed); `Restart` passed
 // for a closed session (no close for call-3 when closed); `Stop` read as `Restart` (call-1 reads
 // `daemonRestart` after a Stop); a recorded call ended under a Stop (call-3 closed); `Stopped`
@@ -700,9 +700,9 @@ fn undo_settle(session_id: SessionId, calls: Vec<HeldToolCall>) -> SettleHeldToo
 // Fails when an undo's settle leaves a cut call's task running on its server, its call open in the
 // log, or still on the stream for the stopped ending Claude Code reports after the stop to close a
 // second time. Mutations: the call not set apart on the stream, so it stays held (the
-// notification writes a second close); the call ended through `release` as stopped, which keeps it settled (the
-// notification closes it again); the close not sent (no close by the settle's answer); the
-// `stop_task` send dropped (no stop for task-A).
+// notification writes a second close); the call ended through `release` as stopped, which keeps
+// it settled (the notification closes it again); the close not sent (no close by the settle's
+// answer); the `stop_task` send dropped (no stop for task-A).
 #[tokio::test(start_paused = true)]
 async fn an_undo_ends_a_cut_held_call_stopped_and_it_never_closes_again() {
     let fixture = ScriptedDriver::new();

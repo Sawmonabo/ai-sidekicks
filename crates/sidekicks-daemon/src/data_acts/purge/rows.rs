@@ -206,7 +206,7 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 // so its readers drop the session's entries, and an entry's delivery before the entry it is found
 // through. The messaging rows go at either end of a pair, a message held from the session or a wait
 // on it among them. A fork of the session stays whole and names no parent once its parent is gone.
-const DELETES_THROUGH_SESSION_ROW: [&str; 45] = [
+const DELETES_THROUGH_SESSION_ROW: [&str; 46] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
     "DELETE FROM session_events WHERE session_id = @sessionId",
@@ -228,6 +228,7 @@ const DELETES_THROUGH_SESSION_ROW: [&str; 45] = [
     "DELETE FROM artifact_manifests WHERE session_id = @sessionId",
     "DELETE FROM session_restores WHERE session_id = @sessionId",
     "DELETE FROM session_restore_resends WHERE session_id = @sessionId",
+    "DELETE FROM session_restore_cuts WHERE session_id = @sessionId",
     "DELETE FROM checkpoint_versions WHERE checkpoint_id IN
        (SELECT checkpoint_id FROM session_checkpoints WHERE session_id = @sessionId)",
     "DELETE FROM checkpoint_window_shadows WHERE shadow_id IN

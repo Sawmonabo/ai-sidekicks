@@ -17,6 +17,7 @@ use crate::command::CommandId;
 use crate::free_form_string::FilesystemPath;
 use crate::method::KeyedRequest;
 use crate::method::methods;
+use crate::run::id::RunId;
 use crate::run::queue::{QueueItemId, QueuedSkillPick};
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
@@ -187,15 +188,27 @@ pub struct SessionRestoreAlsoChanged {
     pub paths: Vec<FilesystemPath>,
 }
 
-/// The commands and agents an undo stops, each started after its point and still running: the dry
-/// run names them, and the undo is sent back the ones the person agreed to stop.
+/// What an undo stops, each started after its point and still running, with the lead's own live
+/// turn where a restore of the files alone ends it: the dry run names them, and the undo is sent
+/// back the ones the person agreed to stop.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionRestoreStops {
     /// The running commands.
     pub command_ids: Vec<CommandId>,
+    /// The commands whose wrapper started after the point and whose command the provider has not
+    /// named yet, each by its wrapper's process id.
+    pub unnamed_command_wrappers: Vec<u32>,
     /// The running agents.
     pub agents: Vec<AgentTreeMember>,
+    /// The lead run whose live turn a restore of the files alone ends, counted with the agents.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "RunId")]
+    pub lead_run_id: Option<RunId>,
 }
 
 /// Asks what an undo would do, and changes nothing.
@@ -213,9 +226,9 @@ pub struct SessionRestorePreviewRequest {
 
 /// What an undo would do. `fileCount` and `lineCount` are the files it would put back and the
 /// lines across them; `stops` names the agents and commands started after the point that are still
-/// running, which the undo stops first. `ignoredFolders`
-/// and `commandsRanAfterPoint` feed the notice shown whenever a command ran after the point;
-/// `alsoChangedBy` names the paths another session changed since the point.
+/// running, which the undo stops first. `ignoredFolders` and `commandsRanAfterPoint` feed the
+/// notice shown whenever a command ran after the point; `alsoChangedBy` names the paths another
+/// session changed since the point.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -226,7 +239,8 @@ pub struct SessionRestorePreviewResponse {
     pub line_count: SafeInt<0>,
     /// The files it would skip.
     pub skipped: Vec<SessionRestoreSkippedFile>,
-    /// The agents and commands started after the point that are still running.
+    /// The agents and commands started after the point that are still running, and the lead's
+    /// live turn where a restore of the files alone ends it.
     pub stops: SessionRestoreStops,
     /// The folders the project ignores, never put back.
     pub ignored_folders: Vec<FilesystemPath>,

@@ -262,9 +262,9 @@ interface SessionRestoreRequest {
   // false unless the person pressed the include line: also put back the paths another session in
   // the same folder changed since the point
   includeAlsoChanged: boolean;
-  // The commands and agents the person agreed the undo stops, as the dry run named them
-  // (persistence-payloads.md §Plan-012). When more runs after the point now, nothing moves and the
-  // undo answers `stopsChanged` with the new set, for the person to agree to again.
+  // The commands and agents the person agreed the undo stops, as the dry run's `stops` named them
+  // (linked below the block). When more runs after the point now, nothing moves and the undo
+  // answers `stopsChanged` with the new set, for the person to agree to again.
   stops: SessionRestoreStops;
   // The edited message an edit and resend sends once the undo has applied, with its files; its
   // presence makes edit and resend one call.
@@ -298,7 +298,12 @@ type SessionRestoreOutcome =
 // The commands and agents an undo stops, each started after its point and still running.
 interface SessionRestoreStops {
   commandIds: CommandId[];
+  // A command whose wrapper started after the point and whose command the provider has not named
+  // yet, by its wrapper's process id; counted as a command.
+  unnamedCommandWrappers: number[];
   agents: AgentTreeMember[];
+  // The lead run whose live turn a restore of the files alone ends, counted with the agents.
+  leadRunId?: RunId;
 }
 interface InterventionResponseBase {
   interventionId: InterventionId;
@@ -698,6 +703,8 @@ interface AgentChildRunStopAllResponse {
   }>;
 }
 ```
+
+The `stops` an undo carries are the ones its dry run answered, `SessionRestorePreviewResponse` in [Persistence Payload Contracts §Plan-012 — Persistence And Recovery](./persistence-payloads.md#plan-012--persistence-and-recovery).
 
 ## Run-Control Method-Name Registry
 

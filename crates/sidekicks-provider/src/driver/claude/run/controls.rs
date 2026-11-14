@@ -339,7 +339,9 @@ impl ClaudeRunControls {
                 true,
             )
             .await;
-        if written.is_err() {
+        if written.is_ok() {
+            stream.confirm_continued_turn(before);
+        } else {
             self.start.routes.unbind_run(run_id);
             stream.restore_turn(before);
             lock(&self.start.prompts).record_dropped(session_id, &message_uuid);
@@ -548,8 +550,8 @@ impl ClaudeRunControls {
     // own words: a helper at its next tool call, a process apart from the session's own (`apart`)
     // in its running turn, and the lead in its running turn or as its own run while no run holds
     // its turn. The words open no process: with none of the session's live, or the session asleep,
-    // the start refuses them, so nothing is written and nothing failed. The stop stands whether or not the words reach it,
-    // so a failed write is recorded.
+    // the start refuses them, so nothing is written and nothing failed. The stop stands whether or
+    // not the words reach it, so a failed write is recorded.
     async fn tell_command_stopped(
         &self,
         session_id: SessionId,

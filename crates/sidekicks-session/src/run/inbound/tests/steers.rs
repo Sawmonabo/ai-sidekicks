@@ -81,7 +81,7 @@ async fn a_landed_steer_moves_its_binding_to_the_next_position(#[case] steer: St
             binding_id: harness.binding_id.clone(),
             turn_number: turn(1),
             message_id: steered,
-            is_cut_with_opening: false,
+            cut_group_start: None,
         })
         .await;
 

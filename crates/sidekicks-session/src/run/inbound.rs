@@ -406,7 +406,7 @@ impl RunInboundDispatch {
                 binding_id,
                 turn_number,
                 message_id,
-                is_cut_with_opening,
+                cut_group_start,
             } => {
                 let run_id = self.lock_epochs().binding(&binding_id)?.run_id;
                 (
@@ -418,7 +418,7 @@ impl RunInboundDispatch {
                         run_id,
                         turn_number,
                         message_id,
-                        is_cut_with_opening,
+                        cut_group_start,
                     }),
                 )
             }

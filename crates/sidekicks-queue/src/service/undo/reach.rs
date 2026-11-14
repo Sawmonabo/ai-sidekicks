@@ -1,8 +1,9 @@
 //! What an undo to one of the person's messages reaches: the checkpoint it goes back to, which is
-//! the pressed message's own, or, with the conversation in scope for a message whose landing says
-//! the provider's cut cannot fall between it and its turn's opening, the one the start of that turn
-//! wrote, found through that turn; what opened that turn; and the person's messages it takes back,
-//! read from the daemon's own queue items in send order.
+//! the pressed message's own, or, with the conversation in scope for a message whose landing names
+//! the group the provider's cut takes it with, the group's first: the first message's own
+//! checkpoint, or the one the start of the turn wrote where the group begins at the turn's
+//! opening; what stands there; and the person's messages it takes back, read from the daemon's own
+//! queue items in send order.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
@@ -19,7 +20,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{
     SessionRestoreResend, SessionRestoreScope, SessionRestoreTarget,
 };
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -56,12 +56,14 @@ static LATER_LEAD_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The number of the turn of `@run_id` the message `@message_id` last steered into, with whether
-// the provider's cut cannot fall between it and that turn's opening; none when it steered no turn.
+// The number of the turn of `@run_id` the message `@message_id` last steered into, with where the
+// group the provider's cut takes it with begins, as that landing named it: its kind and, for a
+// message, that message's queue item; none when it steered no turn.
 static STEERED_TURN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT json_extract(steer.payload, '$.turnNumber'),
-    json_extract(steer.payload, '$.isCutWithOpening')
+    json_extract(steer.payload, '$.cutGroupStart.kind'),
+    json_extract(steer.payload, '$.cutGroupStart.messageId')
   FROM session_events AS steer
   WHERE steer.session_id = @session_id AND steer.run_id = @run_id AND steer.type = '{}'
     AND {}
@@ -73,35 +75,49 @@ static STEERED_TURN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The queue items of the messages that landed in turn `@turn_number` of `@run_id` where the
-// provider's cut cannot fall between them and the turn's opening, each with its sent message's
-// sequence, found through the correlation index.
-static CUT_WITH_OPENING_SQL: LazyLock<String> = LazyLock::new(|| {
+// The queue items of the messages that landed in turn `@turn_number` of `@run_id` naming the group
+// start of kind `@kind` at the queue item `@group_message_id` (empty for the turn's opening).
+static GROUP_MEMBERS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT json_extract(steer.payload, '$.messageId'), sent.sequence
+        "SELECT json_extract(steer.payload, '$.messageId')
   FROM session_events AS steer
-  JOIN session_events AS sent
-    ON sent.correlation_id = json_extract(steer.payload, '$.messageId')
-   AND sent.session_id = steer.session_id AND sent.type = '{}'
   WHERE steer.session_id = @session_id AND steer.run_id = @run_id AND steer.type = '{}'
     AND {}
     AND json_extract(steer.payload, '$.turnNumber') = @turn_number
-    AND json_extract(steer.payload, '$.isCutWithOpening')",
-        SessionEventType::UserMessageSent.as_str(),
+    AND json_extract(steer.payload, '$.cutGroupStart.kind') = @kind
+    AND ifnull(json_extract(steer.payload, '$.cutGroupStart.messageId'), '') = @group_message_id",
         SessionEventType::AgentTurnSteered.as_str(),
         readable_event_sql("steer"),
     )
 });
+
+// Where the group the pressed message's landing named begins, in the turn it landed in.
+enum GroupStart {
+    // At whatever opened that turn.
+    TurnOpening,
+    // At this queue item's message.
+    Message(QueueItemId),
+}
+
+impl GroupStart {
+    // The group start's kind and message as its landing's payload spells them.
+    fn stored(&self) -> (&'static str, String) {
+        match self {
+            Self::TurnOpening => ("turnOpening", String::new()),
+            Self::Message(message_id) => ("message", message_id.to_string()),
+        }
+    }
+}
 
 /// What an undo to one of the person's messages goes back to, read before anything is stopped:
 /// the preview and the conversation cut read it alike.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UndoReach {
     /// The checkpoint the undo goes back to, conversation and files together: the pressed
-    /// message's own, or, with the conversation in scope for a message that landed where the
-    /// provider's cut cannot fall between it and its turn's opening, the one the start of that
-    /// turn wrote, or, for a turn that reopened a prompt an earlier turn sent, as a retry turn
-    /// does, that prompt's own.
+    /// message's own, or, with the conversation in scope for a message that landed in a group the
+    /// provider's cut takes whole, the group's first message's own, or, for a group that begins
+    /// at its turn's opening, the one the start of that turn wrote, or, for a turn that reopened a
+    /// prompt an earlier turn sent, as a retry turn does, that prompt's own.
     pub checkpoint: Checkpoint,
     /// The queue item the provider's cut is asked before: the person's message at `checkpoint`,
     /// or, where a turn no queue item opened stands there, the pressed message, which the
@@ -112,10 +128,10 @@ pub struct UndoReach {
     /// What opened the turn the undo goes back to the start of, which the ask names; `None` where
     /// the undo goes back to the pressed message itself.
     pub opening: Option<TurnOpening>,
-    /// Each of the person's messages the undo takes back, in send order, from `checkpoint` on or
-    /// from an earlier-sent one that landed in the reached turn with no point of its own: what
-    /// goes back into the draft. A review or a plan's message is the daemon's and is not among
-    /// them.
+    /// Each of the person's messages the undo takes back, in send order, from `checkpoint` on,
+    /// leaving out one that landed in a turn before it, which the cut leaves in the conversation:
+    /// what goes back into the draft. A review or a plan's message is the daemon's and is not
+    /// among them.
     pub cut_messages: Vec<CutMessage>,
 }
 
@@ -164,8 +180,8 @@ pub struct CutMessage {
     /// What it carried, as its queue item holds it.
     pub body: QueueMessageBody,
     /// Whether a resend of an edit of the pressed message carries it: the pressed message, and,
-    /// where the undo goes back to the start of the pressed message's turn, the person's message
-    /// at `checkpoint` and every one that landed in that turn with no point of its own.
+    /// where the undo goes back to the start of the pressed message's group, the person's message
+    /// at `checkpoint` and every other member of that group.
     pub is_resent: bool,
 }
 
@@ -178,16 +194,21 @@ impl UndoReach {
 
     /// The person's messages that undo together with the pressed one because they reached the
     /// provider together, in send order, which the dry run names for the ask to count; empty where
-    /// the undo goes back to the pressed message itself.
+    /// the undo goes back to the pressed message itself or no other message undoes with it.
     pub fn undone_together(&self) -> Vec<QueueItemId> {
         if self.is_pressed_message() {
             return Vec::new();
         }
-        self.cut_messages
+        let together: Vec<QueueItemId> = self
+            .cut_messages
             .iter()
             .filter(|message| message.is_resent)
             .map(|message| message.queue_item_id)
-            .collect()
+            .collect();
+        if together.len() < 2 {
+            return Vec::new();
+        }
+        together
     }
 
     /// The one message a resend of `edited`, the pressed message's edit, sends as the new turn:
@@ -369,10 +390,10 @@ pub(super) fn read_reach(
                 return Err(ConversationCutError::MessageNotQueued);
             }
         };
-    // The turn the pressed message landed in where the provider's cut takes it with that turn's
-    // opening, which the conversation's undo goes back to the start of; the files alone are
+    // Where the group the provider's cut takes the pressed message with begins, in the turn it
+    // landed in, which the conversation's undo goes back to the start of; the files alone are
     // exact.
-    let grouped_turn = if driver.is_some() {
+    let group = if driver.is_some() {
         reader
             .prepare_cached(&STEERED_TURN_SQL)
             .and_then(|mut statement| {
@@ -384,91 +405,101 @@ pub(super) fn read_reach(
                             "@message_id": pressed_message_id.to_string(),
                             "@read_bound": session_read_bound(read_damaged, &session_id, None),
                         },
-                        |row| Ok((safe_int_column::<1>(row, 0)?, row.get::<_, bool>(1)?)),
+                        |row| {
+                            let turn_number = safe_int_column::<1>(row, 0)?;
+                            let start = match row.get::<_, Option<String>>(1)?.as_deref() {
+                                Some("turnOpening") => Some(GroupStart::TurnOpening),
+                                Some("message") => {
+                                    Some(GroupStart::Message(text_column(row, 2, |text| {
+                                        QueueItemId::new(&text)
+                                    })?))
+                                }
+                                Some(_) | None => None,
+                            };
+                            Ok(start.map(|start| (turn_number, start)))
+                        },
                     )
                     .optional()
             })
             .map_err(QueueError::from)?
-            .filter(|(_, is_cut_with_opening)| *is_cut_with_opening)
-            .map(|(turn_number, _)| turn_number)
+            .flatten()
     } else {
         None
     };
-    let steered_turn_start = match grouped_turn {
-        Some(turn_number) => Some(
-            turn_start_checkpoint(reader, session_id, run_id, turn_number)
+    let reach_start = match &group {
+        // A start row naming a prompt an earlier turn of the run already sent, as a retry turn's
+        // does, gives way to that prompt's own checkpoint: the provider's cut before the opening
+        // drops it from the conversation, so the rollback, the draft and the resend take it back
+        // too.
+        Some((turn_number, GroupStart::TurnOpening)) => {
+            let start = turn_start_checkpoint(reader, session_id, run_id, *turn_number)
                 .map_err(QueueError::from)?
                 .filter(|start| start.checkpoint.checkpoint_id != pressed.checkpoint_id)
+                .ok_or(ConversationCutError::MessageNotQueued)?;
+            Some(match start.turn_opening_id {
+                Some(opening) => sent_message_checkpoint(reader, read_damaged, session_id, opening)
+                    .map_err(cut_error_of)?
+                    .filter(|sent| sent.checkpoint.run_id == run_id)
+                    .unwrap_or(start),
+                None => start,
+            })
+        }
+        Some((_, GroupStart::Message(first))) => Some(
+            sent_message_checkpoint(reader, read_damaged, session_id, *first)
+                .map_err(cut_error_of)?
+                .filter(|sent| sent.checkpoint.run_id == run_id)
                 .ok_or(ConversationCutError::MessageNotQueued)?,
         ),
         None => None,
     };
-    // The messages of that turn with no point of their own, each with its sent message's
-    // sequence: one may have been sent before the turn's start, as a message the provider kept
-    // past the turn before.
-    let cut_with_opening: Vec<(QueueItemId, SafeInt<0>)> = match grouped_turn {
-        Some(turn_number) => reader
-            .prepare_cached(&CUT_WITH_OPENING_SQL)
-            .and_then(|mut statement| {
-                statement
-                    .query_map(
-                        named_params! {
-                            "@session_id": session_id.text().as_str(),
-                            "@run_id": run_id.text().as_str(),
-                            "@turn_number": i64::from(turn_number),
-                            "@read_bound": session_read_bound(read_damaged, &session_id, None),
-                        },
-                        |row| {
-                            Ok((
-                                text_column(row, 0, |text| QueueItemId::new(&text))?,
-                                safe_int_column::<0>(row, 1)?,
-                            ))
-                        },
-                    )?
-                    .collect::<rusqlite::Result<Vec<_>>>()
-            })
-            .map_err(QueueError::from)?,
-        None => Vec::new(),
-    };
-    // A start row naming a prompt an earlier turn of the run already sent, as a retry turn's does,
-    // gives way to that prompt's own checkpoint: the provider's cut before the opening drops it
-    // from the conversation, so the rollback, the draft and the resend take it back too.
-    let reach_start = match steered_turn_start {
-        Some(start) => match start.turn_opening_id {
-            Some(opening) => Some(
-                sent_message_checkpoint(reader, read_damaged, session_id, opening)
-                    .map_err(cut_error_of)?
-                    .filter(|sent| sent.checkpoint.run_id == run_id)
-                    .unwrap_or(start),
-            ),
-            None => Some(start),
-        },
-        None => None,
-    };
     let turn_opening_id = reach_start.as_ref().and_then(|start| start.turn_opening_id);
     let checkpoint = reach_start.map_or_else(|| pressed.clone(), |start| start.checkpoint);
+    let is_turn_reach = checkpoint.checkpoint_id != pressed.checkpoint_id;
+    // The other members of the pressed message's group, which the resend carries with it.
+    let grouped: HashSet<QueueItemId> = match &group {
+        Some((turn_number, start)) if is_turn_reach => {
+            let (kind, group_message_id) = start.stored();
+            reader
+                .prepare_cached(&GROUP_MEMBERS_SQL)
+                .and_then(|mut statement| {
+                    statement
+                        .query_map(
+                            named_params! {
+                                "@session_id": session_id.text().as_str(),
+                                "@run_id": run_id.text().as_str(),
+                                "@turn_number": i64::from(*turn_number),
+                                "@kind": kind,
+                                "@group_message_id": group_message_id,
+                                "@read_bound": session_read_bound(read_damaged, &session_id, None),
+                            },
+                            |row| text_column(row, 0, |text| QueueItemId::new(&text)),
+                        )?
+                        .collect::<rusqlite::Result<HashSet<_>>>()
+                })
+                .map_err(QueueError::from)?
+        }
+        Some(_) | None => HashSet::new(),
+    };
     let reached_runs: Vec<RunId> = std::iter::once(run_id)
         .chain(later_run_ids.iter().copied())
-        .collect();
-    let from_sequence = cut_with_opening
-        .iter()
-        .map(|(_, sequence)| *sequence)
-        .fold(checkpoint.message_sequence, Ord::min);
-    let grouped: HashSet<QueueItemId> = cut_with_opening
-        .into_iter()
-        .map(|(queue_item_id, _)| queue_item_id)
         .collect();
     let reached = checkpoints_of_runs_from(
         reader,
         read_damaged,
         session_id,
         &reached_runs,
-        from_sequence,
+        checkpoint.message_sequence,
     )
     .map_err(cut_error_of)?;
-    let reached: Vec<&Checkpoint> = reached.iter().map(|stored| &stored.checkpoint).collect();
+    // A message sent after the reach's but landed in a turn before it, as a priority steer into
+    // the turn before, stays in the conversation the cut leaves, so it stays out of the draft.
+    let reach_turn = turn_order(&checkpoint);
+    let reached: Vec<&Checkpoint> = reached
+        .iter()
+        .map(|stored| &stored.checkpoint)
+        .filter(|cut| cut.run_id != run_id || turn_order(cut) >= reach_turn)
+        .collect();
     let at_sequence = read_events(&reached)?;
-    let is_turn_reach = checkpoint.checkpoint_id != pressed.checkpoint_id;
     let is_resent = |cut: &Checkpoint, queue_item_id: QueueItemId| {
         if is_turn_reach {
             cut.checkpoint_id == checkpoint.checkpoint_id
@@ -544,6 +575,14 @@ pub(super) fn read_reach(
         later_run_ids,
         driver,
     })
+}
+
+// Where a checkpoint stands in its run: its epoch, then its run position.
+fn turn_order(checkpoint: &Checkpoint) -> (i64, i64) {
+    (
+        i64::from(checkpoint.turn.epoch.0),
+        i64::from(checkpoint.turn.position.0),
+    )
 }
 
 // The cut's refusal for a failed read of the reach's checkpoints.

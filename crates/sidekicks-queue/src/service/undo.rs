@@ -34,6 +34,7 @@ use sidekicks_provider::left_conversations::{
 use sidekicks_provider::runtime_binding::store::{
     RuntimeBinding, RuntimeBindingRelaunch, read_binding,
 };
+use sidekicks_session::checkpoints::restore_cuts::record_cut_statement;
 use sidekicks_session::queue_store::{QueueItemRecord, placement_statements};
 use sidekicks_session::run::engine::undo::{
     RollbackCheckError, RollbackCompanionCheck, RollbackCompanions, RunCut, RunRollback,
@@ -235,7 +236,7 @@ impl RunQueue {
 
     /// Cuts the held session's conversation before the person's message `target` names, as the
     /// provider of the target's run does it, outside every lock: before that message, or, for one
-    /// whose landing says the cut cannot fall between it and its turn's opening, before that turn.
+    /// whose landing names a group the cut takes it with, before the group's first message.
     /// Once the provider applied it, one write records an `agent.run.rolledBack` of that run at the
     /// position before the reach's and of each later lead run at its start, with `companions`
     /// committing in it, and the cut is fenced on the session's live binding; a fork the provider
@@ -281,6 +282,10 @@ impl RunQueue {
         };
         // Pushed after the caller's statements, so each keeps the index its check names.
         let mut companion_write = companions.write;
+        // A retry under the undo's key reads the cut as applied and never cuts again.
+        companion_write
+            .statements
+            .push(record_cut_statement(session_id, &hold.undo_key));
         if let Some(fork) = &fork {
             match compose_fork_left_conversation_insert(
                 session_id,
@@ -374,7 +379,10 @@ impl RunQueue {
             if is_fenced {
                 binding_cursors.lift_fork_fence(&source_binding_id);
             }
-            self.provider_sessions.forget_unrecorded_fork(session_id);
+            // A fork still running stays opened, so the next admission opens no second process.
+            if !matches!(error, ProviderSessionError::UnrecordedNotClosed { .. }) {
+                self.provider_sessions.forget_unrecorded_fork(session_id);
+            }
             tracing::error!(
                 session_id = %session_id,
                 error = &error as &(dyn std::error::Error + 'static),

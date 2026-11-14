@@ -16,6 +16,7 @@ use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::run::events::CutGroupStart;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::restore::{SessionRestoreTarget, SnapshotId};
@@ -224,35 +225,80 @@ struct SteerScene {
     scene: Scene,
     /// The queue item of the turn's opening message.
     opening_message_id: QueueItemId,
-    /// The opening's checkpoint.
-    opening: SessionRestoreTarget,
     /// The queue item of O3, which opened the run's next turn.
     later_message_id: QueueItemId,
     /// The queue item of S2 and its checkpoint.
     second_steer: (QueueItemId, SessionRestoreTarget),
 }
 
-/// The steer scene, its provider answering every cut with `answer`, each steer landing with no
-/// point of its own as `is_cut_with_opening` says, O sent in `opening`'s form.
-async fn steer_scene(answer: RewindAnswer, is_cut_with_opening: bool, opening: Form) -> SteerScene {
+/// How the steer scene's steers S and S2 land, which says what group the provider's cut takes
+/// each with.
+#[derive(Clone, Copy, Debug)]
+enum SteerLanding {
+    /// Each is cut alone, as a Claude Code steer taken mid-turn.
+    Alone,
+    /// Each is cut with its turn's opening, as a provider whose cut lands only at turns has it.
+    AtTurns,
+    /// Both rode one command with O, which the turn opens at as its first message, as Claude Code
+    /// merges a message held over from the turn before with the turn's own; P, a priority steer
+    /// sent after O, landed in the turn before at [`PRIORITY_POSITION`].
+    MergedWithOpening,
+    /// Both rode one command of their own, S first, as Claude Code merges a batch it takes into a
+    /// turn continued after an interrupt.
+    Continued,
+}
+
+/// The run position P takes in the turn before the steer scene's.
+const PRIORITY_POSITION: u64 = TARGET_POSITION - 1;
+/// The words of P.
+const PRIORITY_WORDS: &str = "Stop that first";
+
+/// The steer scene, its provider answering every cut with `answer`, its steers landing as
+/// `landing` says, O sent in `opening`'s form.
+async fn steer_scene(answer: RewindAnswer, landing: SteerLanding, opening: Form) -> SteerScene {
     let mut scene = scene_on(answer, opening).await;
     let fixture = &scene.fixture;
     let run_id = scene.run_id;
     let opening = scene.target.clone();
     let opening_message_id = scene.target_message_id;
+    if let SteerLanding::MergedWithOpening = landing {
+        let turn_before = TARGET_TURN_NUMBER - 1;
+        fixture
+            .append_turn_event(run_id, "agent.turn.started", turn_before)
+            .await;
+        fixture
+            .insert_steer(run_id, PRIORITY_WORDS, turn_before, PRIORITY_POSITION, None)
+            .await;
+        fixture
+            .append_turn_event(run_id, "agent.turn.completed", turn_before)
+            .await;
+    }
+    let steer_group = |first: QueueItemId| match landing {
+        SteerLanding::Alone => None,
+        SteerLanding::AtTurns => Some(CutGroupStart::TurnOpening),
+        SteerLanding::MergedWithOpening => Some(CutGroupStart::Message {
+            message_id: opening_message_id,
+        }),
+        SteerLanding::Continued => Some(CutGroupStart::Message { message_id: first }),
+    };
     fixture
         .append_turn_event(run_id, "agent.turn.started", TARGET_TURN_NUMBER)
         .await;
     fixture.insert_edit(&opening, OPENING_EDIT).await;
-    let (steer_message_id, steer) = fixture
-        .insert_steer(
+    // S names itself where it begins the group it rides, as the members of a continued batch do.
+    let steer_message_id = fixture
+        .insert_sent_message(run_id, Form::Words(STEER_WORDS))
+        .await;
+    let steer = fixture
+        .insert_landing(
             run_id,
-            STEER_WORDS,
+            steer_message_id,
             TARGET_TURN_NUMBER,
             STEER_POSITION,
-            is_cut_with_opening,
+            steer_group(steer_message_id.0),
         )
         .await;
+    let steer_message_id = steer_message_id.0;
     fixture.insert_edit(&steer, STEER_EDIT).await;
     let second_steer = fixture
         .insert_steer(
@@ -260,7 +306,7 @@ async fn steer_scene(answer: RewindAnswer, is_cut_with_opening: bool, opening: F
             SECOND_STEER_WORDS,
             TARGET_TURN_NUMBER,
             SECOND_STEER_POSITION,
-            is_cut_with_opening,
+            steer_group(steer_message_id),
         )
         .await;
     fixture
@@ -287,13 +333,12 @@ async fn steer_scene(answer: RewindAnswer, is_cut_with_opening: bool, opening: F
     SteerScene {
         scene,
         opening_message_id,
-        opening,
         later_message_id,
         second_steer,
     }
 }
 
-/// The steer scene, its steers landing as `is_cut_with_opening` says, with a turn after it
+/// The steer scene, its steers landing as `is_cut_at_turns` says, with a turn after it
 /// that no new message of the person's opened, opened as `opening` says; it edits
 /// [`ANSWER_EDIT`], takes the steer S3, edits [`ANSWER_STEER_EDIT`] and ends.
 struct DaemonTurnScene {
@@ -318,10 +363,15 @@ enum DaemonTurnOpening {
 /// The daemon-turn scene, its provider answering every cut with `answer`.
 async fn daemon_turn_scene(
     answer: RewindAnswer,
-    is_cut_with_opening: bool,
+    is_cut_at_turns: bool,
     opening: DaemonTurnOpening,
 ) -> DaemonTurnScene {
-    let steer = steer_scene(answer, is_cut_with_opening, Form::Words(OPENING_WORDS)).await;
+    let landing = if is_cut_at_turns {
+        SteerLanding::AtTurns
+    } else {
+        SteerLanding::Alone
+    };
+    let steer = steer_scene(answer, landing, Form::Words(OPENING_WORDS)).await;
     let mut scene = steer.scene;
     let fixture = &scene.fixture;
     let run_id = scene.run_id;
@@ -366,7 +416,7 @@ async fn daemon_turn_scene(
             ANSWER_STEER_WORDS,
             started.turn_number.get(),
             turn_start.turn.position.0.get() + 1,
-            is_cut_with_opening,
+            is_cut_at_turns.then_some(CutGroupStart::TurnOpening),
         )
         .await;
     fixture.insert_edit(&steer, ANSWER_STEER_EDIT).await;
@@ -472,34 +522,48 @@ impl Fixture {
     }
 
     /// Writes the person's message saying `words`, steered into turn `turn_number` of `run_id` at
-    /// run position `at` with its checkpoint, its landing marked `is_cut_with_opening`, and
-    /// answers its queue item and the checkpoint.
+    /// run position `at` with its checkpoint, its landing naming `cut_group_start`, and answers its
+    /// queue item and the checkpoint.
     async fn insert_steer(
         &self,
         run_id: RunId,
         words: &'static str,
         turn_number: u64,
         at: u64,
-        is_cut_with_opening: bool,
+        cut_group_start: Option<CutGroupStart>,
     ) -> (QueueItemId, SessionRestoreTarget) {
-        let (message_id, sequence) = self.insert_sent_message(run_id, Form::Words(words)).await;
-        self.insert_event(
-            run_id,
-            SessionEventType::AgentTurnSteered,
-            &json!({
-                "sessionId": self.session_id,
-                "runId": run_id,
-                "runVersion": 1,
-                "turnNumber": turn_number,
-                "position": at,
-                "messageId": message_id,
-                "isCutWithOpening": is_cut_with_opening,
-            }),
-        );
+        let sent = self.insert_sent_message(run_id, Form::Words(words)).await;
         let checkpoint = self
-            .insert_checkpoint(run_id, sequence, turn_number, epoch_position(0, at))
+            .insert_landing(run_id, sent, turn_number, at, cut_group_start)
             .await;
-        (message_id, checkpoint)
+        (sent.0, checkpoint)
+    }
+
+    /// Writes the landing of `sent`, the person's message and its sequence, steered into turn
+    /// `turn_number` of `run_id` at run position `at` naming `cut_group_start`, with its
+    /// checkpoint, and answers the checkpoint.
+    async fn insert_landing(
+        &self,
+        run_id: RunId,
+        (message_id, sequence): (QueueItemId, u64),
+        turn_number: u64,
+        at: u64,
+        cut_group_start: Option<CutGroupStart>,
+    ) -> SessionRestoreTarget {
+        let mut payload = json!({
+            "sessionId": self.session_id,
+            "runId": run_id,
+            "runVersion": 1,
+            "turnNumber": turn_number,
+            "position": at,
+            "messageId": message_id,
+        });
+        if let Some(start) = cut_group_start {
+            payload["cutGroupStart"] = json!(start);
+        }
+        self.insert_event(run_id, SessionEventType::AgentTurnSteered, &payload);
+        self.insert_checkpoint(run_id, sequence, turn_number, epoch_position(0, at))
+            .await
     }
 
     /// Writes an edit's version of `path` into the checkpoint `target` names.

@@ -9,6 +9,7 @@
 use serde_json::Value;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::RunFailureCategory;
+use sidekicks_contracts::run::events::CutGroupStart;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::turn::ProviderTurnId;
@@ -36,9 +37,10 @@ const CLAUDE_UNRECORDED_TURN_END_DETAIL: &str =
 impl ClaudeDeliveryStream {
     // The first frame of a run's turn opens it: an interrupt still held answered as taken, the
     // continued run's report, the boundary, then the turn numbered under the uuid of the user
-    // message that opened it, which is that message's queue item, the readings of the turn before
-    // emptied; the run's other messages taken before it opened land after its start, in the order
-    // taken, and every other run's are dropped.
+    // message that opened it, the readings of the turn before emptied. The run's other messages
+    // taken before it opened rode that command with it, so the turn opens at the first of them all
+    // in send order and the others land after its start naming that first one; every other run's
+    // are dropped.
     pub(super) async fn open_turn(&self, session: &ClaudeSessionStream, lead: &ClaudeBoundRun) {
         let routes = &self.dependencies.routes;
         if session
@@ -105,10 +107,15 @@ impl ClaudeDeliveryStream {
             binding_id: lead.binding_id.clone(),
         };
         self.send(session, boundary, None).await;
+        // A queue item's id is minted as the person sends it, so the ids sort in send order.
+        let mut members = taken;
+        members.extend(opening);
+        members.sort_unstable();
+        let first = members.first().copied();
         let started = match self
             .dependencies
             .engine
-            .start_turn(lead.run_id, turn_id, session.step_bound, opening)
+            .start_turn(lead.run_id, turn_id, session.step_bound, first)
             .await
         {
             Ok(started) => started,
@@ -126,14 +133,16 @@ impl ClaudeDeliveryStream {
         let Some(started) = started else {
             return;
         };
-        // Taken before the turn opened, they waited together with its opening, and Claude Code
-        // merged them into one command, which its cut finds only whole.
-        for message_id in taken {
+        // Claude Code merged them into one command, which its cut finds only whole.
+        let Some(first) = first else {
+            return;
+        };
+        for message_id in members.into_iter().skip(1) {
             let steered = InboundDelivery::TurnSteered {
                 binding_id: lead.binding_id.clone(),
                 turn_number: started.turn_number,
                 message_id,
-                is_cut_with_opening: true,
+                cut_group_start: Some(CutGroupStart::Message { message_id: first }),
             };
             self.send(session, steered, None).await;
         }

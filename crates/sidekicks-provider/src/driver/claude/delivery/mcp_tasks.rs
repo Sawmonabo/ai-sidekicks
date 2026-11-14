@@ -91,7 +91,10 @@ enum ClaudeStoppingCall {
         call: ClaudeHeldCall,
         is_settled: bool,
     },
-    Ended(ClaudeHeldCallEnd),
+    Ended {
+        end: ClaudeHeldCallEnd,
+        is_settled: bool,
+    },
 }
 
 /// What became of a call whose task an undo stopped, once the stop answered.
@@ -185,10 +188,38 @@ impl ClaudeToolServerTasks {
             .map(|(task_id, held)| (task_id.as_str(), &held.opened))
     }
 
-    /// Takes every held call out, each by its task, as the process ends with them still running;
-    /// the settled calls are left.
+    /// Takes every held call out, each by its task, as the process ends with them still running,
+    /// with each call an undo's stop of its task left open, whether its task still ran or ended
+    /// while the stop waited; the settled calls are left.
     pub(crate) fn take_held(&mut self) -> Vec<(String, ClaudeHeldCall)> {
-        self.held.drain().collect()
+        let stopping = self
+            .stopping
+            .drain()
+            .filter_map(|(task_id, stopping)| match stopping {
+                ClaudeStoppingCall::Running {
+                    call,
+                    is_settled: false,
+                } => Some((task_id, call)),
+                ClaudeStoppingCall::Ended {
+                    end,
+                    is_settled: false,
+                } => Some((
+                    task_id,
+                    ClaudeHeldCall {
+                        tool_use_id: end.tool_use_id,
+                        opened: end.opened,
+                        newest_run_id: None,
+                    },
+                )),
+                // A settled call's close is already in the log.
+                ClaudeStoppingCall::Running {
+                    is_settled: true, ..
+                }
+                | ClaudeStoppingCall::Ended {
+                    is_settled: true, ..
+                } => None,
+            });
+        self.held.drain().chain(stopping).collect()
     }
 
     /// Moves the call the tool server's task `task_id` runs, held or settled, among the calls an
@@ -215,7 +246,7 @@ impl ClaudeToolServerTasks {
     pub(crate) fn finish_stop(&mut self, task_id: &str, is_stopped: bool) -> ClaudeStopOutcome {
         match self.stopping.remove(task_id) {
             None => ClaudeStopOutcome::NotBegun,
-            Some(ClaudeStoppingCall::Ended(end)) => ClaudeStopOutcome::Ended(end),
+            Some(ClaudeStoppingCall::Ended { end, .. }) => ClaudeStopOutcome::Ended(end),
             Some(ClaudeStoppingCall::Running { call, .. }) if is_stopped => {
                 ClaudeStopOutcome::Ended(ClaudeHeldCallEnd {
                     tool_use_id: call.tool_use_id,
@@ -261,10 +292,10 @@ impl ClaudeToolServerTasks {
         if let Some(stopping) = self.stopping.get_mut(task_id) {
             let is_ending = match stopping {
                 ClaudeStoppingCall::Running { call, .. } => call.take_run(run_id),
-                ClaudeStoppingCall::Ended(_) => false,
+                ClaudeStoppingCall::Ended { .. } => false,
             };
             if is_ending
-                && let Some(ClaudeStoppingCall::Running { call, .. }) =
+                && let Some(ClaudeStoppingCall::Running { call, is_settled }) =
                     self.stopping.remove(task_id)
             {
                 let (outcome, text) = read_end_outcome(frame);
@@ -275,8 +306,10 @@ impl ClaudeToolServerTasks {
                     text,
                     notification: None,
                 };
-                self.stopping
-                    .insert(task_id.to_owned(), ClaudeStoppingCall::Ended(end));
+                self.stopping.insert(
+                    task_id.to_owned(),
+                    ClaudeStoppingCall::Ended { end, is_settled },
+                );
             }
             return None;
         }

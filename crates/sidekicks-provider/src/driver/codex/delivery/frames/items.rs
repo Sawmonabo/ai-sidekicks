@@ -11,6 +11,7 @@ mod tests;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value};
+use sidekicks_contracts::run::events::CutGroupStart;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 
@@ -382,7 +383,7 @@ impl CodexFrameDelivery {
             binding_id: turn_run.binding.binding_id.clone(),
             turn_number: started.turn_number,
             message_id,
-            is_cut_with_opening: true,
+            cut_group_start: Some(CutGroupStart::TurnOpening),
         };
         self.send(record, steered, "item/completed").await;
     }

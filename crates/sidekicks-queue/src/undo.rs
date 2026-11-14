@@ -62,24 +62,32 @@ pub struct UndoStopSet {
 }
 
 impl UndoStopSet {
-    /// The commands and agents the person is asked to agree to stop; a wrapper whose command the
-    /// provider has not named is not shown to them.
+    /// What the person is asked to agree to stop: the commands, a wrapper whose command the
+    /// provider has not named counted as a command by its process id, and the agents; the lead's
+    /// own turn is the caller's to add.
     pub fn named_stops(&self) -> SessionRestoreStops {
         SessionRestoreStops {
             command_ids: self.commands.clone(),
+            unnamed_command_wrappers: self.unpaired_wrappers.clone(),
             agents: self
                 .agents
                 .iter()
                 .map(|agent| agent.member.clone())
                 .collect(),
+            lead_run_id: None,
         }
     }
 
-    /// Whether the set names a command or an agent `consented` does not, compared by id.
+    /// Whether the set names a command, an unnamed command's wrapper or an agent `consented` does
+    /// not, compared by id.
     pub fn has_grown_past(&self, consented: &SessionRestoreStops) -> bool {
         self.commands
             .iter()
             .any(|command_id| !consented.command_ids.contains(command_id))
+            || self
+                .unpaired_wrappers
+                .iter()
+                .any(|party| !consented.unnamed_command_wrappers.contains(party))
             || self
                 .agents
                 .iter()
@@ -246,9 +254,10 @@ impl UndoStops {
     /// `Stop`, each agent by the sweep. Answers the set once every command's ending is in the log,
     /// every stopped party's process has ended and every stopped agent reads a terminal state.
     /// With `consented`, stops nothing and fails [`UndoStopError::Grew`] when the set names a
-    /// command or an agent the person did not agree to stop. Fails [`UndoStopError::NotStopped`]
-    /// once every stop answered and one did not stop, and [`UndoStopError::StillRunning`] when
-    /// [`UNDO_STOP_END_BOUND`] passes first; a stop under way at the bound carries on unwatched.
+    /// command, an unnamed command's wrapper or an agent the person did not agree to stop. Fails
+    /// [`UndoStopError::NotStopped`] once every stop answered and one did not stop, and
+    /// [`UndoStopError::StillRunning`] when [`UNDO_STOP_END_BOUND`] passes first; a stop under way
+    /// at the bound carries on unwatched.
     pub async fn stop_started_after(
         &self,
         session_id: SessionId,

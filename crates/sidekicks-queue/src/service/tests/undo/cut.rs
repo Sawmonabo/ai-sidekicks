@@ -46,8 +46,9 @@ use tokio::time::timeout;
 
 use super::super::{HELD_WATCH, WAIT, client_key};
 use super::{
-    OPENING_WORDS, ProcessClose, RewindAnswer, STEER_POSITION, Scene, TARGET_POSITION,
-    TARGET_TURN_NUMBER, applied_in_place, cut_words, epoch_position, position, scene, steer_scene,
+    OPENING_WORDS, ProcessClose, RewindAnswer, STEER_POSITION, Scene, SteerLanding,
+    TARGET_POSITION, TARGET_TURN_NUMBER, applied_in_place, cut_words, epoch_position, position,
+    scene, steer_scene,
 };
 use crate::error::QueueError;
 use crate::provider_session::errors::ProviderSessionError;
@@ -336,7 +337,7 @@ async fn a_cut_applied_on_a_fork_moves_the_session_to_the_forks_binding() {
     let fork_binding_id = mint_runtime_binding_id();
     let scene = steer_scene(
         applied_on_fork(&fork_binding_id, "fork-conversation"),
-        false,
+        SteerLanding::Alone,
         Form::Words(OPENING_WORDS),
     )
     .await

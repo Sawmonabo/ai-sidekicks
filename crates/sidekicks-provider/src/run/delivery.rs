@@ -29,6 +29,7 @@ use sidekicks_contracts::provider::driver::methods::{
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::run::events::CutGroupStart;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{
     AgentRunRefusalChoiceRequestedPayload, AgentRunRefusalChoiceResolvedPayload,
@@ -117,10 +118,9 @@ pub enum InboundDelivery<'key> {
         turn_number: SafeInt<1>,
         /// The queue item whose message the provider took.
         message_id: QueueItemId,
-        /// Whether the provider's conversation cut cannot fall between the message and the turn's
-        /// opening: a message the provider took together with the opening, or any message on a
-        /// provider whose cut lands only at turns.
-        is_cut_with_opening: bool,
+        /// Where the group of messages the provider's conversation cut takes together with this one
+        /// begins; `None` where the cut finds this message alone.
+        cut_group_start: Option<CutGroupStart>,
     },
     /// The provider moved a run.
     RunLifecycle {

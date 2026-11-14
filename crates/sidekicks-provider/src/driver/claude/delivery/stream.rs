@@ -504,7 +504,8 @@ impl ClaudeDeliveryStream {
 
     /// Releases what the session streamed and buffered, as its process is gone, and forgets its
     /// readings; the exit path ends the run its turn was on. Answers the tool-server calls the
-    /// lead and its helpers still hold, each by its task, which the caller settles.
+    /// lead and its helpers still hold, an undo's stop under way among them, each by its task,
+    /// which the caller settles.
     pub(crate) async fn end_session(&self, session: &ClaudeSessionStream) -> ClaudeExitHolds {
         let (pieces, released, turn) = {
             let mut readings = session.lock();

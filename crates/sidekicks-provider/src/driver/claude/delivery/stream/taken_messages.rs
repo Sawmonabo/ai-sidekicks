@@ -5,6 +5,7 @@
 //! that turn, else kept for that run's next turn.
 
 use serde_json::{Map, Value};
+use sidekicks_contracts::run::events::CutGroupStart;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 
@@ -76,12 +77,13 @@ impl ClaudeDeliveryStream {
 
     // Lands, ahead of the frame being read, the messages a continued turn took over from the time
     // no turn of their run was open, in that turn; one whose run's turn is no longer open waits
-    // for the run's next turn.
+    // for the run's next turn. Claude Code took them in one batch, which it merged into one
+    // command its cut finds only whole, so each of several names the first in send order.
     pub(super) async fn land_continued(&self, session: &ClaudeSessionStream) {
         let landings: Vec<InboundDelivery> = {
             let mut readings = session.lock();
             let taken = std::mem::take(&mut readings.continued_landings);
-            let mut landings = Vec::with_capacity(taken.len());
+            let mut landed = Vec::with_capacity(taken.len());
             for taken in taken {
                 let turn = readings
                     .turn
@@ -90,17 +92,27 @@ impl ClaudeDeliveryStream {
                     .and_then(|turn| Some((turn.binding_id.clone(), turn.turn_number?)));
                 match turn {
                     Some((binding_id, turn_number)) => {
-                        landings.push(InboundDelivery::TurnSteered {
-                            binding_id,
-                            turn_number,
-                            message_id: taken.message_id,
-                            is_cut_with_opening: false,
-                        });
+                        landed.push((binding_id, turn_number, taken.message_id));
                     }
                     None => readings.taken_without_turn.push(taken),
                 }
             }
-            landings
+            // A queue item's id is minted as the person sends it, so the ids sort in send order.
+            landed.sort_unstable_by_key(|(_, _, message_id)| *message_id);
+            let group_start = (landed.len() > 1).then(|| CutGroupStart::Message {
+                message_id: landed[0].2,
+            });
+            landed
+                .into_iter()
+                .map(
+                    |(binding_id, turn_number, message_id)| InboundDelivery::TurnSteered {
+                        binding_id,
+                        turn_number,
+                        message_id,
+                        cut_group_start: group_start.clone(),
+                    },
+                )
+                .collect()
         };
         for steered in landings {
             self.send(session, steered, None).await;
@@ -137,7 +149,7 @@ impl ClaudeDeliveryStream {
                 binding_id,
                 turn_number,
                 message_id,
-                is_cut_with_opening: false,
+                cut_group_start: None,
             };
             self.send(session, steered, None).await;
         }

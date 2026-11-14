@@ -31,8 +31,12 @@ static STAGE_RESEND_SQL: LazyLock<String> = LazyLock::new(|| {
 const UNSTAGE_RESEND_SQL: &str = "DELETE FROM session_restore_resends
   WHERE session_id = @sessionId AND client_idempotency_key = @key";
 
-const STAGED_RESENDS_SQL: &str = "SELECT session_id, client_idempotency_key, resend
-  FROM session_restore_resends ORDER BY created_at, rowid";
+// A resend the release already sent stands as a queue item under the undo's key.
+const STAGED_RESENDS_SQL: &str = "SELECT session_id, client_idempotency_key, resend,
+    EXISTS (SELECT 1 FROM queue_items AS sent
+      WHERE sent.session_id = kept.session_id
+        AND sent.client_idempotency_key = kept.client_idempotency_key)
+  FROM session_restore_resends AS kept ORDER BY created_at, rowid";
 
 /// An undo's resend a stop left kept: its session, the undo's key, and the edited message.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,6 +47,8 @@ pub struct StagedResend {
     pub undo_key: ClientUuid,
     /// The edited message.
     pub resend: SessionRestoreResend,
+    /// Whether the release sent it before the stop, its row not yet dropped.
+    pub is_sent: bool,
 }
 
 /// The statement that keeps `resend` for `session_id`'s undo `undo_key`, replacing what a retry
@@ -85,17 +91,23 @@ pub fn read_staged_resends(connection: &Connection) -> rusqlite::Result<Vec<Stag
                 session_id: text_column(row, 0, |text| SessionId::new(&text))?,
                 undo_key: text_column(row, 1, ClientUuid::new)?,
                 resend: text_column(row, 2, |text| serde_json::from_str(&text))?,
+                is_sent: row.get(3)?,
             })
         })?
         .collect()
 }
 
 /// The statements of one write that put `staged`'s edited message back into its session's draft,
-/// as a Stop returns a message, and drop it from the kept resends.
+/// as a Stop returns a message, unless the release already sent it, and drop it from the kept
+/// resends.
 pub fn return_staged_resend_statements(
     staged: &StagedResend,
     now: &WireInstant,
 ) -> Vec<WriteStatement> {
+    let unstaged = unstage_resend_statement(staged.session_id, &staged.undo_key);
+    if staged.is_sent {
+        return vec![unstaged];
+    }
     let resend = &staged.resend;
     let body = QueueMessageBody {
         content: resend.content.clone(),
@@ -108,9 +120,6 @@ pub fn return_staged_resend_statements(
     };
     returned_messages_statement(&staged.session_id, &[&body], now)
         .into_iter()
-        .chain([unstage_resend_statement(
-            staged.session_id,
-            &staged.undo_key,
-        )])
+        .chain([unstaged])
         .collect()
 }

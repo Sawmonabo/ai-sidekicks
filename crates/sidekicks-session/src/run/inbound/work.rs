@@ -5,6 +5,7 @@
 
 use std::error::Error;
 
+use sidekicks_contracts::run::events::CutGroupStart;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
@@ -49,7 +50,7 @@ pub(super) enum RunWork {
         run_id: RunId,
         turn_number: SafeInt<1>,
         message_id: QueueItemId,
-        is_cut_with_opening: bool,
+        cut_group_start: Option<CutGroupStart>,
     },
 }
 
@@ -173,10 +174,10 @@ impl RunInboundDispatch {
                 run_id,
                 turn_number,
                 message_id,
-                is_cut_with_opening,
+                cut_group_start,
             } => match self
                 .engine
-                .record_steer(run_id, turn_number, message_id, is_cut_with_opening)
+                .record_steer(run_id, turn_number, message_id, cut_group_start)
                 .await?
             {
                 SteerRecord::Written(event_id) => {

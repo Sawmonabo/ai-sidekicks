@@ -9,9 +9,10 @@
 //! undo's release reserved as the run's opening goes first; while an undo holds the session the
 //! read answers held, reading nothing, and the run is owed a resume at the undo's release. A paused
 //! run continued in a session no process of this daemon holds since its restart has the session
-//! opened first, as its first admission would. A paused run continued while the restart still holds its session's lead, a
-//! helper beneath it or the lead itself, keeps its messages for the lead's continue, which carries
-//! them as that run's words and has them delivered with it once the provider took it.
+//! opened first, as its first admission would. A paused run continued while the restart still
+//! holds its session's lead, a helper beneath it or the lead itself, keeps its messages for the
+//! lead's continue, which carries them as that run's words and has them delivered with it once the
+//! provider took it.
 
 use std::collections::HashMap;
 use std::error::Error;

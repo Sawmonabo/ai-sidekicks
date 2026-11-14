@@ -49,6 +49,9 @@ pub(crate) struct ClaudeTurnBeforeContinue {
     turn: Option<ClaudeOpenTurn>,
     has_turn_message: bool,
     turn_readings: ClaudeTurnReadings,
+    // The run's messages Claude Code took while no turn of it was open, which the continued turn
+    // lands once the continue has reached the process.
+    taken: Vec<ClaudeTakenMessage>,
 }
 
 /// One session's stream while its process runs: its readings, behind one lock never held across
@@ -133,10 +136,10 @@ impl ClaudeSessionStream {
 
     /// Opens the stream on `run`'s turn `turn_number` as it was before the process came up, which a
     /// resumed process continues: its frames go to that turn and its end is that turn's, with no
-    /// other turn started. `provider_turn_id` is the id the turn's start recorded. The messages of
-    /// the run Claude Code took while no turn of it was open land in that turn ahead of the first
-    /// frame read after. Answers the turn the stream read before, which [`Self::restore_turn`]
-    /// puts back with those messages when no frame landed them.
+    /// other turn started. `provider_turn_id` is the id the turn's start recorded. Answers the turn
+    /// the stream read before, with the messages of the run Claude Code took while no turn of it
+    /// was open: [`Self::confirm_continued_turn`] lands them in the continued turn ahead of the
+    /// next frame read, and [`Self::restore_turn`] puts the turn and them back.
     pub(crate) fn continue_turn(
         &self,
         run: &ClaudeBoundRun,
@@ -144,20 +147,20 @@ impl ClaudeSessionStream {
         provider_turn_id: Option<ProviderTurnId>,
     ) -> ClaudeTurnBeforeContinue {
         let mut readings = self.lock();
-        let before = ClaudeTurnBeforeContinue {
-            turn: readings.turn.clone(),
-            has_turn_message: readings.has_turn_message,
-            turn_readings: readings.turn_readings.clone(),
-        };
-        readings.turn_readings.open(run.run_id, provider_turn_id);
-        // The resumed turn is under way, so a message it takes in joins it.
-        readings.has_turn_message = true;
         let (taken, kept): (Vec<ClaudeTakenMessage>, _) =
             std::mem::take(&mut readings.taken_without_turn)
                 .into_iter()
                 .partition(|taken| taken.run_id == run.run_id);
         readings.taken_without_turn = kept;
-        readings.continued_landings.extend(taken);
+        let before = ClaudeTurnBeforeContinue {
+            turn: readings.turn.clone(),
+            has_turn_message: readings.has_turn_message,
+            turn_readings: readings.turn_readings.clone(),
+            taken,
+        };
+        readings.turn_readings.open(run.run_id, provider_turn_id);
+        // The resumed turn is under way, so a message it takes in joins it.
+        readings.has_turn_message = true;
         readings.turn = Some(ClaudeOpenTurn {
             run_id: run.run_id,
             binding_id: run.binding_id.clone(),
@@ -167,15 +170,21 @@ impl ClaudeSessionStream {
         before
     }
 
+    /// Takes the continue `before` names as reached by the process: the messages it answered with
+    /// land in the continued turn ahead of the next frame read.
+    pub(crate) fn confirm_continued_turn(&self, before: ClaudeTurnBeforeContinue) {
+        self.lock().continued_landings.extend(before.taken);
+    }
+
     /// Puts back the turn the stream read before a continue whose message never reached the
-    /// process, with the messages the continue would have landed, if no frame landed them yet,
-    /// back among those taken while no turn of their run was open.
+    /// process, with the messages it answered with back among those taken while no turn of their
+    /// run was open, ahead of any taken since.
     pub(crate) fn restore_turn(&self, before: ClaudeTurnBeforeContinue) {
         let mut readings = self.lock();
         readings.turn = before.turn;
         readings.has_turn_message = before.has_turn_message;
         readings.turn_readings = before.turn_readings;
-        let mut taken = std::mem::take(&mut readings.continued_landings);
+        let mut taken = before.taken;
         taken.append(&mut readings.taken_without_turn);
         readings.taken_without_turn = taken;
     }

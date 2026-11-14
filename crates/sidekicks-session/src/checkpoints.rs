@@ -8,6 +8,7 @@ pub mod command_windows;
 pub mod copies;
 pub mod edits;
 pub mod resends;
+pub mod restore_cuts;
 pub mod schema;
 pub mod shadows;
 pub mod store;
