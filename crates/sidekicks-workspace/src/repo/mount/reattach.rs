@@ -291,6 +291,9 @@ pub struct RepoMountReattachService<W = RecommendedWatcher> {
     /// Where a test holds a carry between its read and its write.
     #[cfg(test)]
     pub(crate) carry_write_pause: PausePoint,
+    /// Where a test holds a re-attach between its committed write and its carry's end of wait.
+    #[cfg(test)]
+    pub(crate) written_pause: PausePoint,
 }
 
 impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
@@ -317,6 +320,8 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             write_pause: PausePoint::default(),
             #[cfg(test)]
             carry_write_pause: PausePoint::default(),
+            #[cfg(test)]
+            written_pause: PausePoint::default(),
         }
     }
 
@@ -468,6 +473,8 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 return Err(self.refusal_of_write(error, &bindings).await);
             }
         };
+        #[cfg(test)]
+        self.written_pause.pass().await;
         let carry = carry_write.written();
         self.attach_notice.raise();
         let new_repo_mount_id = bindings.new_repo_mount_id;

@@ -69,6 +69,11 @@ export interface QuestionPrompt {
   severalAnswers: boolean;
   secret: boolean;
   /**
+   * Whether the answer is a folder picked with the platform's own chooser, never typed; such a
+   * question has no option rows. Absent reads false.
+   */
+  path?: boolean | undefined;
+  /**
    * Whether the form must have this field answered; present only on a tool server's form field,
    * absent where the provider says nothing either way.
    */
@@ -88,6 +93,7 @@ const QuestionPromptSchema: z.ZodType<QuestionPrompt> = z
     options: z.array(QuestionOptionSchema),
     severalAnswers: z.boolean(),
     secret: z.boolean(),
+    path: z.boolean().optional(),
     required: z.boolean().optional(),
     default: QuestionDefaultSchema.optional(),
     minimum: z.number().finite().optional(),
@@ -100,6 +106,13 @@ const QuestionPromptSchema: z.ZodType<QuestionPrompt> = z
         code: "custom",
         path: ["options"],
         message: "a secret question draws a masked field and no option rows",
+      });
+    }
+    if (prompt.path === true && prompt.options.length > 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["options"],
+        message: "a path question draws the folder chooser and no option rows",
       });
     }
     if (

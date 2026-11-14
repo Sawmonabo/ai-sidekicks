@@ -15,8 +15,8 @@ use sidekicks_platforms::{daemon_run_folder, pin_identified_process};
 
 use crate::commands::daemon::status::ended_lines;
 
-/// The line over a failed stop's reason.
-const COULD_NOT_STOP_LINE: &str = "Could not stop.";
+/// What a failed stop's line starts with, before its reason.
+const COULD_NOT_STOP_PREFIX: &str = "Couldn't stop · ";
 
 /// The status file in this machine's run folder; `None` where there is none or its bytes do not
 /// parse, which a power loss can leave and which writes a warning to `stderr`. Fails as the run
@@ -91,7 +91,7 @@ pub(crate) enum StopRecordReader {
     Stop,
 }
 
-/// `Could not stop.` over its reason, each line ended by a newline, where `file` holds a stop that
+/// `Couldn't stop · ` and its reason, one line ended by a newline, where `file` holds a stop that
 /// did not happen: a stop that could not keep the person's Stop, whatever its process, or a step
 /// still running in the process the record names, for `status` only once past the stop's bound;
 /// `None` for any other fact, and for a step whose process has ended. Fails as the process's pin
@@ -103,8 +103,8 @@ pub(crate) fn describe_failed_stop(
     let reason = match file {
         ServiceStatusFile::CannotStart(_) => return Ok(None),
         ServiceStatusFile::CannotStop(DaemonCannotStop::StopIntent {}) => {
-            "The background service could not save that you stopped it, so it may resume your \
-             sessions when it starts."
+            "the background service couldn't save that you stopped it, so it may resume your \
+             sessions when it starts"
                 .to_owned()
         }
         ServiceStatusFile::Stopping(stopping) => {
@@ -112,13 +112,10 @@ pub(crate) fn describe_failed_stop(
             if is_under_way || pin_identified_process(&stopping.process)?.is_none() {
                 return Ok(None);
             }
-            format!(
-                "The background service is still {}.",
-                stopping.step.phrase()
-            )
+            format!("the background service is still {}", stopping.step.phrase())
         }
     };
-    Ok(Some(format!("{COULD_NOT_STOP_LINE}\n{reason}\n")))
+    Ok(Some(format!("{COULD_NOT_STOP_PREFIX}{reason}\n")))
 }
 
 /// Whether the stop `stopping` records began longer ago than the stop's drain bound; a start that

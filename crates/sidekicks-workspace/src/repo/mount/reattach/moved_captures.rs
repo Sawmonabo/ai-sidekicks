@@ -15,8 +15,10 @@
 //! the mount, is carried then. The carry renames the folders from each old name, then, in one
 //! write led by the clear of that record as the carry read it, rewrites the rows, which ends it; a
 //! newer move took the record forward when the clear finds it changed, and that move's carry
-//! covers the chain. A stop after the move's write keeps the record, and the next start's carry
-//! finishes the move: a folder that was already renamed is skipped, and the rows are rewritten.
+//! covers the chain. A stop after the move's write, or a carry's write that failed, keeps the
+//! record, and the next start's carry finishes the move, on a mount detached since too: a folder
+//! that was already renamed is skipped, and the rows are rewritten. A detached mount's carry that
+//! cannot be made holds nothing, and its record waits for a later start.
 
 use std::error::Error;
 use std::io;
@@ -69,16 +71,16 @@ const START_CARRY_OPERATION: &str = "carrying the moved projects' captures";
 // The position of the carry's clear of its record, which refuses once a newer move took it.
 const CLEAR_CARRY_STATEMENT: usize = 0;
 
-// The attached mounts whose captures are still to be carried, with the common folders they move
-// from and the one they move to, each as its stored JSON, so one that does not read fails only its
-// own carry. A later move takes the record forward, so it is always on the attached mount.
+// The mounts whose captures are still to be carried, with the common folders they move from and
+// the one they move to, each as its stored JSON, so one that does not read fails only its own
+// carry, and whether the mount is attached. A later move takes the record forward, so it is on the
+// newest mount of its chain; a detach keeps it, so a mount detached since is read too.
 static SELECT_UNCARRIED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT id, metadata -> '{CAPTURES_MOVED_FROM_METADATA_PATH}',
-        metadata -> '{COMMON_DIR_METADATA_PATH}'
+        metadata -> '{COMMON_DIR_METADATA_PATH}', state = '{}'
    FROM repo_mounts
-  WHERE state = '{}'
-    AND json_extract(metadata, '{CAPTURES_MOVED_FROM_METADATA_PATH}') IS NOT NULL
+  WHERE json_extract(metadata, '{CAPTURES_MOVED_FROM_METADATA_PATH}') IS NOT NULL
     AND json_extract(metadata, '{COMMON_DIR_METADATA_PATH}') IS NOT NULL
   ORDER BY id",
         <&'static str>::from(RepoMountState::Attached)
@@ -151,12 +153,13 @@ pub struct UncarriedMountFailure {
 #[derive(Debug)]
 pub struct UncarriedCaptures(Vec<(RepoMountId, CaptureCarry)>);
 
-// One attached mount whose captures are still to be carried: its record of the old common
-// folders and its newest common folder, each as its stored JSON.
+// One mount whose captures are still to be carried: its record of the old common folders and its
+// newest common folder, each as its stored JSON, and whether it is attached.
 struct UncarriedMount {
     repo_mount_id: RepoMountId,
     moved_from: String,
     moved_to: String,
+    is_attached: bool,
 }
 
 // What a carry reads before it writes: the mount's record as its stored JSON, and each column's
@@ -172,7 +175,8 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
     /// start, before anything captures and before the mounts' first health. A record or a stored
     /// folder that does not read, or a folder that does not resolve, is logged and holds only its
     /// own mount, which its health tells, and whose capture folders each opener is refused until an
-    /// opener's ask makes its carry. Fails only as the read of the records fails.
+    /// opener's ask makes its carry; on a mount detached since it holds nothing, and its record
+    /// waits for a later start. Fails only as the read of the records fails.
     pub async fn expect_moved_captures(&self) -> Result<UncarriedCaptures, CaptureCarryError> {
         let uncarried = self
             .reads
@@ -187,8 +191,8 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 tracing::warn!(
                     %repo_mount_id,
                     error = unread as &(dyn Error + 'static),
-                    "a moved project's stored folder could not be read, so its captures are held \
-                     until its row is repaired"
+                    "a moved project's stored folder could not be read, so its captures are not \
+                     carried until its row is repaired"
                 );
             }
             match self
@@ -198,12 +202,22 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 .await
             {
                 Ok(carry) => carries.push((repo_mount_id, carry)),
-                Err(unmade) => tracing::warn!(
+                Err(unmade) if mount.is_attached => tracing::warn!(
                     %repo_mount_id,
                     error = &unmade as &(dyn Error + 'static),
                     "a moved project's captures cannot be carried yet; its capture folders open \
                      for no one until they can"
                 ),
+                Err(unmade) => {
+                    // No one works on a detached project, so its carry holds no opener.
+                    self.packing.carries().let_go_unmade(repo_mount_id);
+                    tracing::warn!(
+                        %repo_mount_id,
+                        error = &unmade as &(dyn Error + 'static),
+                        "a detached project's captures cannot be carried yet; a later start tries \
+                         again"
+                    );
+                }
             }
         }
         Ok(UncarriedCaptures(carries))
@@ -278,9 +292,10 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
     /// Lets go the carry the mount `repo_mount_id` held unmade once a detach ended it, so a folder
     /// attached again as another mount opens its captures free; the carry renamed nothing, so its
     /// owners' folders and rows still agree at the old names. A mount still attached keeps its
-    /// carry, and so does one whose carry was made, which alone finds the owners it renamed. Its
-    /// record stays on the row, which no start reads once the mount is detached. Fails as the read
-    /// of the mount's state fails.
+    /// carry, and so does one whose carry was made, which alone finds the owners it renamed; a
+    /// carry a move's write still out takes forward waits for that write. Its record stays on the
+    /// row, and the next start finishes the carry where it can be made. Fails as the read of the
+    /// mount's state fails.
     pub async fn let_go_detached_carry(
         &self,
         repo_mount_id: RepoMountId,
@@ -435,6 +450,7 @@ fn read_uncarried_mounts(
                 repo_mount_id: text_column(row, 0, |text| RepoMountId::new(&text))?,
                 moved_from: row.get(1)?,
                 moved_to: row.get(2)?,
+                is_attached: row.get(3)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?)

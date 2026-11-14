@@ -86,8 +86,8 @@ impl QuestionKind {
     }
 }
 
-/// States in the schema that a secret question has no option rows, and that a question of a kind
-/// [`QuestionKind::is_numeric`] does not take carries no range, step or unit.
+/// States in the schema that a secret question and a path question have no option rows, and that a
+/// question of a kind [`QuestionKind::is_numeric`] does not take carries no range, step or unit.
 fn add_question_prompt_rules(schema: &mut schemars::Schema) {
     let other_kinds: Vec<serde_json::Value> = QuestionKind::VARIANTS
         .iter()
@@ -102,6 +102,17 @@ fn add_question_prompt_rules(schema: &mut schemars::Schema) {
                     "type": "object",
                     "properties": { "secret": { "const": true } },
                     "required": ["secret"],
+                },
+                "then": {
+                    "type": "object",
+                    "properties": { "options": { "type": "array", "maxItems": 0 } },
+                },
+            },
+            {
+                "if": {
+                    "type": "object",
+                    "properties": { "path": { "const": true } },
+                    "required": ["path"],
                 },
                 "then": {
                     "type": "object",

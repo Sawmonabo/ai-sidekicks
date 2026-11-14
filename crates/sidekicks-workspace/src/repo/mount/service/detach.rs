@@ -35,8 +35,8 @@ const ARCHIVABLE_DEPENDENTS_STATEMENT: usize = 1;
 const DETACH_MOUNT_STATEMENT: usize = 3;
 
 // True while a run, an agent's or a workflow's, is live anywhere in the project `@repo_mount_id`
-// serves: a run whose execution root is unreleased, in a workspace on any of the project's mounts. A predicate over the
-// `run_context` alias of `run_execution_contexts`.
+// serves: a run whose execution root is unreleased, in a workspace on any of the project's mounts.
+// A predicate over the `run_context` alias of `run_execution_contexts`.
 const RUN_IN_PROJECT_PREDICATE: &str = "run_context.released_at IS NULL
    AND run_context.workspace_id IN (
      SELECT project_workspace.id
@@ -83,7 +83,7 @@ static ARCHIVE_DEPENDENTS_SQL: LazyLock<String> = LazyLock::new(|| {
 // Compare-and-swap: `attached` in the predicate is the legal predecessor and the mutual exclusion
 // between concurrent detaches and re-attaches. A first verdict still owed is owed to no one once
 // the mount is gone, so its record goes with it. A carry's record stays: a made carry still
-// running reads it to finish, and no start reads it of a detached mount.
+// running reads it to finish, and the next start finishes a carry a stop or a failed write left.
 static DETACH_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE repo_mounts
@@ -142,9 +142,9 @@ impl RepoMountService {
     /// running `following_statements` (the project writer's forgetting of the record) in the same
     /// write after the flip. Refuses `repoMount.managed` for a chat's managed mount,
     /// `repoMount.detachConflict` naming the running session while a run, an agent's or a
-    /// workflow's, is live anywhere in its project, and `repoMount.notFound`. A run that ends between the running check and the read
-    /// of its session is no conflict, so the detach is tried once more, and a second such race
-    /// fails with the write's refusal. Fails with
+    /// workflow's, is live anywhere in its project, and `repoMount.notFound`. A run that ends
+    /// between the running check and the read of its session is no conflict, so the detach is
+    /// tried once more, and a second such race fails with the write's refusal. Fails with
     /// [`RepoMountServiceError::DetachNotificationIncomplete`] when it committed but an event
     /// append failed, and [`RepoMountServiceError::DetachArchivalsUnread`] when it committed but
     /// an archived workspace did not read.

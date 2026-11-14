@@ -4,16 +4,19 @@
 
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use super::verdict::MountVerdict;
-use super::{MountPassFailure, RepoMountHealthReprobe, Told, settle_sends};
+use super::{MountPassFailure, RepoMountHealthReprobe, Told, read_sessions_on_mount, settle_sends};
 
 impl RepoMountHealthReprobe {
-    /// Tells each session on the mount `repo_mount_id` the re-probe has told or read what holds
-    /// its captures now, where that differs from what it heard, with the health the mount's last
-    /// pass read, under the mount's pass lock. Tells nothing of a mount no pass has read, whose
-    /// first pass tells it, nor a session not heard from yet, which the next pass reads from its
-    /// log. Fails with [`MountPassFailure::Send`] once every session was tried; the mount's next
+    /// Tells each session on the mount `repo_mount_id` now, as its pass reads them, that the
+    /// re-probe has told or read what holds its captures now, where that differs from what it
+    /// heard, with the health the mount's last pass read, under the mount's pass lock; a session
+    /// gone from the mount since is forgotten and told nothing. Tells nothing of a mount no pass
+    /// has read, whose first pass tells it, nor a session not heard from yet, which the next pass
+    /// reads from its log. Fails with [`MountPassFailure::Read`] when the mount's sessions do not
+    /// read, and with [`MountPassFailure::Send`] once every session was tried; the mount's next
     /// pass sends each failed one again.
     pub(crate) async fn tell_captures_held(
         &self,
@@ -24,19 +27,41 @@ impl RepoMountHealthReprobe {
             () = self.stop.cancelled() => return Ok(()),
             hold = self.passes.acquire(repo_mount_id) => hold,
         };
+        let has_health = self
+            .lock_mounts()
+            .get(&repo_mount_id)
+            .is_some_and(|memory| memory.health.is_some());
+        if !has_health {
+            return Ok(());
+        }
+        let sessions = self
+            .reads
+            .read(ReadLength::Short, move |connection| {
+                read_sessions_on_mount(connection, repo_mount_id)
+            })
+            .await
+            .map_err(|source| MountPassFailure::Read {
+                repo_mount_id,
+                source,
+            })?;
         let captures_held = self.packing.carries().captures_held(repo_mount_id);
         let Some((health, verdict, untold)) =
-            self.lock_mounts().get(&repo_mount_id).and_then(|memory| {
-                let health = memory.health.clone()?;
-                let verdict = MountVerdict::of(&health, captures_held.clone());
-                let untold: Vec<SessionId> = memory
-                    .heard
-                    .iter()
-                    .filter(|(_, heard)| **heard != verdict)
-                    .map(|(session_id, _)| *session_id)
-                    .collect();
-                Some((health, verdict, untold))
-            })
+            self.lock_mounts()
+                .get_mut(&repo_mount_id)
+                .and_then(|memory| {
+                    memory
+                        .heard
+                        .retain(|session_id, _| sessions.contains(session_id));
+                    let health = memory.health.clone()?;
+                    let verdict = MountVerdict::of(&health, captures_held.clone());
+                    let untold: Vec<SessionId> = memory
+                        .heard
+                        .iter()
+                        .filter(|(_, heard)| **heard != verdict)
+                        .map(|(session_id, _)| *session_id)
+                        .collect();
+                    Some((health, verdict, untold))
+                })
         else {
             return Ok(());
         };

@@ -208,6 +208,10 @@ struct PendingCarries {
     unmade: Vec<Arc<UnmadeCarry>>,
     // What asks did, until the carry's runner takes it.
     asked: AskedCarries,
+    // The mounts a detach ended while a move's write naming them, as the mount it ends or the one
+    // it makes, was out: each one's unmade carry is let go once no such write is out, unless the
+    // write took it forward.
+    detached: Vec<RepoMountId>,
 }
 
 /// What openers' asks did since the carry's runner last took it.
@@ -426,16 +430,44 @@ impl CaptureCarries {
     /// its owners' folders and rows still agree at the old names, and a folder attached again as
     /// another mount is neither refused those names nor left holding what its health never tells.
     /// A carry that was made stays pending, since the owners it renamed are found only through it.
+    /// While a move's write that ends or makes the mount is out, the carry waits for that write's
+    /// end: a write that commits takes it forward, and one withdrawn lets it go.
     pub(crate) fn let_go_unmade(&self, repo_mount_id: RepoMountId) {
-        lock(&self.pending)
-            .unmade
-            .retain(|unmade| unmade.repo_mount_id != repo_mount_id);
+        let mut pending = lock(&self.pending);
+        if !pending.detached.contains(&repo_mount_id) {
+            pending.detached.push(repo_mount_id);
+        }
+        Self::let_go_detached(&mut pending);
+    }
+
+    // Lets go the unmade carry of each mount a detach ended that no move's write still out names,
+    // as the mount it ends or the one it makes, and forgets the mount.
+    fn let_go_detached(pending: &mut PendingCarries) {
+        let PendingCarries {
+            made,
+            unmade,
+            detached,
+            ..
+        } = pending;
+        detached.retain(|repo_mount_id| {
+            let is_awaited = made.iter().any(|held| {
+                held.write.as_ref().is_some_and(|write| {
+                    write.replaced_repo_mount_id == *repo_mount_id
+                        || held.repo_mount_id == *repo_mount_id
+                })
+            });
+            if !is_awaited {
+                unmade.retain(|other| other.repo_mount_id != *repo_mount_id);
+            }
+            is_awaited
+        });
     }
 
     /// Tries `unmade` again, one try shared by every caller that asks while it runs, and answers
-    /// the carry when this try made it, now held as a written carry; `None` when it was made or
-    /// taken forward meanwhile. Fails with the fresh cause when it still cannot be made, and with
-    /// its cause when its record or its stored folder did not read, which leaves nothing to try.
+    /// the carry when this try made it, now held as a written carry; `None` when it was made, taken
+    /// forward or let go meanwhile. Fails with the fresh cause when it still cannot be made, and
+    /// with its cause when its record or its stored folder did not read, which leaves nothing to
+    /// try.
     pub(crate) async fn make(&self, unmade: &Arc<UnmadeCarry>) -> io::Result<Option<CaptureCarry>> {
         let asked = lock(&unmade.failure).1;
         let _turn = unmade.ask.lock().await;
@@ -587,7 +619,8 @@ impl CaptureCarryWrite<'_> {
     /// Ends the wait as the move's write committed, taking the ended mount's carry onto the new
     /// mount, as the write took its record forward. An unmade one whose old folders are known stays
     /// unmade, its record now the write's, the ended mount's folder after its old ones, and is
-    /// answered for the move to make; one whose record did not read ends, its old folders unknown.
+    /// answered for the move to make, unless a detach ended the new mount meanwhile, which lets it
+    /// go; one whose record did not read ends, its old folders unknown.
     /// A written one is taken into the move's own carry, and the chain is held pending as one
     /// written carry unless it renames nothing, and answered.
     pub(crate) fn written(mut self) -> WrittenCarry {
@@ -629,6 +662,8 @@ impl CaptureCarryWrite<'_> {
                 ask: tokio::sync::Mutex::new(()),
             });
             pending.unmade.push(Arc::clone(&chain));
+            // A detach that ended the new mount before this write's end lets the chain go here.
+            CaptureCarries::let_go_detached(&mut pending);
             drop(pending);
             drop(write);
             return WrittenCarry::Unmade(chain);
@@ -655,6 +690,7 @@ impl CaptureCarryWrite<'_> {
             moved_to: self.carry.moved_to.clone(),
         };
         CaptureCarries::hold_made(&mut pending, self.repo_mount_id, chain.clone());
+        CaptureCarries::let_go_detached(&mut pending);
         drop(pending);
         // Released only now, so an opener waiting on the write finds the chain.
         drop(write);
@@ -665,7 +701,11 @@ impl CaptureCarryWrite<'_> {
 impl Drop for CaptureCarryWrite<'_> {
     fn drop(&mut self) {
         if let Some((write_lock, hold)) = self.write.take() {
-            CaptureCarries::remove_write(&mut lock(&self.carries.pending), &write_lock);
+            let mut pending = lock(&self.carries.pending);
+            CaptureCarries::remove_write(&mut pending, &write_lock);
+            // A withdrawn write takes nothing forward, so a carry a detach left waiting goes.
+            CaptureCarries::let_go_detached(&mut pending);
+            drop(pending);
             drop(hold);
         }
     }

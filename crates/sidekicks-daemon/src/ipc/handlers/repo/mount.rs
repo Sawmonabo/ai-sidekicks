@@ -25,10 +25,11 @@ use sidekicks_workspace::folder::usage::{RepoFolderUsage, RepoFolderUsageError};
 use crate::daemon::process::workspace_services::RepoMountMethods;
 
 /// Registers the six folder verbs over `methods`. A detach, whatever it answers, then asks for
-/// the worktree cleanup and lets go the held carry of a mount it ended, since a detach can fail
-/// after its write committed; a re-attach or a move, whatever it answers, forgets the setup cards
-/// of the trees it retired and reads its project into the projects list again. Each refuses as its
-/// service refuses. Fails the start when a method is already registered.
+/// the worktree cleanup and lets go the held carry of a mount no longer attached that no move
+/// takes forward, since a detach can fail after its write committed; a re-attach or a move,
+/// whatever it answers, forgets the setup cards of the trees it retired and reads its project into
+/// the projects list again. Each refuses as its service refuses. Fails the start when a method is
+/// already registered.
 pub(crate) fn register_repo_mounts(
     registry: &mut MethodRegistryBuilder,
     methods: RepoMountMethods,

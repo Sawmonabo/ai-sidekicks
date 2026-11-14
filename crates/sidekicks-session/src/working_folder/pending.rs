@@ -21,7 +21,7 @@ use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::text_column;
-use sidekicks_store::events::session::append_lock::SessionAppendHold;
+use sidekicks_store::events::session::append_lock::{SESSION_APPEND_LOCK, SessionAppendHold};
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventDraft, SessionEventEmitError, SessionEventLinkage,
 };
@@ -39,7 +39,9 @@ const STORE_PENDING_SQL: &str = "UPDATE sessions
   SET pending_working_folder = @path, pending_working_folder_workspace_id = @workspace_id
   WHERE id = @session_id AND pending_working_folder IS NOT @path";
 
-// Writes the workspace of a move to the folder already waiting, only where it differs.
+// Writes the workspace of a move to the folder already waiting, only where it differs. Its own
+// write: a refused statement keeps none of its write, and a write's event is appended whatever its
+// statements changed, so it cannot sit in the store's write, whose event it must not append.
 const STORE_PENDING_WORKSPACE_SQL: &str = "UPDATE sessions
   SET pending_working_folder_workspace_id = @workspace_id
   WHERE id = @session_id AND pending_working_folder IS @path
@@ -128,7 +130,8 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
 
     /// Stores `pending`, a folder and the workspace it was asked for, as the session's pending
     /// move, or clears it with `None`, with the event saying so; a move to the folder already
-    /// waiting writes only its workspace, where that differs, with no event. Refuses
+    /// waiting writes only its workspace, where that differs, with no event, under the session's
+    /// append hold taken for both writes, so no change to the move lands between them. Refuses
     /// `session.notFound` for a session purged meanwhile, and fails as a write fails.
     pub(super) async fn store_pending(
         &self,
@@ -153,7 +156,13 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
             session_exists_statement(&session_id),
             statement(STORE_PENDING_SQL, Some(1)),
         ];
-        match self.append_pending(event, prelude, None).await {
+        // Every change to a pending move is an append on the session, so none lands between the
+        // refused store and the workspace's write while this hold is taken.
+        let append_hold = SESSION_APPEND_LOCK.acquire(session_id).await;
+        match self
+            .append_pending(event, prelude, Some(&append_hold))
+            .await
+        {
             Ok(()) => Ok(()),
             Err(error) => match error.refused_statement_index() {
                 Some(STORE_SESSION_CHECK_INDEX) => Err(session_not_found(&session_id).into()),

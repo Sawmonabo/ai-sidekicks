@@ -42,7 +42,7 @@ const STOP_QUESTION: &str = "Stop the background service? Work in flight stops, 
 /// The question's line in place of the counts when the sessions typed in a terminal could not be
 /// read in time.
 const COUNT_UNREAD_LINE: &str =
-    "Could not count the sessions typed in a terminal. Any there will disconnect.";
+    "Couldn't count the sessions typed in a terminal. Any there will disconnect.";
 
 /// How long the question waits for the sessions typed in a terminal before it asks without them.
 const TERMINAL_SESSION_READ_BOUND: Duration = Duration::from_secs(3);
@@ -85,12 +85,12 @@ enum TerminalSessionCount {
 enum StopReport {
     /// The stop happened, or nothing was running: the line for stdout.
     Done(&'static str),
-    /// The stop did not happen: `Could not stop.` over its reason, for stderr.
+    /// The stop did not happen: `Couldn't stop · ` and its reason, for stderr.
     CouldNotStop(String),
 }
 
 /// Stops the background service once the person confirms: the outcome's line on stdout and 0,
-/// nothing for a no, and `Could not stop.` with its reason on stderr and 75 where the status file
+/// nothing for a no, and `Couldn't stop · ` with its reason on stderr and 75 where the status file
 /// says the stop did not happen. Fails with `CommandFailure::ConfirmationUnavailable` with no
 /// terminal and no `--yes`, `ClientError::Canceled` after a Ctrl-C, as the connect fails other than
 /// as a stopped or starting service's does, and as the ending, the status file's read or a write
@@ -299,10 +299,10 @@ mod tests {
     }
 
     const STILL_CLOSING_THE_SEARCH_INDEX: &str =
-        "Could not stop.\nThe background service is still closing the search index.\n";
+        "Couldn't stop · the background service is still closing the search index\n";
 
-    const INTENT_UNSAVED: &str = "Could not stop.\nThe background service could not save that \
-                                  you stopped it, so it may resume your sessions when it starts.\n";
+    const INTENT_UNSAVED: &str = "Couldn't stop · the background service couldn't save that you \
+                                  stopped it, so it may resume your sessions when it starts\n";
 
     fn stopping_record(process: RecordedProcess, started: StopStarted) -> String {
         let identity = sidekicks_platforms::process_identity(std::process::id())

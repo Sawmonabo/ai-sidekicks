@@ -169,10 +169,12 @@ async fn assert_found_at(fixture: &ReattachFixture, captured: &CapturedBeforeMov
 // A capture taken before its repository moved is found and read at the new folder after the move,
 // its run's context naming the new common folder; and so it is after a stop cut the move between
 // its write and the carry, once the start's carry runs, whether the folder was renamed or not, and
-// when a turn captured at the new name before that carry. Killed by the move's carry dropped (no
-// folder at the new name), by the rows left unrewritten (the context names the old folder), by the
-// record of the carry left unwritten or uncleared, by an opener that makes a folder at the new
-// name while the carry is pending, and by a rename that replaces a folder already at the new name.
+// when a turn captured at the new name before that carry; and so it is after a carry that renamed
+// the folder and whose write failed, its project detached since, once the next start's carry runs.
+// Killed by the move's carry dropped (no folder at the new name), by the rows left unrewritten (the
+// context names the old folder), by the record of the carry left unwritten or uncleared, by a
+// start that reads no detached mount's record, by an opener that makes a folder at the new name
+// while the carry is pending, and by a rename that replaces a folder already at the new name.
 #[tokio::test]
 async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
     let fixture = ReattachFixture::new().await;
@@ -185,10 +187,11 @@ async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
         .expect("the repository sits in the scratch folder")
         .join("moved");
     std::fs::rename(&fixture.roots.repository, &moved).expect("the repository moves");
-    fixture
+    let moved_mount = fixture
         .move_to(MOUNT_ID, &moved)
         .await
-        .expect("the mount follows its repository");
+        .expect("the mount follows its repository")
+        .repo_mount_id;
     let new_common = moved.join(".git");
     let new_name = real_path_name(&new_common)
         .await
@@ -226,6 +229,28 @@ async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
         assert_found_at(&fixture, &captured, &new_common).await;
     }
 
+    // The carry renamed the folder and its write failed, then the project was detached.
+    leave_the_carry(&fixture, &captured, None);
+    fixture
+        .roots
+        .rows
+        .execute(
+            "UPDATE repo_mounts SET state = 'detached' WHERE id = ?1",
+            params![moved_mount.text().as_str()],
+        )
+        .expect("the project is detached");
+    let uncarried = fixture
+        .service
+        .expect_moved_captures()
+        .await
+        .expect("the start holds the detached project's carry");
+    fixture
+        .service
+        .carry_moved_captures(uncarried)
+        .await
+        .expect("the start's carry finishes the detached project's move");
+    assert_found_at(&fixture, &captured, &new_common).await;
+
     // A folder already at the new name is never replaced.
     std::fs::create_dir_all(captured.capture_folder.folder()).expect("a folder takes the old name");
     fixture
@@ -233,8 +258,11 @@ async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
         .rows
         .execute(
             "UPDATE repo_mounts SET metadata = json_set(metadata, '$.capturesMovedFrom', \
-             json_array(?1)) WHERE state = 'attached'",
-            params![captured.old_common.to_string_lossy()],
+             json_array(?1)) WHERE id = ?2",
+            params![
+                captured.old_common.to_string_lossy(),
+                moved_mount.text().as_str()
+            ],
         )
         .expect("a carry is owed again");
     let uncarried = fixture
@@ -255,10 +283,12 @@ async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
 // the folder from the oldest name. So it is when the start could not make the first carry, its
 // middle folder one the daemon may not enter, which the mount's health tells, and the second move
 // commits once that folder reads again, before any opener asks: the move makes the carry it took
-// forward, the hold ends, and one capture folder is left, at the newest name. Killed by the record
-// left on the ended mount (the folder stays at the oldest name and the context names the oldest
-// folder), by a carry from the middle name only, by an unmade carry the move leaves behind or
-// keys to the ended mount's folders, and by a hold the health never tells or never ends.
+// forward, the hold ends, and one capture folder is left, at the newest name. A detach of the first
+// mount pressed once the second move's write ended it, before the move takes its carry forward, is
+// refused and lets go nothing that move takes forward. Killed by the record left on the ended mount
+// (the folder stays at the oldest name and the context names the oldest folder), by a carry from
+// the middle name only, by an unmade carry the move leaves behind, keys to the ended mount's
+// folders or a refused detach lets go, and by a hold the health never tells or never ends.
 #[tokio::test]
 async fn a_capture_taken_before_two_moves_is_found_and_read_after_both() {
     // A folder the daemon may not enter cannot be made everywhere.
@@ -312,9 +342,31 @@ async fn a_capture_taken_before_two_moves_is_found_and_read_after_both() {
 
         let moved_again = scratch.join("moved-again");
         std::fs::rename(&moved, &moved_again).expect("the repository moves again");
-        let second = fixture
-            .move_to(first.repo_mount_id.text().as_str(), &moved_again)
+        let written = fixture.service.written_pause.arm();
+        let second = tokio::spawn({
+            let service = Arc::clone(&fixture.service);
+            let request = RepoMountMoveRequest {
+                repo_mount_id: first.repo_mount_id,
+                local_path: FilesystemPath::new(moved_again.to_string_lossy().into_owned())
+                    .expect("the path is short"),
+                place: None,
+            };
+            async move { service.move_to_folder(&request).await }
+        });
+        written.reached.await.expect("the move's write commits");
+        // The detach handler's let-go, after a detach the move's write refused.
+        fixture
+            .service
+            .let_go_detached_carry(first.repo_mount_id)
             .await
+            .expect("the mount's state reads");
+        written
+            .release
+            .send(())
+            .expect("the move waits at its pause");
+        let second = second
+            .await
+            .expect("the move ends")
             .expect("the mount follows its repository again");
 
         assert_found_at(&fixture, &captured, &moved_again.join(".git")).await;
