@@ -27,6 +27,8 @@ export function readWindowRequest(data: unknown): ClientHelperWindowRequest | un
       return isShellInput(message, "data") ? (message as ClientHelperWindowRequest) : undefined;
     case "shell.paste":
       return isShellInput(message, "text") ? (message as ClientHelperWindowRequest) : undefined;
+    case "shell.resubmit":
+      return isShellResubmit(message) ? (message as ClientHelperWindowRequest) : undefined;
     default:
       return undefined;
   }
@@ -67,4 +69,31 @@ function isShellInput(message: Record<string, unknown>, textMember: "data" | "te
   return (
     typeof message["outputSubscriptionId"] === "string" && typeof message[textMember] === "string"
   );
+}
+
+function isShellResubmit(message: Record<string, unknown>): boolean {
+  const writes = message["writes"];
+  return (
+    typeof message["outputSubscriptionId"] === "string" &&
+    Array.isArray(writes) &&
+    writes.every(isUnsentShellWrite)
+  );
+}
+
+function isUnsentShellWrite(write: unknown): boolean {
+  if (write === null || typeof write !== "object") {
+    return false;
+  }
+  const { data, paste } = write as Record<string, unknown>;
+  if (typeof data !== "string") {
+    return false;
+  }
+  if (paste === undefined) {
+    return true;
+  }
+  if (paste === null || typeof paste !== "object") {
+    return false;
+  }
+  const { pasteId, isLastPart } = paste as Record<string, unknown>;
+  return typeof pasteId === "string" && typeof isLastPart === "boolean";
 }

@@ -5,8 +5,8 @@
 // what they held from the cursors they kept; only main's `daemon.status` topic, which rides IPC,
 // says whether the service can be reached. Bytes cross beside the JSON: each `Uint8Array` in the
 // params is sent as a `{"$bytes": n}` member and its bytes, and a reply's or a value's bytes come
-// back beside it. A pane's typing into a shell rides the same port, and what
-// it is told of its writes comes back by its output subscription.
+// back beside it. A pane's typing into a shell rides the same port, and what it is told of its
+// writes, the input handed back unsent among them, comes back by its output subscription.
 
 import type {
   SubscribeAcknowledgmentResponse,
@@ -126,7 +126,7 @@ export class DaemonPortClient {
 
   /**
    * Type into the shell `outputSubscriptionId` follows, telling `onAnswer` what the helper says of
-   * the input's writes until it is closed.
+   * the input's writes, and the input it hands back unsent, until the input is closed.
    */
   public openShellInput(
     outputSubscriptionId: SubscriptionId,
@@ -139,6 +139,9 @@ export class DaemonPortClient {
       },
       pasteText: (text) => {
         this.#send({ kind: "shell.paste", outputSubscriptionId, text });
+      },
+      resubmit: (writes) => {
+        this.#send({ kind: "shell.resubmit", outputSubscriptionId, writes });
       },
       close: () => {
         if (this.#shellAnswers.get(outputSubscriptionId) === onAnswer) {

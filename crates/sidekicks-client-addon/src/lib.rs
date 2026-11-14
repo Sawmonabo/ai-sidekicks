@@ -31,7 +31,7 @@ use sidekicks_client::daemon_ending::{
     self, DaemonEnd, DaemonEndingError, DaemonEndingTerms, DaemonEndingVerb, end_unanswered_process,
 };
 use sidekicks_client::error::ClientError;
-use sidekicks_client::terminal_write::{ShellInput, ShellTarget, WriteNotice};
+use sidekicks_client::terminal_write::{PaneWrite, ShellInput, ShellTarget, WriteNotice};
 use sidekicks_client::transport::json_rpc::{JsonRpcClient, RawReply, RawRequest};
 use sidekicks_client::transport::subscription::Subscription;
 use sidekicks_client::untyped_call;
@@ -42,6 +42,7 @@ use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::process_identity::ProcessIdentity;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::TerminalId;
+use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_platforms::{ChildEnd, daemon_run_folder, pin_identified_process, process_identity};
 use tokio_util::sync::CancellationToken;
 
@@ -116,6 +117,25 @@ pub struct StreamEvent {
 pub struct ShellWriteNotice {
     /// The error, when the write was refused.
     pub error: Option<Value>,
+}
+
+/// A write a pane's input queued and had not sent, handed back at its close to go again on the
+/// pane's next input: typed keys, or one part of a paste, which goes whole with its paste's place.
+#[napi(object)]
+pub struct UnsentShellWrite {
+    /// The keys, or the part's text.
+    pub data: String,
+    /// Where the part sits in its paste; none for keys.
+    pub paste: Option<UnsentPastePart>,
+}
+
+/// Where a handed-back part sits in its paste.
+#[napi(object)]
+pub struct UnsentPastePart {
+    /// The paste's id, minted where it was cut into parts.
+    pub paste_id: String,
+    /// Whether this is the paste's last part.
+    pub is_last_part: bool,
 }
 
 /// The connection to the daemon the client helper holds.
@@ -487,13 +507,63 @@ impl ShellInputHandle {
         }
     }
 
-    /// Closes the input: what it queued and has not sent is dropped, its writes sent still count
-    /// until answered, and `on_notice` hears nothing more.
+    /// Queues the writes another input of the pane handed back at its close, ahead of anything
+    /// typed into this one after, each as it was; nothing once closed. Fails, queuing none, when a
+    /// paste's id is not a UUID.
     #[napi(catch_unwind)]
-    pub fn close(&self) {
-        let input = lock(&self.input).take();
-        drop(input);
+    pub fn resubmit(&self, writes: Vec<UnsentShellWrite>) -> napi::Result<()> {
+        let writes = writes
+            .into_iter()
+            .map(pane_write)
+            .collect::<napi::Result<Vec<_>>>()?;
+        if let Some(input) = lock(&self.input).as_ref() {
+            input.resubmit(writes);
+        }
+        Ok(())
     }
+
+    /// Closes the input and hands back what it queued and has not sent, oldest first; its writes
+    /// sent still count until answered, and `on_notice` hears nothing more. Nothing once closed.
+    #[napi(catch_unwind)]
+    pub fn close(&self) -> Vec<UnsentShellWrite> {
+        let input = lock(&self.input).take();
+        input.map_or_else(Vec::new, |input| {
+            input.close().into_iter().map(unsent_shell_write).collect()
+        })
+    }
+}
+
+/// A write the client's queue handed back, as JavaScript holds it.
+fn unsent_shell_write(write: PaneWrite) -> UnsentShellWrite {
+    match write {
+        PaneWrite::Keys(data) => UnsentShellWrite { data, paste: None },
+        PaneWrite::PastePart {
+            data,
+            paste_id,
+            is_last_part,
+        } => UnsentShellWrite {
+            data,
+            paste: Some(UnsentPastePart {
+                paste_id: paste_id.as_str().to_owned(),
+                is_last_part,
+            }),
+        },
+    }
+}
+
+/// A handed-back write as the client's queue takes it again; fails when a paste's id is not a
+/// UUID.
+fn pane_write(write: UnsentShellWrite) -> napi::Result<PaneWrite> {
+    let Some(paste) = write.paste else {
+        return Ok(PaneWrite::Keys(write.data));
+    };
+    let paste_id = ClientUuid::new(paste.paste_id)
+        .map_err(|error| napi::Error::from_reason(format!("paste id: {error}")))?;
+    Ok(PaneWrite::PastePart {
+        data: write.data,
+        paste_id,
+        is_last_part: paste.is_last_part,
+    })
 }
 
 /// Ends the daemon on this machine through the client's one ending: a flush, then `request`, then

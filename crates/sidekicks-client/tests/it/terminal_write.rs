@@ -2,14 +2,15 @@
 //! write, sent as an answer returns, and an interrupt goes at once with the writes queued before
 //! it; every pane typing into the shell shares that window and the order of writes; a paste goes
 //! in whole parts never joined with keys; a refusal reaches only the pane that typed the write; a
-//! closed pane's unsent keys go with it; and keys may be typed from a thread outside the runtime,
-//! as the desktop's JavaScript thread types them.
+//! closed pane hands back what it had not sent, which its next handle sends whole and in order;
+//! and keys may be typed from a thread outside the runtime, as the desktop's JavaScript thread
+//! types them.
 
 use std::time::Duration;
 
 use serde_json::{Value, json};
 use sidekicks_client::error::ClientError;
-use sidekicks_client::terminal_write::{ShellInput, ShellTarget, WriteNotice};
+use sidekicks_client::terminal_write::{PaneWrite, ShellInput, ShellTarget, WriteNotice};
 use sidekicks_client::transport::json_rpc::JsonRpcClient;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
@@ -25,6 +26,7 @@ const QUIET: Duration = Duration::from_secs(5);
 
 const FIRST_PANE: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0001";
 const SECOND_PANE: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0002";
+const REOPENED_PANE: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0003";
 
 /// The shell every case types into, through the pane whose output subscription is `pane`.
 fn target(pane: &str) -> ShellTarget {
@@ -198,17 +200,55 @@ async fn a_refused_write_reaches_only_the_pane_that_typed_it() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_closed_pane_s_unsent_keys_are_dropped() {
+async fn a_closed_pane_hands_back_its_unsent_writes_whole_and_in_order() {
     let client = JsonRpcClient::new();
     let (_link, mut daemon) = open_link(&client).await;
     let (first, mut first_notices) = ShellInput::open(&client, target(FIRST_PANE));
     let (second, _second_notices) = ShellInput::open(&client, target(SECOND_PANE));
 
     let mut waiting = fill_the_window(&first, &mut daemon).await;
-    first.type_keys("lost");
+    daemon.answer(&waiting.remove(0), json!(null)).await;
+    first.type_keys(&"k".repeat(TERMINAL_WRITE_MAX_BYTES + 3));
+    let sent_in_part = daemon.next_message().await;
+    assert_eq!(
+        sent_in_part["params"]["data"].as_str().map(str::len),
+        Some(TERMINAL_WRITE_MAX_BYTES),
+        "a run past the byte cap goes in part while the window has room"
+    );
+    waiting.push(sent_in_part["id"].clone());
+    let notice = tokio::time::timeout(PATIENCE, first_notices.recv()).await;
+    assert!(
+        matches!(notice, Ok(Some(WriteNotice::Taken))),
+        "the pane hears its first write taken, not {notice:?}"
+    );
+    let whole_part = "p".repeat(TERMINAL_WRITE_MAX_BYTES);
+    first.paste(&format!("{whole_part}tail"));
+    first.type_keys("z");
     second.type_keys("kept");
-    drop(first);
-    daemon.assert_no_message_within(QUIET).await;
+
+    let unsent = first.close();
+    let Some(PaneWrite::PastePart { paste_id, .. }) = unsent.get(1) else {
+        panic!("the paste's first part is handed back second, not {unsent:?}");
+    };
+    let paste_id = paste_id.clone();
+    assert_eq!(
+        unsent,
+        [
+            PaneWrite::Keys("kkk".to_owned()),
+            PaneWrite::PastePart {
+                data: whole_part.clone(),
+                paste_id: paste_id.clone(),
+                is_last_part: false,
+            },
+            PaneWrite::PastePart {
+                data: "tail".to_owned(),
+                paste_id: paste_id.clone(),
+                is_last_part: true,
+            },
+            PaneWrite::Keys("z".to_owned()),
+        ],
+        "what had not left comes back in order, the paste's parts whole, none of what left"
+    );
     assert!(
         tokio::time::timeout(PATIENCE, first_notices.recv())
             .await
@@ -218,16 +258,41 @@ async fn a_closed_pane_s_unsent_keys_are_dropped() {
     );
 
     daemon.answer(&waiting.remove(0), json!(null)).await;
-    let write = daemon.next_message().await;
+    let kept = daemon.next_message().await;
     assert_eq!(
         (
-            &write["params"]["data"],
-            &write["params"]["outputSubscriptionId"]
+            &kept["params"]["data"],
+            &kept["params"]["outputSubscriptionId"]
         ),
         (&json!("kept"), &json!(SECOND_PANE)),
-        "the closed pane's writes still counted, and its unsent keys went with it"
+        "the closed pane's writes still counted, and none of its unsent ones went"
     );
     daemon.assert_no_message_within(QUIET).await;
+
+    let (reopened, _reopened_notices) = ShellInput::open(&client, target(REOPENED_PANE));
+    reopened.resubmit(unsent);
+    reopened.type_keys("after");
+    let mut resent = Vec::new();
+    for _ in 0..4 {
+        daemon.answer(&waiting.remove(0), json!(null)).await;
+        resent.push(daemon.next_message().await["params"].clone());
+    }
+    assert_eq!(
+        resent,
+        [
+            json!({ "kind": "keys", "data": "kkk" }),
+            json!({ "kind": "paste", "data": whole_part, "pasteId": paste_id, "isLastPart": false }),
+            json!({ "kind": "paste", "data": "tail", "pasteId": paste_id, "isLastPart": true }),
+            json!({ "kind": "keys", "data": "zafter" }),
+        ]
+        .map(|mut expected| {
+            expected["sessionId"] = json!("0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c1001");
+            expected["terminalId"] = json!("shell-1");
+            expected["outputSubscriptionId"] = json!(REOPENED_PANE);
+            expected
+        }),
+        "the pane's next handle sends what came back first, each write as it was"
+    );
 }
 
 #[tokio::test]

@@ -5,10 +5,12 @@
 //! or suspend key goes at once, with every write queued before it, while fewer than
 //! `TERMINAL_WRITES_WAITING_LIMIT` wait, so order holds and the daemon decides whether the key is
 //! a signal. A paste goes in parts of at most the byte cap, each whole and never joined with keys.
-//! What the daemon answers a write is told to the pane that typed it.
+//! What the daemon answers a write is told to the pane that typed it, and a pane's handle closed
+//! hands back what it queued and had not sent, for the pane to send again on its next handle.
 
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
+use std::mem;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
@@ -52,8 +54,9 @@ pub enum WriteNotice {
 
 /// One pane's input to one shell, typed into from any thread: a handle onto the queue its client
 /// holds for that shell, which every other pane's handle to the shell over that client shares.
-/// Dropping it drops the keys and pastes it queued and has not sent and ends its notices, while
-/// the writes it sent count until they are answered.
+/// [`ShellInput::close`] hands back what it queued and has not sent and ends its notices, while
+/// the writes it sent count until they are answered; dropping it unclosed drops what it had not
+/// sent.
 pub struct ShellInput {
     queue: Arc<ShellQueue>,
     pane: Arc<Pane>,
@@ -97,12 +100,19 @@ struct QueuedWrite {
     write: PaneWrite,
 }
 
-/// What a pane queued: a run of typed keys, or one part of a paste as it was cut.
-enum PaneWrite {
+/// What a pane queued and has not sent: a run of typed keys, or one part of a paste as it was cut,
+/// which goes again whole with its paste's id.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PaneWrite {
+    /// Typed keys, joined with the pane's keys beside them.
     Keys(String),
+    /// One part of a paste.
     PastePart {
+        /// The part's text, at most `TERMINAL_WRITE_MAX_BYTES`.
         data: String,
+        /// The paste the part belongs to.
         paste_id: ClientUuid,
+        /// Whether this is the paste's last part.
         is_last_part: bool,
     },
 }
@@ -156,18 +166,7 @@ impl ShellInput {
             return;
         }
         let mut state = self.queue.lock();
-        if let Some(typed) = state
-            .queued
-            .back_mut()
-            .and_then(|queued| queued.keys_of(&self.pane))
-        {
-            typed.push_str(keys);
-        } else {
-            state.queued.push_back(QueuedWrite {
-                pane: Arc::clone(&self.pane),
-                write: PaneWrite::Keys(keys.to_owned()),
-            });
-        }
+        self.push(&mut state, PaneWrite::Keys(keys.to_owned()));
         self.queue.send_what_fits(&mut state);
     }
 
@@ -183,26 +182,68 @@ impl ShellInput {
         let mut rest = text;
         while !rest.is_empty() {
             let (part, later) = rest.split_at(rest.floor_char_boundary(TERMINAL_WRITE_MAX_BYTES));
-            state.queued.push_back(QueuedWrite {
-                pane: Arc::clone(&self.pane),
-                write: PaneWrite::PastePart {
+            self.push(
+                &mut state,
+                PaneWrite::PastePart {
                     data: part.to_owned(),
                     paste_id: paste_id.clone(),
                     is_last_part: later.is_empty(),
                 },
-            });
+            );
             rest = later;
         }
         self.queue.send_what_fits(&mut state);
+    }
+
+    /// Queues what another handle of the pane handed back at its close, ahead of anything typed
+    /// into this one after, each write as it was: keys join this pane's keys before them, and a
+    /// paste's part goes whole with its paste's id.
+    pub fn resubmit(&self, unsent: Vec<PaneWrite>) {
+        let mut state = self.queue.lock();
+        for write in unsent {
+            self.push(&mut state, write);
+        }
+        self.queue.send_what_fits(&mut state);
+    }
+
+    /// Closes the handle: hands back what it queued and has not sent, oldest first, none of it
+    /// sent in part, and ends its notices.
+    pub fn close(self) -> Vec<PaneWrite> {
+        self.take_unsent()
+    }
+
+    /// Queues `write` behind everything queued, keys joining this pane's last run of keys.
+    fn push(&self, state: &mut QueueState, write: PaneWrite) {
+        if let PaneWrite::Keys(keys) = &write
+            && let Some(typed) = state
+                .queued
+                .back_mut()
+                .and_then(|queued| queued.keys_of(&self.pane))
+        {
+            typed.push_str(keys);
+            return;
+        }
+        state.queued.push_back(QueuedWrite {
+            pane: Arc::clone(&self.pane),
+            write,
+        });
+    }
+
+    /// Takes this pane's writes out of the queue, oldest first, leaving every other pane's.
+    fn take_unsent(&self) -> Vec<PaneWrite> {
+        let mut state = self.queue.lock();
+        let (unsent, others): (VecDeque<_>, VecDeque<_>) = mem::take(&mut state.queued)
+            .into_iter()
+            .partition(|queued| Arc::ptr_eq(&queued.pane, &self.pane));
+        state.queued = others;
+        unsent.into_iter().map(|queued| queued.write).collect()
     }
 }
 
 impl Drop for ShellInput {
     fn drop(&mut self) {
-        let mut state = self.queue.lock();
-        state
-            .queued
-            .retain(|queued| !Arc::ptr_eq(&queued.pane, &self.pane));
+        // A queue never sends for a pane no handle holds; a closed handle took its writes already.
+        drop(self.take_unsent());
     }
 }
 

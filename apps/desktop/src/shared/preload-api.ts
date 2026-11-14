@@ -437,8 +437,8 @@ export interface DaemonWire {
   /**
    * Type into one shell through the client helper, whose client keeps one queue for the shell that
    * every pane's input shares, each input bound to `outputSubscriptionId`, the typing pane's own
-   * open output subscription. `onAnswer` hears what the pane is told of its writes until the input
-   * is closed.
+   * open output subscription. `onAnswer` hears what the pane is told of its writes, and the input
+   * handed back once that subscription ends, until the input is closed.
    */
   openShellInput(
     outputSubscriptionId: SubscriptionId,
@@ -451,22 +451,44 @@ export interface DaemonWire {
   requestStart(): Promise<void>;
 }
 
-/** A pane's typing into one shell, in order; `close` stops its answers. */
+/**
+ * A pane's typing into one shell, in order; `resubmit` sends again, ahead of what is typed after,
+ * the writes an earlier input of the pane handed back. `close` stops its answers.
+ */
 export interface ShellInput {
   typeKeys(data: string): void;
   pasteText(text: string): void;
+  resubmit(writes: readonly UnsentShellWrite[]): void;
   close(): void;
 }
 
 /**
  * What a pane is told of its writes to a shell: one refused, in the wire's error shape; one taken,
- * for its first write and for the first after a refusal; or input the client helper could not send
- * because the output subscription it named had already ended.
+ * for its first write and for the first after a refusal; or input handed back unsent because the
+ * output subscription it was bound to ended, for the pane to send on its next one.
  */
 export type ShellWriteAnswer =
   | { readonly kind: "refused"; readonly refusal: JsonRpcError }
   | { readonly kind: "taken" }
-  | { readonly kind: "unsent" };
+  | { readonly kind: "unsent"; readonly input: UnsentShellInput };
+
+/**
+ * A pane's input that has not reached its shell: keys or a paste as typed, or the writes the
+ * client's queue had cut and not sent, which go again as they are.
+ */
+export type UnsentShellInput =
+  | { readonly kind: "keys"; readonly data: string }
+  | { readonly kind: "paste"; readonly text: string }
+  | { readonly kind: "queued"; readonly writes: readonly UnsentShellWrite[] };
+
+/**
+ * One write the client's queue handed back: typed keys, or one part of a paste with its place in
+ * the paste, which goes again whole.
+ */
+export interface UnsentShellWrite {
+  readonly data: string;
+  readonly paste?: { readonly pasteId: string; readonly isLastPart: boolean };
+}
 
 /**
  * The preload's daemon members, from which the page builds its `DaemonWire`: the port to the

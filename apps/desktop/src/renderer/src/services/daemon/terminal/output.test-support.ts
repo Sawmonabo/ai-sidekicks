@@ -1,11 +1,16 @@
 // A fake daemon wire for the shell suites: it records each stream it opens, with the ends a case
-// drives, each call, answered from the case's table or with `null`, and each input typed or
-// pasted into a shell, answered with nothing.
+// drives, each call, answered from the case's table or with `null`, and each input typed, pasted
+// or sent again into a shell, answered with nothing unless a case hands input back unsent.
 
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
-import type { DaemonWire } from "#shared/preload-api.js";
+import type {
+  DaemonWire,
+  ShellWriteAnswer,
+  UnsentShellInput,
+  UnsentShellWrite,
+} from "#shared/preload-api.js";
 import type { PlatformBridge } from "../../platform/bridge.js";
 import { TransportReconnectSignal } from "../../transport/reconnect.js";
 
@@ -15,6 +20,8 @@ export class RecordedShellWire {
   readonly calls: RecordedCall[] = [];
   readonly shellInputs: RecordedShellInput[] = [];
   readonly bridge: PlatformBridge;
+  /** Each open shell input's listener, by the subscription it is bound to. */
+  readonly #shellAnswers = new Map<SubscriptionId, (answer: ShellWriteAnswer) => void>();
 
   /** `answers` serves a method's calls; a method it does not name is served `null`. */
   public constructor(answers: Readonly<Record<string, (params: unknown) => unknown>> = {}) {
@@ -44,15 +51,23 @@ export class RecordedShellWire {
       this.calls.push({ method, params });
       return Promise.resolve({ value: answers[method]?.(params) ?? null });
     }) as DaemonWire["call"];
-    const openShellInput: DaemonWire["openShellInput"] = (outputSubscriptionId) => ({
-      typeKeys: (data) => {
-        this.shellInputs.push({ outputSubscriptionId, kind: "keys", data });
-      },
-      pasteText: (text) => {
-        this.shellInputs.push({ outputSubscriptionId, kind: "paste", data: text });
-      },
-      close: () => undefined,
-    });
+    const openShellInput: DaemonWire["openShellInput"] = (outputSubscriptionId, onAnswer) => {
+      this.#shellAnswers.set(outputSubscriptionId, onAnswer);
+      return {
+        typeKeys: (data) => {
+          this.shellInputs.push({ outputSubscriptionId, kind: "keys", data });
+        },
+        pasteText: (text) => {
+          this.shellInputs.push({ outputSubscriptionId, kind: "paste", data: text });
+        },
+        resubmit: (writes) => {
+          this.shellInputs.push({ outputSubscriptionId, kind: "resubmit", writes });
+        },
+        close: () => {
+          this.#shellAnswers.delete(outputSubscriptionId);
+        },
+      };
+    };
     this.bridge = {
       daemon: { subscribe, call, openShellInput },
       transportReconnect: new TransportReconnectSignal(),
@@ -73,6 +88,11 @@ export class RecordedShellWire {
     return open;
   }
 
+  /** Hand `input` back unsent to the open shell input bound to `outputSubscriptionId`. */
+  public handBack(outputSubscriptionId: SubscriptionId, input: UnsentShellInput): void {
+    this.#shellAnswers.get(outputSubscriptionId)?.({ kind: "unsent", input });
+  }
+
   /** The params of every call to one method, oldest first. */
   public paramsOf(method: string): readonly unknown[] {
     return this.calls.filter((call) => call.method === method).map((call) => call.params);
@@ -89,12 +109,18 @@ interface StreamOpen {
   isClosed: boolean;
 }
 
-/** One input a pane typed or pasted into a shell, and the subscription it was bound to. */
-interface RecordedShellInput {
-  readonly outputSubscriptionId: SubscriptionId;
-  readonly kind: "keys" | "paste";
-  readonly data: string;
-}
+/** One input a pane typed, pasted or sent again into a shell, and the subscription it named. */
+type RecordedShellInput =
+  | {
+      readonly outputSubscriptionId: SubscriptionId;
+      readonly kind: "keys" | "paste";
+      readonly data: string;
+    }
+  | {
+      readonly outputSubscriptionId: SubscriptionId;
+      readonly kind: "resubmit";
+      readonly writes: readonly UnsentShellWrite[];
+    };
 
 /** One call the page made. */
 interface RecordedCall {

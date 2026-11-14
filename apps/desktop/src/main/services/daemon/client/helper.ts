@@ -35,6 +35,7 @@ import type {
   ClientHelperAnswer,
   ClientHelperRequest,
   ClientHelperWindowAnswer,
+  ClientHelperWindowRequest,
 } from "#shared/daemon/port-message.js";
 import type { FilePathRef } from "#shared/preload-api.js";
 
@@ -423,26 +424,33 @@ class ClientHelper {
     });
     port.on("message", ({ data }) => {
       const request = readWindowRequest(data);
-      if (request === undefined || isOpenedTwice(channel, request)) {
-        this.#parentPort.postMessage({
-          kind: "window.portDropped",
-          windowId,
-          reason: "The window sent a message that is not a daemon request, or reused an open id.",
-        });
+      const refusal =
+        request === undefined || isOpenedTwice(channel, request)
+          ? "The window sent a message that is not a daemon request, or reused an open id."
+          : this.#serveWindowRequest(channel, request);
+      if (refusal !== undefined) {
+        this.#parentPort.postMessage({ kind: "window.portDropped", windowId, reason: refusal });
         port.close();
         this.#closeChannel(channel);
-        return;
       }
-      if (request.kind === "shell.keys" || request.kind === "shell.paste") {
-        this.#shellInputs.take(channel, request);
-        return;
-      }
-      this.#receive(channel, request);
     });
     port.on("close", () => {
       this.#closeChannel(channel);
     });
     port.start();
+  }
+
+  /** Serves one of a window's requests; answers why the client refused writes it sent again. */
+  #serveWindowRequest(channel: Channel, request: ClientHelperWindowRequest): string | undefined {
+    switch (request.kind) {
+      case "shell.keys":
+      case "shell.paste":
+      case "shell.resubmit":
+        return this.#shellInputs.take(channel, request);
+      default:
+        this.#receive(channel, request);
+        return undefined;
+    }
   }
 
   #receive(channel: Channel, request: ClientHelperRequest): void {

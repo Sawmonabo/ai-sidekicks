@@ -3,8 +3,8 @@
 // another device holds is asked first and forced on the answer, and a moved tab sends its order; an
 // exited shell reads its exit line and one that did not start reads its cause with `Try again`; the
 // holding pane tells the shell its grid's size; a paste goes into the shell's input as one paste;
-// and keys typed while the output stream is opened again go once the new subscription is
-// acknowledged.
+// and on a re-opened output stream what the ended one handed back goes first, then the keys typed
+// while it was opened again.
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +14,7 @@ import type { TerminalId, TerminalListEntry } from "@ai-sidekicks/contracts/term
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { TERMINAL_LIST_STREAM, TERMINAL_OUTPUT_STREAM } from "#shared/daemon/streams.js";
+import type { UnsentShellWrite } from "#shared/preload-api.js";
 import { bridgeWrapper, withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 import { RecordedShellWire } from "#renderer/services/daemon/terminal/output.test-support.js";
 import { SessionStore } from "#renderer/store/session/store.js";
@@ -32,6 +33,11 @@ const OTHER_DEVICE_ID = "019b7b30-0280-79a4-8110-cca0117a0138" as DeviceId;
 const FIRST_SUBSCRIPTION_ID = "019b7b30-0280-79a4-8110-cca0117a0141" as SubscriptionId;
 const SECOND_SUBSCRIPTION_ID = "019b7b30-0280-79a4-8110-cca0117a0142" as SubscriptionId;
 const TERMINAL_IDS = ["terminal-1", "terminal-2"] as const;
+// What the client's queue had not sent when a stream ended: keys, then a paste's last part.
+const QUEUED_WRITES: readonly UnsentShellWrite[] = [
+  { data: "ls" },
+  { data: "tail", paste: { pasteId: "019b7b30-0280-79a4-8110-cca0117a0151", isLastPart: true } },
+];
 
 // The emulator's first fit, in a box jsdom gives no size, keeps xterm's own default grid.
 const UNSIZED_GRID = { columns: 80, rows: 24 };
@@ -164,7 +170,7 @@ describe("the shell's input and size", () => {
     });
   });
 
-  it("holds keys typed while the output stream is opened again and sends them on its new subscription", async () => {
+  it("sends what came back at a stream's end first on its new subscription, then keys typed meanwhile", async () => {
     const wire = new RecordedShellWire();
     const { container } = mountPane(wire);
     listShells(wire, [shellEntry("terminal-1")]);
@@ -175,8 +181,10 @@ describe("the shell's input and size", () => {
       expect(writtenKeys(wire)).toStrictEqual([["a", FIRST_SUBSCRIPTION_ID]]);
     });
 
-    // A stream that delivered is opened again after a wait once it ends.
+    // The helper hands back what the ended stream's input had not sent, then the stream ends; a
+    // stream that delivered is opened again after a wait once it ends.
     act(() => {
+      wire.handBack(FIRST_SUBSCRIPTION_ID, { kind: "queued", writes: QUEUED_WRITES });
       const firstOpen = wire.newestOpenOf(TERMINAL_OUTPUT_STREAM);
       firstOpen.deliver(
         {
@@ -195,18 +203,24 @@ describe("the shell's input and size", () => {
       firstOpen.end({ reason: "failed", message: "the link went away" });
     });
     typeOneCharacter(mountElement);
+    // Keys the pane sent before it heard of the end come back after keys it has held since.
+    act(() => {
+      wire.handBack(FIRST_SUBSCRIPTION_ID, { kind: "keys", data: "b" });
+    });
     await vi.waitFor(() => {
       expect(wire.opensOf(TERMINAL_OUTPUT_STREAM)).toHaveLength(2);
     });
-    expect(writtenKeys(wire)).toHaveLength(1);
+    expect(wire.shellInputs).toHaveLength(1);
 
     act(() => {
       wire.newestOpenOf(TERMINAL_OUTPUT_STREAM).opened(SECOND_SUBSCRIPTION_ID);
     });
     await waitFor(() => {
-      expect(writtenKeys(wire)).toStrictEqual([
-        ["a", FIRST_SUBSCRIPTION_ID],
-        ["a", SECOND_SUBSCRIPTION_ID],
+      expect(wire.shellInputs).toStrictEqual([
+        { outputSubscriptionId: FIRST_SUBSCRIPTION_ID, kind: "keys", data: "a" },
+        { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "resubmit", writes: QUEUED_WRITES },
+        { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "keys", data: "b" },
+        { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "keys", data: "a" },
       ]);
     });
   });

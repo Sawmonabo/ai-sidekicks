@@ -6,12 +6,15 @@
 // watching the shell is behind, and a behind pane declares it again on each open of the stream, so
 // a client helper started again hears it. It is stable for the shell, so the emulator is built once
 // per shell. Each open of the stream names the subscription a write or a take is bound to; what
-// is typed goes into the client helper's one queue for the shell through an input bound to it,
-// and between a stream's end and its re-open the input binding holds it for the new subscription.
-// Sizes go to `terminal.resize`, the newest only while one is out.
+// is typed goes into the client helper's one queue for the shell through an input bound to it.
+// Between a stream's end and its re-open the input binding holds what is typed for the new
+// subscription, behind what the ended one handed back unsent. A re-open refused because the shell
+// or its session is gone lets the held input go, drawn once as the refusal of a write to that
+// shell. Sizes go to `terminal.resize`, the newest only while one is out.
 
 import { useCallback, useMemo } from "react";
 
+import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -60,10 +63,10 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
     () => UNOPENED_SHELL_OUTPUT,
   );
 
-  const inputBinding = useMemo(
-    () =>
-      new ShellInputBinding((outputSubscriptionId) =>
-        openShellInput(bridge, outputSubscriptionId, (refusal) => {
+  const inputBinding = useMemo(() => {
+    const binding: ShellInputBinding = new ShellInputBinding((outputSubscriptionId) =>
+      openShellInput(bridge, outputSubscriptionId, {
+        onRefusal: (refusal) => {
           // A write taken clears only a write's refusal; a size or flow refusal stands.
           publish((current) =>
             refusal !== undefined
@@ -72,10 +75,14 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
                 ? { ...current, refusal: undefined, refusedCall: undefined }
                 : current,
           );
-        }),
-      ),
-    [bridge, publish],
-  );
+        },
+        onUnsent: (input) => {
+          binding.takeBack(input);
+        },
+      }),
+    );
+    return binding;
+  }, [bridge, publish]);
 
   const resizeQueue = useMemo(
     () =>
@@ -135,19 +142,24 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
           case "frame":
             writer.apply(delivery.frame);
             return;
-          case "reopenRefusal":
+          case "reopenRefusal": {
+            // A gone shell takes nothing held for it, refused as a write to it is, once.
+            const isShellGone =
+              delivery.refusal !== undefined && SHELL_GONE_CODES.has(delivery.refusal.code);
+            const hadHeldInput = isShellGone && inputBinding.dropHeld();
             publish((current) => ({
               ...current,
               refusal: delivery.refusal,
-              refusedCall: "reopen",
+              refusedCall: hadHeldInput ? "write" : "reopen",
             }));
             return;
+          }
         }
       });
       return () => {
         stopFollowing();
         writer.close();
-        inputBinding.bind(undefined);
+        inputBinding.close();
         publish((current) => ({
           ...current,
           outputSubscriptionId: undefined,
@@ -199,6 +211,12 @@ interface ShellOutputState extends Pick<
 > {
   readonly refusedCall: "write" | "resize" | "flowControl" | "reopen" | undefined;
 }
+
+/** The refusals of a re-open that say the shell is gone, with its session or alone. */
+const SHELL_GONE_CODES: ReadonlySet<string> = new Set<RefusalCode>([
+  "terminal.notFound",
+  "session.notFound",
+]);
 
 const UNOPENED_SHELL_OUTPUT: ShellOutputState = {
   outputSubscriptionId: undefined,

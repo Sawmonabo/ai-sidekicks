@@ -7,7 +7,7 @@
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
-import type { FilePathRef, ShellWriteAnswer } from "../preload-api.js";
+import type { FilePathRef, ShellWriteAnswer, UnsentShellWrite } from "../preload-api.js";
 import type { DaemonSubscriptionEnd } from "./forwarding.js";
 
 /**
@@ -72,8 +72,9 @@ export type ClientHelperAnswer =
     };
 
 /**
- * What a window types or pastes into a shell, bound to the typing pane's open output subscription,
- * which the helper sends through the client's one queue for that shell.
+ * What a window types or pastes into a shell, or sends again of what an earlier input of the pane
+ * handed back, bound to the typing pane's open output subscription, which the helper sends through
+ * the client's one queue for that shell.
  */
 export type ClientHelperShellInput =
   | {
@@ -85,12 +86,20 @@ export type ClientHelperShellInput =
       readonly kind: "shell.paste";
       readonly outputSubscriptionId: SubscriptionId;
       readonly text: string;
+    }
+  | {
+      readonly kind: "shell.resubmit";
+      readonly outputSubscriptionId: SubscriptionId;
+      readonly writes: readonly UnsentShellWrite[];
     };
 
 /** What a window sends the helper: a request main makes too, or a pane's input to a shell. */
 export type ClientHelperWindowRequest = ClientHelperRequest | ClientHelperShellInput;
 
-/** What the helper sends a window: an answer main gets too, or what a pane is told of its writes. */
+/**
+ * What the helper sends a window: an answer main gets too, or what a pane is told of its writes,
+ * the input handed back unsent among them.
+ */
 export type ClientHelperWindowAnswer =
   | ClientHelperAnswer
   | {

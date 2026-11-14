@@ -108,6 +108,7 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
     openShellInput: () => ({
       typeKeys: () => undefined,
       pasteText: () => undefined,
+      resubmit: () => undefined,
       close: () => undefined,
     }),
     requestStart: async () => {
