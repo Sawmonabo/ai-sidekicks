@@ -19,7 +19,7 @@ use sidekicks_contracts::transcript::turn_attribution::{SupersededTurns, transcr
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_store::database::stored_column::safe_int_column;
 
-use super::{Checkpoint, StoredCheckpoint, stored_checkpoint_of};
+use super::{Checkpoint, ReachedBindings, StoredCheckpoint, stored_checkpoint_of};
 use crate::run::superseded::{
     StoredRollbackMismatchError, SupersededTurnsReadError, read_superseded_turns,
 };
@@ -58,15 +58,11 @@ static SENT_MESSAGE_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The checkpoints of `@runId` at or after the run position `@position` of epoch `@epoch`, read on
-// the checkpoints' turn index, with those of the runs `@laterRunIds`, a JSON array, from
-// `@fromSequence` on, in prompt order.
-const CHECKPOINTS_REACHED_FROM_SQL: &str = select_checkpoints!(
-    "WHERE session_id = @sessionId
-    AND ((run_id = @runId AND (epoch > @epoch OR (epoch = @epoch AND position >= @position)))
-      OR (message_sequence >= @fromSequence
-        AND run_id IN (SELECT value FROM json_each(@laterRunIds))))
-  ORDER BY message_sequence"
+// The checkpoints `reached_checkpoints!` names, in prompt order.
+const CHECKPOINTS_REACHED_FROM_SQL: &str = concat!(
+    select_checkpoints!("AS checkpoints\n WHERE "),
+    reached_checkpoints!(),
+    "\n ORDER BY checkpoints.message_sequence"
 );
 
 /// Why a checkpoint could not be read for an undo's target.
@@ -277,10 +273,10 @@ pub fn sent_message_checkpoint(
 }
 
 /// The checkpoints an undo to `reach` in `session_id` takes, oldest prompt first, but those a
-/// later undo cut away: those of `reach`'s run from its run position on, as the run's rollback
-/// cuts it, whenever their prompts were sent, and those of `later_run_ids`, each taken whole, from
-/// `reach`'s prompt on; one read of the rows, then one of each listed run's rollbacks. Fails as
-/// [`list_checkpoints`] does.
+/// later undo cut away: those of `reach`'s run from its run position on, whenever their prompts
+/// were sent, and those of the later lead runs `later_run_ids`, each whole, as the rollback and
+/// [`versions_after`](super::versions_after) take them; one read of the rows, then one of each
+/// listed run's rollbacks. Fails as [`list_checkpoints`] does.
 pub fn checkpoints_reached_from(
     connection: &Connection,
     read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
@@ -288,25 +284,10 @@ pub fn checkpoints_reached_from(
     reach: &Checkpoint,
     later_run_ids: &[RunId],
 ) -> Result<Vec<StoredCheckpoint>, SupersededTurnsReadError> {
-    let later_run_ids: Vec<String> = later_run_ids
-        .iter()
-        .map(|run_id| run_id.text().as_str().to_owned())
-        .collect();
-    let later_run_ids =
-        serde_json::to_string(&later_run_ids).expect("a list of run ids writes as JSON");
+    let bindings = ReachedBindings::new(session_id, reach, later_run_ids);
     let checkpoints = connection
         .prepare_cached(CHECKPOINTS_REACHED_FROM_SQL)?
-        .query_map(
-            named_params! {
-                "@sessionId": session_id.text().as_str(),
-                "@runId": reach.run_id.text().as_str(),
-                "@epoch": i64::from(reach.turn.epoch.0),
-                "@position": i64::from(reach.turn.position.0),
-                "@fromSequence": i64::from(reach.message_sequence),
-                "@laterRunIds": later_run_ids,
-            },
-            stored_checkpoint_of,
-        )?
+        .query_map(bindings.params().as_slice(), stored_checkpoint_of)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     kept_of(
         connection,

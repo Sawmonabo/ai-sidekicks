@@ -222,7 +222,7 @@ impl Fixture {
         let Some(point) = self.point() else {
             return Vec::new();
         };
-        versions_after(&self.database.reader(), self.session_id, &point)
+        versions_after(&self.database.reader(), self.session_id, &point, &[])
             .expect("the versions read")
             .into_iter()
             .map(|stored| stored.version)
@@ -254,7 +254,7 @@ impl Fixture {
         let Some(point) = self.point() else {
             return Vec::new();
         };
-        uncovered_commands(&self.database.reader(), self.session_id, &point)
+        uncovered_commands(&self.database.reader(), self.session_id, &point, &[])
             .expect("the uncovered commands read")
     }
 

@@ -144,6 +144,11 @@ CREATE TABLE session_checkpoints (
 -- A turn's checkpoints, its start's first, which an undo to a steer reads its turn's start by.
 CREATE INDEX idx_session_checkpoints_turn ON session_checkpoints(run_id, turn_number, position);
 
+-- A session's checkpoints in the order their runs ran them, which the newest checkpoint and an
+-- undo's reach are read by.
+CREATE INDEX idx_session_checkpoints_run_position
+  ON session_checkpoints(session_id, run_id, epoch, position);
+
 -- One row per command window: the captures before and after a command the agent ran, and
 -- whether its before-capture was taken before it ran.
 CREATE TABLE checkpoint_commands (

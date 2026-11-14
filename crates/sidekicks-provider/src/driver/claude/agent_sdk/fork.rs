@@ -111,8 +111,8 @@ struct ForkAnswer {
 /// at `bun`, in a config folder made at the request's work folder that holds only a copy of the
 /// source conversation and its title, so the SDK writes nothing anywhere else; the caller bounds
 /// its own waits for both. That folder is removed once the fork's processes have ended, whatever
-/// the fork answered, so a fork that fails leaves no file, and no file of the project folder is
-/// touched but the new one.
+/// the fork answered and also when the caller drops the fork's future, so a fork that fails leaves
+/// no file, and no file of the project folder is touched but the new one.
 #[cfg_attr(
     not(test),
     expect(
@@ -126,20 +126,64 @@ pub(crate) async fn fork_claude_conversation(
     module: &AgentSdkModule,
     request: ClaudeForkRequest,
 ) -> Result<String, ClaudeForkError> {
-    let work_folder = request.work_folder.clone();
     // A folder that stood already is not the fork's own, so it is never filled or removed.
-    tokio::fs::create_dir(&work_folder)
+    tokio::fs::create_dir(&request.work_folder)
         .await
         .map_err(ClaudeForkError::Staging)?;
-    let forked = fork_in_work_folder(spawner, bun, module, request).await;
-    if let Err(error) = tokio::fs::remove_dir_all(&work_folder).await {
+    let tree_ends = TaskTracker::new();
+    let removal = WorkFolderRemoval {
+        folder: Some(request.work_folder.clone()),
+        tree_ends: tree_ends.clone(),
+    };
+    let forked = fork_in_work_folder(spawner, bun, module, request, &tree_ends).await;
+    removal.remove().await;
+    forked
+}
+
+// The fork's own config folder, removed once the fork's processes have ended: awaited on every
+// answer the fork reaches, and on a task of its own when the fork's future is dropped first.
+struct WorkFolderRemoval {
+    // `None` once the removal ran.
+    folder: Option<PathBuf>,
+    // The tasks that end a failed run's processes.
+    tree_ends: TaskTracker,
+}
+
+impl WorkFolderRemoval {
+    async fn remove(mut self) {
+        if let Some(folder) = self.folder.take() {
+            remove_work_folder(folder, self.tree_ends.clone()).await;
+        }
+    }
+}
+
+impl Drop for WorkFolderRemoval {
+    fn drop(&mut self) {
+        if let Some(folder) = self.folder.take() {
+            tokio::spawn(remove_work_folder(folder, self.tree_ends.clone()));
+        }
+    }
+}
+
+// Removes `folder` on a blocking thread once the processes `tree_ends` ends have ended, so none
+// writes into it after; a failure is logged, since no caller waits on it.
+async fn remove_work_folder(folder: PathBuf, tree_ends: TaskTracker) {
+    tree_ends.close();
+    tree_ends.wait().await;
+    let removed = tokio::task::spawn_blocking({
+        let folder = folder.clone();
+        move || std::fs::remove_dir_all(folder)
+    })
+    .await
+    .map_err(io::Error::other)
+    .and_then(|removed| removed);
+    if let Err(error) = removed {
         tracing::error!(
             error = &error as &(dyn std::error::Error + 'static),
-            folder = %work_folder.display(),
+            folder = %folder.display(),
             "a fork's own config folder could not be removed"
         );
     }
-    forked
 }
 
 // The fork made in the request's work folder, once its processes have ended, and its file put
@@ -149,6 +193,7 @@ async fn fork_in_work_folder(
     bun: &Path,
     module: &AgentSdkModule,
     request: ClaudeForkRequest,
+    tree_ends: &TaskTracker,
 ) -> Result<String, ClaudeForkError> {
     let deadline = fork_deadline(request.source_bytes);
     let fork_project = request
@@ -163,12 +208,11 @@ async fn fork_in_work_folder(
     )
     .await
     .map_err(ClaudeForkError::Staging)?;
-    let tree_ends = TaskTracker::new();
     let forked = run_fork(
         spawner,
         fork_run_request(bun, module, request),
         deadline,
-        &tree_ends,
+        tree_ends,
     )
     .await;
     // A failed run's processes are ended on a task of their own; none writes once it is done.

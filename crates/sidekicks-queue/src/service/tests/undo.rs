@@ -690,9 +690,9 @@ impl Fixture {
             .expect("the test writes the edit");
     }
 
-    /// The paths an undo to `point` puts back, in path order.
+    /// The paths an undo to `point` puts back, in path order; the scenes run no later lead run.
     fn restored_paths(&self, point: &Checkpoint) -> Vec<String> {
-        versions_after(&self.database.reader(), self.session_id, point)
+        versions_after(&self.database.reader(), self.session_id, point, &[])
             .expect("the test reads the versions")
             .into_iter()
             .map(|stored| stored.version.path.as_str().to_owned())

@@ -246,6 +246,7 @@ async fn an_undo_puts_back_the_earliest_version_after_the_point() {
             &reader,
             fixture.session_id,
             &fixture.checkpoint(before_sequence),
+            &[],
         )
         .expect("the versions read");
         assert_eq!(versions.len(), 1, "one version per path");
@@ -297,6 +298,7 @@ async fn each_kind_of_version_comes_back_as_recorded() {
         &fixture.database.reader(),
         fixture.session_id,
         &fixture.checkpoint(0),
+        &[],
     )
     .expect("the versions read");
     let read: Vec<_> = read.into_iter().map(|stored| stored.version).collect();
@@ -674,7 +676,7 @@ async fn open_windows_and_failed_edits_read_what_they_name() {
         [(open_id, fixture.session_id)]
     );
     assert_eq!(
-        failed_edits(&reader, fixture.session_id, &fixture.checkpoint(3))
+        failed_edits(&reader, fixture.session_id, &fixture.checkpoint(3), &[])
             .expect("the failed edits read"),
         [FailedEdit {
             path: test_path("/repo/late.txt"),

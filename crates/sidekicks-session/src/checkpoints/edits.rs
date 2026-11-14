@@ -356,6 +356,7 @@ mod tests {
                 &self.reader(),
                 self.fixture.session_id,
                 &self.fixture.checkpoint(0),
+                &[],
             )
             .expect("the versions read")
             .into_iter()
@@ -538,6 +539,7 @@ mod tests {
                 &edits.reader(),
                 edits.fixture.session_id,
                 &edits.fixture.checkpoint(0),
+                &[],
             )
             .expect("the failed edits read"),
             vec![FailedEdit {
