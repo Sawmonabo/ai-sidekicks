@@ -20,7 +20,7 @@ use crate::row_guards::{probe_filesystem_path, read_last_error};
 // `created_at, id`, since two binds can share an instant.
 const LIST_WORKSPACES_SQL: &str = "SELECT workspace.id, workspace.session_id,
         workspace.repo_mount_id, workspace.execution_mode, workspace.fs_root, workspace.state,
-        workspace.metadata, mount.place
+        workspace.metadata, mount.place, workspace.workflow_run_id IS NOT NULL
    FROM workspaces AS workspace
    JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
   WHERE workspace.session_id = @session_id AND workspace.workflow_run_id IS NULL

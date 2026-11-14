@@ -15,7 +15,7 @@ use tokio::time::timeout;
 
 use super::harness::ports::OrderedCall;
 use super::harness::{Harness, WAIT, attempt_column, edge, item, node, retried, step_column};
-use crate::engine::ports::{AgentStepOutcome, StepPayloadArtifacts as _};
+use crate::engine::ports::AgentStepOutcome;
 use crate::engine::tick::turns::resuming::tests::resume;
 use crate::engine::waits::PersonWaitAnswer;
 use crate::runs::gate_resolution::tests::gate_answer;
@@ -372,12 +372,12 @@ async fn cut_run(harness: &mut Harness, cut: Cut) {
     }
 }
 
-/// The restart's sweep deletes a copy a start the stop cut left in the session, and leaves the
-/// artifact of a value a deleted run kept, which only the kept value names. Mutations: the kept
-/// values left out of the sweep's read (the kept artifact is deleted); the sweep dropped (the copy
-/// stays).
+/// The restart's sweep deletes what a start the stop cut recorded under its run, with the record,
+/// and leaves the artifact of a value a deleted run kept, which no record names. Mutations: the
+/// sweep reading every artifact of the session (the kept artifact is deleted); the sweep dropped
+/// (the start's payload and its record stay).
 #[tokio::test]
-async fn the_payload_sweep_keeps_kept_values_and_deletes_cut_copies() {
+async fn the_restart_sweep_deletes_what_a_cut_start_owns_and_keeps_kept_values() {
     let mut harness = Harness::new(None).await;
     harness
         .start(
@@ -418,16 +418,27 @@ async fn the_payload_sweep_keeps_kept_values_and_deletes_cut_copies() {
         "nodeId": "T", "attempt": 1, "executionIndex": 0,
     }))
     .expect("the cut start's step key reads");
-    let copy = harness
-        .payloads
-        .write(harness.scope.session_id, &cut_step, b"[]".to_vec(), 0)
+    // The cut start stores a payload under its run, and the stop comes before its run's write.
+    let cut = harness
+        .start_payloads(cut_step.workflow_run_id)
+        .store_bytes(&cut_step, b"[]".to_vec(), 0)
         .await
-        .expect("the cut start's copy is stored");
+        .expect("the cut start's payload is stored and recorded");
 
     harness.restart().await;
     let deletes = harness.payloads.deletes();
-    assert!(deletes.contains(&copy), "the cut start's copy is deleted");
+    assert!(deletes.contains(&cut), "the cut start's payload is deleted");
     assert!(!deletes.contains(&kept), "the kept value's artifact stays");
+    let records: i64 = harness
+        .rows
+        .query_row("SELECT count(*) FROM workflow_start_payloads", [], |row| {
+            row.get(0)
+        })
+        .expect("the start records count");
+    assert_eq!(
+        records, 0,
+        "the cut start's record is deleted with its payload"
+    );
 }
 
 /// A run stopped twice inside its loop's body, once per batch, parks each time, and each Resume

@@ -27,6 +27,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
+use super::pins::read_started_pins;
 use super::{
     StartedNodeRun, StartedRun, WorkflowRunStart, WorkflowRunStartError, WorkflowRunStarter,
     WorkflowStartArrival, WorkflowStartOutcome, hash_pin_data,
@@ -38,7 +39,8 @@ use crate::runs::step_payload::read_step_payload;
 
 // The source run's version, session, status and trigger, how the first run of its retries that is
 // not a retry was started, followed through each retry's retried run, the project of the
-// workspace of its own it worked in, if any, and the pins its start event stores.
+// workspace of its own it worked in, if any, and the pins its start event stores, inline or as a
+// stored payload, read through the index of each event's workflow run.
 static SOURCE_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT run.workflow_version_id, run.session_id, run.status, run.trigger_json,
@@ -46,12 +48,15 @@ static SOURCE_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     (SELECT mount.project_id FROM workspaces AS workspace
        JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
       WHERE workspace.workflow_run_id = run.id),
-    (SELECT json_extract(event.payload, '$.pinData') FROM session_events AS event
-      WHERE event.session_id = run.session_id AND event.type = 'workflow.run.started'
-        AND json_extract(event.payload, '$.workflowRunId') = run.id
-      ORDER BY event.sequence LIMIT 1)
+    {started}'$.pinData'{started_end},
+    {started}'$.pinDataRef'{started_end}
   FROM workflow_runs AS run WHERE run.id = @run_id",
         first_mode = FIRST_NON_RETRY_MODE_SQL.as_str(),
+        started = "(SELECT json_extract(event.payload, ",
+        started_end = ") FROM session_events AS event
+      WHERE event.session_id = run.session_id AND event.workflow_run_id = run.id
+        AND event.type = 'workflow.run.started'
+      ORDER BY event.sequence LIMIT 1)",
     )
 });
 
@@ -120,6 +125,7 @@ struct SourceRun {
     first_mode: Option<WorkflowRunMode>,
     project_id: Option<ProjectId>,
     pin_data: Option<Record<String, Vec<WorkflowPinnedItem>>>,
+    pin_data_ref: Option<WorkflowPayloadRef>,
     latest_step_status: Option<WorkflowStepStatus>,
 }
 
@@ -135,8 +141,9 @@ impl WorkflowRunStarter {
     /// (`sourceRunning`) while it is new, running or waiting, `workflow.step.notFound` for a node
     /// it holds no step of and `workflow.invalidTransition` for a node whose latest step did not
     /// fail, then as a start does; fails as a start does, and with
-    /// [`WorkflowRunStartError::SourceRun`] or [`WorkflowRunStartError::ReusedOutput`] when the
-    /// source run or a reused output does not read.
+    /// [`WorkflowRunStartError::SourceRun`], [`WorkflowRunStartError::SourcePins`] or
+    /// [`WorkflowRunStartError::ReusedOutput`] when the source run, its stored pins or a reused
+    /// output does not read.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the workflow.run.retry handler")
@@ -173,7 +180,13 @@ impl WorkflowRunStarter {
         // A retry honors the pins its source run's start event stores, whatever its workflow pins
         // now, as the reload of a run does.
         let mut checked = self.check(&start, None, WorkflowRunMode::Retry).await?;
-        checked.pins = hash_pin_data(source.pin_data.take().unwrap_or_default())?;
+        let pin_data = read_started_pins(
+            &*self.payloads,
+            (source.pin_data.take(), source.pin_data_ref.take()),
+        )
+        .await
+        .map_err(WorkflowRunStartError::SourcePins)?;
+        checked.pins = hash_pin_data(pin_data)?;
         let graph = Arc::clone(&checked.graph);
         let trigger_id = checked.trigger_node.node_id.clone();
         let (plan, trigger_input) = self
@@ -247,6 +260,7 @@ fn read_source_run(
                 first_mode: optional_text_column(row, 4, closed_word)?,
                 project_id: optional_text_column(row, 5, |text| ProjectId::new(&text))?,
                 pin_data: optional_text_column(row, 6, |text| serde_json::from_str(&text))?,
+                pin_data_ref: optional_text_column(row, 7, |text| serde_json::from_str(&text))?,
                 latest_step_status: None,
             })
         })

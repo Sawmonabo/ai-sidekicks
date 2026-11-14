@@ -24,6 +24,7 @@ use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
 
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::definition::document::{WorkflowNode, WorkflowVersionId};
@@ -52,7 +53,7 @@ use super::{ParkedAgentRun, ReadyStep, StepReport, StepReportKind, StepSettlemen
 use crate::definitions::kept_values::remove_dropped;
 use crate::engine::chain::KeepGoingIntake;
 use crate::engine::deadlines::EngineDeadlines;
-use crate::engine::event_record::{EngineFault, EngineRecorder};
+use crate::engine::event_record::{EngineFault, EngineRecorder, RunEngineRecord};
 use crate::engine::ports::{PortError, RunSnapshotPoints, StepAdmission, StepPayloadArtifacts};
 use crate::engine::start::{ReloadedRun, StartedRun};
 use crate::engine::waits::answers::PersonWaitIntake;
@@ -672,10 +673,12 @@ impl EngineTick {
                 self.needs_deadline_read |= std::mem::take(&mut live.needs_deadline_read);
                 if let Some(ending_event_id) = ending_event_id {
                     self.binder.note_context_changed(live.scope.session_id);
-                    if let Err(error) = self.binder.sweep_released_run(live.scope.session_id).await
-                    {
-                        let fault = EngineFault::RemovedTreeSweepFailed;
-                        live.record.fault(None, fault, &error).await;
+                    if live.scope.is_bound {
+                        sweep_released_run(
+                            Arc::clone(&self.binder),
+                            live.scope.session_id,
+                            live.record.clone(),
+                        );
                     }
                     for reply in live.cancel_replies.drain(..) {
                         let _unheard = reply.send(Ok(ending_event_id.clone()));
@@ -826,6 +829,22 @@ fn failed_at_once(step: &WorkflowStepKey, failure: StepFailure) -> Vec<StepRepor
             }),
         },
     ]
+}
+
+/// Sweeps `session_id` out of a tree removed while its ended run worked there, on a task of its
+/// own so no turn waits on it, a failure recorded on the run's `record` as a fault.
+fn sweep_released_run(
+    binder: Arc<dyn SessionRunBinder>,
+    session_id: SessionId,
+    record: RunEngineRecord,
+) {
+    tokio::spawn(async move {
+        if let Err(error) = binder.sweep_released_run(session_id).await {
+            record
+                .fault(None, EngineFault::RemovedTreeSweepFailed, &error)
+                .await;
+        }
+    });
 }
 
 /// `items` grouped by the run `run_of` names, each run added to `order` where it is not there yet.

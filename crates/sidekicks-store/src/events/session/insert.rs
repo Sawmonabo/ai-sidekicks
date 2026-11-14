@@ -2,14 +2,14 @@
 //! head and inserts the row at the next sequence in one step, so two appends never derive one
 //! sequence. The same step advances the session's projection cursor, because every projection row
 //! an event moves is written in that event's own write. The run an event belongs to, which its
-//! typed event names, is written to its own columns, so no write or read parses the payload for
-//! it. A piece of a run's reply or reasoning is stamped with the row it joins: the newest earlier
-//! piece of the same run, type, provider message and block, unless its run's turn end or rollback
-//! ended that row since, decided here once so every read sees the same rows; a stored
-//! part of a tool completion's patched files joins its completion's row the same way, keyed by the
-//! completion's own id, and carries its place in the file list. A tool completion's row is
-//! stamped with the call it completes, so the call's patch read finds it by an index. It also owns
-//! the clock a row's `monotonic_ns` reads.
+//! typed event names, is written to its own columns, and so is the workflow run whose own event it
+//! is, so no write or read parses the payload for either. A piece of a run's reply or reasoning is
+//! stamped with the row it joins: the newest earlier piece of the same run, type, provider message
+//! and block, unless its run's turn end or rollback ended that row since, decided here once so
+//! every read sees the same rows; a stored part of a tool completion's patched files joins its
+//! completion's row the same way, keyed by the completion's own id, and carries its place in the
+//! file list. A tool completion's row is stamped with the call it completes, so the call's patch
+//! read finds it by an index. It also owns the clock a row's `monotonic_ns` reads.
 
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
@@ -85,13 +85,13 @@ const INSERT_SESSION_EVENT_SQL: &str = "INSERT INTO session_events (
        category, type, actor, payload,
        correlation_id, causation_id, version, content_payload,
        run_id, run_version, turn_number, join_key, joins_sequence, target_run_id, tool_call_id,
-       patch_file_index, patch_text_offset
+       patch_file_index, patch_text_offset, workflow_run_id
      ) VALUES (
        @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
        @category, @type, @actor, @payload,
        @correlation_id, @causation_id, @version, @content_payload,
        @run_id, @run_version, @turn_number, @join_key, @joins_sequence, @target_run_id,
-       @tool_call_id, @patch_file_index, @patch_text_offset
+       @tool_call_id, @patch_file_index, @patch_text_offset, @workflow_run_id
      )";
 
 const HEAD_SEQUENCE_SQL: &str = "SELECT sequence
@@ -233,6 +233,7 @@ pub fn insert_session_event(
             "@patch_text_offset": patch_place
                 .and_then(|place| place.text_offset)
                 .map(stored_index),
+            "@workflow_run_id": event.workflow_run_id().as_ref().map(UuidText::as_str),
         })?;
     // Runs for the service's own sentinel session too, whose cursor is written and never read.
     connection

@@ -284,7 +284,9 @@ impl EngineRecorder {
     }
 }
 
-/// One run's record within one daemon life.
+/// One run's record within one daemon life; a copy writes on the same sequence, after the run's end
+/// too.
+#[derive(Clone)]
 #[cfg_attr(
     not(test),
     expect(

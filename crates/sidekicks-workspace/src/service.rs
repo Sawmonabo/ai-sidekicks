@@ -17,8 +17,8 @@
 //! - A workflow run started on a named project works in a workspace of its own on that project's
 //!   mount, which the session's reads leave out.
 //!
-//! - A run-owned workspace whose run never got its row, a start that made no run or one a stop cut,
-//!   is deleted with its `workspace.archived`.
+//! - A run-owned workspace's moves write its row alone, never an event into its chat's log, so a
+//!   start that made no run, or one a stop cut, leaves nothing there once its workspace is deleted.
 //!
 //! The writes that share another row's write are not here: a detach's archive and a managed
 //! mount's deletion, a re-attach's move to the new mount, a session purge's delete, and a
@@ -54,7 +54,11 @@ use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
-use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
+use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::log_service::{EventAppendError, EventLogAppendReceipt};
+use sidekicks_store::events::session::appender::{
+    SessionEventAppendError, SessionEventEmitError, SessionEventLinkage,
+};
 
 use crate::errors::{WorkspaceRefusal, WorkspaceServiceInvariantError};
 use crate::event_emitter::{EmitWorkspaceEventInput, WorkspaceEventEmitter};
@@ -155,17 +159,17 @@ static SELECT_LIVE_WORKTREE_ROOTS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// A workspace with the place of its mount, where its root is.
+// A workspace with the place of its mount, where its root is, and whether a workflow run owns it.
 const SELECT_WORKSPACE_SQL: &str = "SELECT workspace.id, workspace.session_id,
         workspace.repo_mount_id, workspace.execution_mode, workspace.fs_root, workspace.state,
-        workspace.metadata, mount.place
+        workspace.metadata, mount.place, workspace.workflow_run_id IS NOT NULL
    FROM workspaces AS workspace
    JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
   WHERE workspace.id = @workspace_id";
 
-// The workspace a workflow run owns, with its session.
+// The workspace a workflow run owns.
 const SELECT_RUN_WORKSPACE_SQL: &str =
-    "SELECT id, session_id FROM workspaces WHERE workflow_run_id = @workflow_run_id";
+    "SELECT id FROM workspaces WHERE workflow_run_id = @workflow_run_id";
 
 // The deletes of the workspace one workflow run owns, its branch contexts first, then itself.
 static RUN_WORKSPACE_DELETE_SQL: LazyLock<[String; 2]> =
@@ -229,6 +233,8 @@ pub struct WorkspaceServiceDeps {
     pub events: Arc<WorkspaceEventEmitter>,
     /// Asks git for a mount's identity and the working trees the trust envelope admits.
     pub resolver: RepoRootResolver,
+    /// The writer a run-owned workspace's rows are written through alone, with no event.
+    pub writer: Arc<DatabaseWriter>,
 }
 
 /// Owns every workspace lifecycle transition and the `workspaces` writes that share no other row's
@@ -237,6 +243,7 @@ pub struct WorkspaceService {
     reads: Arc<DatabaseReadPool>,
     events: Arc<WorkspaceEventEmitter>,
     resolver: RepoRootResolver,
+    writer: Arc<DatabaseWriter>,
     /// Where a test holds a `rootLost` move between its row read and its write.
     #[cfg(test)]
     pub(crate) root_lost_pause: PausePoint,
@@ -271,6 +278,8 @@ pub(crate) struct WorkspaceRow {
     pub(crate) metadata: String,
     /// Its mount's place; `None` on macOS and Linux.
     pub(crate) place: Option<Place>,
+    /// Whether a workflow run owns it, so its moves write no event into its chat's log.
+    pub(crate) is_run_owned: bool,
 }
 
 /// An attached mount's facts a bind and the write gate read.
@@ -297,6 +306,7 @@ impl WorkspaceService {
             reads: deps.reads,
             events: deps.events,
             resolver: deps.resolver,
+            writer: deps.writer,
             #[cfg(test)]
             root_lost_pause: PausePoint::default(),
         }
@@ -353,8 +363,8 @@ impl WorkspaceService {
     }
 
     /// Deletes the workspace workflow run `workflow_run_id` owns, with its branch contexts, where
-    /// no run row follows its bind, and appends its `workspace.archived` in the same write; does
-    /// nothing where it owns none. Fails as the read or the write fails.
+    /// no run row follows its bind, writing nothing into its chat's log; does nothing where it owns
+    /// none. Fails as the read or the write fails.
     pub async fn discard_run_workspace(
         &self,
         workflow_run_id: WorkflowRunId,
@@ -366,19 +376,14 @@ impl WorkspaceService {
                     .prepare_cached(SELECT_RUN_WORKSPACE_SQL)?
                     .query_row(
                         named_params! { "@workflow_run_id": workflow_run_id.text().as_str() },
-                        |row| {
-                            Ok((
-                                text_column(row, 0, |text| WorkspaceId::new(&text))?,
-                                text_column(row, 1, |text| SessionId::new(&text))?,
-                            ))
-                        },
+                        |row| text_column(row, 0, |text| WorkspaceId::new(&text)),
                     )
                     .optional()?)
             })
             .await?;
-        let Some((workspace_id, session_id)) = owned else {
+        if owned.is_none() {
             return Ok(());
-        };
+        }
         let run_id = text_binding("@workflow_run_id", workflow_run_id.text().as_str());
         let [branch_contexts, workspace] = &*RUN_WORKSPACE_DELETE_SQL;
         let delete = |sql: &'static String, expected_row_count| WriteStatement {
@@ -387,27 +392,20 @@ impl WorkspaceService {
             expected_row_count,
         };
         let deleted = self
-            .events
-            .emit_workspace_archived(
-                EmitWorkspaceEventInput {
-                    session_id,
-                    workspace_id,
-                    repo_mount_id: None,
-                    actor: None,
-                },
-                SessionEventLinkage {
-                    transactional_prelude: vec![
-                        delete(branch_contexts, None),
-                        delete(workspace, Some(1)),
-                    ],
-                    ..SessionEventLinkage::default()
-                },
-            )
+            .writer
+            .write(vec![
+                delete(branch_contexts, None),
+                delete(workspace, Some(1)),
+            ])
             .await;
         match deleted {
-            // Another discard deleted it since the read, and logged its event.
+            // Another discard deleted it since the read.
             Err(error) if error.refused_statement_index().is_some() => Ok(()),
-            ended => ended.map(drop).map_err(WorkspaceServiceError::Append),
+            ended => ended.map(drop).map_err(|error| {
+                WorkspaceServiceError::Append(
+                    SessionEventAppendError::from(EventAppendError::from(error)).into(),
+                )
+            }),
         }
     }
 
@@ -474,16 +472,23 @@ impl WorkspaceService {
         // The birth event names the mount, the one place a transcript reader learns which mount
         // the workspace is on.
         let appended = self
-            .events
-            .emit_workspace_preparing(
-                EmitWorkspaceEventInput {
-                    session_id,
-                    workspace_id,
-                    repo_mount_id: Some(repo_mount_id),
-                    actor: None,
-                },
+            .write_transition(
+                workflow_run_id.is_some(),
                 prelude(insert),
-                None,
+                async |linkage| {
+                    self.events
+                        .emit_workspace_preparing(
+                            EmitWorkspaceEventInput {
+                                session_id,
+                                workspace_id,
+                                repo_mount_id: Some(repo_mount_id),
+                                actor: None,
+                            },
+                            linkage,
+                            None,
+                        )
+                        .await
+                },
             )
             .await;
         if appended
@@ -714,6 +719,28 @@ impl WorkspaceService {
             .await
     }
 
+    /// Writes the transition `linkage`'s statements make, of a run-owned workspace when
+    /// `is_run_owned`: a session's own workspace appends its event through `emit`, and a run-owned
+    /// one writes its rows alone, its moves staying out of its chat's log. Fails as the append or
+    /// the write fails, a refused row count read alike either way.
+    pub(crate) async fn write_transition(
+        &self,
+        is_run_owned: bool,
+        linkage: SessionEventLinkage,
+        emit: impl AsyncFnOnce(
+            SessionEventLinkage,
+        ) -> Result<EventLogAppendReceipt, SessionEventEmitError>,
+    ) -> Result<(), SessionEventEmitError> {
+        if !is_run_owned {
+            return emit(linkage).await.map(drop);
+        }
+        self.writer
+            .write(linkage.transactional_prelude)
+            .await
+            .map(drop)
+            .map_err(|error| SessionEventAppendError::from(EventAppendError::from(error)).into())
+    }
+
     /// [`WorkspaceService::find_workspace_row`], refusing `workspace.notFound` for none.
     pub(crate) async fn require_workspace_row(
         &self,
@@ -753,6 +780,7 @@ pub(crate) fn workspace_row(row: &Row<'_>) -> rusqlite::Result<WorkspaceRow> {
         metadata: row.get(6)?,
         // The column holds the place's wire JSON.
         place: optional_text_column(row, 7, |text| serde_json::from_str::<Place>(&text))?,
+        is_run_owned: row.get(8)?,
     })
 }
 

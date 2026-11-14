@@ -166,6 +166,19 @@ CREATE INDEX idx_workflow_runs_version ON workflow_runs(workflow_version_id);
 CREATE INDEX idx_workflow_runs_started ON workflow_runs(started_at, id);  -- the runs list pages newest first by start, ties broken by id
 CREATE INDEX idx_workflow_runs_unfinished ON workflow_runs(started_at)
   WHERE finished_at IS NULL;  -- the engine's deadline clock reads every unfinished run's cap, a failed park among them
+CREATE INDEX idx_workflow_runs_session_unfinished ON workflow_runs(session_id, started_at, id)
+  WHERE finished_at IS NULL;  -- the restart reads a session's unfinished runs alone, oldest first
+
+-- Each payload a run's start stored before its run's row, recorded as it is stored. The run's own
+-- write deletes its rows, and a start that makes no run deletes each payload with its row, so a row
+-- left is what a stop cut, which the restart deletes. Run ids are event-sourced, so no foreign key.
+CREATE TABLE workflow_start_payloads (
+  artifact_id               TEXT PRIMARY KEY,
+  session_id                TEXT NOT NULL,
+  workflow_run_id           TEXT NOT NULL
+) STRICT;
+CREATE INDEX idx_workflow_start_payloads_session ON workflow_start_payloads(session_id);
+CREATE INDEX idx_workflow_start_payloads_run ON workflow_start_payloads(workflow_run_id);
 
 -- ========================================================================
 -- 4. workflow_gate_resolutions — append-only per C-13 / I5

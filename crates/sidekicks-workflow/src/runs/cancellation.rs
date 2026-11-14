@@ -104,14 +104,20 @@ pub(crate) struct WorkflowRunCancellationWrite {
     pub(crate) results_posted: Option<SessionEvent>,
     /// The approval waits the cancel ends, whose cards are withdrawn once the write commits.
     pub(crate) withdrawn_cards: Vec<UuidTextForm>,
+    /// Whether the run held an execution context, which the write releases, so its session is
+    /// swept out of a removed tree once the write commits.
+    pub(crate) is_bound: bool,
 }
 
 // The session a run's results post into, its mode and its summary line, the definition and
-// version its events name, and how the first run of its retries that is not a retry was started.
+// version its events name, how the first run of its retries that is not a retry was started, and
+// whether it holds an execution context.
 static RUN_CANCELLATION_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT run.session_id, run.mode, run.summary,
-    version.definition_id, run.workflow_version_id, {first_mode}
+    version.definition_id, run.workflow_version_id, {first_mode},
+    EXISTS (SELECT 1 FROM run_execution_contexts AS context
+             WHERE context.run_id = run.id AND context.released_at IS NULL)
   FROM workflow_runs AS run
   JOIN workflow_versions AS version ON version.id = run.workflow_version_id
   WHERE run.id = @run_id",
@@ -131,8 +137,7 @@ static OPEN_WAITS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // The first `workflow.run.canceled` of a run in its session's log; a run is canceled once.
 const CANCELED_EVENT_SQL: &str = "SELECT id FROM session_events
-  WHERE session_id = ?1 AND type = 'workflow.run.canceled'
-    AND json_extract(payload, '$.workflowRunId') = ?2
+  WHERE session_id = ?1 AND workflow_run_id = ?2 AND type = 'workflow.run.canceled'
   ORDER BY sequence LIMIT 1";
 
 /// The write of `cancellation`, the run's session, mode, summary, definition, version and open
@@ -161,20 +166,28 @@ pub(crate) fn workflow_run_cancellation_statements(
 ) -> rusqlite::Result<Option<WorkflowRunCancellationWrite>> {
     let workflow_run_id = cancellation.workflow_run_id;
     let run_text = workflow_run_id.text();
-    let Some((session_id, mode, summary, definition_id, workflow_version_id, retried_mode)) =
-        connection
-            .prepare_cached(RUN_CANCELLATION_SQL.as_str())?
-            .query_row(named_params! { "@run_id": run_text.as_str() }, |row| {
-                Ok((
-                    text_column(row, 0, |text| SessionId::new(&text))?,
-                    text_column(row, 1, closed_word::<WorkflowRunMode>)?,
-                    optional_text_column(row, 2, closed_word::<NonEmptyText>)?,
-                    text_column(row, 3, |text| WorkflowDefinitionId::new(&text))?,
-                    text_column(row, 4, |text| WorkflowVersionId::new(&text))?,
-                    optional_text_column(row, 5, closed_word::<WorkflowRunMode>)?,
-                ))
-            })
-            .optional()?
+    let Some((
+        session_id,
+        mode,
+        summary,
+        definition_id,
+        workflow_version_id,
+        retried_mode,
+        is_bound,
+    )) = connection
+        .prepare_cached(RUN_CANCELLATION_SQL.as_str())?
+        .query_row(named_params! { "@run_id": run_text.as_str() }, |row| {
+            Ok((
+                text_column(row, 0, |text| SessionId::new(&text))?,
+                text_column(row, 1, closed_word::<WorkflowRunMode>)?,
+                optional_text_column(row, 2, closed_word::<NonEmptyText>)?,
+                text_column(row, 3, |text| WorkflowDefinitionId::new(&text))?,
+                text_column(row, 4, |text| WorkflowVersionId::new(&text))?,
+                optional_text_column(row, 5, closed_word::<WorkflowRunMode>)?,
+                row.get::<_, bool>(6)?,
+            ))
+        })
+        .optional()?
     else {
         return Ok(None);
     };
@@ -219,6 +232,7 @@ pub(crate) fn workflow_run_cancellation_statements(
         questions_settled,
         results_posted,
         withdrawn_cards,
+        is_bound,
     }))
 }
 

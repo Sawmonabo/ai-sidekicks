@@ -23,9 +23,10 @@ use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBin
 use tokio::sync::mpsc;
 
 use super::{WorkflowRunControlError, WorkflowRunControls};
-use crate::engine::ports::ApprovalCardRaiser;
+use crate::engine::event_record::EngineRecorder;
 use crate::engine::ports::noticed_sessions::NoticedSessions;
 use crate::engine::ports::withdrawn_cards::WithdrawnCards;
+use crate::engine::ports::{ApprovalCardRaiser, KeptEngineRecords};
 use crate::engine::tick::{EngineTickInput, RepinRefusal, RunCancelRefusal, RunResumeRefusal};
 use crate::schema::schema_parts;
 use crate::test_rows::{
@@ -71,6 +72,7 @@ impl ControlsTest {
             service,
             binder,
             Arc::clone(&cards) as Arc<dyn ApprovalCardRaiser>,
+            Arc::new(EngineRecorder::new(Arc::new(KeptEngineRecords::default()))),
         );
         Self {
             run_controls,

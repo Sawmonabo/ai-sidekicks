@@ -168,6 +168,7 @@ impl Fixture {
             reads: Arc::clone(&reads),
             events: Arc::clone(&events),
             resolver: RepoRootResolver::new(test_git_runner()),
+            writer: Arc::clone(&writer),
         }));
         let mounts = Arc::new(RepoMountService::new(
             Arc::clone(&writer),

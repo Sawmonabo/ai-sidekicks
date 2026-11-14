@@ -22,7 +22,7 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::session::run::EventRun;
 use sidekicks_contracts::event::version::{EVENT_FIELD_MAX_LEN, EventEnvelopeVersion};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::id::{UuidText, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -50,7 +50,7 @@ pub trait AppendedPayload {
 }
 
 /// A typed event ready to append: its session, who acted, its type, the payload members the
-/// envelope stores, serialized from the checked event, and the run the event belongs to.
+/// envelope stores, serialized from the checked event, and the runs the event belongs to.
 #[derive(Clone, Debug)]
 pub struct SessionEventDraft {
     session_id: SessionId,
@@ -58,6 +58,7 @@ pub struct SessionEventDraft {
     event_type: SessionEventType,
     payload: Map<String, Value>,
     run: Option<EventRun>,
+    workflow_run_id: Option<UuidText>,
     content_body: Option<String>,
     occurred_at: Option<WireInstant>,
 }
@@ -97,6 +98,7 @@ impl SessionEventDraft {
             event_type: event.event_type(),
             payload: payload_members(event)?,
             run: event.run(),
+            workflow_run_id: event.workflow_run_id().map(|run_id| run_id.text()),
             content_body: None,
             occurred_at: None,
         })
@@ -168,6 +170,7 @@ pub struct UnsequencedEventEnvelope {
     event_type: SessionEventType,
     payload: Map<String, Value>,
     run: Option<EventRun>,
+    workflow_run_id: Option<UuidText>,
     patch_part: Option<StoredPatchPart>,
 }
 
@@ -187,6 +190,7 @@ impl UnsequencedEventEnvelope {
             event_type,
             payload,
             run,
+            workflow_run_id,
             content_body: _,
             occurred_at: _,
         } = draft;
@@ -201,6 +205,7 @@ impl UnsequencedEventEnvelope {
             event_type,
             payload,
             run,
+            workflow_run_id,
             patch_part: None,
         }
     }
@@ -228,6 +233,11 @@ impl UnsequencedEventEnvelope {
     /// The run the event belongs to, where its payload names one.
     pub fn run(&self) -> Option<EventRun> {
         self.run
+    }
+
+    /// The workflow run whose own event this is, which the row's `workflow_run_id` stores.
+    pub fn workflow_run_id(&self) -> Option<UuidText> {
+        self.workflow_run_id
     }
 
     /// Adds to the payload the description of `body`, the event's machine-authored prose, and
@@ -276,6 +286,7 @@ impl UnsequencedEventEnvelope {
                     event_type: self.event_type,
                     payload: part.payload,
                     run: self.run,
+                    workflow_run_id: self.workflow_run_id,
                     patch_part: Some(StoredPatchPart {
                         completion_id: self.id.clone(),
                         place: part.place,

@@ -121,6 +121,7 @@ impl ExecutionRootFixture {
             reads: Arc::clone(&reads),
             events: Arc::new(WorkspaceEventEmitter::new(Arc::clone(&log.service))),
             resolver: RepoRootResolver::new(git.clone()),
+            writer: Arc::clone(&log.writer),
         }));
         let events = Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service)));
         let worktrees_folder = scratch_root.join("worktrees");

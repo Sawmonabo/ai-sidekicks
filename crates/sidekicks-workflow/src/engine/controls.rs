@@ -39,6 +39,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBinder;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::ports::ApprovalCardRaiser;
 use crate::engine::tick::{
     EngineTickInput, RepinReadError, RepinRefusal, RunCancelIntake, RunCancelRefusal,
@@ -50,6 +51,7 @@ use crate::runs::cancellation::{
     workflow_run_cancellation_statements,
 };
 use crate::runs::record::{RunProgress, finished_run_condition, read_run_progress};
+use crate::secrets::redaction::RunRedaction;
 
 // The cancel's statement that ends the run's row, refused once the run has ended.
 const END_ROW_STATEMENT_INDEX: usize = 0;
@@ -73,6 +75,7 @@ pub(crate) struct WorkflowRunControls {
     appender: SessionEventAppender,
     binder: Arc<dyn SessionRunBinder>,
     cards: Arc<dyn ApprovalCardRaiser>,
+    recorder: Arc<EngineRecorder>,
 }
 
 /// Why a run control did not do what it asked; nothing of the run was written.
@@ -132,14 +135,15 @@ enum UnheldCancel {
 
 impl WorkflowRunControls {
     /// The controls over the tick's `inbox`, reading through `pool`, writing to `event_log`,
-    /// telling `binder` once a cancel the tick does not hold commits and withdrawing that cancel's
-    /// approval cards through `cards`.
+    /// telling `binder` once a cancel the tick does not hold commits, withdrawing that cancel's
+    /// approval cards through `cards`, and recording a failed sweep of its session on `recorder`.
     pub(crate) fn new(
         inbox: mpsc::Sender<EngineTickInput>,
         pool: Arc<DatabaseReadPool>,
         event_log: Arc<EventLogService>,
         binder: Arc<dyn SessionRunBinder>,
         cards: Arc<dyn ApprovalCardRaiser>,
+        recorder: Arc<EngineRecorder>,
     ) -> Self {
         Self {
             inbox,
@@ -147,6 +151,7 @@ impl WorkflowRunControls {
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
             binder,
             cards,
+            recorder,
         }
     }
 
@@ -326,6 +331,7 @@ impl WorkflowRunControls {
                 questions_settled,
                 results_posted,
                 withdrawn_cards,
+                is_bound,
             } = write;
             let mut preceding_events = std::iter::once(&canceled_event)
                 .chain(&questions_settled)
@@ -343,12 +349,16 @@ impl WorkflowRunControls {
             match self.appender.append(draft, linkage).await {
                 Ok(receipt) => {
                     self.binder.note_context_changed(session_id);
-                    if let Err(error) = self.binder.sweep_released_run(session_id).await {
-                        tracing::warn!(
-                            workflow_run_id = %workflow_run_id,
-                            error = &error as &(dyn Error + 'static),
-                            "a canceled run's session did not leave a removed tree"
-                        );
+                    if is_bound && let Err(error) = self.binder.sweep_released_run(session_id).await
+                    {
+                        // The run has ended, so no live step's secret reaches its record.
+                        let record = self
+                            .recorder
+                            .for_run(workflow_run_id, Arc::new(RunRedaction::new(&[])));
+                        record
+                            .fault(None, EngineFault::RemovedTreeSweepFailed, &error)
+                            .await;
+                        self.recorder.end_run(workflow_run_id);
                     }
                     for wait_id in withdrawn_cards {
                         if let Err(error) = self.cards.withdraw(session_id, wait_id).await {

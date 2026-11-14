@@ -90,10 +90,11 @@ pub struct WorkflowStartedReusedStep {
 workflow_run_event! {
     /// `workflow.run.started`: how the run was started and by whom, the trigger node that started
     /// it, its place in its chain, the node a node run targets, the run a retry retries, the pins
-    /// it honors, the earlier steps it replays and the input its trigger step starts on, so the
-    /// run row and its walk rebuild from events. `inputRef` is absent
-    /// exactly on a node run or a retry that reuses its trigger's step, which writes no trigger
-    /// row, and `retriedWorkflowRunId` is present exactly on a retry.
+    /// it honors, inline or past the inline cap as a stored payload, the earlier steps it replays
+    /// and the input its trigger step starts on, so the run row and its walk rebuild from events.
+    /// `inputRef` is absent exactly on a node run or a retry that reuses its trigger's step, which
+    /// writes no trigger row, `retriedWorkflowRunId` is present exactly on a retry, and `pinData`
+    /// and `pinDataRef` are never both present.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -113,6 +114,7 @@ workflow_run_event! {
             "required": ["retriedWorkflowRunId"]
         },
         "else" = { "not": { "required": ["retriedWorkflowRunId"] } },
+        "not" = { "required": ["pinData", "pinDataRef"] },
     ))]
     pub struct WorkflowRunStartedPayload {
         /// How it was started.
@@ -156,6 +158,17 @@ workflow_run_event! {
         )]
         #[schemars(with = "Record<String, Vec<WorkflowPinnedItem>>")]
         pub pin_data: Option<Record<String, Vec<WorkflowPinnedItem>>>,
+        /// The pins `pinData` would hold, stored as one payload where their JSON passes the
+        /// inline cap: an artifact holding that record, its item count the nodes it pins; absent
+        /// where `pinData` holds them or the run honors no pin.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowPayloadRef")]
+        #[garde(dive)]
+        pub pin_data_ref: Option<WorkflowPayloadRef>,
         /// The earlier steps a node run or a retry replays in place of running their nodes, each
         /// node's in its earlier run's execution order; absent on a run that replays none.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -175,9 +188,14 @@ workflow_run_event! {
 }
 
 /// Refuses a started payload that leaves its trigger's input out unless it starts a node run or a
-/// retry, the runs that may reuse their trigger's step, and one that names a retried run on a run
-/// that is no retry or none on a retry.
+/// retry, the runs that may reuse their trigger's step, one that names a retried run on a run that
+/// is no retry or none on a retry, and one that carries its pins both inline and stored.
 fn names_its_input_and_retried_run(payload: &WorkflowRunStartedPayload) -> garde::Result {
+    if payload.pin_data.is_some() && payload.pin_data_ref.is_some() {
+        return Err(garde::Error::new(
+            "a run's start carries its pins inline or as a stored payload, never both",
+        ));
+    }
     let is_retry = payload.mode == WorkflowRunMode::Retry;
     if is_retry != payload.retried_workflow_run_id.is_some() {
         return Err(garde::Error::new(

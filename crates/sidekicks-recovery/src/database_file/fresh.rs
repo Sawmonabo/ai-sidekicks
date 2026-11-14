@@ -106,7 +106,7 @@ const LOST_AND_FOUND_TABLE_PATTERN: &str = r"lost\_and\_found%";
 const STORED_EVENT_COLUMNS: &str = "id, session_id, sequence, occurred_at, monotonic_ns, category,
   type, actor, payload, correlation_id, causation_id, version, content_payload, run_id,
   run_version, turn_number, join_key, joins_sequence, target_run_id, tool_call_id,
-  patch_file_index, patch_text_offset";
+  patch_file_index, patch_text_offset, workflow_run_id";
 
 const SNAPSHOT_COLUMNS: &str = "id, session_id, as_of_sequence, state_blob, created_at";
 

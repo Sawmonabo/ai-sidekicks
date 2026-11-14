@@ -4,7 +4,6 @@
 
 use std::sync::Arc;
 
-use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
@@ -15,6 +14,7 @@ use sidekicks_contracts::workflow::run::step::record::WorkflowPayloadRef;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use super::check::fill_start_items;
+use super::stored_payloads::{StartPayloadError, StartPayloads};
 use super::{
     WorkflowRunStart, WorkflowRunStartError, WorkflowRunStarter, WorkflowStartOutcome,
     read_session_project,
@@ -27,7 +27,6 @@ use crate::engine::ports::StepPayloadArtifacts;
 use crate::engine::tick::{ReusedSeedStep, ReusedStepRecord, RunGraph};
 use crate::runs::step_payload::{
     StepPayloadReadError, join_step_outputs, read_step_payload, split_step_outputs,
-    write_step_payload,
 };
 
 /// A node run's start: how it ended, and the nodes its run executes and reuses, as the node run's
@@ -259,21 +258,21 @@ impl StartedNodeRun {
             .collect()
     }
 
-    /// Stores again in `session_id`, the run's session, each replayed input and output kept as an
-    /// artifact of another session, since a session's purge erases only its own payloads: under
-    /// the step that computed it, its copy then replayed in its place, each copy's artifact pushed
-    /// onto `stored` as it is made. Fails with [`WorkflowRunStartError::ReusedOutput`] for an
-    /// input that does not read back, or [`WorkflowRunStartError::ReusedOutputStore`] for the
-    /// first copy that cannot be stored.
+    /// Stores again in `session_id`, the run's session, through `stored`, each replayed input and
+    /// output kept as an artifact of another session, since a session's purge erases only its own
+    /// payloads: under the step that computed it, its copy then replayed in its place and recorded
+    /// under the run as it is made. Fails with [`WorkflowRunStartError::ReusedOutput`] for an input
+    /// that does not read back, [`WorkflowRunStartError::ReusedOutputStore`] for the first copy
+    /// that cannot be stored and [`WorkflowRunStartError::PayloadRecord`] for one whose record
+    /// cannot be written.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the workflow.node.execute handler")
     )]
     pub(crate) async fn store_in_session(
         &mut self,
-        payloads: &dyn StepPayloadArtifacts,
         session_id: SessionId,
-        stored: &mut Vec<ArtifactId>,
+        stored: &mut StartPayloads<'_>,
     ) -> Result<(), WorkflowRunStartError> {
         for step in &mut self.reused {
             if step.session_id == session_id {
@@ -282,15 +281,13 @@ impl StartedNodeRun {
             let record = &mut step.seed.record;
             if matches!(record.output_ref, WorkflowPayloadRef::Artifact { .. }) {
                 let joined = join_step_outputs(&record.outputs);
-                record.output_ref =
-                    store_copy(payloads, session_id, &record.from, &joined, stored).await?;
+                record.output_ref = store_copy(stored, &record.from, &joined).await?;
             }
             if matches!(record.input_ref, WorkflowPayloadRef::Artifact { .. }) {
-                let items = read_step_payload(payloads, &record.input_ref)
+                let items = read_step_payload(stored.payloads(), &record.input_ref)
                     .await
                     .map_err(WorkflowRunStartError::ReusedOutput)?;
-                record.input_ref =
-                    store_copy(payloads, session_id, &record.from, &items, stored).await?;
+                record.input_ref = store_copy(stored, &record.from, &items).await?;
             }
             step.session_id = session_id;
         }
@@ -298,20 +295,17 @@ impl StartedNodeRun {
     }
 }
 
-// `items`, a payload of the earlier step `from`, stored in `session_id`, its artifact pushed onto
-// `stored`.
+// `items`, a payload of the earlier step `from`, stored through `stored` in the run's session.
 async fn store_copy(
-    payloads: &dyn StepPayloadArtifacts,
-    session_id: SessionId,
+    stored: &mut StartPayloads<'_>,
     from: &WorkflowReusedStep,
     items: &[WorkflowItem],
-    stored: &mut Vec<ArtifactId>,
 ) -> Result<WorkflowPayloadRef, WorkflowRunStartError> {
-    let copy = write_step_payload(payloads, session_id, &from.step, items)
+    stored
+        .store(&from.step, items)
         .await
-        .map_err(WorkflowRunStartError::ReusedOutputStore)?;
-    if let WorkflowPayloadRef::Artifact { artifact_id, .. } = &copy {
-        stored.push(*artifact_id);
-    }
-    Ok(copy)
+        .map_err(|error| match error {
+            StartPayloadError::Write(error) => WorkflowRunStartError::ReusedOutputStore(error),
+            StartPayloadError::Record(error) => WorkflowRunStartError::PayloadRecord(error),
+        })
 }

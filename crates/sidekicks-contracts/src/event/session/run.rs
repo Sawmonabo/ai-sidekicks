@@ -1,5 +1,6 @@
-//! The run an event belongs to, as each event type's payload names it: the rule the session event
-//! table gives each type, and the reads of the payloads whose arms name their run differently.
+//! The agent run and the workflow run an event belongs to, as each event type's payload names
+//! them: the rules the session event table gives each type, and the reads of the payloads whose
+//! arms name their run differently.
 
 use crate::approval::events::{
     ApprovalCanceledPayload, ApprovalRequestedPayload, ApprovalResolvedPayload,
@@ -12,6 +13,9 @@ use crate::run::id::RunId;
 use crate::run::queued::AgentRunQueuedPayload;
 use crate::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use crate::wire::integer::SafeInt;
+use crate::workflow::run::id::WorkflowRunId;
+use crate::workflow::run::step::events::suspended::WorkflowPhaseSuspendedPayload;
+
 /// The run an event belongs to: its payload's `runId`, with its `runVersion` and `turnNumber`
 /// where it carries them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +77,50 @@ macro_rules! event_run {
 }
 
 pub(super) use event_run;
+
+/// One arm of [`SessionEvent::workflow_run_id`]: the pattern that binds the payload where its
+/// workflow run is read, then the run read from it, as the arm's `in` rule in the registration
+/// table says: `workflow_run` for a `workflowRunId`, `workflow_run(function)` for a payload union,
+/// and no rule for an event no workflow run of its session owns.
+macro_rules! event_workflow_run {
+    (@binding $payload:ident) => {
+        _
+    };
+    (@binding $payload:ident workflow_run $(($read:ident))?) => {
+        $payload
+    };
+    ($payload:ident) => {
+        None
+    };
+    ($payload:ident workflow_run) => {
+        Some($payload.workflow_run_id)
+    };
+    ($payload:ident workflow_run($read:ident)) => {
+        Some($read($payload))
+    };
+}
+
+pub(super) use event_workflow_run;
+
+/// The workflow run whose step waits.
+pub(super) fn phase_suspended_run(payload: &WorkflowPhaseSuspendedPayload) -> WorkflowRunId {
+    let (WorkflowPhaseSuspendedPayload::Account {
+        workflow_run_id, ..
+    }
+    | WorkflowPhaseSuspendedPayload::Approval {
+        workflow_run_id, ..
+    }
+    | WorkflowPhaseSuspendedPayload::Form {
+        workflow_run_id, ..
+    }
+    | WorkflowPhaseSuspendedPayload::Reply {
+        workflow_run_id, ..
+    }
+    | WorkflowPhaseSuspendedPayload::Chain {
+        workflow_run_id, ..
+    }) = payload;
+    *workflow_run_id
+}
 
 /// The run of an agent row: a run's row names it, a voice call's answer names none.
 pub(super) fn agent_output_run(payload: &AgentOutputPayload) -> Option<EventRun> {

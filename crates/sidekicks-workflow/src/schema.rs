@@ -30,9 +30,10 @@ use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
 
 use crate::runs::record::GOING_RUN_STATUSES_SQL;
 
-/// The workflow part of the daemon's schema: the definitions, their versions, the runs, the gate
-/// answers, the form drafts, the steps, the triggers, the webhook tokens, the node state, the
-/// secrets' records and the builder drafts, in foreign-key order.
+/// The workflow part of the daemon's schema: the definitions, their versions, the runs, the
+/// payloads a start stored before its run's row, the gate answers, the form drafts, the steps, the
+/// triggers, the webhook tokens, the node state, the secrets' records and the builder drafts, in
+/// foreign-key order.
 pub(crate) static WORKFLOW_SCHEMA_SQL: LazyLock<String> = LazyLock::new(workflow_schema_sql);
 
 /// The workspaces' list, whose run execution contexts a run's deletion clears, and the workflow
@@ -255,6 +256,25 @@ CREATE INDEX idx_workflow_runs_started ON workflow_runs(started_at, id);
 -- The engine's deadline clock reads every unfinished run's cap, a failed park among them.
 CREATE INDEX idx_workflow_runs_unfinished ON workflow_runs(started_at)
   WHERE finished_at IS NULL;
+-- The restart reads a session's unfinished runs alone, oldest first.
+CREATE INDEX idx_workflow_runs_session_unfinished ON workflow_runs(session_id, started_at, id)
+  WHERE finished_at IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- workflow_start_payloads: each payload a run's start stored before its run's
+-- row, recorded as it is stored. The run's own write deletes its rows, and a
+-- start that makes no run deletes each payload with its row, so a row left is
+-- what a stop cut, which the restart deletes. Run ids are event-sourced, so no
+-- foreign key.
+-- ---------------------------------------------------------------------------
+CREATE TABLE workflow_start_payloads (
+  artifact_id               TEXT PRIMARY KEY,
+  session_id                TEXT NOT NULL,
+  workflow_run_id           TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX idx_workflow_start_payloads_session ON workflow_start_payloads(session_id);
+CREATE INDEX idx_workflow_start_payloads_run ON workflow_start_payloads(workflow_run_id);
 
 -- ---------------------------------------------------------------------------
 -- workflow_gate_resolutions: every answer to an approval node or a chain's

@@ -94,6 +94,9 @@ pub(crate) struct RunScope {
     pub(crate) project: Option<ProjectId>,
     /// The folder the run's steps work in.
     pub(crate) working_folder: PathBuf,
+    /// Whether the run holds an execution context in a repository, so its end sweeps its session
+    /// out of a tree removed while the run worked there; a run that bound nothing sweeps nothing.
+    pub(crate) is_bound: bool,
     /// The workflow's provider as the run started, whose sandbox and shell its command steps use;
     /// `None` when the workflow names none, which a start allows only when no step runs in a
     /// sandbox.
@@ -149,6 +152,7 @@ pub(crate) fn test_run_scope(mode: WorkflowRunMode, nodes: Vec<WorkflowNode>) ->
         kept_values: Arc::new([]),
         project: None,
         working_folder: PathBuf::from("/workspace"),
+        is_bound: false,
         provider: Some(
             ProviderId::new("test-provider".to_owned()).expect("the test's provider id"),
         ),

@@ -2,7 +2,7 @@
 //! the scope its steps share rebuilt from what its start stored, its pinned version's graph, its
 //! steps not yet settled and its workflow events in log order. Before it, what a start left behind
 //! when a stop cut it before its run's row is deleted: the workspace it bound for its run, and the
-//! payloads it stored that nothing written names.
+//! payloads it recorded under that run.
 #![cfg_attr(
     not(test),
     expect(
@@ -19,7 +19,6 @@ use jiff::tz::TimeZone;
 use rusqlite::{Connection, Row, named_params};
 use serde_json::Value;
 use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
 use sidekicks_contracts::project::ProjectId;
@@ -27,7 +26,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
-use sidekicks_contracts::wire::id::UuidTextForm;
+use sidekicks_contracts::wire::id::{UuidText, UuidTextForm};
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{
@@ -48,8 +47,9 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::read::{
-    SessionEventFilter, SessionEventReads, SessionLogReadError,
+    SELECTED_COLUMNS, SessionEventReads, SessionLogReadError, readable_event_sql,
 };
 use sidekicks_workspace::run_setup_gates::RunSetupGateError;
 use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBinder;
@@ -59,6 +59,8 @@ use sidekicks_workspace::working_folder::{
 };
 use tokio_util::sync::CancellationToken;
 
+use super::pins::read_started_pins;
+use super::stored_payloads::{LEFT_PAYLOADS_SQL, forget_payload};
 use super::{check_run_graph, hash_pin_data, read_session_project};
 use crate::definitions::kept_values::{WorkflowKeptValueError, WorkflowKeptValueStore};
 use crate::definitions::stored_document::parse_stored_workflow_body;
@@ -71,7 +73,6 @@ use crate::engine::tick::{RunGraph, RunScope};
 use crate::engine::waits::step_key;
 use crate::kinds::{NodeKindTable, coded_step_error, uncoded_step_error};
 use crate::runs::gate_resolution::RunEventKeys;
-use crate::runs::projection::suspended_step;
 use crate::runs::record::FIRST_NON_RETRY_MODE_SQL;
 use crate::secrets::redaction::RunRedaction;
 
@@ -91,29 +92,11 @@ const UNFINISHED_RUNS_SQL: &str = "SELECT run.id, run.workflow_version_id, run.p
 
 // The runs a workspace of the session was bound for that have no row: a start a stop cut between
 // its workspace's bind and its run's row.
-const STRANDED_RUN_WORKSPACES_SQL: &str = "SELECT workflow_run_id FROM workspaces
-  WHERE session_id = ?1 AND workflow_run_id IS NOT NULL
-    AND workflow_run_id NOT IN (SELECT id FROM workflow_runs)";
-
-const SESSION_RUN_IDS_SQL: &str = "SELECT id FROM workflow_runs WHERE session_id = ?1";
-
-// Of the artifacts a JSON list of their ids names, bound second, those that no kept value, no
-// event of the session, bound first, and no row of its runs or their steps names, so a payload a
-// reader could still reach is never among them: a value a deleted run kept outlives the run.
-const UNNAMED_PAYLOADS_SQL: &str = "SELECT candidate.value FROM json_each(?2) AS candidate
-  WHERE NOT EXISTS (SELECT 1 FROM workflow_node_state AS kept
-                     WHERE kept.artifact_id = candidate.value)
-    AND NOT EXISTS (SELECT 1 FROM session_events AS event
-                     WHERE event.session_id = ?1 AND instr(event.payload, candidate.value) > 0)
-    AND NOT EXISTS (SELECT 1 FROM workflow_runs AS run
-                     WHERE run.session_id = ?1
-                       AND instr(run.trigger_json || coalesce(run.node_run_json, ''),
-                                 candidate.value) > 0)
-    AND NOT EXISTS (SELECT 1 FROM workflow_steps AS step
-                      JOIN workflow_runs AS run ON run.id = step.workflow_run_id
-                     WHERE run.session_id = ?1
-                       AND instr(step.input_ref || step.output_ref || step.log_ref,
-                                 candidate.value) > 0)";
+// The unary `+` keeps the read on the session's index, never a scan of every run's workspace.
+const STRANDED_RUN_WORKSPACES_SQL: &str = "SELECT workspace.workflow_run_id
+  FROM workspaces AS workspace
+  WHERE workspace.session_id = ?1 AND +workspace.workflow_run_id IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM workflow_runs AS run WHERE run.id = workspace.workflow_run_id)";
 
 // A run's steps not settled, and its failed and canceled ones, which a park keeps for its
 // Resume, in execution order.
@@ -140,6 +123,20 @@ static KEPT_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
 // How the first run of a retry's chain of retries that is not a retry was started.
 static FIRST_MODE_OF_RUN_SQL: LazyLock<String> =
     LazyLock::new(|| format!("SELECT {}", *FIRST_NON_RETRY_MODE_SQL));
+
+// The readable events of the types a JSON list names that belong to the runs another names, in
+// log order, read through the index of each event's workflow run.
+static RUN_EVENTS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {SELECTED_COLUMNS} FROM session_events AS event
+  WHERE event.session_id = @session_id
+    AND event.workflow_run_id IN (SELECT value FROM json_each(@run_ids))
+    AND event.type IN (SELECT value FROM json_each(@event_types))
+    AND {readable}
+  ORDER BY event.sequence",
+        readable = readable_event_sql("event")
+    )
+});
 
 /// The events the restart replays: a run's start, decided cancel or failing end, failed park and
 /// Resume, and each step's hold, admission, wait, wind-down, retry and settlement.
@@ -281,9 +278,12 @@ pub(crate) enum RunReloadError {
     /// A workspace bound for a run that has no row could not be deleted.
     #[error("a workspace a stop left with no run could not be deleted")]
     StrandedWorkspace(#[source] Box<RunSetupGateError>),
-    /// The payloads a stop left that nothing names could not be listed or deleted.
-    #[error("a payload a stop left with nothing naming it could not be listed or deleted")]
+    /// A payload a stop left recorded under a run that has no row could not be deleted.
+    #[error("a payload a stop left with no run could not be deleted")]
     StrandedPayload(#[source] PortError),
+    /// The record of a payload deleted since could not be deleted.
+    #[error("the record of a payload a stop left could not be deleted")]
+    StrandedPayloadRecord(#[source] WriteError),
 }
 
 /// Reads a session's unfinished runs back for the tick at the restart.
@@ -298,8 +298,11 @@ pub(crate) struct RunReloader {
     pub(crate) data_folder: PathBuf,
     /// The binder that deletes a workspace bound for a run that never got its row.
     pub(crate) binder: Arc<dyn SessionRunBinder>,
-    /// The payload store whose payloads a stop left with nothing naming them are deleted.
+    /// The payload store whose payloads a stop left recorded under a run with no row are deleted
+    /// from, and whose pins stored past the inline cap are read back.
     pub(crate) payloads: Arc<dyn StepPayloadArtifacts>,
+    /// The writer the record of each payload deleted is deleted through.
+    pub(crate) writer: Arc<DatabaseWriter>,
 }
 
 /// One unfinished run's row, as the reload reads it.
@@ -337,7 +340,29 @@ impl RunReloader {
                 read_session_runs(connection, session_id, &kinds, &data_folder)
             })
             .await?;
-        for run in &mut runs {
+        for (run, stored_pins) in &mut runs {
+            let Ok(reloaded) = &mut run.drive else {
+                continue;
+            };
+            if let Some(pin_data_ref) = stored_pins.take() {
+                let pins = read_started_pins(&*self.payloads, (None, Some(pin_data_ref)))
+                    .await
+                    .map_err(|error| error.to_string())
+                    .and_then(|pin_data| {
+                        hash_pin_data(pin_data).map_err(|error| error.to_string())
+                    });
+                match pins {
+                    Ok(pins) => {
+                        Arc::get_mut(&mut reloaded.scope)
+                            .expect("a scope just read is unshared")
+                            .pins = pins;
+                    }
+                    Err(error) => {
+                        run.drive = Err(uncoded_step_error(error));
+                        continue;
+                    }
+                }
+            }
             let Ok(reloaded) = &mut run.drive else {
                 continue;
             };
@@ -345,20 +370,26 @@ impl RunReloader {
             let scope = Arc::get_mut(&mut reloaded.scope).expect("a scope just read is unshared");
             scope.kept_values = Arc::from(kept_values);
         }
-        Ok(runs)
+        Ok(runs.into_iter().map(|(run, _)| run).collect())
     }
 
     // Deletes each workspace bound for a run of the session that has no row, then each payload
-    // stored in the session under a step of a run not the session's that nothing written names:
-    // a trigger input stored before a stop cut its run's row, or a copy of another session's
-    // output made for a run that never started.
+    // a start of the session recorded that no run's write took over: a trigger input or a copy of
+    // another session's output stored before a stop cut its run's row, or one its cleanup could
+    // not delete. A record names only what such a start stored, so no kept value is among them.
     async fn delete_stop_leftovers(&self, session_id: SessionId) -> Result<(), RunReloadError> {
-        let (stranded_runs, session_runs) = self
+        let (stranded_runs, left_payloads) = self
             .pool
             .read(ReadLength::Short, move |connection| {
+                let left_payloads = connection
+                    .prepare_cached(LEFT_PAYLOADS_SQL)?
+                    .query_map([session_id.text().as_str()], |row| {
+                        text_column(row, 0, |text| ArtifactId::new(&text))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
                 Ok::<_, RunReloadError>((
                     read_run_ids(connection, STRANDED_RUN_WORKSPACES_SQL, session_id)?,
-                    read_run_ids(connection, SESSION_RUN_IDS_SQL, session_id)?,
+                    left_payloads,
                 ))
             })
             .await?;
@@ -368,34 +399,14 @@ impl RunReloader {
                 .await
                 .map_err(|error| RunReloadError::StrandedWorkspace(Box::new(error)))?;
         }
-        let candidates = self
-            .payloads
-            .payloads_of_other_runs(session_id, &session_runs)
-            .await
-            .map_err(RunReloadError::StrandedPayload)?;
-        if candidates.is_empty() {
-            return Ok(());
-        }
-        let candidates_json =
-            serde_json::to_string(&candidates).expect("artifact ids write as JSON");
-        let unnamed = self
-            .pool
-            .read(ReadLength::Long, move |connection| {
-                connection
-                    .prepare_cached(UNNAMED_PAYLOADS_SQL)?
-                    .query_map(
-                        (session_id.text().as_str(), candidates_json.as_str()),
-                        |row| text_column(row, 0, |text| ArtifactId::new(&text)),
-                    )?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(RunReloadError::from)
-            })
-            .await?;
-        for artifact_id in &unnamed {
+        for artifact_id in left_payloads {
             self.payloads
-                .delete(artifact_id)
+                .delete(&artifact_id)
                 .await
                 .map_err(RunReloadError::StrandedPayload)?;
+            forget_payload(&self.writer, artifact_id)
+                .await
+                .map_err(RunReloadError::StrandedPayloadRecord)?;
         }
         Ok(())
     }
@@ -417,12 +428,13 @@ fn read_run_ids(
 
 /// The unfinished runs of `session_id` read on `connection`, their scopes built over `kinds`, a
 /// run with no folder of its own named under `data_folder`; kept values are left for the caller.
+// Each run beside the pins its started event stored past the inline cap, which the caller reads.
 fn read_session_runs(
     connection: &Connection,
     session_id: SessionId,
     kinds: &NodeKindTable,
     data_folder: &std::path::Path,
-) -> Result<Vec<ReloadedRun>, RunReloadError> {
+) -> Result<Vec<(ReloadedRun, Option<WorkflowPayloadRef>)>, RunReloadError> {
     let rows = connection
         .prepare_cached(UNFINISHED_RUNS_SQL)?
         .query_map([session_id.text().as_str()], run_row)?
@@ -432,7 +444,8 @@ fn read_session_runs(
     }
     let session = read_working_folder(connection, &session_id)?;
     let session_project = read_session_project(connection, &session_id)?;
-    let mut events = read_run_events(connection, &session_id)?;
+    let run_ids = rows.iter().map(|row| row.run_id).collect::<Vec<_>>();
+    let mut events = read_run_events(connection, &session_id, &run_ids)?;
     let mut runs = Vec::with_capacity(rows.len());
     for row in rows {
         let steps = connection
@@ -458,13 +471,16 @@ fn read_session_runs(
             workflow_version_id: row.workflow_version_id,
         };
         // The run gives the pins it started on, whatever its workflow pins now.
-        let pin_data = run_events.iter().find_map(|replayed| {
-            if let SessionEvent::WorkflowRunStarted(started) = &replayed.event {
-                started.pin_data.clone()
-            } else {
-                None
-            }
-        });
+        let (pin_data, pin_data_ref) = run_events
+            .iter()
+            .find_map(|replayed| {
+                if let SessionEvent::WorkflowRunStarted(started) = &replayed.event {
+                    Some((started.pin_data.clone(), started.pin_data_ref.clone()))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
         let retried_mode = if row.is_retry {
             connection
                 .prepare_cached(FIRST_MODE_OF_RUN_SQL.as_str())?
@@ -553,6 +569,7 @@ fn read_session_runs(
                 kept_values: Arc::new([]),
                 project: row.project_id.or(session_project),
                 working_folder,
+                is_bound: row.execution_root.is_some(),
                 provider: row.provider.clone(),
                 redaction: Arc::new(RunRedaction::new(&[])),
                 cancel: CancellationToken::new(),
@@ -566,16 +583,19 @@ fn read_session_runs(
             }
         });
         let drive = drive.map_err(|error| *error);
-        runs.push(ReloadedRun {
-            keys,
-            run_id: row.run_id,
-            is_admitted: row.status != WorkflowRunStatus::New,
-            person_wait: row.person_wait,
-            posts_results: run_posts_results(row.mode, retried_mode),
-            steps,
-            events: run_events,
-            drive,
-        });
+        runs.push((
+            ReloadedRun {
+                keys,
+                run_id: row.run_id,
+                is_admitted: row.status != WorkflowRunStatus::New,
+                person_wait: row.person_wait,
+                posts_results: run_posts_results(row.mode, retried_mode),
+                steps,
+                events: run_events,
+                drive,
+            },
+            pin_data_ref,
+        ));
     }
     Ok(runs)
 }
@@ -643,64 +663,43 @@ fn reloaded_step(row: &Row<'_>) -> rusqlite::Result<ReloadedStep> {
     })
 }
 
-/// The events of `session_id` the restart replays, by run, each run's in log order.
+/// The events of `run_ids`, runs of `session_id`, the restart replays, by run, each run's in log
+/// order, read by the run each belongs to.
 fn read_run_events(
     connection: &Connection,
     session_id: &SessionId,
+    run_ids: &[WorkflowRunId],
 ) -> Result<HashMap<WorkflowRunId, Vec<ReplayedEvent>>, RunReloadError> {
     let event_types = REPLAYED_EVENT_TYPES.map(SessionEventType::as_str);
-    let envelopes = SessionEventReads::new(connection, |_: &SessionId| None).read_after(
-        session_id,
-        -1,
-        -1,
-        SessionEventFilter {
-            event_types: Some(&event_types),
-            ..SessionEventFilter::default()
+    let run_ids = run_ids.iter().map(WorkflowRunId::text).collect::<Vec<_>>();
+    let reads = SessionEventReads::new(connection, |_: &SessionId| None);
+    let envelopes = reads.read_envelopes(
+        &RUN_EVENTS_SQL,
+        named_params! {
+            "@session_id": session_id.text().as_str(),
+            "@run_ids": serde_json::to_string(
+                &run_ids.iter().map(UuidText::as_str).collect::<Vec<_>>()
+            )
+            .expect("a list of strings serializes"),
+            "@event_types": serde_json::to_string(&event_types)
+                .expect("a list of strings serializes"),
+            "@read_bound": reads.read_bound(session_id, None),
         },
     )?;
     let mut by_run: HashMap<WorkflowRunId, Vec<ReplayedEvent>> = HashMap::new();
     for envelope in &envelopes {
-        let (run_id, replayed) = replayed_event(envelope)?;
-        by_run.entry(run_id).or_default().push(replayed);
-    }
-    Ok(by_run)
-}
-
-/// The run `envelope` names beside the event it holds. Fails when the stored event does not read.
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "the read takes only the replayed event types, each named here"
-)]
-fn replayed_event(
-    envelope: &EventEnvelope,
-) -> Result<(WorkflowRunId, ReplayedEvent), RunReloadError> {
-    let event = SessionEvent::from_envelope(envelope)?;
-    let at = WireInstant::try_from(envelope.occurred_at.as_str().to_owned())?;
-    let run_id = match &event {
-        SessionEvent::WorkflowRunStarted(payload) => payload.workflow_run_id,
-        SessionEvent::WorkflowRunCanceling(payload) => payload.workflow_run_id,
-        SessionEvent::WorkflowRunFailing(payload) => payload.workflow_run_id,
-        SessionEvent::WorkflowRunFailed(payload) => payload.workflow_run_id,
-        SessionEvent::WorkflowRunResumed(payload) => payload.workflow_run_id,
-        SessionEvent::WorkflowPhaseWaitingOnMemory(payload) => payload.workflow_run_id,
-        SessionEvent::WorkflowPhaseAdmitted(payload) => payload.workflow_run_id,
-        SessionEvent::WorkflowPhaseSuspended(payload) => suspended_step(payload).workflow_run_id,
-        SessionEvent::WorkflowPhaseCanceling(payload) => payload.workflow_run_id,
-        SessionEvent::WorkflowPhaseRetried(payload) => payload.workflow_run_id,
-        SessionEvent::WorkflowStepCompleted(payload) => payload.workflow_run_id,
-        SessionEvent::WorkflowStepFailed(payload) => payload.workflow_run_id,
-        SessionEvent::WorkflowStepCanceled(payload) => payload.workflow_run_id,
-        SessionEvent::WorkflowStepSkipped(payload) => payload.workflow_run_id,
-        _ => unreachable!("the read takes only the replayed types"),
-    };
-    Ok((
-        run_id,
-        ReplayedEvent {
+        let event = SessionEvent::from_envelope(envelope)?;
+        let run_id = event
+            .workflow_run_id()
+            .expect("the read takes only events a workflow run writes");
+        let at = WireInstant::try_from(envelope.occurred_at.as_str().to_owned())?;
+        by_run.entry(run_id).or_default().push(ReplayedEvent {
             sequence: envelope.sequence,
             at,
             event,
-        },
-    ))
+        });
+    }
+    Ok(by_run)
 }
 
 /// The error a run's crashed ending stores for `refusal`, the graph check's refusal of its version

@@ -180,15 +180,17 @@ async fn a_retry_reuses_the_source_runs_steps_before_the_failed_one(
         .rows
         .execute(
             "INSERT INTO session_events
-               (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload)
+               (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload,
+                workflow_run_id)
              SELECT ?1, ?2, coalesce(max(sequence), 0) + 1, ?3, 0, 'workflowLifecycle',
-                    'workflow.run.started', ?4
+                    'workflow.run.started', ?4, ?5
                FROM session_events WHERE session_id = ?2",
             params![
                 "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e90",
                 TEST_SESSION_ID,
                 ROOT_STARTED_AT,
-                started.to_string()
+                started.to_string(),
+                SOURCE_RUN_ID
             ],
         )
         .expect("the source run's start event is stored");

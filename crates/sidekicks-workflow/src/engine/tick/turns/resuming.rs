@@ -240,6 +240,7 @@ pub(super) fn move_run(
         kept_values: Arc::clone(&scope.kept_values),
         project: scope.project,
         working_folder: scope.working_folder.clone(),
+        is_bound: scope.is_bound,
         provider: scope.provider.clone(),
         redaction: Arc::clone(&scope.redaction),
         cancel: scope.cancel.clone(),

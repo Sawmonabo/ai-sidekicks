@@ -8,6 +8,7 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
+use sidekicks_store::database::writer::WriteError;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 use sidekicks_store::events::session::appender::{SessionEventAppendError, SessionEventDraftError};
 use sidekicks_store::machine::registry::MachineRegistryReadError;
@@ -123,6 +124,21 @@ pub(crate) enum WorkflowRunStartError {
         expect(dead_code, reason = "the engine's run start handlers")
     )]
     Payload(#[source] PortError),
+    /// A payload the start stored as an artifact could not be recorded under its run; the start's
+    /// cleanup deletes it.
+    #[error("a payload the start stored could not be recorded under its run")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
+    PayloadRecord(#[source] WriteError),
+    /// The pins the retried run's start stored as a payload did not read back.
+    #[error("the pins the retried run started on did not read back")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the workflow.run.retry handler")
+    )]
+    SourcePins(#[source] StepPayloadReadError),
     /// The started event broke one of its type's checks.
     #[error("the run's started event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
@@ -220,6 +236,8 @@ impl From<WorkflowRunStartError> for HandlerError {
             | WorkflowRunStartError::ReusedOutputStore(_)
             | WorkflowRunStartError::InputJson(_)
             | WorkflowRunStartError::Payload(_)
+            | WorkflowRunStartError::PayloadRecord(_)
+            | WorkflowRunStartError::SourcePins(_)
             | WorkflowRunStartError::Draft(_)
             | WorkflowRunStartError::Append(_)
             | WorkflowRunStartError::ChainRootMissing { .. }

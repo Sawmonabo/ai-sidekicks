@@ -11,8 +11,10 @@ mod check;
 mod errors;
 mod folder;
 mod node_run;
+mod pins;
 pub(crate) mod reload;
 mod retry;
+mod stored_payloads;
 #[cfg(test)]
 mod tests;
 
@@ -23,7 +25,6 @@ use std::sync::{Arc, LazyLock};
 
 use jiff::tz::TimeZone;
 use rusqlite::Connection;
-use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::project::ProjectId;
@@ -31,17 +32,16 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowName, WorkflowNode, WorkflowNodeId, WorkflowTriggerInput,
     WorkflowVersionId,
 };
-use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowPinnedItem};
+use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::events::{
     WorkflowChainRunJoinedPayload, WorkflowNodeRun, WorkflowRunStartedPayload,
 };
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
+use sidekicks_contracts::workflow::run::step::record::WorkflowPayloadRef;
 use sidekicks_contracts::workflow::run::trigger::{
     WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
     WorkflowTriggerKind,
@@ -49,7 +49,7 @@ use sidekicks_contracts::workflow::run::trigger::{
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::stored_column::optional_text_column;
-use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
+use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
@@ -65,9 +65,7 @@ use sidekicks_workspace::working_folder::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::definitions::content_hash::hash_canonical_json;
 use crate::definitions::kept_values::{WorkflowKeptValue, WorkflowKeptValueStore};
-use crate::definitions::stored_document::parse_stored_pin_data;
 use crate::engine::chain::read_chain_question;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::partial_run::PARTIAL_RUN_PLAN_STATEMENT_CAPACITY;
@@ -80,17 +78,23 @@ use crate::runs::creation::{
     workflow_run_creation_statements,
 };
 use crate::runs::deletion::remove_run_folder;
-use crate::runs::step_payload::{StepPayloadWriteError, write_step_payload};
+use crate::runs::step_payload::StepPayloadWriteError;
 use crate::secrets::redaction::RunRedaction;
 
 pub(crate) use self::check::check_run_graph;
 pub(crate) use self::errors::WorkflowRunStartError;
 use self::folder::{PreparedStart, RunFolder};
 pub(crate) use self::node_run::{StartedNodeRun, StartedReusedStep};
+#[cfg(test)]
+pub(crate) use self::pins::started_pin_data;
+use self::pins::started_pins;
+pub(crate) use self::pins::{hash_pin_data, hash_run_pins};
 pub(crate) use self::reload::{
     ReloadedRepin, ReloadedRun, ReloadedScope, ReloadedStep, ReplayedEvent,
 };
 use self::retry::RetriedRun;
+use self::stored_payloads::StartPayloadError;
+pub(crate) use self::stored_payloads::StartPayloads;
 
 /// The statements a start prepares on a read connection: the pinned version by its id, the
 /// session's working folder, the workflow's pins and provider, a named project's folder, its
@@ -275,6 +279,8 @@ pub(crate) struct WorkflowRunStarterDependencies {
     pub(crate) pool: Arc<DatabaseReadPool>,
     /// The event log each start's write is appended to.
     pub(crate) event_log: Arc<EventLogService>,
+    /// The writer each payload a start stores is recorded under its run through.
+    pub(crate) writer: Arc<DatabaseWriter>,
     /// The machine's registry, whose owner a trigger's fire is judged as.
     pub(crate) machines: Arc<MachineRegistry>,
     /// The rules a trigger's fire is judged under.
@@ -305,6 +311,7 @@ pub(crate) struct WorkflowRunStarterDependencies {
 pub(crate) struct WorkflowRunStarter {
     pool: Arc<DatabaseReadPool>,
     appender: SessionEventAppender,
+    writer: Arc<DatabaseWriter>,
     machines: Arc<MachineRegistry>,
     authorizer: Arc<Authorizer>,
     payloads: Arc<dyn StepPayloadArtifacts>,
@@ -326,6 +333,7 @@ impl WorkflowRunStarter {
         let WorkflowRunStarterDependencies {
             pool,
             event_log,
+            writer,
             machines,
             authorizer,
             payloads,
@@ -339,6 +347,7 @@ impl WorkflowRunStarter {
         Self {
             pool,
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
+            writer,
             machines,
             authorizer,
             payloads,
@@ -429,7 +438,12 @@ impl WorkflowRunStarter {
             }
             Err(error) => return Err(error),
         };
-        let mut stored = Vec::new();
+        let mut stored = StartPayloads::new(
+            &self.writer,
+            &*self.payloads,
+            start.session_id,
+            workflow_run_id,
+        );
         let mut ended = self
             .write(start, checked, &prepared, retried, node_run, &mut stored)
             .await;
@@ -437,10 +451,7 @@ impl WorkflowRunStarter {
             return ended;
         }
         let run_id = prepared.workflow_run_id;
-        for artifact_id in stored {
-            let Err(removal) = self.payloads.delete(&artifact_id).await else {
-                continue;
-            };
+        for (artifact_id, removal) in stored.discard().await {
             ended = match ended {
                 Ok(held) => {
                     self.record_left_behind(run_id, &*removal).await;
@@ -573,33 +584,13 @@ impl WorkflowRunStarter {
         })
     }
 
-    // The trigger step's input: inline within the cap, else stored through the payload store
-    // under the trigger step's key.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    async fn trigger_input(
-        &self,
-        session_id: SessionId,
-        trigger_step: &WorkflowStepKey,
-        items: &[WorkflowItem],
-    ) -> Result<WorkflowPayloadRef, WorkflowRunStartError> {
-        write_step_payload(&*self.payloads, session_id, trigger_step, items)
-            .await
-            .map_err(|error| match error {
-                StepPayloadWriteError::Json(error) => WorkflowRunStartError::InputJson(error),
-                StepPayloadWriteError::Artifact(error) => WorkflowRunStartError::Payload(error),
-            })
-    }
-
     // Reads the run's scope, builds the trigger step's input where it runs and stores again in
     // this run's session each output `node_run` replays from another, then commits the run's row,
     // with its chain's count for a joining run, the run it retries for a retry and the node run's
     // target, and its started event, naming every step it replays, whose instant is the row's
-    // start. The scope is read first,
-    // so a failed read leaves no stored payload behind; each payload it stores is named in
-    // `stored`, for the start to delete when no run is made.
+    // start. The scope is read first, so a failed read leaves no stored payload behind; each
+    // payload it stores, its pins past the inline cap among them, is recorded in `stored` under the
+    // run, which the run's write forgets and the start deletes when no run is made.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -611,7 +602,7 @@ impl WorkflowRunStarter {
         prepared: &PreparedStart,
         retried: Option<&RetriedRun>,
         node_run: (Option<WorkflowNodeRun>, Option<StartedNodeRun>),
-        stored: &mut Vec<ArtifactId>,
+        stored: &mut StartPayloads<'_>,
     ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
         let WorkflowRunStart {
             workflow_version_id,
@@ -626,23 +617,33 @@ impl WorkflowRunStarter {
         let scope_reads = self
             .read_scope(session_id, &checked, prepared.binding.as_ref(), &chain)
             .await?;
+        let trigger_step = trigger_step_key(workflow_run_id, &checked.trigger_node);
         let trigger_input = match &checked.start_items {
             Some(items) => {
-                let trigger_step = trigger_step_key(workflow_run_id, &checked.trigger_node);
-                let input_ref = self.trigger_input(session_id, &trigger_step, items).await?;
-                if let WorkflowPayloadRef::Artifact { artifact_id, .. } = &input_ref {
-                    stored.push(*artifact_id);
-                }
-                Some(input_ref)
+                Some(
+                    stored
+                        .store(&trigger_step, items)
+                        .await
+                        .map_err(|error| match error {
+                            StartPayloadError::Write(StepPayloadWriteError::Json(error)) => {
+                                WorkflowRunStartError::InputJson(error)
+                            }
+                            StartPayloadError::Write(StepPayloadWriteError::Artifact(error)) => {
+                                WorkflowRunStartError::Payload(error)
+                            }
+                            StartPayloadError::Record(error) => {
+                                WorkflowRunStartError::PayloadRecord(error)
+                            }
+                        })?,
+                )
             }
             None => None,
         };
         let (node_run, mut replayed) = node_run;
         if let Some(replayed) = &mut replayed {
-            replayed
-                .store_in_session(&*self.payloads, session_id, stored)
-                .await?;
+            replayed.store_in_session(session_id, stored).await?;
         }
+        let (pin_data, pin_data_ref) = started_pins(stored, &trigger_step, &checked.pins).await?;
         let retried_run_id = retried.map(|retried| retried.workflow_run_id);
         // The limit is read at each joining start, so a changed setting holds the next one.
         let chain_ask_after = match chain {
@@ -681,7 +682,8 @@ impl WorkflowRunStarter {
                 provider: checked.provider.clone(),
                 node_run,
                 retried_workflow_run_id: retried_run_id,
-                pin_data: started_pin_data(&checked.pins),
+                pin_data,
+                pin_data_ref,
                 reused_steps: replayed
                     .as_ref()
                     .map(StartedNodeRun::started_reused_steps)
@@ -694,9 +696,14 @@ impl WorkflowRunStarter {
             Some(binding) => Some(self.binder.hold_checkout(binding).await),
             None => None,
         };
+        // The run's records of what its start stored go last, so the creation's statements keep
+        // their indexes.
+        let mut transactional_prelude =
+            workflow_run_creation_statements(&creation, chain_ask_after);
+        transactional_prelude.push(stored.forget_statement());
         let mut linkage = SessionEventLinkage {
             occurred_at: Some(prepared.started_at.clone()),
-            transactional_prelude: workflow_run_creation_statements(&creation, chain_ask_after),
+            transactional_prelude,
             ..SessionEventLinkage::default()
         };
         // A joining run's count on its chain's first run is that first run's session's event, so
@@ -775,6 +782,7 @@ impl WorkflowRunStarter {
                     // A named project is the run's; else the session's own, if any.
                     project: project_id.or(scope_reads.project),
                     working_folder: prepared.folder.path().to_path_buf(),
+                    is_bound: prepared.binding.is_some(),
                     provider: checked.provider,
                     redaction: Arc::new(RunRedaction::new(&[])),
                     cancel: CancellationToken::new(),
@@ -829,68 +837,4 @@ fn read_session_project(
         .query_row([session_id.text().as_str()], |row| {
             optional_text_column(row, 0, |text| ProjectId::new(&text))
         })
-}
-
-/// The pins a run of `mode` honors, each node's items with their content hash taken once here: the
-/// stored `pin_data_json` parsed for a manual run, and none, unread, for any other. Refuses pins
-/// that do not parse or whose items do not canonicalize.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the engine's run start handlers")
-)]
-pub(crate) fn hash_run_pins(
-    pin_data_json: Option<&str>,
-    mode: WorkflowRunMode,
-) -> Result<HashMap<WorkflowNodeId, RunPin>, WorkflowRunStartError> {
-    if mode != WorkflowRunMode::Manual {
-        return Ok(HashMap::new());
-    }
-    hash_pin_data(
-        pin_data_json
-            .map(parse_stored_pin_data)
-            .transpose()?
-            .unwrap_or_default(),
-    )
-}
-
-/// The pins `pin_data` holds, each node's items with their content hash. Refuses items that do not
-/// canonicalize.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the engine's run start handlers")
-)]
-pub(crate) fn hash_pin_data(
-    pin_data: Record<String, Vec<WorkflowPinnedItem>>,
-) -> Result<HashMap<WorkflowNodeId, RunPin>, WorkflowRunStartError> {
-    pin_data
-        .into_map()
-        .into_iter()
-        // An empty key names no node, so no step gives its pin, as with a key naming a node the
-        // version lacks.
-        .filter_map(|(node_id, items)| Some((WorkflowNodeId::new(node_id)?, items)))
-        .map(|(node_id, items)| {
-            let hash = hash_canonical_json(
-                &serde_json::to_value(&items).map_err(CanonicalizationRefusal::from)?,
-            )?;
-            Ok((node_id, RunPin { items, hash }))
-        })
-        .collect()
-}
-
-/// The pin data a run's start event stores for `pins`, the pins it honors; `None` for none.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the engine's run start handlers")
-)]
-pub(crate) fn started_pin_data(
-    pins: &HashMap<WorkflowNodeId, RunPin>,
-) -> Option<Record<String, Vec<WorkflowPinnedItem>>> {
-    if pins.is_empty() {
-        return None;
-    }
-    let members = pins
-        .iter()
-        .map(|(node_id, pin)| (node_id.as_str().to_owned(), pin.items.clone()))
-        .collect();
-    Some(Record::new(members).expect("a pinned node's id is a stored record's key"))
 }

@@ -100,8 +100,8 @@ pub trait SessionRunBinder: Send + Sync {
     ) -> BoxFuture<'a, Result<RunContextBinding, RunSetupGateError>>;
 
     /// Deletes the workspace workflow run `workflow_run_id` owns, with its branch contexts, for a
-    /// start that made no run or one a stop cut before its run's row, appending its
-    /// `workspace.archived`; does nothing where it owns none. Fails as the read or the write fails.
+    /// start that made no run or one a stop cut before its run's row, writing nothing into its
+    /// chat's log; does nothing where it owns none. Fails as the read or the write fails.
     fn discard_project_run(
         &self,
         workflow_run_id: WorkflowRunId,

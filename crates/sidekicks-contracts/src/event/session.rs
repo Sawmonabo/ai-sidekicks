@@ -101,6 +101,7 @@ use crate::workflow::run::events::{
     WorkflowRunFailingPayload, WorkflowRunKeepChangedPayload, WorkflowRunResumedPayload,
     WorkflowRunStartedPayload, WorkflowRunWaitingPayload,
 };
+use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::step::events::suspended::WorkflowPhaseSuspendedPayload;
 use crate::workflow::run::step::events::{
     WorkflowGateResolvedPayload, WorkflowParallelJoinBranchesCanceledPayload,
@@ -118,8 +119,8 @@ use crate::worktree::lifecycle::WorktreeLifecyclePayload;
 
 use self::run::{
     EventRun, agent_output_run, approval_canceled_run, approval_requested_run,
-    approval_resolved_run, event_run, git_settled_run, question_asked_run, run_queued_run,
-    session_notice_run,
+    approval_resolved_run, event_run, event_workflow_run, git_settled_run, phase_suspended_run,
+    question_asked_run, run_queued_run, session_notice_run,
 };
 
 pub mod run;
@@ -149,13 +150,15 @@ impl<Payload> DeclaresNoContent for &ContentProbe<Payload> {}
 
 /// Declares [`SessionEvent`] from one registration table: each row is an arm named as its
 /// [`SessionEventType`] variant, its payload (with `#[garde(dive)]` where the payload has checks),
-/// its wire name and, after `=>`, the rule its run is read by (see `event_run!`). The same table
-/// lists [`SESSION_EVENT_TYPES`].
+/// its wire name, after `=>` the rule its agent run is read by (see `event_run!`) and after `in`
+/// the rule its workflow run is read by (see `event_workflow_run!`). The same table lists
+/// [`SESSION_EVENT_TYPES`].
 macro_rules! session_events {
     ($(
         $(#[doc = $doc:literal])+
         $variant:ident($(#[$check:meta])? $payload:ty) = $name:literal
-            $(=> $rule:ident $(($read:ident))?)?,
+            $(=> $rule:ident $(($read:ident))?)?
+            $(in $workflow_run:ident $(($workflow_read:ident))?)?,
     )+) => {
         /// Every session event with a registered payload variant: its `type` and its payload,
         /// discriminated on `type`. Its category is its type's own, checked when it is read from
@@ -182,6 +185,18 @@ macro_rules! session_events {
                 match self {
                     $(Self::$variant(event_run!(@binding payload $($rule $(($read))?)?)) => {
                         event_run!(payload $($rule $(($read))?)?)
+                    })+
+                }
+            }
+
+            /// The workflow run of the event's own session that the event belongs to, where it is
+            /// one of that run's own events.
+            pub fn workflow_run_id(&self) -> Option<WorkflowRunId> {
+                match self {
+                    $(Self::$variant(event_workflow_run!(
+                        @binding payload $($workflow_run $(($workflow_read))?)?
+                    )) => {
+                        event_workflow_run!(payload $($workflow_run $(($workflow_read))?)?)
                     })+
                 }
             }
@@ -479,60 +494,72 @@ session_events! {
     TerminalControlChanged(#[garde(dive)] TerminalControlChangedPayload)
         = "terminal.control.changed",
     /// Emitted when a workflow run starts.
-    WorkflowRunStarted(#[garde(dive)] WorkflowRunStartedPayload) = "workflow.run.started",
+    WorkflowRunStarted(#[garde(dive)] WorkflowRunStartedPayload) =
+        "workflow.run.started" in workflow_run,
     /// Emitted when a workflow run resumes.
-    WorkflowRunResumed(#[garde(dive)] WorkflowRunResumedPayload) = "workflow.run.resumed",
+    WorkflowRunResumed(#[garde(dive)] WorkflowRunResumedPayload) =
+        "workflow.run.resumed" in workflow_run,
     /// Emitted when a person's cancel of a workflow run is taken and its steps wind down.
-    WorkflowRunCanceling(#[garde(dive)] WorkflowRunCancelingPayload) = "workflow.run.canceling",
+    WorkflowRunCanceling(#[garde(dive)] WorkflowRunCancelingPayload) =
+        "workflow.run.canceling" in workflow_run,
     /// Emitted when a failure decides a workflow run's end and its other steps wind down.
-    WorkflowRunFailing(#[garde(dive)] WorkflowRunFailingPayload) = "workflow.run.failing",
+    WorkflowRunFailing(#[garde(dive)] WorkflowRunFailingPayload) =
+        "workflow.run.failing" in workflow_run,
     /// Emitted when a workflow run is canceled.
-    WorkflowRunCanceled(#[garde(dive)] WorkflowRunCanceledPayload) = "workflow.run.canceled",
+    WorkflowRunCanceled(#[garde(dive)] WorkflowRunCanceledPayload) =
+        "workflow.run.canceled" in workflow_run,
     /// Emitted when the next start's sweep ends a run the daemon's stop left with nothing to go
     /// on with.
-    WorkflowRunCrashed(#[garde(dive)] WorkflowRunCrashedPayload) = "workflow.run.crashed",
+    WorkflowRunCrashed(#[garde(dive)] WorkflowRunCrashedPayload) =
+        "workflow.run.crashed" in workflow_run,
     /// Emitted when the person deletes a workflow run.
-    WorkflowRunDeleted(WorkflowRunDeletedPayload) = "workflow.run.deleted",
+    WorkflowRunDeleted(WorkflowRunDeletedPayload) = "workflow.run.deleted" in workflow_run,
     /// Emitted when the person sets or clears a workflow run's Keep mark.
-    WorkflowRunKeepChanged(WorkflowRunKeepChangedPayload) = "workflow.run.keepChanged",
+    WorkflowRunKeepChanged(WorkflowRunKeepChangedPayload) =
+        "workflow.run.keepChanged" in workflow_run,
     /// Emitted in a chain's first run's session when a run joins that chain.
     WorkflowChainRunJoined(WorkflowChainRunJoinedPayload) = "workflow.chain.runJoined",
     /// Emitted when a finished run's results land as a row in the asking session.
     WorkflowResultsPosted(WorkflowResultsPostedPayload) = "workflow.results.posted",
     /// Emitted when a workflow step starts waiting, with what it waits on.
     WorkflowPhaseSuspended(#[garde(dive)] WorkflowPhaseSuspendedPayload) =
-        "workflow.phase.suspended",
+        "workflow.phase.suspended" in workflow_run(phase_suspended_run),
     /// Emitted when a workflow step's phase fails, saying whether a sibling branch's failure
     /// canceled it.
-    WorkflowPhaseFailed(WorkflowPhaseFailedPayload) = "workflow.phase.failed",
+    WorkflowPhaseFailed(WorkflowPhaseFailedPayload) = "workflow.phase.failed" in workflow_run,
     /// Emitted when the memory gate holds a step before it starts, and every 30 seconds while it
     /// holds it.
     WorkflowPhaseWaitingOnMemory(WorkflowPhaseWaitingOnMemoryPayload) =
-        "workflow.phase.waitingOnMemory",
+        "workflow.phase.waitingOnMemory" in workflow_run,
     /// Emitted when a workflow step starts, with the input it ran on.
-    WorkflowStepStarted(#[garde(dive)] WorkflowStepStartedPayload) = "workflow.step.started",
+    WorkflowStepStarted(#[garde(dive)] WorkflowStepStartedPayload) =
+        "workflow.step.started" in workflow_run,
     /// Emitted when a workflow step finishes, with its output and log.
-    WorkflowStepCompleted(#[garde(dive)] WorkflowStepCompletedPayload) = "workflow.step.completed",
+    WorkflowStepCompleted(#[garde(dive)] WorkflowStepCompletedPayload) =
+        "workflow.step.completed" in workflow_run,
     /// Emitted when a workflow step fails, with its error.
-    WorkflowStepFailed(#[garde(dive)] WorkflowStepFailedPayload) = "workflow.step.failed",
+    WorkflowStepFailed(#[garde(dive)] WorkflowStepFailedPayload) =
+        "workflow.step.failed" in workflow_run,
     /// Emitted when a running or waiting step ends because its run ended failed or canceled, or
     /// when a first-to-arrive merge cancels a branch once another branch arrived.
-    WorkflowStepCanceled(#[garde(dive)] WorkflowStepCanceledPayload) = "workflow.step.canceled",
+    WorkflowStepCanceled(#[garde(dive)] WorkflowStepCanceledPayload) =
+        "workflow.step.canceled" in workflow_run,
     /// Emitted when a workflow step is skipped.
-    WorkflowStepSkipped(#[garde(dive)] WorkflowStepSkippedPayload) = "workflow.step.skipped",
+    WorkflowStepSkipped(#[garde(dive)] WorkflowStepSkippedPayload) =
+        "workflow.step.skipped" in workflow_run,
     /// Emitted when a workflow gate is answered.
-    WorkflowGateResolved(WorkflowGateResolvedPayload) = "workflow.gate.resolved",
+    WorkflowGateResolved(WorkflowGateResolvedPayload) = "workflow.gate.resolved" in workflow_run,
     /// Emitted when a workflow is authored or a new version of it is written.
     WorkflowVersionCreated(WorkflowVersionCreatedPayload) = "workflow.version.created",
     /// Emitted when a workflow run reaches a gate that must be answered before it goes on.
-    WorkflowGateReached(WorkflowGateReachedPayload) = "workflow.gate.reached",
+    WorkflowGateReached(WorkflowGateReachedPayload) = "workflow.gate.reached" in workflow_run,
     /// Emitted when a workflow run ends on a failure.
-    WorkflowRunFailed(WorkflowRunFailedPayload) = "workflow.run.failed",
+    WorkflowRunFailed(WorkflowRunFailedPayload) = "workflow.run.failed" in workflow_run,
     /// Emitted when a workflow run reaches its last steps and succeeds.
-    WorkflowRunCompleted(WorkflowRunCompletedPayload) = "workflow.run.completed",
+    WorkflowRunCompleted(WorkflowRunCompletedPayload) = "workflow.run.completed" in workflow_run,
     /// Emitted when a workflow run starts waiting, on a person, its chain's question or a spent
     /// provider account.
-    WorkflowRunWaiting(WorkflowRunWaitingPayload) = "workflow.run.waiting",
+    WorkflowRunWaiting(WorkflowRunWaitingPayload) = "workflow.run.waiting" in workflow_run,
     /// Emitted when a workflow's schedule is armed.
     WorkflowScheduleArmed(WorkflowTriggerArmedPayload) = "workflow.schedule.armed",
     /// Emitted when an armed schedule fires, starting a run.
@@ -542,22 +569,26 @@ session_events! {
     /// Emitted when an armed trigger other than a schedule fires, starting a run.
     WorkflowTriggerFired(#[garde(dive)] WorkflowTriggerFiredPayload) = "workflow.trigger.fired",
     /// Emitted when the memory gate admits a workflow step, which may start.
-    WorkflowPhaseAdmitted(WorkflowPhaseAdmittedPayload) = "workflow.phase.admitted",
+    WorkflowPhaseAdmitted(WorkflowPhaseAdmittedPayload) = "workflow.phase.admitted" in workflow_run,
     /// Emitted when an admitted workflow phase begins.
-    WorkflowPhaseStarted(WorkflowPhaseStartedPayload) = "workflow.phase.started",
+    WorkflowPhaseStarted(WorkflowPhaseStartedPayload) = "workflow.phase.started" in workflow_run,
     /// Emitted when a workflow phase reports progress.
-    WorkflowPhaseProgressed(WorkflowPhaseProgressedPayload) = "workflow.phase.progressed",
+    WorkflowPhaseProgressed(WorkflowPhaseProgressedPayload) =
+        "workflow.phase.progressed" in workflow_run,
     /// Emitted when a workflow phase is asked to stop and is winding down.
-    WorkflowPhaseCanceling(WorkflowPhaseCancelingPayload) = "workflow.phase.canceling",
+    WorkflowPhaseCanceling(WorkflowPhaseCancelingPayload) =
+        "workflow.phase.canceling" in workflow_run,
     /// Emitted when a failed workflow phase is retried as a new attempt.
-    WorkflowPhaseRetried(#[garde(dive)] WorkflowPhaseRetriedPayload) = "workflow.phase.retried",
+    WorkflowPhaseRetried(#[garde(dive)] WorkflowPhaseRetriedPayload) =
+        "workflow.phase.retried" in workflow_run,
     /// Emitted when a waiting workflow step resumes.
-    WorkflowPhaseResumed(WorkflowPhaseResumedPayload) = "workflow.phase.resumed",
+    WorkflowPhaseResumed(WorkflowPhaseResumedPayload) = "workflow.phase.resumed" in workflow_run,
     /// Emitted when a workflow phase finishes.
-    WorkflowPhaseCompleted(WorkflowPhaseCompletedPayload) = "workflow.phase.completed",
+    WorkflowPhaseCompleted(WorkflowPhaseCompletedPayload) =
+        "workflow.phase.completed" in workflow_run,
     /// Emitted once per wave of running sibling branches a join cancels.
     WorkflowParallelJoinBranchesCanceled(WorkflowParallelJoinBranchesCanceledPayload) =
-        "workflow.parallelJoin.branchesCanceled",
+        "workflow.parallelJoin.branchesCanceled" in workflow_run,
     /// Emitted when a backup run writes a backup.
     DaemonBackupCompleted(DaemonBackupCompletedPayload) = "daemon.backup.completed",
     /// Emitted when a backup run does not finish.

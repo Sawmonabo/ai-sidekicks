@@ -1,6 +1,7 @@
 //! The preparation bracket's rows: a workspace enters `preparing`, then reaches `ready` with the
 //! root its preparation made or `rootLost` with why it failed; and the `rootLost` move a read or
-//! the write gate makes when a root is gone.
+//! the write gate makes when a root is gone. Each move of a run-owned workspace writes its row
+//! alone, with none of the events each move's doc names.
 
 use std::borrow::Cow;
 use std::path::PathBuf;
@@ -120,8 +121,11 @@ impl WorkspaceService {
             expected_row_count: Some(1),
         };
         let appended = self
-            .events
-            .emit_workspace_preparing(event_input(&row), prelude(statement), append_hold)
+            .write_transition(row.is_run_owned, prelude(statement), async |linkage| {
+                self.events
+                    .emit_workspace_preparing(event_input(&row), linkage, append_hold)
+                    .await
+            })
             .await;
         expect_single_row_changed(appended, workspace_id, "begin preparing", "it")?;
         Ok(())
@@ -170,8 +174,11 @@ impl WorkspaceService {
             expected_row_count: Some(1),
         };
         let appended = self
-            .events
-            .emit_workspace_prepared(event_input(&row), prelude(statement), append_hold)
+            .write_transition(row.is_run_owned, prelude(statement), async |linkage| {
+                self.events
+                    .emit_workspace_prepared(event_input(&row), linkage, append_hold)
+                    .await
+            })
             .await;
         expect_single_row_changed(appended, workspace_id, "finish preparing", "it")?;
         Ok(())
@@ -202,8 +209,11 @@ impl WorkspaceService {
             &FAIL_ROOT_PREPARATION_WITHOUT_DETAIL_SQL,
         );
         let appended = self
-            .events
-            .emit_workspace_root_lost(event_input(&row), prelude(statement), append_hold)
+            .write_transition(row.is_run_owned, prelude(statement), async |linkage| {
+                self.events
+                    .emit_workspace_root_lost(event_input(&row), linkage, append_hold)
+                    .await
+            })
             .await;
         expect_single_row_changed(
             appended,
@@ -242,11 +252,14 @@ impl WorkspaceService {
             &MARK_ROOT_LOST_WITHOUT_DETAIL_SQL,
         );
         match self
-            .events
-            .emit_workspace_root_lost(event_input(&row), prelude(statement), None)
+            .write_transition(row.is_run_owned, prelude(statement), async |linkage| {
+                self.events
+                    .emit_workspace_root_lost(event_input(&row), linkage, None)
+                    .await
+            })
             .await
         {
-            Ok(_receipt) => Ok(true),
+            Ok(()) => Ok(true),
             // The guard refused: another reader moved the row since the read.
             Err(error) if error.refused_statement_index().is_some() => Ok(false),
             Err(error) => Err(WorkspaceServiceError::Append(error)),

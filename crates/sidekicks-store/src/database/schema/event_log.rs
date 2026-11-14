@@ -84,6 +84,9 @@ CREATE TABLE {SESSION_EVENTS_TABLE} (
   -- On a stored part of a file's text, the UTF-8 offset in the text of its first byte; NULL on
   -- every other row.
   patch_text_offset INTEGER,
+  -- The workflow run an event is its own event of, written by the append from the typed event;
+  -- NULL on every other event. `run_id` is an agent's run.
+  workflow_run_id   TEXT,
   UNIQUE (session_id, sequence)
 ) STRICT;
 
@@ -107,6 +110,11 @@ CREATE INDEX {SESSION_EVENTS_RUN_INDEX} ON {SESSION_EVENTS_TABLE}(session_id, ty
 -- One run's events in log order, read beside the events filed under it.
 CREATE INDEX idx_session_events_run_sequence ON {SESSION_EVENTS_TABLE}(session_id, run_id, sequence)
   WHERE run_id IS NOT NULL;
+-- One workflow run's own events in log order, so a read of a few runs never walks the session's
+-- other runs.
+CREATE INDEX idx_session_events_workflow_run
+  ON {SESSION_EVENTS_TABLE}(session_id, workflow_run_id, sequence)
+  WHERE workflow_run_id IS NOT NULL;
 -- The events filed under a run that are not its own, in log order.
 CREATE INDEX idx_session_events_target_run
   ON {SESSION_EVENTS_TABLE}(session_id, target_run_id, sequence)

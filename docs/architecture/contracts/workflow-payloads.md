@@ -523,13 +523,11 @@ interface WorkflowRunEventPayload {
   definitionId: WorkflowDefinitionId;
   workflowVersionId: string;
 }
-// workflow.run.started — how the run was started and by whom, the trigger node that started it, its
-// place in its chain, the node a node run targets, the run a retry retries, the pins it honors for
-// its whole life, the earlier steps it replays as its start stored them in its session, and the
-// input its trigger step starts on, so the run row and its walk rebuild from events. A payload with
-// none of `inputRef`, `nodeRun` and `retriedWorkflowRunId` is refused, and so is one whose
-// `retriedWorkflowRunId` is present on a run whose mode is not `retry` or absent on one whose mode
-// is.
+// workflow.run.started — how and by whom the run was started, its trigger node, its chain place,
+// the node a node run targets, the run a retry retries, the pins it honors for life, the earlier
+// steps it replays as its start stored them in its session, and its trigger step's input, so the
+// run row and its walk rebuild from events. Refused: none of `inputRef`, `nodeRun` and
+// `retriedWorkflowRunId`; `retriedWorkflowRunId` present outside `retry` mode or absent in it.
 interface WorkflowRunStartedPayload extends WorkflowRunEventPayload {
   mode: WorkflowRunMode;
   startedBy: WorkflowStartedBy;
@@ -541,12 +539,13 @@ interface WorkflowRunStartedPayload extends WorkflowRunEventPayload {
   nodeRun?: WorkflowNodeRun;
   // the run a retry (workflow.run.retry) retries; present exactly in `retry` mode
   retriedWorkflowRunId?: WorkflowRunId;
-  // by node id, the pins as the run started; absent where it honors none
+  // by node id, the pins as the run started, inline within the inline cap; absent where it has none
   pinData?: Record<string, WorkflowPinnedItem[]>;
+  // those pins as one stored payload, its item count the nodes pinned, past the cap; never both
+  pinDataRef?: WorkflowPayloadRef;
   // the earlier steps a node run or a retry replays; absent where it replays none
   reusedSteps?: WorkflowStartedReusedStep[];
-  // absent exactly on a node run or a retry that reuses its trigger's step, which writes no trigger
-  // row
+  // absent exactly on a node run or a retry reusing its trigger's step, which writes no trigger row
   inputRef?: WorkflowPayloadRef;
 }
 // One earlier step a node run or a retry replays in its node's place, its payloads as stored in the

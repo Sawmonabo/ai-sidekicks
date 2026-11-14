@@ -7,7 +7,6 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
 use crate::engine::ports::{PortError, REFUSED_PORT_CALL, StepPayloadArtifacts};
@@ -118,24 +117,5 @@ impl StepPayloadArtifacts for KeptPayloads {
             .expect("the test's payloads lock")
             .push(*artifact_id);
         Box::pin(async { Ok(()) })
-    }
-
-    fn payloads_of_other_runs<'call>(
-        &'call self,
-        session_id: SessionId,
-        run_ids: &'call [WorkflowRunId],
-    ) -> BoxFuture<'call, Result<Vec<ArtifactId>, PortError>> {
-        let deletes = self.deletes();
-        let found = self
-            .writes()
-            .into_iter()
-            .filter(|kept| {
-                kept.session_id == session_id
-                    && !run_ids.contains(&kept.step.workflow_run_id)
-                    && !deletes.contains(&kept.artifact_id)
-            })
-            .map(|kept| kept.artifact_id)
-            .collect();
-        Box::pin(async move { Ok(found) })
     }
 }

@@ -20,6 +20,7 @@ use sidekicks_contracts::workflow::definition::document::{WorkflowEdge, Workflow
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::control::WorkflowCancelReason;
 use sidekicks_contracts::workflow::run::events::{WorkflowNodeRun, WorkflowRunStartedPayload};
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::trigger::{
     WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
     WorkflowTriggerKind,
@@ -48,7 +49,9 @@ use crate::engine::ports::noticed_sessions::NoticedSessions;
 use crate::engine::ports::run_limits::ScriptedRunLimits;
 use crate::engine::ports::scripted_agent_runs::ScriptedAgentRunner;
 use crate::engine::ports::{EngineRecordSink, KeptEngineRecords};
-use crate::engine::start::{StartedNodeRun, StartedRun, StartedTrigger, started_pin_data};
+use crate::engine::start::{
+    StartPayloads, StartedNodeRun, StartedRun, StartedTrigger, started_pin_data,
+};
 use crate::engine::tick::commit::SessionEventId;
 use crate::engine::tick::turns::ending::RunCancelRefusal;
 use crate::engine::tick::turns::tests::harness::ports::{
@@ -349,6 +352,12 @@ impl Harness {
             .as_ref()
             .map(|started| started.input_ref.clone());
         let node_run_record = node_run.as_ref().map(|(node_run, _)| node_run.clone());
+        let mut stored = StartPayloads::new(
+            &self.log.writer,
+            self.payloads.as_ref(),
+            base.session_id,
+            base.run_id,
+        );
         let node_run = match node_run {
             Some((node_run, plan)) => {
                 let mut started = StartedNodeRun::from_plan(&graph, plan, self.payloads.as_ref())
@@ -356,7 +365,7 @@ impl Harness {
                     .expect("the reused outputs read back");
                 started.sealed = Some(graph.place(&node_run.node_id));
                 started
-                    .store_in_session(self.payloads.as_ref(), base.session_id, &mut Vec::new())
+                    .store_in_session(base.session_id, &mut stored)
                     .await
                     .expect("the reused payloads are stored in the run's session");
                 Some(started)
@@ -407,6 +416,7 @@ impl Harness {
                 node_run: node_run_record,
                 retried_workflow_run_id: None,
                 pin_data: started_pin_data(&base.pins),
+                pin_data_ref: None,
                 reused_steps: node_run
                     .as_ref()
                     .map(StartedNodeRun::started_reused_steps)
@@ -415,13 +425,15 @@ impl Harness {
             }),
         )
         .expect("the started event drafts");
+        let mut prelude = workflow_run_creation_statements(&creation, None);
+        prelude.push(stored.forget_statement());
         let receipt = self
             .appender
             .append(
                 draft,
                 SessionEventLinkage {
                     occurred_at: Some(started_at),
-                    transactional_prelude: workflow_run_creation_statements(&creation, None),
+                    transactional_prelude: prelude,
                     ..SessionEventLinkage::default()
                 },
             )
@@ -445,6 +457,20 @@ impl Harness {
         };
         self.send(EngineTickInput::Started(started)).await;
         cancel
+    }
+
+    /// The payloads a start of `workflow_run_id` in the test's session stores and records, as a
+    /// start does before its run's write.
+    pub(in crate::engine::tick::turns) fn start_payloads(
+        &self,
+        workflow_run_id: WorkflowRunId,
+    ) -> StartPayloads<'_> {
+        StartPayloads::new(
+            &self.log.writer,
+            self.payloads.as_ref(),
+            self.scope.session_id,
+            workflow_run_id,
+        )
     }
 
     /// Waits until `check` holds over the stored rows, read again at each committed write.

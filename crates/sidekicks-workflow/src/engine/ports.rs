@@ -342,15 +342,6 @@ pub trait StepPayloadArtifacts: Send + Sync {
         &'call self,
         artifact_id: &'call ArtifactId,
     ) -> BoxFuture<'call, Result<(), PortError>>;
-
-    /// Every payload stored in `session_id` under a step of a run `run_ids` leaves out: a copy of
-    /// another session's output, or what a start wrote before a stop cut its run's row. Fails when
-    /// the store cannot be read.
-    fn payloads_of_other_runs<'call>(
-        &'call self,
-        session_id: SessionId,
-        run_ids: &'call [WorkflowRunId],
-    ) -> BoxFuture<'call, Result<Vec<ArtifactId>, PortError>>;
 }
 
 /// An approval card a workflow wait opens.
@@ -572,14 +563,6 @@ impl StepPayloadArtifacts for RefusingPorts {
         &'call self,
         _artifact_id: &'call ArtifactId,
     ) -> BoxFuture<'call, Result<(), PortError>> {
-        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
-    }
-
-    fn payloads_of_other_runs<'call>(
-        &'call self,
-        _session_id: SessionId,
-        _run_ids: &'call [WorkflowRunId],
-    ) -> BoxFuture<'call, Result<Vec<ArtifactId>, PortError>> {
         Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
     }
 }

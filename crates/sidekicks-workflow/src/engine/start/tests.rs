@@ -136,7 +136,7 @@ impl Fixture {
         ));
         let machines = Arc::new(MachineRegistry::new(
             Arc::clone(&pool),
-            writer,
+            Arc::clone(&writer),
             LocalMachine {
                 machine_id: machine_id.clone(),
                 owner_user_id: user_id(),
@@ -151,6 +151,7 @@ impl Fixture {
         let starter = WorkflowRunStarter::new(WorkflowRunStarterDependencies {
             pool,
             event_log,
+            writer,
             machines,
             authorizer: Arc::new(Authorizer::load_built_in().expect("the built-in rules load")),
             payloads: Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
