@@ -30,7 +30,7 @@ The `agent_definitions` table in the daemon's one local schema; the `agent.defin
 
 ## Invariants
 
-The following invariants are **load-bearing** and MUST be preserved across all Plan-024 PRs and downstream extensions.
+Plan-024's code and the code built on it keep the following invariants.
 
 ### I-024-1 — Definition identity is opaque, immutable, and never the name
 

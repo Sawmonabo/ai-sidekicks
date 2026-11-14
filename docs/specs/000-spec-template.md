@@ -9,7 +9,7 @@
   - Must be stable enough for an implementation plan to depend on it
 
   Writing rules:
-  - Use normative language for required behavior: must, must not, default, fallback
+  - Use requirement words for required behavior: must, must not, default, fallback
   - Keep repo-comparative framing out of canonical docs
   - Use examples to clarify behavior, not to weaken requirements
 -->
@@ -79,7 +79,7 @@ For external technical facts (wire formats, vendor limits, protocol numbers) lin
 
 ## Implementation Notes
 
-- {Non-normative notes that help later planning}
+- {Notes that help later planning}
 
 ## Pitfalls To Avoid
 

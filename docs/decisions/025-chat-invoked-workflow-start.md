@@ -27,7 +27,7 @@ The V1 product direction puts workflows in the conversation, which forces two de
 
 ## Decision
 
-Two coordinated decisions, normatively specified in [Spec-015 §Chat-Invoked Start and Start Authorization](../specs/015-workflow-authoring-and-execution.md#chat-invoked-start-and-start-authorization) (SA-35, SA-36, C-18), implemented by Plan-014 T5.7–T5.9 under invariants I-014-13 and I-014-14.
+Two coordinated decisions, specified in [Spec-015 §Chat-Invoked Start and Start Authorization](../specs/015-workflow-authoring-and-execution.md#chat-invoked-start-and-start-authorization) (SA-35, SA-36, C-18), implemented by Plan-014 T5.7–T5.9 under invariants I-014-13 and I-014-14.
 
 1. **Chat-start surface — two callers, in both directions.** Workflows are reachable from a conversation through two kinds of caller, both resolving to the typed operations Spec-015 already registers:
    - one registered command root, **`/workflow`**, carrying the verbs `run`, `list`, `runs`, `results`, `open`, `create`, `edit`, `fix`, `schedule`, `cancel`, `resume`, `enable`, `disable`, shown with one line of help each in the composer's `/` list, where a person finds them, completed over `workflow.definition.list`, intercepted and executed by the client composer, and never forwarded to an agent's context or a provider turn. One root is what keeps the command namespace collision-free, and verbs are additive under it; most of them are direct calls to typed operations, while `create`, `edit` and `fix` hand the instruction to the session's own agent with a structured intent hint;
@@ -147,7 +147,7 @@ The interception rule is the one-way part: once users rely on how leading-slash 
 
 ### Related Docs
 
-- [Spec-015 §Chat-Invoked Start and Start Authorization](../specs/015-workflow-authoring-and-execution.md#chat-invoked-start-and-start-authorization) (SA-35, SA-36, C-18) — the normative surface this ADR governs.
+- [Spec-015 §Chat-Invoked Start and Start Authorization](../specs/015-workflow-authoring-and-execution.md#chat-invoked-start-and-start-authorization) (SA-35, SA-36, C-18) — the surface this ADR decides.
 - [Spec-014 §Addressing](../specs/014-multi-agent-orchestration.md#addressing) — addressing-gated activation, an addressing act that rides an existing operation, and an agent named from its row in the `/` list.
 - [Spec-010 §Required Behavior](../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior) (the approval-category enum this decision deliberately does not extend) and [Spec-010 §Implementation Notes](../specs/010-approvals-permissions-and-trust-boundaries.md#implementation-notes) (the set of named operation actions `Action::"workflow::start"` joins).
 - [security-architecture.md §Permission Matrix](../architecture/security-architecture.md#permission-matrix) — the mirrored permission row.

@@ -31,7 +31,7 @@ Deliver V1 feature #15: the daemon's MCP governance layer per [Spec-024](../spec
 
 ## Invariants
 
-The following invariants are **load-bearing** and MUST be preserved across all Plan-022 PRs and downstream extensions.
+Plan-022's code and the code built on it keep the following invariants.
 
 ### I-022-1 — Credential custody is exactly what ADR-038 records
 

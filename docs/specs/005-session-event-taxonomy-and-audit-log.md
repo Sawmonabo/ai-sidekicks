@@ -72,7 +72,7 @@ This spec covers event categories, required event fields, ordering, catch-up, re
 
 ### EventEnvelope Version Semantics
 
-Full semantics of the `.version` field are specified in [ADR-017: Cross-Version Compatibility](../decisions/017-cross-version-compatibility.md). The binding contract summary:
+Full semantics of the `.version` field are specified in [ADR-017: Cross-Version Compatibility](../decisions/017-cross-version-compatibility.md). In summary:
 
 > **Terminology note — "version stub":** This section uses "**version stub**" for the receiver-side artifact produced when an unknown-type event is preserved verbatim (full canonical bytes retained, so an upgraded receiver can interpret it later). A version stub retains all canonical fields.
 

@@ -27,7 +27,7 @@ This plan covers session ids, lead-agent creation, session-owner binding, local 
 
 ## Invariants
 
-The following invariants are **load-bearing** and MUST be preserved across all Plan-001 PRs and downstream extensions.
+Plan-001's code and the code built on it keep the following invariants.
 
 ### I-001-1 — Sequence is the canonical order key
 

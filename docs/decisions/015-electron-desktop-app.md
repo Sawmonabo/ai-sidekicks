@@ -43,7 +43,7 @@ The Electron main process starts the local daemon as a detached process, never a
 
 ### Antithesis — The Strongest Case Against
 
-Modern desktop users expect lightweight apps, and Electron's ~100 MB baseline bundle and heavy memory footprint (often 200–400 MB resident with a single window open) are the opposite of that. Tauri 2.x ships ~3 MB base bundles with an order-of-magnitude smaller memory footprint because it uses the OS-native webview rather than bundling Chromium. For a greenfield project making a decade-scale foundation commitment, starting with the modern lightweight option rather than the older heavy option is the default-correct choice. Rust brings memory safety, strong performance guarantees, and a clean tooling chain (cargo). Several high-profile projects have shipped on Tauri (1Password 8) or are evaluating migration from Electron. The cost-benefit looks like a clear Tauri win absent a specific blocker.
+Modern desktop users expect lightweight apps, and Electron's ~100 MB baseline bundle and heavy memory footprint (often 200–400 MB resident with a single window open) are the opposite of that. Tauri 2.x ships ~3 MB base bundles with an order-of-magnitude smaller memory footprint because it uses the OS-native webview rather than bundling Chromium. For a greenfield project choosing the foundation it will build on for years, starting with the modern lightweight option rather than the older heavy option is the default-correct choice. Rust brings memory safety, strong performance guarantees, and a clean tooling chain (cargo). Several high-profile projects have shipped on Tauri (1Password 8) or are evaluating migration from Electron. The cost-benefit looks like a clear Tauri win absent a specific blocker.
 
 ### Synthesis — Why It Still Holds
 
@@ -77,7 +77,7 @@ Bundle size is addressed by asar packaging and by the fact that the target user 
 - **Steel man:** Similar bundle-size and memory benefits to Tauri; Go ergonomics for backend-familiar developers; simpler build chain than Rust.
 - **Why rejected:**
   1. Same native-webview position as Tauri: the console constraints in §Thesis apply identically (Option B point 1), and the WebKit differences measured on the console's own screens (Option B point 2) are Wails' differences on macOS too.
-  2. The Wails v3 status page lists v3 as alpha, with no flagship production apps on it. A desktop framework is a decade-scale foundation commitment; building on alpha tooling is insufficient risk management.
+  2. The Wails v3 status page lists v3 as alpha, with no flagship production apps on it. A desktop framework is the foundation the app builds on for years; building on alpha tooling is insufficient risk management.
   3. Go would be a third language in the critical path, beside the Rust backend and the TypeScript renderer, with no team-expertise benefit to offset it.
 
 ### Option D: Native per-platform apps (Rejected)

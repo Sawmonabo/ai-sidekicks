@@ -6,9 +6,9 @@ This document records the V1 feature scope for the product: the features V1 ship
 
 ## V1 Features (21)
 
-Every V1 feature has a governing spec; feature #21 (Remote Control) is governed by [Spec-027](../specs/027-remote-control.md). Feature numbers run with no gaps; removing a feature renumbers the ones after it and every reference to them. Cross-cutting V1 specs (identity, observability, rate limiting, data retention) are listed separately in §Supporting V1 Specs below.
+Every V1 feature has a spec; feature #21 (Remote Control) is specified in [Spec-027](../specs/027-remote-control.md). Feature numbers run with no gaps; removing a feature renumbers the ones after it and every reference to them. Cross-cutting V1 specs (identity, observability, rate limiting, data retention) are listed separately in §Supporting V1 Specs below.
 
-| # | Feature | Governing Spec(s) |
+| # | Feature | Spec(s) |
 | --- | --- | --- |
 | 1 | Session creation | [Spec-001](../specs/001-session-core.md) |
 | 2 | Machine registration | [Spec-002](../specs/002-machine-registration.md) — the machine that runs your sessions registers once with the control plane, keyed by the machine and its owner, and is reached straight across the network where a device can reach it, and through the relay otherwise; it is reachable while its relay connection is up, and a session never moves to another machine |
@@ -77,7 +77,7 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 
 ## Spec Coverage Assessment
 
-- **V1 features:** each has a governing spec. Spec-015 (workflow authoring and execution) carries its SA-1…SA-22, SA-24, SA-25, SA-26 and SA-29…SA-42 items in its own body; SA-23, SA-27 and SA-28 live in Plan-014 as implementation detail.
+- **V1 features:** each has a spec. Spec-015 (workflow authoring and execution) carries its SA-1…SA-22, SA-24, SA-25, SA-26 and SA-29…SA-42 items in its own body; SA-23, SA-27 and SA-28 live in Plan-014 as implementation detail.
 
 ## Backlog Coverage Assessment
 
@@ -85,7 +85,7 @@ All V1 features and supporting V1 specs have implementation plans: Plan-001 and 
 
 ## References
 
-- [ADR-014: V1 Feature Scope Definition](../decisions/014-v1-feature-scope-definition.md) — the governing decision for this scope.
+- [ADR-014: V1 Feature Scope Definition](../decisions/014-v1-feature-scope-definition.md) — the decision that set this scope.
 - [ADR-015: Electron Desktop App](../decisions/015-electron-desktop-app.md) — enables V1 feature 12 (Desktop GUI).
 - [ADR-018: Windows V1 Tier and the PTY in the Daemon](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md) — Windows V1 tier decision.
 - [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md) — the person's own relay and the ways to deploy it.

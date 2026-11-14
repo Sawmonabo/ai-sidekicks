@@ -97,7 +97,7 @@ What this decision forbids is a capability that silently depends on a provider-n
 
 - **What:** The provider owns conversational state. The daemon records events for display and audit, and continuity is always the vendor's resume path.
 - **Steel man:** [T2] It is the cheapest and the least code — one flag per provider instead of two code paths. It is _exact_ in a way nothing else can be: the provider's store is, by definition, what the model actually saw, including the private state we can never represent. It keeps the prompt cache warm on every operation, which on long sessions is the dominant cost. And it is honest about the division of labor — the vendor is better placed to maintain its own session semantics than we are to re-derive them.
-- **Why rejected:** It makes the provider switch and recovery after the provider's own store is gone unimplementable rather than merely expensive — there is no vendor path for either. It contradicts ADR-016's ruling on the same records. And it promotes an undocumented, unversioned vendor file format to a load-bearing schema, which ADR-017's compatibility discipline cannot reach.
+- **Why rejected:** It makes the provider switch and recovery after the provider's own store is gone unimplementable rather than merely expensive — there is no vendor path for either. And it promotes an undocumented, unversioned vendor file format to a load-bearing schema, which ADR-017's compatibility discipline cannot reach.
 
 ### Option C: Dual authority with reconciliation (Rejected)
 

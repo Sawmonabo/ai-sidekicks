@@ -34,7 +34,7 @@ V1 consists of **21 features**, and nothing is deferred to a later release. V1 s
 
 ### V1 Features (21)
 
-| # | Feature | Governing Spec(s) |
+| # | Feature | Spec(s) |
 | --- | --- | --- |
 | 1 | Session creation | [Spec-001](../specs/001-session-core.md) |
 | 2 | Machine registration | [Spec-002](../specs/002-machine-registration.md): the machine that runs your sessions registers once with the control plane, keyed by the machine and its owner, and is reached straight across the network where a device can reach it, and through the relay otherwise; it is reachable while its relay connection is up, and a session never moves to another machine |
@@ -122,7 +122,7 @@ The antithesis assumes time to the first release is the dominant cost. For this 
 - Larger V1 surface means more implementation work before first ship.
 - The review of Spec-014 before Plan-013 is built is a V1 gate; the hardening cost is real.
 - Desktop GUI adds Electron packaging, auto-update, code-signing, and cross-platform QA work to V1; carried via [ADR-015](./015-electron-desktop-app.md) (the Electron desktop app) and [Plan-020](../plans/020-desktop-app-and-renderer.md) (desktop implementation).
-- Full workflow engine surface per Spec-015 (V1 feature 14) is V1 build cost — covers the DAG executor, the node catalog, parallel steps under a memory gate, the `workflow.*` event taxonomy across its categories, the SQLite persistence schema [Spec-015 §State And Data Implications](../specs/015-workflow-authoring-and-execution.md#state-and-data-implications) fixes, and the property/fuzz/load/integration/security test battery. Justified by research showing that retrofitting new step kinds, parallel execution, and durable human-step resumption after a first release is architecturally heavier than building them in: every surveyed system (Airflow, Dagger, GitHub Actions, a node-graph automation tool, Temporal, Argo, CircleCI) paid breaking-change cost retrofitting what V1-native would have covered additively. Three freeze-regret patterns: additive enum expansion (safe); replacement expansion (breaking, e.g., [Dagger CUE→SDK rewrite](https://dagger.io/blog/ending-cue-support/)); execution-model commitment (deprecate-within-releases). Primary sources consolidated in §Research Conducted.
+- Full workflow engine surface per Spec-015 (V1 feature 14) is V1 build cost — covers the DAG executor, the node catalog, parallel steps under a memory gate, the `workflow.*` event taxonomy across its categories, the SQLite persistence schema [Spec-015 §State And Data Implications](../specs/015-workflow-authoring-and-execution.md#state-and-data-implications) fixes, and the property/fuzz/load/integration/security test battery. Justified by research showing that retrofitting new step kinds, parallel execution, and durable human-step resumption after a first release is architecturally heavier than building them in: every surveyed system (Airflow, Dagger, GitHub Actions, a node-graph automation tool, Temporal, Argo, CircleCI) paid breaking-change cost retrofitting what V1-native would have covered additively. Three freeze-regret patterns: additive enum expansion (safe); replacement expansion (breaking, e.g., [Dagger CUE→SDK rewrite](https://dagger.io/blog/ending-cue-support/)); execution-model rule (deprecate-within-releases). Primary sources consolidated in §Research Conducted.
 
 ### Unknowns
 

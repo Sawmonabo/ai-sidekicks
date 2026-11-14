@@ -1,6 +1,6 @@
 # packages — rules
 
-Binding for every change under `packages/`, on top of the [root `AGENTS.md`](../AGENTS.md), which this file never restates; how modules are grouped and named is in its [Folders by topic](../AGENTS.md#folders-by-topic).
+Applies to every change under `packages/`, on top of the [root `AGENTS.md`](../AGENTS.md), which this file never restates; how modules are grouped and named is in its [Folders by topic](../AGENTS.md#folders-by-topic).
 
 ## Dependencies between packages
 

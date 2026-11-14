@@ -1,6 +1,6 @@
 # apps/desktop — structure rules
 
-Binding for every change under `apps/desktop/`, on top of the [root `AGENTS.md`](../../AGENTS.md), which this file never restates. Paths are relative to `apps/desktop/` or the renderer root `src/renderer/src/`. Read [Desktop Structure](../../docs/architecture/desktop-structure.md) before adding a folder, moving a file, or adding or changing a lint or layering rule: it lists what each folder and feature holds and each check's exact scope. What each process does is in [Desktop Architecture](../../docs/architecture/desktop.md).
+Applies to every change under `apps/desktop/`, on top of the [root `AGENTS.md`](../../AGENTS.md), which this file never restates. Paths are relative to `apps/desktop/` or the renderer root `src/renderer/src/`. Read [Desktop Structure](../../docs/architecture/desktop-structure.md) before adding a folder, moving a file, or adding or changing a lint or layering rule: it lists what each folder and feature holds and each check's exact scope. What each process does is in [Desktop Architecture](../../docs/architecture/desktop.md).
 
 ## Launching
 

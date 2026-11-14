@@ -1,6 +1,6 @@
 # crates/sidekicks-control-plane — Worker rules
 
-Binding for every change under `crates/sidekicks-control-plane/`, the Cloudflare Worker and the Compose relay, on top of the [root `AGENTS.md`](../../AGENTS.md) and [`crates/AGENTS.md`](../AGENTS.md), which this file never restates.
+Applies to every change under `crates/sidekicks-control-plane/`, the Cloudflare Worker and the Compose relay, on top of the [root `AGENTS.md`](../../AGENTS.md) and [`crates/AGENTS.md`](../AGENTS.md), which this file never restates.
 
 ## The Worker
 

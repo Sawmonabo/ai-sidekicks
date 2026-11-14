@@ -169,7 +169,7 @@ A skeptical staff engineer objects on six grounds.
 
 ### Negative (accepted trade-offs)
 
-- **The absolute is gone, permanently.** Every later credential-custody question is now a boundary argument rather than a refusal. Accepted because the absolute was already forcing a worse real-world custody outcome (§Alternatives, Option B).
+- **The absolute is gone.** Every later credential-custody question is now a boundary argument rather than a refusal. Accepted because the absolute was already forcing a worse real-world custody outcome (§Alternatives, Option B).
 - **A plain reading of the vendor's clause is violated by D2.** Accepted with a named detection signal and a cheap, pre-specified retreat (§Failure Mode Analysis row 1). This is the single largest accepted risk in this record.
 - **The boundedness of the admitted class depends on a version-fragile vendor property.** Accepted, mitigated by observing rather than assuming the authentication mode; a change shows in the daemon's logs and is investigated when seen.
 - **The daemon holds ambient filesystem authority over credential homes it creates.** Accepted; it holds that authority anyway, because it creates and pins those homes for every run.

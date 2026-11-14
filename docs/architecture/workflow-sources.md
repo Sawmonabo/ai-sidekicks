@@ -117,8 +117,8 @@ Two crates carry no documentation page in any source read for Spec-015: `rquickj
 - [ADR-014: V1 Feature Scope Definition](../decisions/014-v1-feature-scope-definition.md) — the V1 feature set, which ships the whole workflow engine with the human step's `Timeout` and every data act, and defers one feature outside it; §Research Conducted (primary-source corpus)
 - [ADR-012: Cedar Approval Policy Engine](../decisions/012-cedar-approval-policy-engine.md) — the `human.approval` evaluation path (I-014-3)
 - [ADR-016: Shared Event-Sourcing Scope](../decisions/016-shared-event-sourcing-scope.md) — the locally-authoritative `session_events` log the `workflow.*` event types ride (I-014-5)
-- [ADR-024: Visual Node-Graph Workflow Authoring](../decisions/024-visual-node-graph-workflow-authoring.md) — the node-graph authoring decision governing T1.7 / T5.4 / T5.5 / T5.6 and I-014-10…I-014-12
-- [ADR-025: Chat-Invoked Workflow Start and Start Authorization](../decisions/025-chat-invoked-workflow-start.md) — the chat-start and start-authorization decision governing T5.7 / T5.8 / T5.9 and I-014-13…I-014-14
+- [ADR-024: Visual Node-Graph Workflow Authoring](../decisions/024-visual-node-graph-workflow-authoring.md) — the node-graph authoring decision behind T1.7 / T5.4 / T5.5 / T5.6 and I-014-10…I-014-12
+- [ADR-025: Chat-Invoked Workflow Start and Start Authorization](../decisions/025-chat-invoked-workflow-start.md) — the chat-start and start-authorization decision behind T5.7 / T5.8 / T5.9 and I-014-13…I-014-14
 - [ADR-036: Workflow Secrets in the OS Keychain](../decisions/036-workflow-secrets-in-the-os-keychain.md) — the keychain custody T1.11 builds and T2.2 resolves from (I-014-4)
 - [Workflow Tables (Plan-014)](./schemas/local-sqlite-workflow-tables.md) — the workflow schema and write-amplification estimates
 - [Plan-004: Session Event Taxonomy and Audit Log](../plans/004-session-event-taxonomy-and-audit-log.md) — event taxonomy

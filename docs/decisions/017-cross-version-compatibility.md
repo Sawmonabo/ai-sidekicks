@@ -17,7 +17,7 @@ The wire format the service writes and its clients read is the `EventEnvelope`, 
 
 Additionally, the event log is append-only. Any version-evolution story must preserve that immutability: we cannot rewrite the log on upgrade.
 
-It is Type 2 because the wire format is a one-way door: once an envelope version is emitted into a production audit log, it is there forever. The cost of a bad decision scales with the installed base.
+It is Type 2 because once an envelope version is emitted into a production audit log, it is there forever. The cost of a bad decision scales with the installed base.
 
 ## Problem Statement
 
@@ -125,7 +125,7 @@ Pin-at-session assumes every client updates in the same step as the service, and
 
 ## Reversibility Assessment
 
-- **Reversal cost:** HIGH. The wire format is a one-way door. Once MAJOR version N is in the field (emitted to any production audit log), it exists forever — there is no "un-ship" path. Changing the semver/integer decision or the stub-persistence rule after the first release would break every envelope already written.
+- **Reversal cost:** HIGH. Once MAJOR version N is in the field (emitted to any production audit log), it exists forever — there is no "un-ship" path. Changing the semver/integer decision or the stub-persistence rule after the first release would break every envelope already written.
 - **Blast radius:** Every envelope ever written on every machine. Every local SQLite audit log.
 - **Migration path:** None. An envelope keeps the version it was written with and is never rewritten; a breaking change is a MAJOR bump whose release still reads the previous version's envelopes (item 7), and a service rolled back to the previous version keeps a newer one's events as stubs (item 5).
 - **Point of no return:** First `EventEnvelope` emitted with `version = "1.0"` in a non-test environment. Realistically this happens the first time any production daemon starts and emits `session.created`.

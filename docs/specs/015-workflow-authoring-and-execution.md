@@ -41,11 +41,11 @@ This spec covers:
 - Declarative node authoring for HTTP-shaped kinds — a second authoring style other workflow tools offer, where a node declares its requests and operations as data, with `routing`, `requestDefaults` and `requestOperations`, rather than executing them. One imperative executor per kind is enough.
 - A second spelling of anything the expression surface already has: no legacy node-indexed or item-indexed lookups, no second query language beside the expression language of §Expressions, no `continueOnFail` beside `onError`, and no second execution order. One spelling of each.
 - The SQL-query merge mode, and an expression-extension library that adds methods to built-in types.
-- Pixel-level UI design for the workflow editor. V1 ships the visual builder surface specified in §Visual Workflow Builder — its node taxonomy, port and connection rules, refusal set, layout tier and its one library are normative here; type scale, color, spacing and motion are the console's own design-token surface and are not fixed in this spec.
+- Pixel-level UI design for the workflow editor. V1 ships the visual builder surface specified in §Visual Workflow Builder — its node taxonomy, port and connection rules, refusal set, layout tier and its one library are specified here; type scale, color, spacing and motion are the console's own design-token surface and are not fixed in this spec.
 - A default `Timeout` on a step that waits on a person, and any reminder after the first. The kinds that wait on a person carry a `Timeout` that is empty by default, meaning the step waits until it is answered (§Human steps — `HumanStepConfig` (SA-10, SA-11, SA-12)). The start of the wait is its one escalation: `Waiting on you` is posted once and never again while the step waits, because the bell keeps counting it on every device until it is answered.
 - **A durable cross-run delivery substrate.** One spent provider account is heard about once, through the fold of §Provider-limit pacing and durable resumption (SA-37), which groups the runs waiting on one spent provider account into one entry keyed by its `providerAccountId`; every waiting run stays individually visible and individually resumable (§Park integrity and cancelability (SA-39)). No claim, delivery record or attention state is carried from one run to the next. The only values one run leaves the next are the ones a `Set variables` step keeps with `Keep for later runs` ([Workflow Graph Model §Node-Kind Taxonomy](../domain/workflow-graph-model.md#node-kind-taxonomy)).
 - An OpenTelemetry exporter. A run's page, its step panel and the event record are its whole trace; no run is sent to an OpenTelemetry collector or any other exporter.
-- Execution-model enum (`local | queued | remote`) — C-11 commitment is local-only at V1 (Airflow executors' precedent, among others: every system that enumerated execution models at V1 had to break-remove entries later).
+- Execution-model enum (`local | queued | remote`) — C-11: execution is local-only at V1 (Airflow executors' precedent, among others: every system that enumerated execution models at V1 had to break-remove entries later).
 
 ## Domain Dependencies
 
@@ -78,7 +78,7 @@ This spec rests on ADR-014, ADR-002 and ADR-017 (§References); its plan also re
 ### Authoring + versioning
 
 - Workflows must be authored as one explicit node document with stable node ids and versioned structure.
-- Workflow authoring format: that document plus a typed TypeScript SDK. **No bespoke DSL** (no CUE, no HCL, no custom expression language) — C-1 commitment. DSL lock-in cost is precedent-heavy: Dagger maintained its CUE SDK as primary authoring language from Jan 2022 (v0.1.0) through Dec 2023, then ended CUE SDK support after a year of dual-maintenance against multi-language SDKs, citing that "engineers...want to write code in a language they already know. Learning a brand new language, however powerful, is simply not what they're looking for" ([Dagger — Ending Support for the Dagger CUE SDK, 2023](https://dagger.io/blog/ending-cue-support/); [Solomon Hykes on Changelog #550, 2023](https://changelog.com/podcast/550)); GitHub Actions migrated off HCL to YAML under breaking-change pressure ([GitHub Actions HCL→YAML deprecation, 2019](https://github.blog/changelog/2019-09-17-github-actions-will-stop-running-workflows-written-in-hcl/)).
+- Workflow authoring format: that document plus a typed TypeScript SDK. **No bespoke DSL** (C-1: no CUE, no HCL, no custom expression language). DSL lock-in cost is precedent-heavy: Dagger maintained its CUE SDK as primary authoring language from Jan 2022 (v0.1.0) through Dec 2023, then ended CUE SDK support after a year of dual-maintenance against multi-language SDKs, citing that "engineers...want to write code in a language they already know. Learning a brand new language, however powerful, is simply not what they're looking for" ([Dagger — Ending Support for the Dagger CUE SDK, 2023](https://dagger.io/blog/ending-cue-support/); [Solomon Hykes on Changelog #550, 2023](https://changelog.com/podcast/550)); GitHub Actions migrated off HCL to YAML under breaking-change pressure ([GitHub Actions HCL→YAML deprecation, 2019](https://github.blog/changelog/2019-09-17-github-actions-will-stop-running-workflows-written-in-hcl/)).
 - Workflow definition files must carry an explicit schema version marker — the document's own `schemaVersion` field, whose V1 value is `2` (SA-14 / C-8 — Temporal's Version Sets → Build IDs retrofit is the precedent cost avoided here).
 - Workflow definitions must be stored as first-class durable definition and version records. Artifact publication may represent workflow exports or summaries, but it must not be the canonical source of workflow definition truth.
 - `WorkflowDefinitionCreate` must run a DFS three-color cycle check against the node graph and reject invalid definitions with a typed error. The graph the check runs over is the one the document declares — its edge list, each entry naming a source node and handle and a target node and handle ([Workflow Graph Model §Graph model — nodes, ports, and edges (SA-29)](../domain/workflow-graph-model.md#graph-model--nodes-ports-and-edges-sa-29)) — and it walks the `main` edges only. It exempts exactly one shape: an edge whose target is a loop node's own input, because closing a loop body is the loop rather than a cycle.
@@ -875,13 +875,13 @@ None.
 
 ## References
 
-### Governing docs
+### Decisions
 
 - [ADR-014 — V1 Feature Scope Definition](../decisions/014-v1-feature-scope-definition.md)
 - [ADR-002 — Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
 - [ADR-017 — Cross-Version Compatibility](../decisions/017-cross-version-compatibility.md)
-- [ADR-024 — Visual Node-Graph Workflow Authoring](../decisions/024-visual-node-graph-workflow-authoring.md) (governs §Visual Workflow Builder)
-- [ADR-025 — Chat-Invoked Workflow Start and Start Authorization](../decisions/025-chat-invoked-workflow-start.md) (governs §Chat-Invoked Start and Start Authorization)
+- [ADR-024 — Visual Node-Graph Workflow Authoring](../decisions/024-visual-node-graph-workflow-authoring.md) (behind §Visual Workflow Builder)
+- [ADR-025 — Chat-Invoked Workflow Start and Start Authorization](../decisions/025-chat-invoked-workflow-start.md) (behind §Chat-Invoked Start and Start Authorization)
 
 ### Related specs
 

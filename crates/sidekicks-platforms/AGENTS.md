@@ -1,6 +1,6 @@
 # crates/sidekicks-platforms — operating-system rules
 
-Binding for every change under `crates/sidekicks-platforms/`, where all operating-system code lives, on top of the [root `AGENTS.md`](../../AGENTS.md) and [`crates/AGENTS.md`](../AGENTS.md), which this file never restates.
+Applies to every change under `crates/sidekicks-platforms/`, where all operating-system code lives, on top of the [root `AGENTS.md`](../../AGENTS.md) and [`crates/AGENTS.md`](../AGENTS.md), which this file never restates.
 
 ## Spawning a child
 

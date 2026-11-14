@@ -62,7 +62,7 @@ This plan covers OS-local IPC transport, version negotiation, daemon lifecycle c
 
 ## Invariants
 
-The following invariants are **load-bearing** and MUST be preserved across all Plan-005 PRs and downstream extensions. They are restated here at top level so that consumers of Plan-005's substrate (Plan-001 Phase 5, the `presence.*` handlers, Plan-005-remainder namespace handlers) can find them without reading the §Secure Defaults table first.
+Plan-005's code and the code built on it keep the following invariants. They are restated here at top level so that consumers of Plan-005's substrate (Plan-001 Phase 5, the `presence.*` handlers, Plan-005-remainder namespace handlers) can find them without reading the §Secure Defaults table first.
 
 ### I-005-1 — Load-before-bind
 
@@ -261,7 +261,7 @@ Two further substrate rules ride this same obligation. **(a) The request-id boun
 
 ### CP-005-9 — The calling connection's device on `HandlerContext`, owed to every namespace that records a write's device
 
-Phase 2B (T-005p-2B-1) widens `HandlerContext` with the calling connection's device and has the gateway stamp it at dispatch, per I-005-19. The contract surface is (a) the additive optional member on the `HandlerContext` struct in `crates/sidekicks-ipc/src/registry.rs` — additive per that interface's own stated evolution commitment, so no existing handler or test changes; and (b) the gateway-side resolution from the transport that carried the request, never from a request body.
+Phase 2B (T-005p-2B-1) widens `HandlerContext` with the calling connection's device and has the gateway stamp it at dispatch, per I-005-19. The contract surface is (a) the additive optional member on the `HandlerContext` struct in `crates/sidekicks-ipc/src/registry.rs` — additive, as that interface's own evolution rule allows, so no existing handler or test changes; and (b) the gateway-side resolution from the transport that carried the request, never from a request body.
 
 **Why bidirectional.** Every plan whose writes record the device they came from (an approval's answering device among them, which `Answered on <device>` reads) reads this member rather than resolving the device itself. A consuming plan may register its own reciprocal later without this obligation changing, the asymmetry CP-005-7 already records.
 

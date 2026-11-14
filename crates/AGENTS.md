@@ -1,6 +1,6 @@
 # crates/ — Rust rules
 
-Binding for every change under `crates/`, on top of the [root `AGENTS.md`](../AGENTS.md), which this file never restates. It adds only what Rust needs. [`sidekicks-contracts`](sidekicks-contracts/AGENTS.md), [`sidekicks-platforms`](sidekicks-platforms/AGENTS.md), [`sidekicks-cli`](sidekicks-cli/AGENTS.md) and [`sidekicks-control-plane`](sidekicks-control-plane/AGENTS.md) each add an `AGENTS.md` of their own for the rules that bind that crate alone; read it with this one when you touch that crate.
+Applies to every change under `crates/`, on top of the [root `AGENTS.md`](../AGENTS.md), which this file never restates. It adds only what Rust needs. [`sidekicks-contracts`](sidekicks-contracts/AGENTS.md), [`sidekicks-platforms`](sidekicks-platforms/AGENTS.md), [`sidekicks-cli`](sidekicks-cli/AGENTS.md) and [`sidekicks-control-plane`](sidekicks-control-plane/AGENTS.md) each add an `AGENTS.md` of their own for the rules of that crate alone; read it with this one when you touch that crate.
 
 ## Layout and names
 

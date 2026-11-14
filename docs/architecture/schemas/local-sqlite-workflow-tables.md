@@ -13,7 +13,7 @@ The normalized-table-over-blob shape and the rebuildable-projection split align 
 -- 1. workflow_definitions — one row per workflow: its current document and its settings outside the hash
 -- ========================================================================
 -- Owner: Plan-014
--- Commitments: C-1 (one document plus a typed TypeScript SDK), C-8 (schema version marker)
+-- Rules: C-1 (one document plus a typed TypeScript SDK), C-8 (schema version marker)
 CREATE TABLE workflow_definitions (
   id                   TEXT PRIMARY KEY,               -- UUID v7; NOT the content hash
   name                 TEXT NOT NULL,                  -- author-facing name, in the person's own casing
@@ -80,7 +80,7 @@ CREATE INDEX idx_workflow_definitions_content_hash ON workflow_definitions(conte
 -- 2. workflow_versions — definition history chain (F13 additive versioning)
 -- ========================================================================
 -- Owner: Plan-014
--- Commitments: F13 / C-8 version-API-at-V1; see Spec-015 §Required Behavior
+-- Rules: F13 / C-8 version-API-at-V1; see Spec-015 §Required Behavior
 CREATE TABLE workflow_versions (
   id                   TEXT PRIMARY KEY,               -- UUID v7
   definition_id        TEXT NOT NULL REFERENCES workflow_definitions(id),
@@ -167,7 +167,7 @@ CREATE INDEX idx_workflow_runs_unfinished ON workflow_runs(started_at)
 -- 4. workflow_gate_resolutions — append-only per C-13 / I5
 -- ========================================================================
 -- Owner: Plan-014
--- Commitment: C-13 append-only approval history; the invariant
+-- Rule: C-13 append-only approval history; the invariant
 -- is I5 in Spec-015 §Pitfalls To Avoid.
 CREATE TABLE workflow_gate_resolutions (
   id                         TEXT PRIMARY KEY,          -- UUID v7

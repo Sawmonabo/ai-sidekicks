@@ -62,7 +62,7 @@ The product MUST implement all ten rows below. Each row has a default that is ac
 | 8 | **TLS 1.3 minimum** | All TLS surfaces (Caddy front, any WebSocket Secure) MUST negotiate TLS 1.3 only. The relay's native program builds every TLS surface it serves with rustls at TLS 1.3 alone (`ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])`), TLS 1.2 added only under `--legacy-tls12`. On Caddy, `tls { protocols tls1.3 }`. TLS ≤ 1.1 MUST be rejected outright (RFC 8996). | `--legacy-tls12` or `LEGACY_TLS12=1` permits 1.2, shown as the start banner's `WARNING:` line. | TLS 1.2 is not formally deprecated by IETF — only ≤1.1 is, by RFC 8996 — and NIST SP 800-52 Rev 2 permits it. But >92% cross-browser support for 1.3 is present, rustls and Caddy both support 1.3-only, and refusing 1.2 by default closes the downgrade-attack surface without breaking any V1-supported client. | Plan-025 (self-host deployment phase) |
 | 9 | **Loud first-run banner** | On every relay process start, a single-screen banner MUST be printed to stdout listing: (a) TLS mode + fingerprint (SPKI-SHA256 and whole-cert hash) if self-signed/internal-CA; (b) all effective bind addresses; (c) every active override. This spec owns the banner's content and its format: plain text, one `<label>: <value>` line per item (Example 1), each active override on its own line beginning `WARNING:`, no longer than one screen. | N/A — the banner is always on. Environments that must suppress banner output for log-formatting reasons MAY set `BANNER_FORMAT=json` to emit the same payload as a single JSON line. | A person who runs `docker compose up` on a borrowed laptop without ever reading docs must still be told what security posture they got. Caddy and Syncthing establish this as a standard pattern for self-host OSS. | Plan-025 (self-host deployment phase: the relay's banner) |
 
-The ten rows are grouped for authoring convenience only; each row is independently normative. Nothing in this spec implies that a product missing one row but shipping the other nine is compliant — all ten MUST ship in V1.
+The ten rows are grouped for reading only; each row is a requirement on its own. Nothing in this spec implies that a product missing one row but shipping the other nine is compliant — all ten MUST ship in V1.
 
 ## Default Behavior
 
@@ -102,7 +102,7 @@ Spec-013 says how a backup runs; this spec states the defaults. The chosen folde
 
 ## Interfaces And Contracts
 
-The following interfaces are normative for this spec:
+This spec defines the following interfaces:
 
 - **Self-signed / internal-CA fingerprint format** (row 1 + row 9):
   - RFC 7469 SPKI-SHA256, base64-encoded. Extraction command: `openssl x509 -in cert.pem -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl base64`.
@@ -139,7 +139,7 @@ The following interfaces are normative for this spec:
 
 ## Implementation Notes
 
-These are non-normative planning hints; they do not add or weaken requirements.
+These are planning hints; they add no requirement and weaken none.
 
 - **ACME client (row 1)**: Caddy is the ACME client. Its automatic HTTPS has renewed on RFC 9773 ARI windows since Caddy 2.8.0 ([release notes](https://github.com/caddyserver/caddy/releases/tag/v2.8.0)), so the relay carries no ACME client of its own and needs no ACME library for row 1.
 - **Let's Encrypt 45-day certificates** (row 1): Let's Encrypt's published schedule ([From 90 to 45](https://letsencrypt.org/2025/12/02/from-90-to-45)) gives the opt-in `tlsserver` profile 45-day certs from 2026-05-13, and moves the default `classic` profile to 64-day certs on 2027-02-10 and to 45-day certs on 2028-02-16. ARI-driven renewal logic handles 90-, 64- and 45-day certificates alike without code changes. The companion doc notes the shorter lifetimes so the person is not surprised by them.

@@ -35,7 +35,7 @@ Deliver the machine-local provider-account plane: a registry of provider account
 
 ## Invariants
 
-The following invariants are **load-bearing** and MUST be preserved across all Plan-023 PRs and downstream extensions.
+Plan-023's code and the code built on it keep the following invariants.
 
 ### I-023-1 — Account identity is opaque, immutable, and never derived from credential material
 

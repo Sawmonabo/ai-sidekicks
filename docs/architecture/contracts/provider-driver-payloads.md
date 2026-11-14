@@ -652,7 +652,7 @@ interface InterruptPayload {
 
 interface ApplyInterventionResponse {
   // the complete driver-level vocabulary — `rejected` / `expired` are orchestration-layer verdicts
-  // rendered around driver dispatch, never driver-returned (Spec-004 §Required Behavior; normative
+  // rendered around driver dispatch, never driver-returned (Spec-004 §Required Behavior; the
   // mapping in queue-and-intervention-model.md §Driver Result To Lifecycle Mapping)
   status: "applied" | "degraded";
   // names the fallback the orchestration layer took, present only on `degraded`

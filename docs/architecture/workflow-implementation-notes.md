@@ -5,7 +5,7 @@ The implementation notes of [Spec-015: Workflow Authoring And Execution](../spec
 - Workflow authoring belongs in the product surface, but workflow execution still uses the same run, approval, and artifact primitives as free-form sessions.
 - Version immutability simplifies rebuilds and support.
 - Parallel steps come only from branches the graph draws, admitted by the memory gate — no implicit concurrency.
-- Persistence uses a LangGraph-inspired checkpoint pattern on the existing SQLite store (Spec-013), with the normalized-tables-over-JSON-blob decision documented in State And Data Implications. No external workflow engines (Temporal, Restate) — contradicts ADR-002 (local execution).
+- Persistence uses a LangGraph-inspired checkpoint pattern on the existing SQLite store (Spec-013), with the normalized-tables-over-JSON-blob decision documented in State And Data Implications. No external workflow engines (Temporal, Restate): a workflow runs on the user's own machine, inside its daemon, as all of a session's code does.
 - One execution model at V1 per C-11: local daemon runs workflows locally. Do not ship a `local | queued | remote` enum at V1.
 
 **The kinds that run an agent or ask a person compile down at run time, not at save time**, which is what keeps the document node-shaped end to end. Their executors reimplement nothing:

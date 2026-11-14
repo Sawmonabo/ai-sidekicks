@@ -45,7 +45,7 @@ If you are auditing or triaging a self-host deployment and want a single pass:
 
 ## Related Specs
 
-- [Spec-023 — Self-Host Secure Defaults](../specs/023-self-host-secure-defaults.md) — the normative spec for this doc.
+- [Spec-023 — Self-Host Secure Defaults](../specs/023-self-host-secure-defaults.md) — the spec this doc puts into practice.
 - [Spec-006 — Local IPC and Daemon Control](../specs/006-local-ipc-and-daemon-control.md) — daemon lifecycle.
 - [Spec-021 — Desktop App and Renderer](../specs/021-desktop-app-and-renderer.md) — secret custody internals: the credential store row 3 references.
 

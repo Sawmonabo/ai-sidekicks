@@ -194,7 +194,7 @@ Editing a schedule writes a new version and re-arms the trigger only after a suc
 
 ## Definition file form — export and import (C-17)
 
-A workflow definition has one canonical file form, and it is the file the authoring commitment already names, carrying the schema-version marker the versioning commitment already requires. **No second schema dialect exists**: the file is the definition, and its canonical bytes are the JCS-canonicalized JSON of the parsed document — which is precisely the existing hash preimage, so a definition's content hash is identical whether it arrived through the builder, the SDK, or a file.
+A workflow definition has one canonical file form, and it is the file the authoring rule (C-1) already names, carrying the schema-version marker the versioning rule (C-8) already requires. **No second schema dialect exists**: the file is the definition, and its canonical bytes are the JCS-canonicalized JSON of the parsed document — which is precisely the existing hash preimage, so a definition's content hash is identical whether it arrived through the builder, the SDK, or a file.
 
 The document has exactly two top-level parts:
 

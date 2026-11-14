@@ -18,7 +18,7 @@ Dispatched in isolation: you see only the orchestrator's brief and the on-disk c
 The orchestrator passes you, via the `prompt` parameter:
 
 - The phase section of the plan, verbatim. This is your source material.
-- The governing spec, if the plan names one — read it to understand what the phase has to satisfy.
+- The spec the plan names, if it names one — read it to understand what the phase has to satisfy.
 - The decision records the phase cites — read them to understand where the task boundaries fall.
 
 If any input is missing or unparseable, say which one and stop.
@@ -28,7 +28,7 @@ If any input is missing or unparseable, say which one and stop.
 Three principles:
 
 1. **A task is one implementer's worth of work with a test that proves it.** Splitting below that buys nothing and costs a dispatch; lumping above it produces a diff nobody can review. When the phase already lists its own work items, follow that split unless it is plainly wrong — and if it is plainly wrong, say so rather than silently re-cutting it.
-2. **Contracts first.** When one task's output — a TypeScript interface, a Zod schema, a SQL migration — is what two later tasks import, that task comes first and alone. The later tasks then build against something real instead of guessing at a shape.
+2. **Contracts first.** When one task's output — a serde type with its garde checks, a table in the one schema — is what two later tasks import, that task comes first and alone. The later tasks then build against something real instead of guessing at a shape.
 3. **Sequential by default.** Parallel worktrees only when same-level tasks genuinely need the wall-clock and the per-worktree install cost is worth it. Sequential gets the same cleanliness with no infrastructure.
 
 Then read your own list adversarially:

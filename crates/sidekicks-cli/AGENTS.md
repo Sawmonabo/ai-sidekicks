@@ -1,6 +1,6 @@
 # crates/sidekicks-cli — command-line rules
 
-Binding for every change under `crates/sidekicks-cli/`, the `sidekicks` command line, on top of the [root `AGENTS.md`](../../AGENTS.md) and [`crates/AGENTS.md`](../AGENTS.md), which this file never restates.
+Applies to every change under `crates/sidekicks-cli/`, the `sidekicks` command line, on top of the [root `AGENTS.md`](../../AGENTS.md) and [`crates/AGENTS.md`](../AGENTS.md), which this file never restates.
 
 ## Exit codes and output
 

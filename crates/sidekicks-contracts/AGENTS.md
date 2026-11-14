@@ -1,6 +1,6 @@
 # crates/sidekicks-contracts — wire contract rules
 
-Binding for every change under `crates/sidekicks-contracts/`, the wire's one source, on top of the [root `AGENTS.md`](../../AGENTS.md) and [`crates/AGENTS.md`](../AGENTS.md), which this file never restates.
+Applies to every change under `crates/sidekicks-contracts/`, the wire's one source, on top of the [root `AGENTS.md`](../../AGENTS.md) and [`crates/AGENTS.md`](../AGENTS.md), which this file never restates.
 
 ## Wire contracts (`sidekicks-contracts`)
 
