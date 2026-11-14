@@ -11,7 +11,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{PathRules, resolve_path_against};
 
 use crate::driver::claude::delivery::file_tool_writes::ClaudeFileTool;
-use crate::driver::claude::delivery::patches::select_claude_edit_path;
 use crate::driver::claude::hooks::callbacks::answer_claude_request;
 use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -19,9 +18,9 @@ use crate::port::edit_checkpoint::{EditCheckpoint, EditCheckpointRequest};
 use crate::record_readers::filter_non_empty;
 
 /// The edit a pre-tool hook's call of `tool_name` makes, by the call `tool_use_id`: `None` for a
-/// tool that changes no file. The file is `file_path`, else `notebook_path`; a relative one is
-/// joined onto the hook's `cwd`. A call whose file cannot be named absolutely is logged and gets
-/// `None`, since that edit runs with no copy.
+/// tool that changes no file. The file is a notebook's own `notebook_path`, any other tool's
+/// `file_path`; a relative one is joined onto the hook's `cwd`. A call whose file cannot be named
+/// absolutely is logged and gets `None`, since that edit runs with no copy.
 pub(super) fn read_claude_edit(
     session_id: &SessionId,
     tool_name: &str,
@@ -30,8 +29,7 @@ pub(super) fn read_claude_edit(
     cwd: Option<&str>,
     tool_use_id: Option<&str>,
 ) -> Option<EditCheckpointRequest> {
-    ClaudeFileTool::of(tool_name)?;
-    let Some(path) = select_claude_edit_path(file_path, notebook_path) else {
+    let Some(path) = ClaudeFileTool::of(tool_name)?.select_path(file_path, notebook_path) else {
         tracing::warn!(
             %session_id,
             tool_name,

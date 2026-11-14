@@ -26,6 +26,7 @@ use crate::port::file_tool_write::{
     FileToolWriteClaim, FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort,
     FileToolWriteSettled,
 };
+use crate::record_readers::filter_non_empty;
 
 /// A Claude Code tool that writes one file and says in its result what the file then holds, and
 /// whose result is read for that file's patch.
@@ -50,16 +51,26 @@ impl ClaudeFileTool {
         }
     }
 
-    // The file the call's input names: a notebook's own path, any other tool's `file_path`. The
-    // input is untrusted provider output; every other member, a written file's text among them,
-    // is skipped unread.
+    /// The file a call of this tool names, from its input's `file_path` and `notebook_path`: a
+    /// notebook's own `notebook_path`, any other tool's `file_path`, only when it has at least one
+    /// character.
+    pub(crate) fn select_path<'path>(
+        self,
+        file_path: Option<&'path str>,
+        notebook_path: Option<&'path str>,
+    ) -> Option<&'path str> {
+        filter_non_empty(match self {
+            Self::Write | Self::Edit => file_path,
+            Self::NotebookEdit => notebook_path,
+        })
+    }
+
+    // The file the call's raw input names. The input is untrusted provider output; every other
+    // member, a written file's text among them, is skipped unread.
     fn read_path(self, input: &RawValue) -> Option<PathBuf> {
         let input = serde_json::from_str::<ClaudeFileToolInput>(input.get()).ok()?;
-        let path = match self {
-            Self::Write | Self::Edit => input.file_path,
-            Self::NotebookEdit => input.notebook_path,
-        }?;
-        (!path.is_empty()).then(|| PathBuf::from(path))
+        self.select_path(input.file_path.as_deref(), input.notebook_path.as_deref())
+            .map(PathBuf::from)
     }
 
     // What the call's lone, unfailed result says it left, `None` for a shape none of these reads.
