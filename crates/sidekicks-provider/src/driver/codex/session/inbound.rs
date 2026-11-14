@@ -10,7 +10,6 @@
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -266,12 +265,24 @@ pub(crate) enum CodexSessionCall {
         /// recorded none for the message.
         reply: oneshot::Sender<CodexMessageTurn>,
     },
-    /// Records the turns of the person's messages a conversation's history listed.
-    RecordMessageTurns {
+    /// Records the turn of one of the person's messages a conversation's history listed.
+    RecordMessageTurn {
         /// The conversation the history was read on.
         thread_id: String,
-        /// Each message's turn, by the message's id.
-        turn_id_by_client_message_id: HashMap<String, String>,
+        /// The message's id.
+        message_id: String,
+        /// The turn Codex listed holding it.
+        turn_id: String,
+    },
+    /// Brings the record to a cut before one of the person's messages that Codex already made,
+    /// as a landed `RevertBefore` leaves it.
+    AdoptCut {
+        /// The conversation the turns were listed on.
+        thread_id: String,
+        /// Every turn Codex lists, oldest first.
+        listed_turn_ids: Vec<String>,
+        /// The message the cut took.
+        message_id: String,
     },
     /// Forks the conversation to just before a retried turn on the faster model, once the caller
     /// claimed the slot.

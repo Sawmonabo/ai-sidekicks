@@ -274,11 +274,13 @@ CREATE TABLE session_restores (
 ) STRICT;
 
 -- An undo's conversation cut, recorded once the cut applied, so a retry under the same key never
--- cuts again and finishes the files to the checkpoint the cut read.
+-- cuts again, finishes the files to the checkpoint the cut read and sends the resend the cut was
+-- made for.
 CREATE TABLE session_restore_cuts (
   session_id              TEXT NOT NULL,
   client_idempotency_key  TEXT NOT NULL,
   checkpoint_id           TEXT NOT NULL,        -- the checkpoint the undo's files go back to
+  resend                  TEXT,                 -- JSON: the message the undo resends
   files_outcome           TEXT,                 -- JSON: what the files' put-back did, once it ended
   created_at              TEXT NOT NULL,
   PRIMARY KEY (session_id, client_idempotency_key)

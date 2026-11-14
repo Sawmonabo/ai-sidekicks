@@ -13,6 +13,7 @@ use serde::Deserialize;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -193,19 +194,7 @@ impl ClaudeConversationCuts {
         reviewer_denials: &PortRegistration<Arc<dyn ReviewerDenialPort>>,
     ) -> Result<RewindConversationResult, DriverError> {
         let session_id = live.session_id;
-        // A run whose end the settle already delivered takes no second end from the cut.
-        let mut settled_run = None;
-        if let Some(lead) = self.routes.lead_run_on(session_id)
-            && settle_claude_choice(
-                &self.dialogs,
-                live,
-                lead.run_id,
-                ClaudeChoiceSettling::Interrupt,
-            )
-            .await?
-        {
-            settled_run = Some(lead.run_id);
-        }
+        let settled_run = self.settle_lead_choice(live).await?;
         let stream = self.streams.get(session_id);
         let stream = stream.as_deref();
         // Taken before the first send, so a turn released while it goes still wakes the wait.
@@ -242,6 +231,81 @@ impl ClaudeConversationCuts {
             ClaudeCutAnswer::Applied { cut_message_text } => cut_message_text,
             ClaudeCutAnswer::Refused(refusal) => return Ok(refusal.into_degraded()),
         };
+        self.settle_landed_cut(live, stream, held_lead, reviewer_denials)
+            .await;
+        Ok(RewindConversationResult::Applied {
+            fork: None,
+            cut_message_text,
+        })
+    }
+
+    /// Brings the session to a cut before one of the person's messages that Claude Code already
+    /// made, as a landed [`Self::rewind`] leaves it, asking Claude Code for nothing: a choice the
+    /// running turn is held on is settled as an interrupt's is, the run holding the turn ends
+    /// interrupted, its open turn ended, and every run's binding goes, the held `Allow once`
+    /// presses of every binding the process served let go through `reviewer_denials`. Fails as
+    /// the settle fails.
+    pub(crate) async fn adopt(
+        &self,
+        live: &LiveClaudeSession,
+        reviewer_denials: &PortRegistration<Arc<dyn ReviewerDenialPort>>,
+    ) -> Result<(), DriverError> {
+        let settled_run = self.settle_lead_choice(live).await?;
+        let stream = self.streams.get(live.session_id);
+        let stream = stream.as_deref();
+        let held_lead = self.hold_lead_turn_end(live.session_id, stream, settled_run);
+        self.settle_landed_cut(live, stream, held_lead, reviewer_denials)
+            .await;
+        Ok(())
+    }
+
+    // Settles a choice the lead's running turn is held on as an interrupt's is, and answers the
+    // lead when it did, since the settle delivered its end and the cut gives it no second one.
+    async fn settle_lead_choice(
+        &self,
+        live: &LiveClaudeSession,
+    ) -> Result<Option<RunId>, DriverError> {
+        let Some(lead) = self.routes.lead_run_on(live.session_id) else {
+            return Ok(None);
+        };
+        let is_settled = settle_claude_choice(
+            &self.dialogs,
+            live,
+            lead.run_id,
+            ClaudeChoiceSettling::Interrupt,
+        )
+        .await?;
+        Ok(is_settled.then_some(lead.run_id))
+    }
+
+    // Holds for the daemon's end a turn end the lead sends from now, unless the settle already
+    // ended it, and answers the lead held.
+    fn hold_lead_turn_end(
+        &self,
+        session_id: SessionId,
+        stream: Option<&ClaudeSessionStream>,
+        settled_run: Option<RunId>,
+    ) -> Option<ClaudeBoundRun> {
+        let stream = stream?;
+        let lead = self
+            .routes
+            .lead_run_on(session_id)
+            .filter(|lead| Some(lead.run_id) != settled_run)?;
+        stream.hold_turn_end_for_interrupt(lead.run_id);
+        Some(lead)
+    }
+
+    // What a landed cut leaves on the driver: the held lead ends interrupted, its open turn ended,
+    // before its binding goes, since no end can reach it after; every run's routes and the
+    // session's sent messages go, and so do the presses every binding the process served held.
+    async fn settle_landed_cut(
+        &self,
+        live: &LiveClaudeSession,
+        stream: Option<&ClaudeSessionStream>,
+        held_lead: Option<ClaudeBoundRun>,
+        reviewer_denials: &PortRegistration<Arc<dyn ReviewerDenialPort>>,
+    ) {
+        let session_id = live.session_id;
         if let (Some(stream), Some(lead)) = (stream, &held_lead) {
             let turn_end = stream
                 .take_open_turn_number(lead.run_id)
@@ -268,10 +332,6 @@ impl ClaudeConversationCuts {
         self.lock_prompts().forget_session(session_id);
         // Every run the process served is retired, so none still needs its presses.
         live.release_served_presses(reviewer_denials);
-        Ok(RewindConversationResult::Applied {
-            fork: None,
-            cut_message_text,
-        })
     }
 
     // Sends the cut back to before `target_message_id`, naming the newest message written as it
@@ -285,14 +345,7 @@ impl ClaudeConversationCuts {
         stream: Option<&ClaudeSessionStream>,
         settled_run: Option<RunId>,
     ) -> Result<(ClaudeCutAnswer, Option<ClaudeBoundRun>), ClaudeSessionError> {
-        let held_lead = stream.and_then(|stream| {
-            let lead = self
-                .routes
-                .lead_run_on(live.session_id)
-                .filter(|lead| Some(lead.run_id) != settled_run)?;
-            stream.hold_turn_end_for_interrupt(lead.run_id);
-            Some(lead)
-        });
+        let held_lead = self.hold_lead_turn_end(live.session_id, stream, settled_run);
         let newest = self
             .lock_prompts()
             .newest_for(live.session_id)

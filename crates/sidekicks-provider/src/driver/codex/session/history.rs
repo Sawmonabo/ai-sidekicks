@@ -1,14 +1,11 @@
-//! A conversation's turns, and the turn each of the person's messages started, read back from
+//! A conversation's turns, and the turn one of the person's messages started, read back from
 //! Codex page by page, since a resume asks only for the newest turn.
 
-use std::collections::HashMap;
-
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::value::RawValue;
 
 use crate::driver::codex::app_server_protocol::{
-    SortDirection, ThreadItemsListParams, ThreadResumeInitialTurnsPageParams,
-    ThreadTurnsListParams, TurnItemsView,
+    SortDirection, ThreadResumeInitialTurnsPageParams, ThreadTurnsListParams, TurnItemsView,
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
@@ -20,14 +17,6 @@ const CODEX_TURNS_PAGE_LIMIT: u32 = 100;
 const CODEX_NOT_MATERIALIZED_MESSAGE: &str = "is not materialized yet";
 
 const THREAD_TURNS_LIST_METHOD: &str = "thread/turns/list";
-
-const THREAD_ITEMS_LIST_METHOD: &str = "thread/items/list";
-
-/// The continuation a `thread/items/list` page names, sent back as it came: the daemon pages
-/// forward only, so it never sends Codex's item anchor.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(transparent)]
-pub(crate) struct CodexItemsCursor(pub(crate) String);
 
 /// One turn of a conversation as `thread/turns/list` lists it.
 #[derive(Debug)]
@@ -52,10 +41,10 @@ struct ListedTurnId {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ListedItemEntry {
-    turn_id: Option<String>,
-    item: Option<Box<RawValue>>,
+struct ListedTurnItems {
+    id: Option<String>,
+    #[serde(default)]
+    items: Vec<Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
@@ -64,6 +53,30 @@ struct ListedUserMessage {
     #[serde(rename = "type")]
     item_type: Option<String>,
     client_id: Option<String>,
+}
+
+/// The turn a search of a conversation's turns looks for.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum CodexSoughtTurn<'a> {
+    /// The turn with this id.
+    Turn(&'a str),
+    /// The turn holding the person's message with this id, which Codex keeps on the message's
+    /// item as the `clientId` its `turn/start` or `turn/steer` was sent with.
+    Message(&'a str),
+}
+
+/// What a search of a conversation's turns found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum CodexTurnListing {
+    /// Codex lists the turn sought, by its id.
+    Listed {
+        /// The turn's id.
+        turn_id: String,
+    },
+    /// No turn Codex lists is the one sought.
+    Unlisted,
+    /// The conversation no message has reached yet, which holds no turn.
+    Unmaterialized,
 }
 
 /// Every turn of `thread_id`, oldest first; a conversation no message has reached yet answers
@@ -77,7 +90,7 @@ pub(crate) async fn read_codex_turns(
     let mut cursor = None;
     loop {
         let Some(page) =
-            read_turns_page(connection, thread_id, cursor, CODEX_TURNS_PAGE_LIMIT).await?
+            read_turns_page(connection, thread_id, cursor, CODEX_TURNS_PAGE_LIMIT, None).await?
         else {
             return Ok(Vec::new());
         };
@@ -92,34 +105,56 @@ pub(crate) async fn read_codex_turns(
     Ok(newest_first)
 }
 
-/// Whether Codex still lists turn `turn_id` of `thread_id`, its turns read newest first and the
-/// paging stopped at the page that lists it. A conversation no message has reached yet answers
-/// listed, since it cannot tell. Fails as [`read_codex_turns`] does.
-pub(crate) async fn is_codex_turn_listed(
+/// Where `thread_id` lists the turn `sought` names, its turns read newest first and the paging
+/// stopped at the page that lists it; a message is found by its `clientId` among each turn's full
+/// items, which a turn's summary leaves out for a steered message. Fails as [`read_codex_turns`]
+/// does.
+pub(crate) async fn find_codex_turn(
     connection: &CodexAppServerConnection,
     thread_id: &str,
-    turn_id: &str,
-) -> Result<bool, CodexError> {
+    sought: CodexSoughtTurn<'_>,
+) -> Result<CodexTurnListing, CodexError> {
+    let items_view = || match sought {
+        CodexSoughtTurn::Turn(_) => TurnItemsView::NotLoaded,
+        CodexSoughtTurn::Message(_) => TurnItemsView::Full,
+    };
     let mut cursor = None;
     loop {
-        let Some(page) =
-            read_turns_page(connection, thread_id, cursor, CODEX_TURNS_PAGE_LIMIT).await?
+        let Some(page) = read_turns_page(
+            connection,
+            thread_id,
+            cursor,
+            CODEX_TURNS_PAGE_LIMIT,
+            Some(items_view()),
+        )
+        .await?
         else {
-            return Ok(true);
+            return Ok(CodexTurnListing::Unmaterialized);
         };
-        if page
-            .data
-            .into_iter()
-            .filter_map(read_listed_turn)
-            .any(|listed| listed.id == turn_id)
-        {
-            return Ok(true);
+        if let Some(turn_id) = page.data.iter().find_map(|turn| find_sought(turn, sought)) {
+            return Ok(CodexTurnListing::Listed { turn_id });
         }
         cursor = page.next_cursor.filter(|next| !next.is_empty());
         if cursor.is_none() {
-            return Ok(false);
+            return Ok(CodexTurnListing::Unlisted);
         }
     }
+}
+
+// The id of listed `turn` where it is the one `sought` names.
+fn find_sought(turn: &RawValue, sought: CodexSoughtTurn<'_>) -> Option<String> {
+    let listed = read_codex_object::<ListedTurnItems>(turn.get())?;
+    let turn_id = listed.id.filter(|id| !id.is_empty())?;
+    let is_sought = match sought {
+        CodexSoughtTurn::Turn(sought_id) => turn_id == sought_id,
+        CodexSoughtTurn::Message(message_id) => listed.items.iter().any(|item| {
+            read_codex_object::<ListedUserMessage>(item.get()).is_some_and(|message| {
+                message.item_type.as_deref() == Some("userMessage")
+                    && message.client_id.as_deref() == Some(message_id)
+            })
+        }),
+    };
+    is_sought.then_some(turn_id)
 }
 
 /// The newest turn of `thread_id`, `None` for a conversation no message has reached yet. Fails
@@ -128,23 +163,24 @@ pub(crate) async fn read_codex_newest_turn(
     connection: &CodexAppServerConnection,
     thread_id: &str,
 ) -> Result<Option<CodexListedTurn>, CodexError> {
-    let Some(page) = read_turns_page(connection, thread_id, None, 1).await? else {
+    let Some(page) = read_turns_page(connection, thread_id, None, 1, None).await? else {
         return Ok(None);
     };
     Ok(page.data.into_iter().find_map(read_listed_turn))
 }
 
-// One page of `thread_id`'s turns, newest first, from `cursor`; `None` for a conversation no
-// message has reached yet.
+// One page of `thread_id`'s turns, newest first, from `cursor`, each turn's items as `items_view`
+// asks, Codex's summary where it is `None`; `None` for a conversation no message has reached yet.
 async fn read_turns_page(
     connection: &CodexAppServerConnection,
     thread_id: &str,
     cursor: Option<String>,
     limit: u32,
+    items_view: Option<TurnItemsView>,
 ) -> Result<Option<CodexPage>, CodexError> {
     let params = ThreadTurnsListParams {
         cursor,
-        items_view: None,
+        items_view,
         limit: Some(limit),
         sort_direction: None,
         thread_id: thread_id.to_owned(),
@@ -193,58 +229,6 @@ pub(crate) fn read_codex_resumed_newest_turn(reply: &RawValue) -> Option<CodexLi
         .data
         .into_iter()
         .find_map(read_listed_turn)
-}
-
-/// The turn each of the person's messages started on `thread_id`, by the message's id, read from
-/// the conversation's items page by page; a message sent with no id is left out. Fails as the
-/// connection's request does, and with `CodexError::Transport` for a reply that is not a page.
-pub(crate) async fn read_codex_turn_id_by_client_message_id(
-    connection: &CodexAppServerConnection,
-    thread_id: &str,
-) -> Result<HashMap<String, String>, CodexError> {
-    let mut turn_id_by_client_message_id = HashMap::new();
-    let mut cursor = None;
-    loop {
-        let params = ThreadItemsListParams {
-            cursor,
-            limit: None,
-            sort_direction: None,
-            thread_id: thread_id.to_owned(),
-            turn_id: None,
-        };
-        let reply = connection
-            .request(THREAD_ITEMS_LIST_METHOD, &params)
-            .await?;
-        let page = read_page(THREAD_ITEMS_LIST_METHOD, &reply, "items")?;
-        for entry in page.data {
-            let Some(ListedItemEntry {
-                turn_id: Some(turn_id),
-                item: Some(item),
-            }) = read_codex_object::<ListedItemEntry>(entry.get())
-            else {
-                continue;
-            };
-            // A user message carries the id its `turn/start` was sent with as `clientId`.
-            let Some(ListedUserMessage {
-                item_type: Some(item_type),
-                client_id: Some(client_id),
-            }) = read_codex_object::<ListedUserMessage>(item.get())
-            else {
-                continue;
-            };
-            if item_type == "userMessage" && !turn_id.is_empty() && !client_id.is_empty() {
-                turn_id_by_client_message_id.insert(client_id, turn_id);
-            }
-        }
-        cursor = page
-            .next_cursor
-            .filter(|next| !next.is_empty())
-            .map(CodexItemsCursor);
-        if cursor.is_none() {
-            break;
-        }
-    }
-    Ok(turn_id_by_client_message_id)
 }
 
 // A reply read as a page, or the transport failure that names what it lacked.

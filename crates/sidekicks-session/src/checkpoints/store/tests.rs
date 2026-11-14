@@ -76,7 +76,7 @@ impl Fixture {
     }
 
     /// A checkpoint of the fixture's run before the prompt at `message_sequence`.
-    fn checkpoint(&self, message_sequence: u64) -> Checkpoint {
+    pub(crate) fn checkpoint(&self, message_sequence: u64) -> Checkpoint {
         Checkpoint {
             checkpoint_id: SnapshotId::new(mint_uuid_v7().to_string()).expect("a snapshot id"),
             session_id: self.session_id,
@@ -242,8 +242,12 @@ async fn an_undo_puts_back_the_earliest_version_after_the_point() {
 
     // A point inside the first prompt's turn, and a point just before the second prompt.
     for before_sequence in [3, 6] {
-        let versions = versions_after(&reader, fixture.session_id, sequence(before_sequence))
-            .expect("the versions read");
+        let versions = versions_after(
+            &reader,
+            fixture.session_id,
+            &fixture.checkpoint(before_sequence),
+        )
+        .expect("the versions read");
         assert_eq!(versions.len(), 1, "one version per path");
         assert_eq!(versions[0].checkpoint_id, second);
         assert_eq!(
@@ -289,8 +293,12 @@ async fn each_kind_of_version_comes_back_as_recorded() {
         .record_after(vec![insert_current_shadow_statement(&large)], 2, &versions)
         .await;
 
-    let read = versions_after(&fixture.database.reader(), fixture.session_id, sequence(0))
-        .expect("the versions read");
+    let read = versions_after(
+        &fixture.database.reader(),
+        fixture.session_id,
+        &fixture.checkpoint(0),
+    )
+    .expect("the versions read");
     let read: Vec<_> = read.into_iter().map(|stored| stored.version).collect();
     assert_eq!(read, versions);
 
@@ -666,7 +674,8 @@ async fn open_windows_and_failed_edits_read_what_they_name() {
         [(open_id, fixture.session_id)]
     );
     assert_eq!(
-        failed_edits(&reader, fixture.session_id, sequence(3)).expect("the failed edits read"),
+        failed_edits(&reader, fixture.session_id, &fixture.checkpoint(3))
+            .expect("the failed edits read"),
         [FailedEdit {
             path: test_path("/repo/late.txt"),
             tool_call_id: tool_call("call-late"),

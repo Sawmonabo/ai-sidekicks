@@ -148,12 +148,23 @@ pub trait ProviderDriver: Send + Sync {
 
     /// Reads from the provider's own record whether the bound conversation still holds the
     /// person's message `params.target_message_id` or already ends before it, so a retried undo
-    /// never cuts twice (gated on `rollback`). Answers `Held` wherever the record does not show
-    /// the message cut, a message it never recorded among them; fails as the read fails.
+    /// never cuts twice (gated on `rollback`). Answers `CutAway` only where the record shows the
+    /// message once held and no longer in the conversation, and `Held` wherever it cannot tell;
+    /// fails as the read fails.
     fn read_rewind_target(
         &self,
         params: RewindConversationParams,
     ) -> BoxFuture<'_, Result<RewindTargetPresence, DriverError>>;
+
+    /// Brings the driver's own record of the bound conversation to a cut before the person's
+    /// message `params.target_message_id` that the provider already made, as a landed
+    /// `rewind_conversation` leaves it, asking the provider for no cut (gated on `rollback`);
+    /// called once `read_rewind_target` answered `CutAway`, so the next act reads the conversation
+    /// as it is. Fails as a read of the provider's record fails.
+    fn adopt_conversation_rewind(
+        &self,
+        params: RewindConversationParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Answers one interactive request the driver raised on a run.
     fn respond_to_request(

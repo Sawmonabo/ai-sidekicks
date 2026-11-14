@@ -1,6 +1,6 @@
 //! The reads of the checkpoints no later undo cut away: one by the point a request names, a
-//! session's list, the one a turn's start wrote, the one before a queue item's sent prompt, and
-//! those of the runs an undo reaches from a point on.
+//! session's list, the one a turn's start wrote, the turns that reopened a prompt, the one before a
+//! queue item's sent prompt, and those of the runs an undo reaches from a point on.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -17,6 +17,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{SessionRestoreTarget, SnapshotId};
 use sidekicks_contracts::transcript::turn_attribution::{SupersededTurns, transcript_run_stamp_at};
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_store::database::stored_column::safe_int_column;
 
 use super::{Checkpoint, StoredCheckpoint, stored_checkpoint_of};
 use crate::run::superseded::{
@@ -38,6 +39,12 @@ const TURN_START_CHECKPOINT_SQL: &str = select_checkpoints!(
     "WHERE run_id = @runId AND turn_number = @turnNumber AND session_id = @sessionId
   ORDER BY position LIMIT 1"
 );
+
+// The turns of `@runId` whose start reopened the prompt the queue item `@openingId` sent, read on
+// the checkpoints' turn index.
+const REOPENING_TURNS_SQL: &str = "SELECT DISTINCT turn_number FROM session_checkpoints
+  WHERE run_id = @runId AND session_id = @sessionId AND turn_opening_id = @openingId
+  ORDER BY turn_number";
 
 // The checkpoint before the `user.message.sent` the queue item `@correlationId` was recorded as,
 // found through the correlation index.
@@ -217,6 +224,28 @@ pub fn turn_start_checkpoint(
             stored_checkpoint_of,
         )
         .optional()
+}
+
+/// The turns of `run_id` whose start reopened the prompt the queue item `opening_id` sent, as a
+/// retry turn's start does, oldest first. Fails as SQLite does, or when a stored turn number does
+/// not read.
+pub fn reopening_turn_numbers(
+    connection: &Connection,
+    session_id: SessionId,
+    run_id: RunId,
+    opening_id: QueueItemId,
+) -> rusqlite::Result<Vec<SafeInt<1>>> {
+    connection
+        .prepare_cached(REOPENING_TURNS_SQL)?
+        .query_map(
+            named_params! {
+                "@sessionId": session_id.text().as_str(),
+                "@runId": run_id.text().as_str(),
+                "@openingId": opening_id.to_string(),
+            },
+            |row| safe_int_column(row, 0),
+        )?
+        .collect()
 }
 
 /// The checkpoint before the prompt the queue item `queue_item_id` sent in `session_id`, `None`

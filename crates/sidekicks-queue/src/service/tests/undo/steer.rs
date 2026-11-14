@@ -40,13 +40,15 @@ async fn cut_to_target(scene: &Scene) -> (Vec<SourcePosition>, UndoReach) {
         .queue
         .hold_for_undo(fixture.session_id, client_key())
         .await;
+    let reach = scene.reach().await;
     let cut = fixture
         .queue
         .cut_conversation(
             &hold,
-            &scene.target,
+            &reach,
             RollbackCompanions::default(),
             ProviderCut::ToMake,
+            None,
         )
         .await
         .expect("the cut applies");
@@ -172,12 +174,7 @@ async fn an_undo_goes_back_to_before_the_first_message_its_group_is_cut_with(
         [first_id.to_string()]
     );
     assert_eq!(positions, [position(first_position - 1)]);
-    assert_eq!(
-        scene
-            .fixture
-            .restored_paths(reach.checkpoint.message_sequence),
-        restored
-    );
+    assert_eq!(scene.fixture.restored_paths(&reach.checkpoint), restored);
     assert_eq!(cut_words(&reach), words);
     if let SteerLanding::Alone | SteerLanding::AloneTakenAhead = landing {
         assert!(reach.is_pressed_message());
@@ -244,13 +241,11 @@ async fn restoring_files_on_a_steer_is_exact_where_it_has_no_point_of_its_own() 
             SessionRestoreScope::Files,
         )
         .await
-        .expect("the reach reads");
+        .expect("the reach reads")
+        .reach;
 
     assert_eq!(reach.message_id, scene.target_message_id);
-    assert_eq!(
-        fixture.restored_paths(reach.checkpoint.message_sequence),
-        [STEER_EDIT]
-    );
+    assert_eq!(fixture.restored_paths(&reach.checkpoint), [STEER_EDIT]);
     assert_eq!(scene.rewinds.load(Ordering::SeqCst), 0);
 }
 
@@ -279,13 +274,15 @@ async fn a_resend_of_an_edited_steer_is_one_message_of_its_turn() {
         .queue
         .hold_for_undo(fixture.session_id, key.clone())
         .await;
+    let reach = steer.scene.reach().await;
     let cut = fixture
         .queue
         .cut_conversation(
             &hold,
-            &steer.scene.target,
+            &reach,
             RollbackCompanions::default(),
             ProviderCut::ToMake,
+            None,
         )
         .await
         .expect("the cut applies");
@@ -363,9 +360,7 @@ async fn an_undo_on_a_steer_into_an_answer_turn_goes_back_to_that_turns_start(
         [scene.target_message_id.to_string()]
     );
     assert_eq!(cut_words(&reach), [ANSWER_STEER_WORDS]);
-    let restored = scene
-        .fixture
-        .restored_paths(reach.checkpoint.message_sequence);
+    let restored = scene.fixture.restored_paths(&reach.checkpoint);
     if is_cut_at_turns {
         assert_eq!(reach.checkpoint, *start);
         assert_eq!(reach.opening, Some(TurnOpening::Unqueued));
@@ -437,9 +432,7 @@ async fn an_undo_on_a_steer_into_a_retry_turn_goes_back_to_the_retried_prompt() 
     assert_eq!(cut_words(&reach), [LATER_WORDS, ANSWER_STEER_WORDS]);
     // In path order.
     assert_eq!(
-        scene
-            .fixture
-            .restored_paths(reach.checkpoint.message_sequence),
+        scene.fixture.restored_paths(&reach.checkpoint),
         [ANSWER_STEER_EDIT, ANSWER_EDIT]
     );
     assert_eq!(

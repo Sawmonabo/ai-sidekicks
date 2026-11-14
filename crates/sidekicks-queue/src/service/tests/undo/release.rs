@@ -152,13 +152,15 @@ async fn a_send_during_an_undo_waits_and_follows_the_edit(#[case] route: HeldRou
         .target_run_id
         .expect("the held send waits for a run");
     let is_starting_while_held = fixture.queue.admission.is_starting(held_run_id);
+    let reach = scene.reach().await;
     fixture
         .queue
         .cut_conversation(
             &hold,
-            &scene.target,
+            &reach,
             RollbackCompanions::default(),
             ProviderCut::ToMake,
+            None,
         )
         .await
         .expect("the cut applies");
@@ -452,13 +454,15 @@ async fn back_to_back_undos_resume_a_paused_run_once_with_the_newer_edit_first()
         .queue
         .hold_for_undo(fixture.session_id, second_key.clone())
         .await;
+    let reach = scene.reach().await;
     fixture
         .queue
         .cut_conversation(
             &second_hold,
-            &scene.target,
+            &reach,
             RollbackCompanions::default(),
             ProviderCut::ToMake,
+            None,
         )
         .await
         .expect("the second cut applies");
@@ -562,13 +566,15 @@ async fn a_resume_pressed_during_an_undo_runs_once_at_the_release_with_the_edit_
     .await
     .expect("the press answers at once")
     .expect("the press is taken");
+    let reach = scene.reach().await;
     fixture
         .queue
         .cut_conversation(
             &hold,
-            &scene.target,
+            &reach,
             RollbackCompanions::default(),
             ProviderCut::ToMake,
+            None,
         )
         .await
         .expect("the cut applies");

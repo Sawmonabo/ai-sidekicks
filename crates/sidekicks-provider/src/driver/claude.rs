@@ -214,6 +214,13 @@ impl ProviderDriver for ClaudeDriver {
         self.read_rewind_target(params).boxed()
     }
 
+    fn adopt_conversation_rewind(
+        &self,
+        params: RewindConversationParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.adopt_conversation_rewind(params).boxed()
+    }
+
     fn respond_to_request(
         &self,
         params: RespondToRequestParams,

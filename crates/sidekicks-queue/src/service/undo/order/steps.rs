@@ -23,11 +23,13 @@ use sidekicks_store::database::connection::read_pool::ReadLength;
 use super::{UndoPoint, UndoService, UndoSteps};
 use crate::error::QueueError;
 use crate::provider_session::errors::ProviderSessionError;
+use crate::service::undo::reach::ReachRead;
 use crate::service::undo::{ConversationCut, ConversationCutError, ProviderCut, UndoHold};
 use crate::undo::{UndoStopError, UndoStopSet};
 
 impl UndoSteps for UndoService {
     type Hold = UndoHold;
+    type Reach = ReachRead;
 
     fn hold(&self, session_id: SessionId, undo_key: ClientUuid) -> BoxFuture<'_, UndoHold> {
         self.queue.hold_for_undo(session_id, undo_key).boxed()
@@ -52,15 +54,16 @@ impl UndoSteps for UndoService {
         target: SessionRestoreTarget,
         scope: SessionRestoreScope,
         edited: Option<SessionRestoreResend>,
-    ) -> BoxFuture<'_, Result<UndoPoint, ConversationCutError>> {
+    ) -> BoxFuture<'_, Result<UndoPoint<ReachRead>, ConversationCutError>> {
         async move {
-            let reach = self
+            let read = self
                 .queue
                 .read_undo_reach(session_id, &target, scope)
                 .await?;
             Ok(UndoPoint {
-                resend: edited.map(|edited| reach.resend_with(edited)),
-                checkpoint: reach.checkpoint,
+                resend: edited.map(|edited| read.reach.resend_with(edited)),
+                checkpoint: read.reach.checkpoint.clone(),
+                reach: Some(read),
             })
         }
         .boxed()
@@ -98,6 +101,16 @@ impl UndoSteps for UndoService {
             .boxed()
     }
 
+    fn close_unrecorded_fork(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), ProviderSessionError>> {
+        self.queue
+            .provider_sessions
+            .close_unclosed_fork(session_id)
+            .boxed()
+    }
+
     fn make_live(
         &self,
         session_id: SessionId,
@@ -109,12 +122,12 @@ impl UndoSteps for UndoService {
             .boxed()
     }
 
-    fn read_provider_cut(
-        &self,
+    fn read_provider_cut<'a>(
+        &'a self,
         session_id: SessionId,
-        target: SessionRestoreTarget,
-    ) -> BoxFuture<'_, Result<ProviderCut, ConversationCutError>> {
-        async move { self.queue.read_provider_cut(session_id, &target).await }.boxed()
+        reach: &'a ReachRead,
+    ) -> BoxFuture<'a, Result<ProviderCut, ConversationCutError>> {
+        self.queue.read_provider_cut(session_id, reach).boxed()
     }
 
     fn stop(
@@ -172,13 +185,14 @@ impl UndoSteps for UndoService {
     fn cut<'a>(
         &'a self,
         hold: &'a UndoHold,
-        target: SessionRestoreTarget,
+        reach: &'a ReachRead,
         companions: RollbackCompanions,
         provider_cut: ProviderCut,
+        resend: Option<SessionRestoreResend>,
     ) -> BoxFuture<'a, Result<ConversationCut, ConversationCutError>> {
         async move {
             self.queue
-                .cut_conversation(hold, &target, companions, provider_cut)
+                .cut_conversation(hold, reach, companions, provider_cut, resend.as_ref())
                 .await
         }
         .boxed()

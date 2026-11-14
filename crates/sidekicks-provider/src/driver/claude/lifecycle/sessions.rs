@@ -157,6 +157,19 @@ impl ClaudeDriver {
         read_claude_rewind_target(&live, &params.target_message_id).await
     }
 
+    /// Brings the driver's own state to a cut Claude Code already made; see the cuts' adopt.
+    pub(crate) async fn adopt_conversation_rewind(
+        &self,
+        params: RewindConversationParams,
+    ) -> Result<(), DriverError> {
+        let parts = self.parts()?;
+        let live = parts.run_start.live_session(params.session_id)?;
+        parts
+            .cuts
+            .adopt(&live, &self.sources.ports.reviewer_denials)
+            .await
+    }
+
     /// Moves every live session onto the build that replaced the running one; none is live before
     /// the session pieces are composed.
     pub(crate) async fn move_to_provider_build(

@@ -3,7 +3,6 @@
 //! so the next message does not carry it again. Codex cuts only the conversation; the files the
 //! cut turns wrote are the daemon's to restore.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use sidekicks_contracts::run::id::RunId;
@@ -18,7 +17,7 @@ use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_tu
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::history::{
-    is_codex_turn_listed, read_codex_turn_id_by_client_message_id,
+    CodexSoughtTurn, CodexTurnListing, find_codex_turn, read_codex_turns,
 };
 use crate::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
@@ -131,33 +130,62 @@ impl CodexConversationRewind {
     }
 
     /// Whether the conversation still holds one of the person's messages, by Codex's own record:
-    /// a message a cut of this session took reads cut away, and one whose turn the session
-    /// recorded reads cut away once `thread/turns/list` no longer lists that turn, read newest
-    /// first; any other reads held, since no listing tells a cut from a message Codex never
-    /// listed. Fails with `CodexError::Transport` when the session is not live, and as a request
-    /// fails.
+    /// a message a cut of this session took reads cut away; one whose turn the session recorded
+    /// reads cut away once `thread/turns/list` no longer lists that turn, and one it recorded no
+    /// turn for, as after a restart, once no listed turn holds the message's id, the list read
+    /// newest first and stopped where it is found. A conversation no message reached reads held.
+    /// Fails with `CodexError::Transport` when the session is not live, and as a request fails.
     pub(crate) async fn read_target(
         &self,
         params: &RewindConversationParams,
     ) -> Result<RewindTargetPresence, CodexError> {
         let inbound = self.slots.require_live(params.session_id)?;
+        let message_id = params.target_message_id.as_str();
         let recorded = call_codex_session(&inbound, |reply| CodexSessionCall::ReadMessageTurn {
-            message_id: params.target_message_id.clone(),
+            message_id: message_id.to_owned(),
             reply,
         })
         .await?;
         if recorded.is_cut {
             return Ok(RewindTargetPresence::CutAway);
         }
-        let Some(turn_id) = recorded.turn_id else {
-            return Ok(RewindTargetPresence::Held);
-        };
         // A revert whose answer was lost leaves the record as it was, so Codex is asked.
-        if is_codex_turn_listed(&*recorded.connection?, &recorded.thread_id, &turn_id).await? {
-            Ok(RewindTargetPresence::Held)
-        } else {
-            Ok(RewindTargetPresence::CutAway)
-        }
+        let sought = match &recorded.turn_id {
+            Some(turn_id) => CodexSoughtTurn::Turn(turn_id),
+            None => CodexSoughtTurn::Message(message_id),
+        };
+        let listing = find_codex_turn(&*recorded.connection?, &recorded.thread_id, sought).await?;
+        Ok(match listing {
+            CodexTurnListing::Listed { turn_id } => {
+                if recorded.turn_id.is_none() {
+                    record_message_turn(&inbound, recorded.thread_id, message_id, turn_id);
+                }
+                RewindTargetPresence::Held
+            }
+            CodexTurnListing::Unlisted => RewindTargetPresence::CutAway,
+            CodexTurnListing::Unmaterialized => RewindTargetPresence::Held,
+        })
+    }
+
+    /// Brings the session's record to a cut before one of the person's messages that Codex
+    /// already made, as a landed [`Self::rewind`] leaves it: its turns become those Codex lists,
+    /// and the message and every message of a turn no longer listed read cut away. Fails with
+    /// `CodexError::Transport` when the session is not live, and as the list's request fails.
+    pub(crate) async fn adopt(&self, params: &RewindConversationParams) -> Result<(), CodexError> {
+        let inbound = self.slots.require_live(params.session_id)?;
+        let recorded = call_codex_session(&inbound, |reply| CodexSessionCall::ReadMessageTurn {
+            message_id: params.target_message_id.clone(),
+            reply,
+        })
+        .await?;
+        let listed = read_codex_turns(&*recorded.connection?, &recorded.thread_id).await?;
+        // A session whose task ended keeps no turns to adopt.
+        let _unheard = inbound.push(CodexSessionInbound::Call(CodexSessionCall::AdoptCut {
+            thread_id: recorded.thread_id,
+            listed_turn_ids: listed.into_iter().map(|turn| turn.id).collect(),
+            message_id: params.target_message_id.clone(),
+        }));
+        Ok(())
     }
 
     /// Hands a turn too long for the model's window back by cutting it out of the conversation
@@ -207,19 +235,40 @@ impl CodexConversationRewind {
         if let Some(turn_id) = recorded.turn_id {
             return Ok(Some((recorded.thread_id, turn_id)));
         }
-        let from_history =
-            read_codex_turn_id_by_client_message_id(&*recorded.connection?, &recorded.thread_id)
-                .await?;
-        let turn_id = from_history.get(message_id).cloned();
-        // A session whose task ended keeps no turns to record.
-        let _unheard = inbound.push(CodexSessionInbound::Call(
-            CodexSessionCall::RecordMessageTurns {
-                thread_id: recorded.thread_id.clone(),
-                turn_id_by_client_message_id: from_history,
-            },
-        ));
-        Ok(turn_id.map(|turn_id| (recorded.thread_id, turn_id)))
+        let listing = find_codex_turn(
+            &*recorded.connection?,
+            &recorded.thread_id,
+            CodexSoughtTurn::Message(message_id),
+        )
+        .await?;
+        let CodexTurnListing::Listed { turn_id } = listing else {
+            return Ok(None);
+        };
+        record_message_turn(
+            inbound,
+            recorded.thread_id.clone(),
+            message_id,
+            turn_id.clone(),
+        );
+        Ok(Some((recorded.thread_id, turn_id)))
     }
+}
+
+// Records on the session's task the turn Codex listed holding `message_id` on `thread_id`; a
+// session whose task ended keeps no turns to record.
+fn record_message_turn(
+    inbound: &CodexSessionInboundSender,
+    thread_id: String,
+    message_id: &str,
+    turn_id: String,
+) {
+    let _unheard = inbound.push(CodexSessionInbound::Call(
+        CodexSessionCall::RecordMessageTurn {
+            thread_id,
+            message_id: message_id.to_owned(),
+            turn_id,
+        },
+    ));
 }
 
 // Interrupts every run whose turn runs and waits, within the request deadline, for each turn the
@@ -270,18 +319,37 @@ pub(crate) fn read_codex_message_turn(
     }
 }
 
-/// Records the turns of the person's messages that `thread_id`'s history listed, on the
-/// session's task; a session that moved to another conversation meanwhile records none.
-pub(crate) fn record_codex_message_turns(
+/// Records the turn of the person's message `message_id` that `thread_id`'s history listed, on
+/// the session's task; a session that moved to another conversation meanwhile records none.
+pub(crate) fn record_codex_message_turn(
     record: &mut CodexSessionRecord,
     thread_id: &str,
-    turn_id_by_client_message_id: HashMap<String, String>,
+    message_id: String,
+    turn_id: String,
 ) {
     if record.thread_id == thread_id {
         record
             .turn_id_by_client_message_id
-            .extend(turn_id_by_client_message_id);
+            .insert(message_id, turn_id);
     }
+}
+
+/// Brings the record to a cut of `thread_id` before the person's message `message_id` that Codex
+/// already made, on the session's task: its turns become `listed_turn_ids`, oldest first, as Codex
+/// lists them, and the message and every message of a turn no longer kept read cut away. A
+/// session that moved to another conversation meanwhile adopts nothing.
+pub(crate) fn adopt_codex_cut(
+    record: &mut CodexSessionRecord,
+    thread_id: &str,
+    listed_turn_ids: Vec<String>,
+    message_id: String,
+) {
+    if record.thread_id != thread_id {
+        return;
+    }
+    record.turn_boundaries = listed_turn_ids;
+    forget_cut_turns(record);
+    record.cut_client_message_ids.insert(message_id);
 }
 
 /// Cuts the conversation back to before `turn_id` on the session's task and drops the turns and
@@ -313,6 +381,13 @@ pub(crate) async fn revert_codex_turns(
     {
         record.turn_boundaries.truncate(cut);
     }
+    forget_cut_turns(record);
+    Ok(true)
+}
+
+// Moves each of the person's messages whose turn `turn_boundaries` no longer keeps from the
+// message-to-turn map to the messages a cut took.
+fn forget_cut_turns(record: &mut CodexSessionRecord) {
     let kept = &record.turn_boundaries;
     let cut = &mut record.cut_client_message_ids;
     record
@@ -324,7 +399,6 @@ pub(crate) async fn revert_codex_turns(
             }
             is_kept
         });
-    Ok(true)
 }
 
 fn degraded(fallback_action: &str) -> RewindConversationResult {
@@ -352,11 +426,97 @@ mod tests {
     use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
     use crate::driver::codex::session::state::CodexTurnMessage;
     use crate::driver::codex::session::test_fixture::{TestCodexSession, turn_reply};
-    use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+    use crate::driver::rewind::{
+        RewindConversationParams, RewindConversationResult, RewindTargetPresence,
+    };
     use crate::driver::test_registry::new_run_id;
 
     /// How long the test waits before it counts the rewind and the start as deadlocked.
     const DEADLOCK_BOUND: Duration = Duration::from_secs(10);
+
+    fn rewind_on(session: &TestCodexSession) -> CodexConversationRewind {
+        CodexConversationRewind::new(
+            Arc::clone(&session.slots),
+            Arc::new(CodexConfigForks::new(
+                Arc::clone(&session.slots),
+                TaskTracker::new(),
+            )),
+            Arc::clone(&session.run_start),
+            TaskTracker::new(),
+        )
+    }
+
+    // A record started fresh holds no message's turn, as after a restart. Killed by answering
+    // held for a message the record holds no turn for, which cuts a cut Codex already made again
+    // and degrades the retried undo, and by reading only the summary or the newest page.
+    #[tokio::test(start_paused = true)]
+    async fn a_cut_codex_made_before_a_restart_reads_cut_away_and_is_adopted() {
+        let mut session = TestCodexSession::start().await;
+        let session_id = session.task.record.session_id;
+        let binding_id = session.record_binding().await;
+        let rewind = rewind_on(&session);
+        // Two pages newest first; the older turn holds a steered message after its first one.
+        let views = Arc::new(Mutex::new(Vec::new()));
+        let mut script = session.scripted.script;
+        let service_side = tokio::spawn({
+            let views = Arc::clone(&views);
+            async move {
+                loop {
+                    let sent = script.next_sent().await;
+                    assert_eq!(sent["method"], "thread/turns/list");
+                    lock(&views).push(sent["params"]["itemsView"].clone());
+                    let page = if sent["params"]["cursor"].is_null() {
+                        json!({"data": [{"id": "turn-2", "items": [
+                            {"type": "userMessage", "id": "i-2", "clientId": "message-2"},
+                        ]}], "nextCursor": "older"})
+                    } else {
+                        json!({"data": [{"id": "turn-1", "items": [
+                            {"type": "userMessage", "id": "i-0", "clientId": "message-0"},
+                            {"type": "agentMessage", "id": "i-1", "text": "message-1"},
+                            {"type": "userMessage", "id": "i-3", "clientId": "message-1"},
+                        ]}], "nextCursor": null})
+                    };
+                    script.answer(&sent, &page);
+                }
+            }
+        });
+        let params = |message_id: &str| RewindConversationParams {
+            session_id,
+            binding_id: binding_id.clone(),
+            target_message_id: message_id.to_owned(),
+        };
+        let task = &mut session.task;
+
+        let steered = task.drive(rewind.read_target(&params("message-1"))).await;
+        assert_eq!(
+            steered.expect("the ask is answered"),
+            RewindTargetPresence::Held
+        );
+        task.handle_next().await;
+        assert_eq!(
+            task.record.turn_id_by_client_message_id.get("message-1"),
+            Some(&"turn-1".to_owned())
+        );
+        let cut = task.drive(rewind.read_target(&params("message-9"))).await;
+        assert_eq!(
+            cut.expect("the ask is answered"),
+            RewindTargetPresence::CutAway
+        );
+        assert_eq!(*lock(&views), vec![json!("full"); 4]);
+        task.drive(rewind.adopt(&params("message-9")))
+            .await
+            .expect("the cut is adopted");
+        task.handle_next().await;
+        assert_eq!(task.record.turn_boundaries, ["turn-1", "turn-2"]);
+        assert!(task.record.cut_client_message_ids.contains("message-9"));
+        assert_eq!(task.record.cut_client_message_ids.len(), 1);
+        let again = task.drive(rewind.read_target(&params("message-9"))).await;
+        assert_eq!(
+            again.expect("the ask is answered"),
+            RewindTargetPresence::CutAway
+        );
+        service_side.abort();
+    }
 
     // Killed by stopping the running turns before the turn starts and the claim are held, which
     // lets a turn start between the stop and the revert.
@@ -381,15 +541,7 @@ mod tests {
         record
             .turn_id_by_client_message_id
             .insert("message-0".to_owned(), "turn-1".to_owned());
-        let rewind = CodexConversationRewind::new(
-            Arc::clone(&session.slots),
-            Arc::new(CodexConfigForks::new(
-                Arc::clone(&session.slots),
-                TaskTracker::new(),
-            )),
-            Arc::clone(&session.run_start),
-            TaskTracker::new(),
-        );
+        let rewind = rewind_on(&session);
         let params = RewindConversationParams {
             session_id,
             binding_id: binding_id.clone(),

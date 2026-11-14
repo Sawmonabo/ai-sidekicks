@@ -15,15 +15,11 @@ use rusqlite::types::Value as SqlValue;
 use serde_json::{Map, json};
 use sidekicks_contracts::event::envelope::SourcePosition;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::{AgentRunRecoveryResolvedPayload, RunRecoveryChoice};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::restore::SessionRestoreTarget;
-use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::rewind::{
-    ForkedBinding, RewindConversationResult, RewindTargetPresence,
-};
+use sidekicks_provider::driver::rewind::{RewindConversationResult, RewindTargetPresence};
 use sidekicks_provider::driver::session_control::SessionCloseCause;
 use sidekicks_provider::left_conversations::{LeftConversation, read_left_conversations};
 use sidekicks_provider::port::run_host::{RunHost, RunHostError};
@@ -50,8 +46,8 @@ use tokio::time::timeout;
 use super::super::{HELD_WATCH, WAIT, client_key};
 use super::{
     OPENING_WORDS, ProcessClose, RewindAnswer, STEER_POSITION, Scene, SteerLanding,
-    TARGET_POSITION, TARGET_TURN_NUMBER, applied_in_place, cut_words, epoch_position, position,
-    scene, steer_scene,
+    TARGET_POSITION, TARGET_TURN_NUMBER, applied_in_place, applied_on_fork, cut_words,
+    epoch_position, position, scene, steer_scene,
 };
 use crate::error::QueueError;
 use crate::provider_session::errors::ProviderSessionError;
@@ -166,9 +162,10 @@ async fn a_cut_the_provider_or_a_companion_refuses_writes_nothing(#[case] unwrit
         .hold_for_undo(fixture.session_id, client_key())
         .await;
 
+    let reach = scene.reach().await;
     let cut = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, companions, ProviderCut::ToMake)
+        .cut_conversation(&hold, &reach, companions, ProviderCut::ToMake, None)
         .await;
 
     match unwritten {
@@ -225,9 +222,10 @@ async fn an_applied_cut_lands_with_its_companions() {
         .hold_for_undo(fixture.session_id, client_key())
         .await;
 
+    let reach = scene.reach().await;
     let cut = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, companions, ProviderCut::ToMake)
+        .cut_conversation(&hold, &reach, companions, ProviderCut::ToMake, None)
         .await
         .expect("the cut applies");
 
@@ -260,10 +258,11 @@ async fn an_applied_cut_lands_with_its_companions() {
 }
 
 // A retried undo asks the provider before it cuts: a conversation that already ends before the
-// point is sent no second cut and gets the record a landed cut writes, the rollback and the key's
-// row; one that still holds the message is cut once. Killed by asking for the cut after the read
-// answered it made, by a cut already made that skips the rollback or the key's row, and by reading
-// the answer the wrong way round.
+// point is sent no second cut, its driver brought to the cut it made, and gets the record a landed
+// cut writes, the rollback and the key's row; one that still holds the message is cut once. Killed
+// by asking for the cut after the read answered it made, by a cut already made that skips the
+// driver's own record, the rollback or the key's row, and by reading the answer the wrong way
+// round.
 #[rstest]
 #[case::already_cut(RewindTargetPresence::CutAway, 0)]
 #[case::still_held(RewindTargetPresence::Held, 1)]
@@ -281,33 +280,38 @@ async fn a_retry_asks_the_provider_and_cuts_only_a_conversation_still_holding_th
         .hold_for_undo(fixture.session_id, undo_key.clone())
         .await;
 
+    let reach = scene.reach().await;
     let provider_cut = fixture
         .queue
-        .read_provider_cut(fixture.session_id, &scene.target)
+        .read_provider_cut(fixture.session_id, &reach)
         .await
         .expect("the provider's read answers");
     let cut = fixture
         .queue
         .cut_conversation(
             &hold,
-            &scene.target,
+            &reach,
             RollbackCompanions::default(),
             provider_cut,
+            None,
         )
         .await
         .expect("the cut is recorded");
+    // The reach read before the cut, so only the cut's own read under the hold can refuse it.
     let again = fixture
         .queue
         .cut_conversation(
             &hold,
-            &scene.target,
+            &reach,
             RollbackCompanions::default(),
             ProviderCut::ToMake,
+            None,
         )
         .await;
 
     assert!(matches!(cut, ConversationCut::Applied { .. }));
     assert_eq!(scene.rewinds.load(Ordering::SeqCst), expected_rewinds);
+    assert_eq!(scene.adopts.load(Ordering::SeqCst), 1 - expected_rewinds);
     assert!(
         read_recorded_cut(&fixture.database.reader(), fixture.session_id, &undo_key)
             .expect("the key's row reads")
@@ -329,13 +333,15 @@ async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
         .queue
         .hold_for_undo(fixture.session_id, client_key())
         .await;
+    let reach = scene.reach().await;
     fixture
         .queue
         .cut_conversation(
             &hold,
-            &scene.target,
+            &reach,
             RollbackCompanions::default(),
             ProviderCut::ToMake,
+            None,
         )
         .await
         .expect("the cut applies");
@@ -357,9 +363,10 @@ async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
         .queue
         .cut_conversation(
             &hold,
-            &scene.target,
+            &reach,
             RollbackCompanions::default(),
             ProviderCut::ToMake,
+            None,
         )
         .await;
 
@@ -375,22 +382,6 @@ async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
         "{again:?}"
     );
     assert_eq!(scene.rewinds.load(Ordering::SeqCst), 1);
-}
-
-/// A cut the provider applied by forking the conversation onto `binding_id`, which runs on the
-/// conversation `resume_handle` under the build `2.0.0` at `/opt/provider/fork`.
-fn applied_on_fork(binding_id: &RuntimeBindingId, resume_handle: &str) -> RewindAnswer {
-    let fork = ForkedBinding {
-        binding_id: binding_id.clone(),
-        resume_handle: NonEmptyText::new(resume_handle.to_owned()).expect("a resume handle"),
-        spawned_version: spawned_build("2.0.0", "/opt/provider/fork"),
-    };
-    Arc::new(move || {
-        Ok(RewindConversationResult::Applied {
-            fork: Some(fork.clone()),
-            cut_message_text: None,
-        })
-    })
 }
 
 // A cut to a steer the provider applied by forking the conversation moves the session onto the
@@ -427,13 +418,15 @@ async fn a_cut_applied_on_a_fork_moves_the_session_to_the_forks_binding() {
         .hold_for_undo(fixture.session_id, client_key())
         .await;
 
+    let reach = scene.reach().await;
     fixture
         .queue
         .cut_conversation(
             &hold,
-            &scene.target,
+            &reach,
             RollbackCompanions::default(),
             ProviderCut::ToMake,
+            None,
         )
         .await
         .expect("the cut applies");
@@ -503,13 +496,15 @@ async fn a_fork_the_daemon_cannot_record_is_closed_and_fails_the_cut() {
         .hold_for_undo(fixture.session_id, client_key())
         .await;
 
+    let reach = scene.reach().await;
     let cut = fixture
         .queue
         .cut_conversation(
             &hold,
-            &scene.target,
+            &reach,
             RollbackCompanions::default(),
             ProviderCut::ToMake,
+            None,
         )
         .await;
 
@@ -576,9 +571,10 @@ async fn a_target_in_an_earlier_run_rolls_back_every_later_run_in_one_write() {
         .hold_for_undo(fixture.session_id, client_key())
         .await;
 
+    let reach = scene.reach().await;
     let cut = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, companions, ProviderCut::ToMake)
+        .cut_conversation(&hold, &reach, companions, ProviderCut::ToMake, None)
         .await
         .expect("the cut applies");
 
@@ -625,13 +621,15 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
         .hold_for_undo(fixture.session_id, client_key())
         .await;
 
+    let reach = scene.reach().await;
     let refused = fixture
         .queue
         .cut_conversation(
             &hold,
-            &scene.target,
+            &reach,
             RollbackCompanions::default(),
             ProviderCut::ToMake,
+            None,
         )
         .await;
     let rewinds_while_open = scene.rewinds.load(Ordering::SeqCst);
@@ -643,9 +641,10 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
         .queue
         .cut_conversation(
             &hold,
-            &scene.target,
+            &reach,
             RollbackCompanions::default(),
             ProviderCut::ToMake,
+            None,
         )
         .await;
 
@@ -712,15 +711,16 @@ async fn a_turn_opened_once_the_provider_answered_opens_after_the_rollback() {
         .hold_session(fixture.session_id)
         .await;
     let queue = Arc::clone(&fixture.queue);
-    let target = scene.target.clone();
+    let reach = scene.reach().await;
     // The hold comes back with the cut, so its release cannot write while the log is read.
     let cut = tokio::spawn(async move {
         let cut = queue
             .cut_conversation(
                 &hold,
-                &target,
+                &reach,
                 RollbackCompanions::default(),
                 ProviderCut::ToMake,
+                None,
             )
             .await;
         (cut, hold)

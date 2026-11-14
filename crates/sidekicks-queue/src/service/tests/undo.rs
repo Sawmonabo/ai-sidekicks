@@ -1,10 +1,12 @@
 //! An undo through the queue: the conversation cut, asked of the provider only once every run it
 //! reaches holds no open turn and written in one write with the caller's companions, the fence on
-//! the session's binding, the reach of an undo to a steer, and the release that sends the edited
-//! message ahead of the held sends. The scenes and the fixture's writes they share are here.
+//! the session's binding, the reach of an undo to a steer, the release that sends the edited
+//! message ahead of the held sends, and the ends a retried undo comes to. The scenes and the
+//! fixture's writes they share are here.
 
 mod cut;
 mod release;
+mod retry;
 mod steer;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -16,19 +18,26 @@ use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::events::CutGroupStart;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
-use sidekicks_contracts::session::restore::{SessionRestoreTarget, SnapshotId};
+use sidekicks_contracts::session::restore::{
+    SessionRestoreScope, SessionRestoreTarget, SnapshotId,
+};
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::rewind::{RewindConversationResult, RewindTargetPresence};
+use sidekicks_provider::driver::rewind::{
+    ForkedBinding, RewindConversationResult, RewindTargetPresence,
+};
 use sidekicks_provider::driver::session_control::SessionCloseCause;
 use sidekicks_provider::port::run_host::RunHost;
+use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_session::checkpoints::schema::{CheckpointVersionContent, CheckpointVersionLeg};
 use sidekicks_session::checkpoints::store::{
     Checkpoint, CheckpointVersion, insert_checkpoint_statement, insert_version_statement,
@@ -39,8 +48,8 @@ use sidekicks_session::run::engine::test_fixture::{append, stored_run_state};
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use tokio::time::timeout;
 
-use super::{DriverCalls, Fixture, HELD_WATCH, fixture, recording_driver};
-use crate::service::undo::reach::UndoReach;
+use super::{DriverCalls, Fixture, HELD_WATCH, fixture, recording_driver, take_one};
+use crate::service::undo::reach::{ReachRead, UndoReach};
 use crate::session_lock::QueueSessionLock;
 use crate::test_items::Form;
 
@@ -88,6 +97,10 @@ struct Scene {
     rewound_message_ids: Arc<Mutex<Vec<String>>>,
     /// Each close of the session's process the provider was asked for, in order.
     closes: Arc<Mutex<Vec<ProcessClose>>>,
+    /// How many of the next closes the provider fails.
+    failing_closes: Arc<AtomicUsize>,
+    /// How many cuts the provider already made the driver was brought to.
+    adopts: Arc<AtomicUsize>,
     /// What the provider's read answers of the cut's message.
     presence: Arc<Mutex<RewindTargetPresence>>,
     run_id: RunId,
@@ -113,6 +126,22 @@ fn applied_in_place() -> RewindAnswer {
         Ok(RewindConversationResult::Applied {
             fork: None,
             cut_message_text: Some("The provider's own words".to_owned()),
+        })
+    })
+}
+
+/// A cut the provider applied by forking the conversation onto `binding_id`, which runs on the
+/// conversation `resume_handle` under the build `2.0.0` at `/opt/provider/fork`.
+fn applied_on_fork(binding_id: &RuntimeBindingId, resume_handle: &str) -> RewindAnswer {
+    let fork = ForkedBinding {
+        binding_id: binding_id.clone(),
+        resume_handle: NonEmptyText::new(resume_handle.to_owned()).expect("a resume handle"),
+        spawned_version: spawned_build("2.0.0", "/opt/provider/fork"),
+    };
+    Arc::new(move || {
+        Ok(RewindConversationResult::Applied {
+            fork: Some(fork.clone()),
+            cut_message_text: None,
         })
     })
 }
@@ -148,6 +177,14 @@ async fn scene_on(answer: RewindAnswer, opening: Form) -> Scene {
         let answered = *read.lock().expect("unpoisoned");
         async move { Ok(answered) }.boxed()
     });
+    let adopts = Arc::new(AtomicUsize::new(0));
+    let adopted = Arc::clone(&adopts);
+    driver
+        .expect_adopt_conversation_rewind()
+        .returning(move |_| {
+            adopted.fetch_add(1, Ordering::SeqCst);
+            async { Ok(()) }.boxed()
+        });
     driver
         .expect_skill_resolve_starts_process()
         .return_const(false);
@@ -168,11 +205,14 @@ async fn scene_on(answer: RewindAnswer, opening: Form) -> Scene {
         });
     let closes = Arc::new(Mutex::new(Vec::new()));
     let closing = Arc::clone(&closes);
+    let failing_closes = Arc::new(AtomicUsize::new(0));
+    let failing = Arc::clone(&failing_closes);
     // Set once the queue is built, before any close can run.
     let queue_lock: Arc<OnceLock<Arc<QueueSessionLock>>> = Arc::new(OnceLock::new());
     let closing_queue_lock = Arc::clone(&queue_lock);
     driver.expect_close_session().returning(move |params| {
         let closes = Arc::clone(&closing);
+        let is_failed = take_one(&failing);
         let queue_lock = Arc::clone(
             closing_queue_lock
                 .get()
@@ -192,6 +232,9 @@ async fn scene_on(answer: RewindAnswer, opening: Form) -> Scene {
                 is_append_lock_free,
                 is_queue_lock_free,
             });
+            if is_failed {
+                return Err(DriverError::Internal("the test's close fails".into()));
+            }
             Ok(())
         }
         .boxed()
@@ -219,10 +262,28 @@ async fn scene_on(answer: RewindAnswer, opening: Form) -> Scene {
         rewinds,
         rewound_message_ids,
         closes,
+        failing_closes,
+        adopts,
         presence,
         run_id,
         target,
         target_message_id,
+    }
+}
+
+impl Scene {
+    /// The reach of the scene's target with the conversation in scope, read once as an undo
+    /// reads it.
+    async fn reach(&self) -> ReachRead {
+        self.fixture
+            .queue
+            .read_undo_reach(
+                self.fixture.session_id,
+                &self.target,
+                SessionRestoreScope::Conversation,
+            )
+            .await
+            .expect("the reach reads")
     }
 }
 
@@ -629,9 +690,9 @@ impl Fixture {
             .expect("the test writes the edit");
     }
 
-    /// The paths an undo to before the message at `message_sequence` puts back, in path order.
-    fn restored_paths(&self, message_sequence: SafeInt<0>) -> Vec<String> {
-        versions_after(&self.database.reader(), self.session_id, message_sequence)
+    /// The paths an undo to `point` puts back, in path order.
+    fn restored_paths(&self, point: &Checkpoint) -> Vec<String> {
+        versions_after(&self.database.reader(), self.session_id, point)
             .expect("the test reads the versions")
             .into_iter()
             .map(|stored| stored.version.path.as_str().to_owned())

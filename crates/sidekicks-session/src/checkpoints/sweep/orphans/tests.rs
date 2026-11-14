@@ -252,6 +252,41 @@ async fn a_walk_leaves_a_session_a_keeper_holds_for_its_next_walk() {
     );
 }
 
+// Kills: the names not read again under the lock, which removes a copy an edit named between the
+// walk's listing and its lock: a lost file version.
+#[tokio::test]
+async fn a_copy_named_between_the_listing_and_the_lock_is_kept() {
+    let fixture = Fixture::with_repository(&[]).await;
+    let copies = copies_folder(&session_storage_folder(
+        &fixture.data_folder,
+        &fixture.session_id,
+    ));
+    fs::create_dir_all(&copies).expect("the copies folder is made");
+    let name = copy_name('e');
+    let copy = copies.join(&name);
+    fs::write(&copy, "copy").expect("the copy is written");
+    let (sweep, clock) = sweep_over(&fixture);
+    let paused = sweep.orphan_walks.lock_pause.arm();
+    let named_meanwhile = async {
+        paused.reached.await.expect("the walk reaches its lock");
+        fixture
+            .log
+            .writer
+            .write(vec![copy_version(&fixture, &name)])
+            .await
+            .expect("the copy's row is written");
+        paused.release.send(()).expect("the walk waits at its lock");
+    };
+
+    let (counts, ()) = tokio::join!(
+        walk_at(&sweep, &clock, SystemTime::now() + TWO_HOURS),
+        named_meanwhile
+    );
+
+    assert!(copy.exists(), "the copy named while the walk waited stays");
+    assert_eq!(counts.entries_removed, 0);
+}
+
 // Kills: every session walked each time (the second walk takes three), and the sessions active
 // since the walk before not taken (the second walk takes only the marked one).
 #[tokio::test]

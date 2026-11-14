@@ -20,7 +20,7 @@ use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::establishment::continuation::CodexHeldLeadContinue;
-use crate::driver::codex::session::history::read_codex_turn_id_by_client_message_id;
+use crate::driver::codex::session::history::{CodexSoughtTurn, CodexTurnListing, find_codex_turn};
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
 use crate::driver::codex::session::lifecycle_call::{
     CodexLifecycleCall, call_codex_lifecycle, let_go_codex_session_record,
@@ -193,6 +193,14 @@ impl CodexDriver {
         params: RewindConversationParams,
     ) -> Result<RewindTargetPresence, DriverError> {
         Ok(self.parts()?.rewind.read_target(&params).await?)
+    }
+
+    /// Brings the driver's record to a cut Codex already made; see the rewind's adopt.
+    pub(crate) async fn adopt_conversation_rewind(
+        &self,
+        params: RewindConversationParams,
+    ) -> Result<(), DriverError> {
+        Ok(self.parts()?.rewind.adopt(&params).await?)
     }
 
     /// Moves every session on the driver's services onto the build that replaced the running one;
@@ -431,8 +439,9 @@ impl CodexDriver {
     }
 
     /// The messages of a continue Codex holds in the session's conversation. A continue sends its
-    /// messages in one turn under the first one's id, so that id found means every message was
-    /// taken. Fails with `CodexError::Transport` with no live record, and as the read fails.
+    /// messages in one turn under the first one's id, so that id found on a listed turn means
+    /// every message was taken. Fails with `CodexError::Transport` with no live record, and as
+    /// the read fails.
     pub(crate) async fn find_taken_messages(
         &self,
         params: FindTakenMessagesParams,
@@ -446,15 +455,17 @@ impl CodexDriver {
             reply,
         })
         .await?;
-        let connection = reading.connection?;
-        let turn_id_by_client_message_id =
-            read_codex_turn_id_by_client_message_id(&connection, &reading.thread_id).await?;
-        let taken: Vec<QueueItemId> =
-            if turn_id_by_client_message_id.contains_key(&first.to_string()) {
-                params.message_ids
-            } else {
-                Vec::new()
-            };
+        let first = first.to_string();
+        let listing = find_codex_turn(
+            &*reading.connection?,
+            &reading.thread_id,
+            CodexSoughtTurn::Message(&first),
+        )
+        .await?;
+        let taken: Vec<QueueItemId> = match listing {
+            CodexTurnListing::Listed { .. } => params.message_ids,
+            CodexTurnListing::Unlisted | CodexTurnListing::Unmaterialized => Vec::new(),
+        };
         Ok(TakenMessages { taken })
     }
 }

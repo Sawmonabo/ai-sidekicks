@@ -27,7 +27,7 @@ const CODEX_PROTOCOL_BUNDLE_SHA3_256: &str =
 const CODEX_PROTOCOL_RELEASE: &str = "rust-v0.166.0";
 
 /// The protocol types the provider crate sends, generated with every type they reach.
-const CODEX_SENT_TYPES: [&str; 38] = [
+const CODEX_SENT_TYPES: [&str; 37] = [
     "ThreadStartParams",
     "ThreadResumeParams",
     "ThreadForkParams",
@@ -46,7 +46,6 @@ const CODEX_SENT_TYPES: [&str; 38] = [
     "ThreadUnsubscribeParams",
     "SkillsListParams",
     "ThreadTurnsListParams",
-    "ThreadItemsListParams",
     "ThreadLoadedListParams",
     "HooksListParams",
     "GetAccountParams",
@@ -85,14 +84,6 @@ const CODEX_HAND_WRITTEN_TYPES: [(&str, &str); 3] = [
         "crate::driver::codex::account::login::CodexLoginAccountParams",
     ),
 ];
-
-/// The item-history cursor, a string or an item anchor, which generated code reads as two
-/// flattened members and cannot write, and the hand-written type that sends the string the
-/// previous page named.
-const CODEX_ITEMS_CURSOR: (&str, &str) = (
-    "ThreadItemsListCursor",
-    "crate::driver::codex::session::history::CodexItemsCursor",
-);
 
 /// The member of the generated thread params that carries absent, `null` and a value as three
 /// meanings, the definition it is pointed at, and the hand-written type that keeps all three.
@@ -138,7 +129,7 @@ fn write_codex_protocol(output: &Path) -> Result<(), Box<dyn Error>> {
     let (_, change_name, change_type) = CODEX_SERVICE_TIER_CHANGE;
     for (type_name, replacement) in CODEX_HAND_WRITTEN_TYPES
         .into_iter()
-        .chain([(change_name, change_type), CODEX_ITEMS_CURSOR])
+        .chain([(change_name, change_type)])
     {
         settings.with_replacement(type_name, replacement, std::iter::empty());
     }

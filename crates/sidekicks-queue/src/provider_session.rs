@@ -31,6 +31,7 @@ use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMo
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::{
     SessionProcessState, SpawnedVersionBindingCarriers,
 };
@@ -226,6 +227,9 @@ pub struct ProviderSessions {
     deps: ProviderSessionsDeps,
     opened: Mutex<HashMap<SessionId, OpenedSession>>,
     handed_continues: Mutex<HashMap<SessionId, HandedContinue>>,
+    // The driver of each session's unrecorded fork whose close failed, which runs until a close
+    // of it succeeds.
+    unclosed_forks: Mutex<HashMap<SessionId, Arc<dyn ProviderDriver>>>,
 }
 
 impl ProviderSessions {
@@ -235,6 +239,7 @@ impl ProviderSessions {
             deps,
             opened: Mutex::new(HashMap::new()),
             handed_continues: Mutex::new(HashMap::new()),
+            unclosed_forks: Mutex::new(HashMap::new()),
         }
     }
 
@@ -270,8 +275,10 @@ impl ProviderSessions {
 
     /// Opens the session's provider session for `run_id`, its first admitted run, when this process
     /// has not opened it: resumed from the session's newest conversation where it has one, else
-    /// created, with the binding `run_id` runs on. Fails with [`ProviderSessionError::Closed`] or
+    /// created, with the binding `run_id` runs on, once an unrecorded fork of the session left
+    /// running is closed. Fails with [`ProviderSessionError::Closed`] or
     /// [`ProviderSessionError::BeingDeleted`] for a closed session, with nothing spawned, with
+    /// [`ProviderSessionError::UnclosedFork`] while that fork's close fails, with
     /// [`ProviderSessionError::ResumeRefused`] for a resume the provider refused, and as the
     /// composition, the driver or a binding's write fails, with no binding left for a create that
     /// failed. A start whose provider no driver answers, or is not installed where the session
@@ -285,6 +292,7 @@ impl ProviderSessions {
         // Read under the lock, so a close that ran first has written `session.closed`, and before
         // the opened entry, which that event's listener drops only later.
         self.refuse_ended(session_id).await?;
+        self.close_held_fork(session_id).await?;
         if self.is_opened(session_id) {
             return Ok(());
         }
@@ -337,17 +345,64 @@ impl ProviderSessions {
     pub(crate) fn forget(&self, session_id: SessionId) {
         self.lock_opened().remove(&session_id);
         lock(&self.handed_continues).remove(&session_id);
+        lock(&self.unclosed_forks).remove(&session_id);
         self.deps.execution_postures.forget_session(&session_id);
         self.deps.process_follower.forget_closed(session_id);
     }
 
-    /// Forgets `session_id`'s process as opened once an undo's fork onto it was closed unrecorded,
-    /// so the session's next admission opens it again on its source binding's conversation.
-    pub(crate) fn forget_unrecorded_fork(&self, session_id: SessionId) {
+    /// Closes the fork `driver` moved `session_id` onto for an undo's cut that the daemon did not
+    /// record. The fork is forgotten as opened either way, so nothing is handed to it and the
+    /// session's next admission opens it again on its source binding's conversation; one whose
+    /// close fails is held until a later close of it succeeds, and no process opens for the
+    /// session meanwhile. The caller holds no lock the driver's close appends under. Fails as the
+    /// close does.
+    pub(crate) async fn close_unrecorded_fork(
+        &self,
+        driver: Arc<dyn ProviderDriver>,
+        session_id: SessionId,
+    ) -> Result<(), DriverError> {
+        let closed = driver
+            .close_session(CloseSessionParams {
+                session_id,
+                cause: SessionCloseCause::UnrecordedOpening,
+            })
+            .await;
+        if closed.is_err() {
+            lock(&self.unclosed_forks).insert(session_id, driver);
+        }
         self.lock_opened().remove(&session_id);
         self.deps
             .execution_postures
             .forget_moved_posture(&session_id);
+        closed
+    }
+
+    /// Closes the unrecorded fork of `session_id` an earlier close left running, under the
+    /// session's transition lock, so the session runs again on its source binding's conversation;
+    /// a session holding none answers at once. Fails with [`ProviderSessionError::UnclosedFork`]
+    /// while the close fails, the fork still held.
+    pub(crate) async fn close_unclosed_fork(
+        &self,
+        session_id: SessionId,
+    ) -> Result<(), ProviderSessionError> {
+        let _hold = self.deps.transition_lock.acquire(session_id).await;
+        self.close_held_fork(session_id).await
+    }
+
+    // `close_unclosed_fork` under the session's transition lock, which the caller took.
+    async fn close_held_fork(&self, session_id: SessionId) -> Result<(), ProviderSessionError> {
+        let Some(driver) = lock(&self.unclosed_forks).get(&session_id).cloned() else {
+            return Ok(());
+        };
+        driver
+            .close_session(CloseSessionParams {
+                session_id,
+                cause: SessionCloseCause::UnrecordedOpening,
+            })
+            .await
+            .map_err(|closed| ProviderSessionError::UnclosedFork { session_id, closed })?;
+        lock(&self.unclosed_forks).remove(&session_id);
+        Ok(())
     }
 
     /// Whether this daemon opened `session_id`'s process: created, resumed or joined, and not
@@ -695,6 +750,7 @@ impl StoredSessionPosture for ProviderSessions {
                 | ProviderSessionError::AfterCarriedContinue { .. }
                 | ProviderSessionError::Port(_)
                 | ProviderSessionError::UnrecordedNotClosed { .. }
+                | ProviderSessionError::UnclosedFork { .. }
                 | ProviderSessionError::ProviderMissingNotPosted { .. }
                 | ProviderSessionError::Store(_)
                 | ProviderSessionError::GitFolder { .. }

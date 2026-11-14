@@ -294,7 +294,6 @@ mod tests {
     use rstest::rstest;
     use rusqlite::Connection;
     use sidekicks_contracts::provider::tool_call::ToolCallId;
-    use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_platforms::{is_superuser, make_folder_link, make_unreadable, real_path};
     use sidekicks_provider::port::edit_checkpoint::{EditCheckpoint as _, EditCheckpointRequest};
     use sidekicks_store::data_folder::session_storage_folder;
@@ -353,11 +352,15 @@ mod tests {
 
         /// Per path, the version an undo of the whole session puts back.
         fn versions(&self) -> Vec<CheckpointVersion> {
-            versions_after(&self.reader(), self.fixture.session_id, SafeInt::ZERO)
-                .expect("the versions read")
-                .into_iter()
-                .map(|stored| stored.version)
-                .collect()
+            versions_after(
+                &self.reader(),
+                self.fixture.session_id,
+                &self.fixture.checkpoint(0),
+            )
+            .expect("the versions read")
+            .into_iter()
+            .map(|stored| stored.version)
+            .collect()
         }
 
         fn reader(&self) -> Connection {
@@ -531,8 +534,12 @@ mod tests {
             vec![edit_version(&path, failed, &folder_real)]
         );
         assert_eq!(
-            failed_edits(&edits.reader(), edits.fixture.session_id, SafeInt::ZERO)
-                .expect("the failed edits read"),
+            failed_edits(
+                &edits.reader(),
+                edits.fixture.session_id,
+                &edits.fixture.checkpoint(0),
+            )
+            .expect("the failed edits read"),
             vec![FailedEdit {
                 path: recorded_path(&path).expect("a test path"),
                 tool_call_id: tool_call(),

@@ -98,6 +98,9 @@ static IS_WALKABLE_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
 #[derive(Default)]
 pub(super) struct OrphanWalks {
     memory: Mutex<WalkMemory>,
+    // Holds a session's walk between its listing and its lock, for a test that names a copy then.
+    #[cfg(test)]
+    lock_pause: sidekicks_std::pause_point::PausePoint,
 }
 
 /// The previous whole walk's start and the sessions to walk again whatever their activity.
@@ -251,6 +254,8 @@ impl CheckpointSweep {
         if listing.candidates.is_empty() {
             return Ok(listing.should_walk_again);
         }
+        #[cfg(test)]
+        self.orphan_walks.lock_pause.pass().await;
         // The lock is fair, so a walk waiting behind a long close would queue every edit behind it.
         let Some(hold) = COPIES_LOCK.try_write(session_id) else {
             return Ok(true);
