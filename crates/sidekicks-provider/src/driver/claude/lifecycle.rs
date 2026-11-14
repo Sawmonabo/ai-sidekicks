@@ -537,6 +537,7 @@ impl ClaudeDriver {
                 context_readings,
                 ignored_settings: Arc::new(ClaudeIgnoredSettings::new(
                     self.sources.spawner.clone(),
+                    Arc::clone(dispatch),
                     &self.sources.data_folder,
                 )),
             });

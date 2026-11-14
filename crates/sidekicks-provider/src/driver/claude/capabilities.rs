@@ -56,7 +56,8 @@ type CatalogText = FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>;
 /// takes `--json-schema`; resume-at with `--fork-session` rolls back and forks; `/goal` sets and
 /// clears a goal; the daemon's tools reach the model; the session's helper definitions ride
 /// `initialize.agents`; compaction is the provider's own command; the command list is read; and
-/// `initialize` declares the accelerated-output state.
+/// `initialize` declares the accelerated-output state; `background_tasks` moves a command or a
+/// helper the agent waits on to the background.
 const fn is_claude_flag_declared(flag: DriverCapabilityFlag) -> bool {
     match flag {
         DriverCapabilityFlag::Resume
@@ -74,7 +75,9 @@ const fn is_claude_flag_declared(flag: DriverCapabilityFlag) -> bool {
         | DriverCapabilityFlag::Subagents
         | DriverCapabilityFlag::ContextCompaction
         | DriverCapabilityFlag::ProviderCommands
-        | DriverCapabilityFlag::OutputSpeed => true,
+        | DriverCapabilityFlag::OutputSpeed
+        | DriverCapabilityFlag::CommandBackground
+        | DriverCapabilityFlag::HelperBackground => true,
     }
 }
 

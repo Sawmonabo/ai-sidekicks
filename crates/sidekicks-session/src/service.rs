@@ -221,10 +221,11 @@ const SELECT_TAGS_SQL: &str =
 // which the outer select drops. Each newest pick takes the newest readable row, so a damaged or
 // skipped newer one never hides the fact before it.
 //
-// The notices that stand: each provider's crash loop until the restart that ends it; the newest
-// ignored-settings notice per provider and file until a reading finds that file clean or a new
-// start's reading begins; the newest build move until the next message is sent; and each distinct
-// provider warning, whose count the session keeps.
+// The notices that stand: each provider's crash loop until the person's restart, a build move or a
+// new start's reading of that provider ends it; the newest ignored-settings notice per provider and
+// file until a reading finds that file clean, a new start's reading begins or an agent moves off
+// that provider; the newest build move until the next message is sent; and each distinct provider
+// warning, whose count the session keeps.
 static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
     let window_update = SessionEventType::UsageContextWindowUpdated.as_str();
     let compacted = SessionEventType::AgentRunContextCompacted.as_str();
@@ -242,6 +243,7 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
     let readable_crash = readable_event_sql("crash");
     let readable_ignored = readable_event_sql("ignored");
     let readable_loaded = readable_event_sql("loaded");
+    let readable_moved = readable_event_sql("moved");
     let readable_updated = readable_event_sql("updated");
     let readable_sent = readable_event_sql("sent");
     let readable_warning = readable_event_sql("warning");
@@ -297,7 +299,10 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
       FROM (SELECT MAX(sequence) AS sequence, json_extract(payload, '$.kind') AS kind
               FROM session_events AS crash
              WHERE session_id = @session_id AND type = '{notice_posted}'
-               AND json_extract(payload, '$.kind') IN ('providerCrashLoop', 'providerRestarted')
+               AND (json_extract(payload, '$.kind')
+                      IN ('providerCrashLoop', 'providerRestarted', 'providerUpdated')
+                    OR (json_extract(payload, '$.kind') = 'settingsLoaded'
+                        AND json_type(payload, '$.file') IS NULL))
                AND {readable_crash}
              GROUP BY json_extract(payload, '$.provider'))
      WHERE kind = 'providerCrashLoop'
@@ -319,6 +324,16 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
                      OR json_extract(loaded.payload, '$.file')
                           = json_extract(ignored.payload, '$.file'))
                 AND {readable_loaded})
+       AND NOT EXISTS (
+             SELECT 1
+               FROM session_events AS moved
+              WHERE moved.session_id = @session_id AND moved.type = '{binding_changed}'
+                AND moved.sequence > ignored.sequence
+                AND json_extract(moved.payload, '$.from.providerName')
+                      = json_extract(ignored.payload, '$.provider')
+                AND json_extract(moved.payload, '$.to.providerName')
+                      <> json_extract(ignored.payload, '$.provider')
+                AND {readable_moved})
      GROUP BY json_extract(payload, '$.provider'), json_extract(payload, '$.file')
     UNION ALL
     SELECT MAX(sequence)

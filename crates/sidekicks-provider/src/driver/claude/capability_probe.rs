@@ -45,6 +45,13 @@ const fn detection_of(flag: DriverCapabilityFlag) -> CapabilityDetection {
         DriverCapabilityFlag::ModelMutation => CapabilityDetection::Static {
             failing_conjuncts: &[NonMutating],
         },
+        // The request that would decide it moves a running call to the background, and only a
+        // running call can be named.
+        DriverCapabilityFlag::CommandBackground | DriverCapabilityFlag::HelperBackground => {
+            CapabilityDetection::Static {
+                failing_conjuncts: &[ZeroTurn, NonMutating],
+            }
+        }
         // Launch flags, output shapes and asks the provider raises are out of the registry's
         // sight.
         DriverCapabilityFlag::Resume

@@ -19,8 +19,9 @@ use serde_json::json;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::question::{
-    QuestionAnswer, QuestionAnswerInvalidReason, QuestionAskedPayload, QuestionId, QuestionPrompt,
-    QuestionResolveRequest, QuestionResolveResponse, QuestionResolveState, read_typed_number,
+    QuestionAnswer, QuestionAnswerInvalidReason, QuestionAskedPayload, QuestionId, QuestionKind,
+    QuestionPrompt, QuestionResolveRequest, QuestionResolveResponse, QuestionResolveState,
+    read_typed_flag, read_typed_number,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, UserMessageSentPayload};
@@ -452,9 +453,28 @@ fn refused_answer(
         QuestionAnswer::Typed { .. } if !prompt.options.is_empty() && prompt.required.is_some() => {
             Some(QuestionAnswerInvalidReason::TextOnChoice)
         }
-        QuestionAnswer::Typed { text } => (prompt.kind.is_numeric()
-            && read_typed_number(text.as_str()).is_none())
-        .then_some(QuestionAnswerInvalidReason::NotANumber),
+        QuestionAnswer::Typed { text } => refused_typed_text(prompt.kind, text.as_str()),
+    }
+}
+
+// Why typed `text` is no value of a question of `kind`, by the kind's own refusal; `None` where it
+// is one, and for a kind that takes any text.
+fn refused_typed_text(kind: QuestionKind, text: &str) -> Option<QuestionAnswerInvalidReason> {
+    match kind {
+        QuestionKind::Number => read_typed_number(text)
+            .is_none()
+            .then_some(QuestionAnswerInvalidReason::NotANumber),
+        QuestionKind::Integer => match read_typed_number(text) {
+            None => Some(QuestionAnswerInvalidReason::NotANumber),
+            Some(number) if number.fract() != 0.0 => {
+                Some(QuestionAnswerInvalidReason::NotAWholeNumber)
+            }
+            Some(_) => None,
+        },
+        QuestionKind::Flag => read_typed_flag(text)
+            .is_none()
+            .then_some(QuestionAnswerInvalidReason::NotAFlag),
+        QuestionKind::Choice | QuestionKind::Text => None,
     }
 }
 
@@ -497,19 +517,34 @@ mod tests {
 
     use super::refused_answer;
 
-    // A number question with no range refuses typed text that is not a number and takes one, by
+    // A question with no range refuses typed text that is no value of its kind and takes one, by
     // its kind alone, since a wrong answer would reach the provider as a value it did not ask
-    // for. Killed by reading a number question from its bounds, or by dropping the number check.
+    // for. Killed by reading a number question from its bounds, by dropping a kind's check, and
+    // by a whole number read as any number.
     #[rstest]
-    #[case::words("ten", Some(QuestionAnswerInvalidReason::NotANumber))]
-    #[case::a_number("10", None)]
-    fn a_number_question_with_no_range_takes_only_a_number(
+    #[case::words("number", "ten", Some(QuestionAnswerInvalidReason::NotANumber))]
+    #[case::a_number("number", "1.5", None)]
+    #[case::a_fraction_for_a_whole_number(
+        "integer",
+        "1.5",
+        Some(QuestionAnswerInvalidReason::NotAWholeNumber)
+    )]
+    #[case::words_for_a_whole_number(
+        "integer",
+        "ten",
+        Some(QuestionAnswerInvalidReason::NotANumber)
+    )]
+    #[case::a_whole_number("integer", "10", None)]
+    #[case::maybe_for_a_flag("flag", "maybe", Some(QuestionAnswerInvalidReason::NotAFlag))]
+    #[case::a_flag("flag", " true ", None)]
+    fn a_question_with_no_range_takes_only_a_value_of_its_kind(
+        #[case] kind: &str,
         #[case] typed: &str,
         #[case] refused: Option<QuestionAnswerInvalidReason>,
     ) {
         let prompt: QuestionPrompt = serde_json::from_value(json!({
             "text": "How many retries?",
-            "kind": "number",
+            "kind": kind,
             "options": [],
             "severalAnswers": false,
             "secret": false,

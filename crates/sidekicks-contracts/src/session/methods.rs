@@ -294,8 +294,9 @@ pub struct SessionReadResponse {
     /// earlier events still knows whether that run is working or waiting.
     #[garde(dive)]
     pub live_runs: Vec<SessionLiveRun>,
-    /// The newest event of each kind a reader keeps a standing fact from, in sequence order, so a
-    /// window opened below them still reads those facts.
+    /// The events a reader keeps a standing fact from, in sequence order, so a window opened below
+    /// them still reads those facts: the newest of each kind and subject, and each notice that
+    /// still stands.
     #[garde(dive)]
     pub standing_events: Vec<SessionStandingEvent>,
 }

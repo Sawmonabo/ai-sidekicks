@@ -451,7 +451,9 @@ mod tests {
             | DriverCapabilityFlag::CallbackTools
             | DriverCapabilityFlag::Subagents
             | DriverCapabilityFlag::ProviderCommands
-            | DriverCapabilityFlag::OutputSpeed => CapabilityDetection::Static {
+            | DriverCapabilityFlag::OutputSpeed
+            | DriverCapabilityFlag::CommandBackground
+            | DriverCapabilityFlag::HelperBackground => CapabilityDetection::Static {
                 failing_conjuncts: &[ProbeAdmissibilityConjunct::DecisiveAtConsumptionGranularity],
             },
         }

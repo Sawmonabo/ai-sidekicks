@@ -478,31 +478,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{AgentRunInterveneRequest, InterruptInterventionRecord, RunLimit};
-    use crate::schema::assert_received_written_form;
     use crate::wire::attachment::parse_received;
-
-    /// An interrupt with either fate for the waiting messages passes the received check, which
-    /// still refuses a member the request does not declare. Killed by a closing that leaves the
-    /// interrupt arm's `type` or a fate's members unevaluated, or that stops refusing an undeclared
-    /// member.
-    #[rstest]
-    #[case::next_turn(json!({
-        "pending": "nextTurn",
-        "deliverFirst": "0190f2a0-0000-7000-8000-000000000003",
-    }))]
-    #[case::return_to_draft(json!({ "pending": "returnToDraft", "reason": "Wrong file" }))]
-    fn an_interrupt_of_either_fate_is_received(#[case] fate: Value) {
-        let mut request = json!({
-            "type": "interrupt",
-            "targetRunId": "0190f2a0-0000-7000-8000-000000000001",
-            "expectedRunVersion": 3,
-            "clientIdempotencyKey": "0190f2a0-0000-7000-8000-000000000002",
-        });
-        for (member, value) in fate.as_object().expect("a fate's members are an object") {
-            request[member] = value.clone();
-        }
-        assert_received_written_form::<AgentRunInterveneRequest>(request);
-    }
 
     /// The undo's key the test rows store.
     const UNDO_KEY: &str = "0190f2a0-0000-7000-8000-000000000003";

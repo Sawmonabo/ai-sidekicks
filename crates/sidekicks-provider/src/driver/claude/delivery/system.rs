@@ -17,10 +17,10 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_std::text_cut::cut_to_code_points;
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
+use crate::driver::contract::error::read_provider_words;
 use crate::driver::run_control::HelperStopReason;
 use crate::record_readers::{read_count, read_non_empty_string};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
@@ -30,11 +30,6 @@ const CLAUDE_MODEL_BLOCKED_TRIGGER: &str = "model_blocked";
 
 /// Text as long as a provider's words may run.
 pub(crate) type ClaudeProviderWords = FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>;
-
-/// The provider's own words, cut to their cap; `None` for words that are blank or hold NUL.
-pub(crate) fn read_provider_words(text: &str) -> Option<ClaudeProviderWords> {
-    FreeFormText::new(cut_to_code_points(text, PROVIDER_FAILURE_DETAIL_MAX_LEN).to_owned()).ok()
-}
 
 // A member's words, cut to their cap.
 fn read_words(frame: &Map<String, Value>, key: &str) -> Option<ClaudeProviderWords> {

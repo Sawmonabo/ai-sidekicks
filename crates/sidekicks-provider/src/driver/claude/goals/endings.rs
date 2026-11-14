@@ -19,7 +19,8 @@ use sidekicks_std::mutex_lock::lock;
 
 use super::file::{ClaudeProcessGoal, read_new_records};
 use super::records::GoalStatusRecord;
-use crate::driver::claude::delivery::system::{ClaudeProviderWords, read_provider_words};
+use crate::driver::claude::delivery::system::ClaudeProviderWords;
+use crate::driver::contract::error::read_provider_words;
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 
 // The lead's line once `/goal <condition>` set or replaced the goal.

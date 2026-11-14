@@ -24,7 +24,7 @@ use crate::driver::codex::delivery::frames::{
     CodexTurnMove, CodexTurnRun, read_turn_ending, report_unattributed,
 };
 use crate::driver::codex::delivery::memory::{CodexTurnErrorReading, read_codex_error_kind};
-use crate::driver::codex::delivery::notices::{provider_words, release_reroute};
+use crate::driver::codex::delivery::notices::release_reroute;
 use crate::driver::codex::delivery::reviewer::end_codex_review_turn;
 use crate::driver::codex::delivery::rows::{CodexRow, CodexRowDelivery, CodexRowRun};
 use crate::driver::codex::run::routes::CodexRunBinding;
@@ -34,6 +34,7 @@ use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTrans
 use crate::driver::codex::turn_evidence::{
     CodexTurnStatus, CodexTurnTerminalInput, compose_codex_turn_terminal,
 };
+use crate::driver::contract::error::read_provider_words;
 use crate::driver::run_control::SteerTurnEndedError;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{
@@ -470,7 +471,7 @@ impl CodexFrameDelivery {
                 &self.dependencies.provider_accounts,
             )
             .await,
-            fallback_detail: final_error.and_then(|error| provider_words(&error.message)),
+            fallback_detail: final_error.and_then(|error| read_provider_words(&error.message)),
         };
         let Some(terminal) = compose_codex_turn_terminal(input, gate, &mut self.lock_diagnostics())
         else {

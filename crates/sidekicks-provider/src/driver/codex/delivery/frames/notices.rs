@@ -49,7 +49,7 @@ impl CodexFrameDelivery {
                     self.send_notice(record, notice, method).await;
                 }
             }
-            "configWarning" => {
+            CODEX_CONFIG_WARNING_METHOD => {
                 if let Some(notice) = read_codex_config_warning(record.session_id, members) {
                     self.send_notice(record, notice, method).await;
                 }

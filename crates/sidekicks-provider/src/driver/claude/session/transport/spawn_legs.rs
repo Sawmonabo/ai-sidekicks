@@ -26,7 +26,8 @@ pub(crate) struct ClaudeSpawnBoundLegs {
     pub(crate) model: String,
     /// How the session may touch the machine; left out, a process would start unsandboxed.
     pub(crate) execution_posture: Option<ExecutionPosture>,
-    /// The folder the process runs in; a resume from any other folder starts a new conversation.
+    /// The folder the process runs in; a resume by id from any other folder continues the same
+    /// conversation, whose file stays under the folder it started in.
     pub(crate) working_directory: PathBuf,
     /// The daemon's callback tools.
     #[expect(

@@ -14,6 +14,7 @@ use sidekicks_contracts::command::{
 };
 use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use sidekicks_contracts::method_descriptor::NullPayload;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
@@ -28,6 +29,7 @@ use sidekicks_provider::command::helper_background::{
     HelperBackgroundParams, helper_not_in_foreground, move_helper_to_background,
 };
 use sidekicks_provider::command::running_set::{CommandInput, RunningCommandSets};
+use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::port::running_command_publisher::CommandStopCause;
@@ -53,20 +55,20 @@ pub(crate) struct CommandMethodSources {
 }
 
 impl CommandMethodSources {
-    // The driver `session_id` runs on; refused `session.notFound` for a session this daemon holds
-    // no binding for, and `provider.notFound` for a provider no driver answers.
+    // The provider `session_id` runs on and its driver; refused `session.notFound` for a session
+    // this daemon holds no binding for, and `provider.notFound` for a provider no driver answers.
     async fn session_driver(
         &self,
         session_id: SessionId,
-    ) -> Result<Arc<dyn ProviderDriver>, HandlerError> {
-        let (_, _, driver) = read_session_driver::<SessionReadError>(
+    ) -> Result<(ProviderId, Arc<dyn ProviderDriver>), HandlerError> {
+        let (provider, _, driver) = read_session_driver::<SessionReadError>(
             &self.pool,
             &self.providers,
             self.read_damaged_from_sequence.as_ref(),
             session_id,
         )
         .await?;
-        Ok(driver)
+        Ok((provider, driver))
     }
 
     // The provider's own id for the helper `child_handle` of `run_id` in `session_id`; refused
@@ -154,7 +156,7 @@ pub(crate) fn register_command_methods(
     registry.register::<AgentCommandStop, _>(move |request, _context: HandlerContext| {
         let sources = Arc::clone(&stop_sources);
         async move {
-            let driver = sources.session_driver(request.session_id).await?;
+            let (_, driver) = sources.session_driver(request.session_id).await?;
             sources
                 .running
                 .stop(
@@ -175,7 +177,17 @@ pub(crate) fn register_command_methods(
     registry.register::<AgentCommandBackground, _>(move |request, _context: HandlerContext| {
         let sources = Arc::clone(&background_sources);
         async move {
-            let driver = sources.session_driver(request.session_id).await?;
+            let (provider, driver) = sources.session_driver(request.session_id).await?;
+            // Refused from what the provider declares, before the target is looked for.
+            let flag = match &request.target {
+                AgentCommandBackgroundTarget::Command { .. } => {
+                    DriverCapabilityFlag::CommandBackground
+                }
+                AgentCommandBackgroundTarget::Helper { .. } => {
+                    DriverCapabilityFlag::HelperBackground
+                }
+            };
+            sources.providers.check_capability(&provider, flag)?;
             match &request.target {
                 AgentCommandBackgroundTarget::Command { command_id } => {
                     sources
@@ -210,7 +222,7 @@ pub(crate) fn register_command_methods(
     registry.register::<AgentCommandWrite, _>(move |request, _context: HandlerContext| {
         let sources = Arc::clone(&write_sources);
         async move {
-            let driver = sources.session_driver(request.session_id).await?;
+            let (_, driver) = sources.session_driver(request.session_id).await?;
             let input = CommandInput {
                 text: request.text.map(|text| text.as_str().to_owned()),
                 is_end_of_input: request.end_of_input == Some(true),

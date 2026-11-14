@@ -105,6 +105,19 @@ type SessionNoticeProviderRestarted = {
   provider: ProviderId;
 };
 
+// session.notice.posted of kind `settingsLoaded`: the provider read its settings. With `file`, that
+// file now loads cleanly and its `settingsIgnored` notice ends; without one, a new start's reading
+// began, or a start failed after an earlier start's notices stood, which ends every earlier
+// `settingsIgnored` notice of the provider, and the reading posts again each one it still finds;
+// a start's reading also ends the provider's crash loop, as a build move (`providerUpdated`) does.
+// Posted only where a notice of the provider may stand. Draws no row.
+type SessionNoticeSettingsLoaded = {
+  sessionId: SessionId;
+  kind: "settingsLoaded";
+  provider: ProviderId;
+  file?: string;
+};
+
 // session.notice.posted of kind `providerMissing`: the session's provider is not installed where
 // the session runs, so no provider process started (Spec-001 §Fallback Behavior). One flow row
 // naming the provider, opening Settings › Providers on its section. `place` is present on a Windows

@@ -59,10 +59,13 @@ pub(crate) fn read_codex_user_input_questions(
 fn read_user_input_question(question: &Map<String, Value>) -> Option<QuestionPrompt> {
     let text = read_text(question, "question")?;
     let secret = question.get("isSecret").and_then(Value::as_bool) == Some(true);
-    let lists_options = question
-        .get("options")
-        .and_then(Value::as_array)
-        .is_some_and(|options| !options.is_empty());
+    // A secret question shows a masked field and no option rows, so it takes typed text whatever
+    // it lists.
+    let lists_options = !secret
+        && question
+            .get("options")
+            .and_then(Value::as_array)
+            .is_some_and(|options| !options.is_empty());
     let kind = if lists_options {
         QuestionKind::Choice
     } else {

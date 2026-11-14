@@ -42,6 +42,10 @@ use crate::run::posture::{CredentialDenyPath, CredentialDenyPathKind};
 /// home.
 pub(crate) const CLAUDE_CLEANUP_PERIOD_DAYS: u32 = 36_500;
 
+/// The setting that holds how many days Claude Code keeps a conversation file, as its settings
+/// files and the retention notice name it.
+pub(crate) const CLAUDE_CLEANUP_PERIOD_SETTING: &str = "cleanupPeriodDays";
+
 /// The shell tool, which the background deny rules and the Reviewed ask rule name.
 pub(crate) const CLAUDE_SHELL_TOOL_NAME: &str = "Bash";
 

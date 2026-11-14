@@ -275,6 +275,11 @@ impl ClaudeDriver {
             .task_services
             .inboxes
             .release(session_id);
+        parts
+            .establishment
+            .task_services
+            .ignored_settings
+            .forget_session(session_id);
         if run_until(deadline, self.close_command_channel(session_id))
             .await
             .is_err()

@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -17,9 +18,10 @@ use super::{
     read_claude_settings_report, retention_notice,
 };
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::delivery::system::read_provider_words;
 use crate::driver::claude::session::transport::control::ClaudeSettingsReply;
 use crate::driver::claude::spawn::settings::private_file::compose_claude_settings_folder;
+use crate::driver::contract::error::read_provider_words;
+use crate::port::run_host::test_host::RecordingRunEngine;
 
 const DATA_FOLDER: &str = "/data";
 const LOCAL_FILE: &str = "/work/.claude/settings.local.json";
@@ -60,6 +62,7 @@ async fn a_reply_raises_each_dropped_file_and_key_in_claude_codes_words_but_neve
     let session_id = test_session_id();
     let ignored = ClaudeIgnoredSettings::new(
         Spawner::new(Handle::current()).expect("a spawner starts"),
+        Arc::new(RecordingRunEngine::default()),
         Path::new(DATA_FOLDER),
     );
     let daemon_file = compose_claude_settings_folder(Path::new(DATA_FOLDER)).join("process.json");
@@ -108,7 +111,8 @@ async fn a_reply_raises_each_dropped_file_and_key_in_claude_codes_words_but_neve
 // stands; one naming no file ends them all, and a notice that returns is raised again. Killed by
 // no start of the reading, by a standing notice posted again, by a clean reply that keeps it, by a
 // file's other notice left unposted after its clean load, and by a doctor reading raising what the
-// reply raised.
+// reply raised. A later start's first reading ends what stands, and posts nothing where nothing
+// stood; killed by a start that ends nothing, and by one posting an end the session needs no more.
 #[test]
 fn a_clean_reading_ends_its_files_notices_and_a_return_raises_them_again() {
     let session_id = test_session_id();
@@ -171,4 +175,11 @@ fn a_clean_reading_ends_its_files_notices_and_a_return_raises_them_again() {
         read(ClaudeSettingsReader::Reply, &[&mode]),
         [loaded(None), ignored(&mode)]
     );
+    for (start, posted) in [(2, vec![loaded(None)]), (3, Vec::new())] {
+        raised.begin_start(start);
+        assert_eq!(
+            raised.take_fresh(session_id, ClaudeSettingsReader::Reply, Vec::new()),
+            posted
+        );
+    }
 }

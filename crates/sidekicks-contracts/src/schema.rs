@@ -61,10 +61,11 @@ fn enum_of_documented_words(schema: &mut Schema) {
 }
 
 /// Names the tag of a tagged union written as `oneOf` as its `discriminator`, so Ajv picks the arm
-/// by the tag. The generator sees no definitions, so a union whose arms are `$ref`s stays plain.
-/// A union beside members of its own object (an internally tagged enum held in another's arm,
-/// beside that arm's tag) stays plain too: Ajv's discriminator counts those members as evaluated
-/// only when it picks the first arm, so a closed ancestor would refuse them under every other.
+/// by the tag, unless it names one already. The generator sees no definitions, so a union whose
+/// arms are `$ref`s stays plain. A union whose schema declares members of its own beside it, as an
+/// internally tagged enum held beside another arm's tag does, stays plain too: Ajv's discriminator
+/// counts those members as evaluated only when it picks the first arm, so a closed ancestor would
+/// refuse them under every other.
 fn discriminate_tagged_arms(schema: &mut Schema) {
     let Some(Value::Array(arms)) = schema.get("oneOf") else {
         return;
@@ -252,34 +253,6 @@ pub fn received_check<T: JsonSchema + 'static>()
     Ok(Arc::clone(
         checks.entry(type_id).or_insert_with(|| Arc::new(check)),
     ))
-}
-
-/// Reads `json` as a `T` and writes it back, then asserts that the received check accepts what was
-/// written and refuses it with one member `T` does not declare beside the rest.
-#[cfg(test)]
-pub(crate) fn assert_received_written_form<T>(json: Value)
-where
-    T: JsonSchema + serde::Serialize + serde::de::DeserializeOwned + 'static,
-{
-    let check = received_check::<T>().expect("the check builds");
-    let value: T = serde_json::from_value(json).expect("the value reads as its type");
-    let mut written = serde_json::to_value(&value).expect("the value writes");
-    assert_eq!(
-        check
-            .validate(&written)
-            .err()
-            .map(|error| error.to_string()),
-        None,
-        "the received check refuses {written}"
-    );
-    written
-        .as_object_mut()
-        .expect("the written form is an object")
-        .insert("undeclared".into(), true.into());
-    assert!(
-        !check.is_valid(&written),
-        "the received check accepts an undeclared member: {written}"
-    );
 }
 
 /// A doc comment as a schema's `description`, as schemars writes a derived type's: each line

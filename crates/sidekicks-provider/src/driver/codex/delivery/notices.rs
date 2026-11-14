@@ -17,12 +17,11 @@ use sidekicks_contracts::session::controls::events::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_ipc::redaction::scrub_credentials;
-use sidekicks_std::text_cut::cut_to_code_points;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::memory::CodexDeliveryMemory;
 use crate::driver::codex::delivery::rows::{CodexRow, CodexRowDelivery, CodexRowRun, event_text};
+use crate::driver::contract::error::read_provider_words;
 use crate::record_readers::{read_count, read_non_empty_string};
 use crate::run::delivery::LateAppendableRow;
 
@@ -45,12 +44,6 @@ pub(crate) enum CodexWarningReading {
     Notice(SessionNoticePostedPayload),
     /// A warning with no words.
     None,
-}
-
-/// The provider's own words fitted to a notice's or a row's text; `None` for words that are blank
-/// or hold NUL.
-pub(crate) fn provider_words(text: &str) -> Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> {
-    FreeFormText::new(cut_to_code_points(text, PROVIDER_FAILURE_DETAIL_MAX_LEN).to_owned()).ok()
 }
 
 /// Holds a `model/rerouted` row on its thread for the warning that carries its sentence; answers
@@ -108,8 +101,8 @@ pub(crate) fn read_codex_warning(
     session_id: SessionId,
     params: &Map<String, Value>,
 ) -> CodexWarningReading {
-    let message = read_non_empty_string(params, "message").map(scrub_credentials);
-    let Some(message) = message.as_deref().and_then(provider_words) else {
+    let Some(message) = read_non_empty_string(params, "message").and_then(read_provider_words)
+    else {
         return CodexWarningReading::None;
     };
     let reroute = read_non_empty_string(params, "threadId")
@@ -133,7 +126,7 @@ pub(crate) fn read_codex_deprecation_notice(
     session_id: SessionId,
     params: &Map<String, Value>,
 ) -> Option<SessionNoticePostedPayload> {
-    let summary = read_non_empty_string(params, "summary").and_then(provider_words)?;
+    let summary = read_non_empty_string(params, "summary").and_then(read_provider_words)?;
     Some(provider_warning(
         session_id,
         ProviderWarningSource::Deprecation,
@@ -170,7 +163,7 @@ pub(crate) fn read_codex_config_warning(
             },
         ));
     }
-    let summary = read_non_empty_string(params, "summary").and_then(provider_words)?;
+    let summary = read_non_empty_string(params, "summary").and_then(read_provider_words)?;
     Some(provider_warning(
         session_id,
         ProviderWarningSource::Warning,
@@ -190,6 +183,6 @@ fn provider_warning(
         session_id,
         source,
         text,
-        details: read_non_empty_string(params, "details").and_then(provider_words),
+        details: read_non_empty_string(params, "details").and_then(read_provider_words),
     })
 }

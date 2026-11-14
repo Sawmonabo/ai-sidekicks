@@ -11,6 +11,7 @@ use sidekicks_store::database::writer::test_file::{
 };
 
 use super::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
+use crate::agents::projection::test_fixture::{binding, binding_changed};
 use crate::questions::schema::schema_parts;
 
 /// A session whose log holds `notices`, each a `session.notice.posted` payload but its session,
@@ -67,12 +68,36 @@ fn ignored_at_key(file: &str, key: &str) -> Value {
     json!({ "kind": "settingsIgnored", "provider": "claude", "file": file, "key": key })
 }
 
-/// A crash loop stands until the restart that ends it, per provider, and a later crash loop draws
-/// it again. Killed by dropping the crash-loop arm, by keeping the newest row of either kind, and
-/// by grouping across providers.
+/// A crash loop stands until the restart, the build move or the new start's reading that ends it,
+/// per provider, and a later crash loop draws it again; a reading of one file ends none. Killed by
+/// dropping the crash-loop arm, by keeping the newest row of either kind, by grouping across
+/// providers, by a build move or a new start's reading that leaves the loop standing, and by a
+/// file's clean load that ends it.
 #[tokio::test]
 async fn a_crash_loop_stands_until_its_restart() {
     let restarted = json!({ "kind": "providerRestarted", "provider": "codex" });
+    let moved = json!({
+        "kind": "providerUpdated",
+        "provider": "codex",
+        "fromVersion": "0.166.0",
+        "toVersion": "0.167.0",
+    });
+    let started = json!({ "kind": "settingsLoaded", "provider": "codex" });
+    let file_loaded =
+        json!({ "kind": "settingsLoaded", "provider": "codex", "file": "/c/config.toml" });
+    // The build move ends the loop and stands itself until a send.
+    assert_eq!(
+        standing_notices(&[crash_loop("codex"), moved.clone()]).await,
+        [moved]
+    );
+    assert_eq!(
+        standing_notices(&[crash_loop("codex"), started]).await,
+        Vec::<Value>::new()
+    );
+    assert_eq!(
+        standing_notices(&[crash_loop("codex"), file_loaded]).await,
+        [crash_loop("codex")]
+    );
     assert_eq!(
         standing_notices(&[crash_loop("codex"), crash_loop("claude"), restarted.clone(),]).await,
         [crash_loop("claude")]
@@ -140,6 +165,34 @@ async fn an_ignored_settings_notice_stands_until_its_file_loads_cleanly() {
             ignored_at_key(settings, "permissions.defaultMode"),
             ignored_at_line(project, 7),
         ]
+    );
+}
+
+/// An agent moved off a provider ends that provider's ignored-settings notices, and a move between
+/// other providers ends none. Killed by the move not counting, and by one counting whatever
+/// provider it left.
+#[tokio::test]
+async fn an_ignored_settings_notice_ends_when_the_agent_moves_off_its_provider() {
+    let settings = "/work/.claude/settings.json";
+    let moved = |from: &str, to: &str| {
+        serde_json::to_value(binding_changed(
+            test_session_id(),
+            "019a0000-0000-7000-8000-000000000002",
+            "switch-1",
+            &binding(from, "model-a"),
+            &binding(to, "model-b"),
+            "account-1",
+        ))
+        .expect("the move serializes")
+    };
+    let ignored = ignored_at_key(settings, "permissions.defaultMode");
+    assert_eq!(
+        standing_notices(&[ignored.clone(), moved("claude", "codex")]).await,
+        Vec::<Value>::new()
+    );
+    assert_eq!(
+        standing_notices(&[ignored.clone(), moved("codex", "other")]).await,
+        [ignored]
     );
 }
 

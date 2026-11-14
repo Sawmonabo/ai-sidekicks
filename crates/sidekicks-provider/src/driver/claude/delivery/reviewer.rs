@@ -19,7 +19,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::delivery::system::read_provider_words;
+use crate::driver::contract::error::read_provider_words;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };

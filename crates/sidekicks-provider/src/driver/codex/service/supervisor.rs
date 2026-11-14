@@ -742,15 +742,14 @@ impl CodexService {
     }
 
     /// Starts a new connection's routing: its reports and its config warnings begin again, and
-    /// each session the warnings reach hears that a new reading of the settings began.
+    /// each attached session, a conversation registered on it or not, hears that a new reading of
+    /// the settings began.
     fn start_connection(&self) {
         let mut routing = self.lock_routing();
         routing.start_connection();
-        for session_id in self.lock_threads().sessions() {
-            if let Some(session) = routing.session(&session_id) {
-                // A queue whose task ended takes nothing more; its session is closing.
-                let _unheard = session.push(CodexSessionInbound::SettingsReadingBegan);
-            }
+        for session in routing.attached() {
+            // A queue whose task ended takes nothing more; its session is closing.
+            let _unheard = session.push(CodexSessionInbound::SettingsReadingBegan);
         }
     }
 

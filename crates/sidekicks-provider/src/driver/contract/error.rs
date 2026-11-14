@@ -11,6 +11,7 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::redaction::scrub_credentials;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::text_cut::cut_to_code_points;
 
@@ -240,6 +241,15 @@ pub fn bound_failure_detail(
     empty_fallback: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 ) -> FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN> {
     bound_provider_words(detail).unwrap_or(empty_fallback)
+}
+
+/// A provider's own words as a notice's or a row's text: any credential they quote masked, then
+/// fitted to the failure-detail cap as [`bound_provider_words`] fits them; `None` where nothing is
+/// left.
+pub(crate) fn read_provider_words(
+    words: &str,
+) -> Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> {
+    bound_provider_words(&scrub_credentials(words))
 }
 
 /// Fits a provider's words to text of at most `MAX` code points: every NUL dropped, ECMAScript

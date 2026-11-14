@@ -10,7 +10,7 @@ use std::slice;
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::question::{
-    QuestionAnswer, QuestionDefault, QuestionKind, QuestionOption, QuestionPrompt,
+    QuestionAnswer, QuestionDefault, QuestionKind, QuestionOption, QuestionPrompt, read_typed_flag,
     read_typed_number,
 };
 use sidekicks_contracts::wire::number::Number;
@@ -301,11 +301,7 @@ fn read_typed_answer(members: &Map<String, Value>, text: &str) -> Value {
         Some("number" | "integer") => {
             read_typed_number(text).map_or_else(|| Value::from(text), write_number)
         }
-        Some("boolean") => match text {
-            "true" => Value::Bool(true),
-            "false" => Value::Bool(false),
-            _ => Value::from(text),
-        },
+        Some("boolean") => read_typed_flag(text).map_or_else(|| Value::from(text), Value::Bool),
         Some(_) | None => Value::from(text),
     }
 }

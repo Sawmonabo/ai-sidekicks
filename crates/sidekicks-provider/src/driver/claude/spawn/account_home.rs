@@ -11,10 +11,9 @@ use crate::driver::claude::session::settings_file::{
     ClaudeSettingsFileError, hold_settings_file, read_settings_file, set_settings_value,
     write_settings_file,
 };
-use crate::driver::claude::spawn::settings::CLAUDE_CLEANUP_PERIOD_DAYS;
-
-// The setting that holds how many days Claude Code keeps a conversation file.
-const CLAUDE_CLEANUP_PERIOD_SETTING: &str = "cleanupPeriodDays";
+use crate::driver::claude::spawn::settings::{
+    CLAUDE_CLEANUP_PERIOD_DAYS, CLAUDE_CLEANUP_PERIOD_SETTING,
+};
 
 /// The mode of an account home's settings file, which the person alone reads.
 pub(crate) const CLAUDE_HOME_SETTINGS_MODE: u32 = 0o600;

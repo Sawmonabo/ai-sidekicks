@@ -63,6 +63,10 @@ pub enum DriverCapabilityFlag {
     ProviderCommands,
     /// A faster-output mode the person sets and the provider declares a state for.
     OutputSpeed,
+    /// Moves a running command the agent waits on to the background.
+    CommandBackground,
+    /// Moves a helper of its own that a thread waits on to the background.
+    HelperBackground,
 }
 
 /// Each capability flag's value: every flag present, no other member.

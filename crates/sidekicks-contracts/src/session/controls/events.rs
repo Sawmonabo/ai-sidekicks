@@ -306,9 +306,9 @@ pub enum SessionNotice {
         provider: ProviderId,
     },
     /// The provider read its settings: with `file`, that file now loads cleanly and its
-    /// `settingsIgnored` notice ends; without one, a new start's reading began, which ends every
-    /// earlier `settingsIgnored` notice of the provider and posts again each one it still finds.
-    /// Draws no row.
+    /// `settingsIgnored` notice ends; without one, a new start's reading began, or a start failed,
+    /// which ends every earlier `settingsIgnored` notice of the provider, and a reading posts again
+    /// each one it still finds; it also ends the provider's crash loop. Draws no row.
     SettingsLoaded {
         /// The session.
         session_id: SessionId,

@@ -387,7 +387,7 @@ mod tests {
         channel.follow(predecessor);
         let program = write_stand_in_program(
             folder.path(),
-            "claude",
+            "claude-stand-in",
             &StandInProgram {
                 answers_by_first_argument: Vec::new(),
                 otherwise: StandInAnswer {

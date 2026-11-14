@@ -226,6 +226,8 @@ literal! {
 }
 
 literal! {
+    /// The message already carries as many files as the provider takes.
+    pub enum CountLimitReason = "countLimit";
     /// The provider refused, by its own limit or policy.
     pub enum ProviderRefusedReason = "providerRefused";
     /// The copy to the daemon did not complete.
@@ -236,14 +238,26 @@ literal! {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum SessionAttachmentLimitReason {
-    /// The message already carries as many files as the provider takes.
-    CountLimit,
     /// A folder was offered; an agent reads a folder where it is.
     Folder,
     /// The session's provider accepts no files.
     ProviderTakesNoAttachments,
     /// A card above the composer is waiting on the person.
     CardWaiting,
+}
+
+/// The message already carries as many files as the provider takes, with that number, which the
+/// refusal line names.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
+pub struct SessionAttachmentCountRefusal {
+    /// Always `session.attachment.refused`.
+    pub code: SessionAttachmentRefusedCode,
+    /// Always `countLimit`.
+    pub reason: CountLimitReason,
+    /// How many files a message takes.
+    pub limit: SafeInt<1>,
 }
 
 /// A session rule refused the item.
@@ -303,12 +317,15 @@ pub struct SessionAttachmentIngestBusy {
     pub code: ArtifactIngestCapacityExhaustedCode,
 }
 
-/// Why one item was not staged: a session rule, the provider's refusal with its words, a failed
-/// copy with the daemon's cause, a disk too full with the room it has, or the ingest being busy.
+/// Why one item was not staged: a message's file count with its limit, another session rule, the
+/// provider's refusal with its words, a failed copy with the daemon's cause, a disk too full with
+/// the room it has, or the ingest being busy.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum SessionAttachmentRefusalCause {
-    /// A session rule.
+    /// The file count's limit.
+    CountLimit(SessionAttachmentCountRefusal),
+    /// Another session rule.
     Limit(SessionAttachmentLimitRefusal),
     /// The provider's refusal.
     ProviderRefused(SessionAttachmentProviderRefusal),

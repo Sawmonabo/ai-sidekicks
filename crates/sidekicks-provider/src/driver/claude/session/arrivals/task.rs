@@ -588,7 +588,7 @@ impl ClaudeSessionTask {
             services.delivery.settle_exit(&self.stream, held).await;
         }
         services.idle_sleep.note_process_ended(session_id);
-        services.ignored_settings.forget_session(session_id);
+        services.ignored_settings.forget_process(session_id);
         services.requests.forget_session(session_id);
         services.settlement.handshakes.forget_handshake(session_id);
         services.dialogs.forget_session(session_id);

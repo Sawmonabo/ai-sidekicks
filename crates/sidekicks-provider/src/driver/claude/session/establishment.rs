@@ -442,8 +442,27 @@ impl ClaudeSessionEstablishment {
 
     // Brings the process up, checks it, runs `before_install` on it, then installs it as the
     // session's live process and starts its task; any failure ends the process and undoes its
-    // registry, and the claim restores what the slot held.
+    // registry, the claim restores what the slot held, and a session no process runs on any more
+    // has its earlier start's settings notices ended.
     async fn bring_up_and<BeforeInstall>(
+        &self,
+        start: ClaudeSessionStart,
+        before_install: BeforeInstall,
+    ) -> Result<SpawnedVersionBindingCarriers, ClaudeEstablishmentError>
+    where
+        BeforeInstall: AsyncFnOnce(&LiveClaudeSession) -> Result<(), ClaudeEstablishmentError>,
+    {
+        let session_id = start.legs.session_id;
+        let brought_up = self.install_brought_up(start, before_install).await;
+        if brought_up.is_err() {
+            self.task_services
+                .ignored_settings
+                .end_failed_start(session_id);
+        }
+        brought_up
+    }
+
+    async fn install_brought_up<BeforeInstall>(
         &self,
         start: ClaudeSessionStart,
         before_install: BeforeInstall,
@@ -715,13 +734,11 @@ impl ClaudeSessionEstablishment {
             self.end_unadopted_live(&started, &live).await;
             return Err(ClaudeEstablishmentError::Closed);
         }
-        let watched_stream = Arc::clone(&stream);
         self.adopt(&live, stream, band, receiver, level_reports, &started);
         self.task_services.ignored_settings.follow(
             ClaudeSettingsWatch::new(
                 session_id,
                 Arc::clone(&live.channel),
-                watched_stream,
                 settings,
                 started.executable,
             ),

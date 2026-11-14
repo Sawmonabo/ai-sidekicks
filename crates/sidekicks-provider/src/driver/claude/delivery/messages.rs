@@ -34,8 +34,8 @@ use crate::driver::claude::delivery::file_tool_writes::{ClaudeFileTool, ClaudeFi
 use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
 use crate::driver::claude::delivery::patches::read_claude_patch_file;
 use crate::driver::claude::delivery::peer_arrival::{ClaudeMessageOrigin, read_boxed_origin};
-use crate::driver::claude::delivery::system::read_provider_words;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
+use crate::driver::contract::error::read_provider_words;
 use crate::driver::reorder_buffer::ReorderPairingRole;
 use crate::lenient_json::{
     Lenient, LenientElement, LenientList, LenientVisitor, lenient_object, read_lenient,

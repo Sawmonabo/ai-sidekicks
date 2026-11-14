@@ -71,7 +71,9 @@ type CatalogText = FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>;
 /// model through the session's tool-server entry; peer agents are spawned, messaged and closed
 /// within a turn; an asked compaction announces itself as an unasked one does; the skill list is
 /// read and announces its changes; the service tier rides each thread and turn, which declare it
-/// back, each model's tiers read from the catalog. This transport carries no reasoning tokens.
+/// back, each model's tiers read from the catalog. This transport carries no reasoning tokens, and
+/// moves nothing to the background: a command keeps running past an interrupt, and every helper is
+/// a thread of its own that holds no other.
 const fn is_codex_flag_declared(flag: DriverCapabilityFlag) -> bool {
     match flag {
         DriverCapabilityFlag::Resume
@@ -89,7 +91,9 @@ const fn is_codex_flag_declared(flag: DriverCapabilityFlag) -> bool {
         | DriverCapabilityFlag::ContextCompaction
         | DriverCapabilityFlag::ProviderCommands
         | DriverCapabilityFlag::OutputSpeed => true,
-        DriverCapabilityFlag::ReasoningStream => false,
+        DriverCapabilityFlag::ReasoningStream
+        | DriverCapabilityFlag::CommandBackground
+        | DriverCapabilityFlag::HelperBackground => false,
     }
 }
 

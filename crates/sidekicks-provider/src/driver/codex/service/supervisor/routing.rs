@@ -417,18 +417,20 @@ impl CodexService {
         method: &str,
         params: &RawValue,
     ) -> (FrameAudience, bool) {
-        let sessions = self.lock_threads().sessions();
         if method == CODEX_CONFIG_WARNING_METHOD {
-            // Only the sessions not told it already, so a reconnect repeats nothing.
+            // Every attached session, a conversation registered on it or not, but only those not
+            // told it already, so a reconnect repeats nothing.
+            let attached: Vec<SessionId> = routing.sessions.keys().copied().collect();
             return (
                 FrameAudience::Sessions(
                     routing
                         .config_warnings
-                        .record_warning(params.to_owned(), &sessions),
+                        .record_warning(params.to_owned(), &attached),
                 ),
                 false,
             );
         }
+        let sessions = self.lock_threads().sessions();
         let mut has_rate_limits_changed = false;
         if method == CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD {
             match serde_json::from_str::<Value>(params.get()) {

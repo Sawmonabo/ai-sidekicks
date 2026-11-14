@@ -576,7 +576,9 @@ interface QuestionAskedPayload {
     // whole number or a yes-or-no. Claude Code's question carries its own `kind`; a Codex question
     // is a choice where it lists options and text where it lists none; a tool server's form field
     // takes its kind from its schema type, `integer` and `flag` only there. Typed text for a
-    // `number` or `integer` question that is not a number is refused `notANumber`.
+    // `number` or `integer` question that is not a number is refused `notANumber`, a number that is
+    // not whole for an `integer` one `notAWholeNumber`, and text that is neither `true` nor `false`
+    // for a `flag` one `notAFlag`.
     kind: "choice" | "text" | "number" | "integer" | "flag";
     heading?: string;
     // The question's own helper line, drawn faint under its text, where it sent one.

@@ -76,7 +76,9 @@ const fn detection_of(flag: DriverCapabilityFlag) -> CapabilityDetection {
         | DriverCapabilityFlag::SessionFork
         | DriverCapabilityFlag::CallbackTools
         | DriverCapabilityFlag::Subagents
-        | DriverCapabilityFlag::OutputSpeed => CapabilityDetection::Static {
+        | DriverCapabilityFlag::OutputSpeed
+        | DriverCapabilityFlag::CommandBackground
+        | DriverCapabilityFlag::HelperBackground => CapabilityDetection::Static {
             failing_conjuncts: &[DecisiveAtConsumptionGranularity],
         },
     }

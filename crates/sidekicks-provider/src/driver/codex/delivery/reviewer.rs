@@ -21,12 +21,12 @@ use sidekicks_contracts::session::controls::events::{
 use sidekicks_contracts::wire::text::{ComposedText, FreeFormText};
 
 use crate::driver::codex::delivery::memory::CodexDeliveryMemory;
-use crate::driver::codex::delivery::notices::provider_words;
 use crate::driver::codex::delivery::reviewer::assessment::{
     GuardianAssessmentAction, GuardianAssessmentEvent, GuardianAssessmentStatus,
     ReviewCompletedParams,
 };
 use crate::driver::codex::delivery::rows::CodexRowRun;
+use crate::driver::contract::error::read_provider_words;
 use crate::port::reviewer_denial::ProviderReviewerDenial;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::UnstampedRow;
@@ -117,7 +117,7 @@ pub(crate) fn complete_codex_review(
         .and_then(Value::as_str)
         .and_then(GuardianAssessmentStatus::read_wire);
     let flag = warning
-        .and_then(|warning| provider_words(&warning))
+        .and_then(|warning| read_provider_words(&warning))
         .filter(|_| status.is_some_and(|status| !status.is_settled_by_review()))
         .map(|text| CodexReviewFlag {
             about_event_id: target_item_id
@@ -147,7 +147,7 @@ pub(crate) fn require_codex_review(
         run,
         about_event_id,
         signal: ModerationReviewSignal::ReviewRequired,
-        text: provider_words(CODEX_REVIEW_REQUIRED_SENTENCE)
+        text: read_provider_words(CODEX_REVIEW_REQUIRED_SENTENCE)
             .expect("the sentence is non-blank and within the cap"),
         method: "autoApprovalReview/strictReviewRequired",
         turn_id: Some(turn_id.to_owned()),
@@ -170,7 +170,7 @@ pub(crate) fn end_codex_review_turn(
         run: stopped_run?,
         about_event_id,
         signal: ModerationReviewSignal::ReviewWarning,
-        text: provider_words(&warning)?,
+        text: read_provider_words(&warning)?,
         method: "turn/completed",
         turn_id: turn_id.map(str::to_owned),
     })

@@ -472,10 +472,16 @@ interface SessionAttachmentRefusal {
   cause:
     | {
         code: "session.attachment.refused";
-        // countLimit: the message already carries as many files as the provider takes; folder: a
-        // folder was offered; providerTakesNoAttachments; cardWaiting: a card above the
+        // The message already carries as many files as the provider takes; `limit` is that
+        // number, which the refusal line names.
+        reason: "countLimit";
+        limit: number;
+      }
+    | {
+        code: "session.attachment.refused";
+        // folder: a folder was offered; providerTakesNoAttachments; cardWaiting: a card above the
         // composer waits on the person.
-        reason: "countLimit" | "folder" | "providerTakesNoAttachments" | "cardWaiting";
+        reason: "folder" | "providerTakesNoAttachments" | "cardWaiting";
       }
     | {
         code: "session.attachment.refused";

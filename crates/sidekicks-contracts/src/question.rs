@@ -10,6 +10,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::VariantArray;
 
 use crate::internal::branded::branded_uuid_id;
 use crate::method::methods;
@@ -55,7 +56,9 @@ pub struct QuestionOption {
 /// The kind of answer a question takes, as its provider sent it: a pick among its options, typed
 /// text, a number, a whole number or a yes-or-no. Only a tool server's form field is a whole
 /// number or a yes-or-no, where its schema types the field so.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum QuestionKind {
     /// A pick among the question's options, or typed text beside them.
@@ -80,6 +83,48 @@ impl QuestionKind {
     }
 }
 
+/// States in the schema that a secret question has no option rows, and that a question of a kind
+/// [`QuestionKind::is_numeric`] does not take carries no range, step or unit.
+fn add_question_prompt_rules(schema: &mut schemars::Schema) {
+    let other_kinds: Vec<serde_json::Value> = QuestionKind::VARIANTS
+        .iter()
+        .filter(|kind| !kind.is_numeric())
+        .map(|kind| serde_json::to_value(kind).expect("a kind serializes as its name"))
+        .collect();
+    schema.insert(
+        "allOf".into(),
+        serde_json::json!([
+            {
+                "if": {
+                    "type": "object",
+                    "properties": { "secret": { "const": true } },
+                    "required": ["secret"],
+                },
+                "then": {
+                    "type": "object",
+                    "properties": { "options": { "type": "array", "maxItems": 0 } },
+                },
+            },
+            {
+                "if": {
+                    "type": "object",
+                    "properties": { "kind": { "enum": other_kinds } },
+                    "required": ["kind"],
+                },
+                "then": {
+                    "type": "object",
+                    "properties": {
+                        "minimum": false,
+                        "maximum": false,
+                        "step": false,
+                        "unit": false,
+                    },
+                },
+            },
+        ]),
+    );
+}
+
 /// The finite decimal number typed `text` spells around its whitespace, or `None` for blank text,
 /// any other text, and an infinity or `NaN`: what a number question takes as typed text.
 pub fn read_typed_number(text: &str) -> Option<f64> {
@@ -87,6 +132,16 @@ pub fn read_typed_number(text: &str) -> Option<f64> {
         .parse::<f64>()
         .ok()
         .filter(|number| number.is_finite())
+}
+
+/// The yes or no typed `text` spells around its whitespace, `true` or `false`, or `None` for any
+/// other text: what a flag question takes as typed text.
+pub fn read_typed_flag(text: &str) -> Option<bool> {
+    match text.trim_matches(is_ecmascript_whitespace) {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
 }
 
 /// The answer a form field starts from, as the form declared it: the label of the option it
@@ -111,33 +166,8 @@ pub enum QuestionDefault {
 /// the schema states as `defaultAmongOptions`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[schemars(extend(
-    "allOf" = [
-        {
-            "if": {
-                "type": "object",
-                "properties": { "secret": { "const": true } },
-                "required": ["secret"],
-            },
-            "then": {
-                "type": "object",
-                "properties": { "options": { "type": "array", "maxItems": 0 } },
-            },
-        },
-        {
-            "if": {
-                "type": "object",
-                "properties": { "kind": { "enum": ["choice", "text", "flag"] } },
-                "required": ["kind"],
-            },
-            "then": {
-                "type": "object",
-                "properties": { "minimum": false, "maximum": false, "step": false, "unit": false },
-            },
-        },
-    ],
-    "defaultAmongOptions" = true,
-))]
+#[schemars(extend("defaultAmongOptions" = true))]
+#[schemars(transform = add_question_prompt_rules)]
 pub struct QuestionPrompt {
     /// The agent's own short header, a tool server's name, or a workflow's name.
     #[serde(
@@ -504,8 +534,8 @@ pub struct QuestionResolveResponse {
 
 /// Why `question.answerInvalid` refused one answer, carried as its `reason`: a secret for a plain
 /// question, a label the question does not offer, several labels for a question that takes one,
-/// typed text for a question that takes only its options, or typed text that is not a number for
-/// a number question.
+/// typed text for a question that takes only its options, or typed text that is not a value of
+/// the question's kind: a number, a whole number or a flag.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum QuestionAnswerInvalidReason {
@@ -520,6 +550,10 @@ pub enum QuestionAnswerInvalidReason {
     TextOnChoice,
     /// Typed text that is not a number for a question that takes a number.
     NotANumber,
+    /// Typed text that is a number but not a whole one for a question that takes a whole number.
+    NotAWholeNumber,
+    /// Typed text that is neither `true` nor `false` for a yes-or-no question.
+    NotAFlag,
 }
 
 methods! {

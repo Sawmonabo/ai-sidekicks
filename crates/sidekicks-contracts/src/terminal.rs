@@ -126,7 +126,7 @@ pub struct TerminalCommandEnd {
 /// One shell as the tab strip draws it. `title` is the title the shell set for itself, or its
 /// program's base name until it sets one. `holder` is `null` while nobody holds the shell, and
 /// `leaseVersion` is the lease version that holder was read at. `lastCommandEnd` is `null` until a
-/// command the person ran in the shell ends.
+/// command run in the shell, by the person or an agent, ends.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
