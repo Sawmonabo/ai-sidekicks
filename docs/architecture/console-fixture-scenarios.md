@@ -166,7 +166,7 @@ Each scenario is a screen state to reach and what must be true once it is reache
 | Review on a tree that changed under it, then on a pull request that gained commits past the head it loaded | The reload control carries its dot, titled `Tree changed — reload`, and on the pull request the same dot titled `Pull request moved on — reload`; a session with no pull request draws no second dot, and nothing reloads by itself |
 | Review's ship strip during a half-finished rebase | The state line reads `A rebase is in progress — run git rebase --continue in the terminal.` with the command in mono, and `Commit` is absent |
 | A push from the ship strip that fails | Under the `Exact commands` fold `git push` turns red with `Try again` at its right, and the conversation gains a row naming the push that failed followed by git's own last error line |
-| Review on a slow read, then a failed read | A diff already on screen stays as it is; where none is drawn yet, `Reading changes…` stands where the diff would be, never for a fast read. A failed read draws `Could not read the working folder` in the body with `Try again` |
+| Review on a slow read, then a failed read | A diff already on screen stays as it is; where none is drawn yet, `Loading…` stands where the diff would be, never for a fast read. A failed read draws `Couldn't load working folder` in the body with `Try again` |
 | Review when the branch list fails, when git status fails, and when a diff cannot be built | One line at the top of the pane, `Could not read the branch list`, with `Try again`, the diff staying where it is; the state line reading `Could not read git status` with `Try again` at its right and no action button; and `Could not show this change` in the body's place |
 | An approval card's middle button arrow | The face offers to always allow this session's exact subject; the arrow opens that choice, marked as the default press, over an always-in-this-project choice, and taking the second resolves the ask and records the project rule |
 | The approval card a workflow's command step raises | It offers the face's session rule and no `Always in this project`; `Decline` fails the step and the run parks on it until `Resume` asks again |
@@ -233,8 +233,8 @@ Each scenario is a screen state to reach and what must be true once it is reache
 | General, cannot update on a Mac | A Mac copy running outside a writable folder: no update button and no command, `This install cannot update itself. Move the app to Applications, then check again.` |
 | General, update failed | An update that could not be verified and was not installed |
 | General, editor gone | The chosen editor no longer on this machine: dimmed and read as not installed in the list, and the row saying files open in the system default |
-| General, reading settings | The machine's settings file still being read: the controls it keeps draw nothing and no changed mark, and after the short delay each of their rows reads `Reading settings…` |
-| General, settings unreadable | The machine's settings file that could not be read: each of the controls it keeps reads `The settings could not be read.` with `Try again` as the faint word |
+| General, reading settings | The machine's settings file still being read: the controls it keeps draw nothing and no changed mark, and after the short delay each of their rows reads `Loading…` |
+| General, settings unreadable | The machine's settings file that could not be read: each of the controls it keeps reads `Couldn't load settings` with `Try again` as the faint word |
 | General, file repaired | Defaults used, the file written out again, and the page saying both |
 | Providers, no provider-level setting | A provider that exposes no provider-level setting at all |
 | Providers, tool not installed | The command-line tool reading `Not installed.` with `Install` beside it |
@@ -271,7 +271,7 @@ Each scenario is a screen state to reach and what must be true once it is reache
 | Providers, WSL switches per place | `Reach Codex sessions started in a terminal` and `Use Sidekicks in terminal Claude Code` each carry the sub-rows `Windows` and `Ubuntu (WSL)` under their settled lines, one switch per place; a place where that provider is not installed is grayed with `Not installed.` on its sub-row and with `<Provider> is not installed in Debian.` or `<Provider> is not installed on Windows.` in its switch's title, and a place not checked yet is grayed with `Not checked yet` on its sub-row |
 | Providers, WSL remove | `Remove` on an account with a home on Windows and in Ubuntu confirms with `Remove <email> from this list? Its folders are left untouched. Sign-in history and spend go with it.` |
 | MCP degraded | The binding store unreachable, the per-tool controls absent and every other one offered |
-| MCP reading | The server list still being read: nothing drawn at once, and after the short delay `Reading the server list…` in its place |
+| MCP reading | The server list still being read: nothing drawn at once, and after the short delay `Loading…` in its place |
 | MCP none | No tool servers set up for that provider |
 | MCP failed and selected | The reconnect drawn first among the controls of a server reading failed |
 | MCP sign-in did not finish | A sign-in to a tool server that did not finish |
@@ -289,7 +289,7 @@ Each scenario is a screen state to reach and what must be true once it is reache
 | Notifications web address failing | A web address answering 404: the test's line, the status line naming the failure and how many messages were not delivered, and the secret not shown again |
 | Notifications digest on | The email digest on for a placeholder address, the password reading `Saved` with `Replace` and `Remove`, the mail server, port and user-name fields drawn because the mail library does not know that domain, the test's sent line and the last-sent line |
 | Notifications digest refused | The mail server refusing the sign-in, said by the test with the app-password hint and by the status line, the switch still on |
-| Runtime reading the service | The service's status still being read: nothing drawn at once, and after the short delay `Reading the background service…` in the service's line |
+| Runtime reading the service | The service's status still being read: nothing drawn at once, and after the short delay `Loading background service…` in the service's line |
 | Runtime not answering | The background service unreachable, its controls still drawn |
 | Projects with the service not answering | Every page other than Runtime keeps its entry; Projects, as one of them, reads `The background service is not answering, so nothing on this page can be saved right now. Every control below keeps the value it had, and the page says what it could not read.` above its controls, each keeping the value it had |
 | Runtime port taken | The listener port already taken, so nothing is listening |
