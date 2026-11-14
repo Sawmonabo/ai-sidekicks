@@ -1,6 +1,6 @@
 // What the page and the markdown worker say to each other: the parser the worker loads, and the
 // compression module, the fuzzy matcher and the workflow checks it compiles on their own for the
-// page; a text to parse and
+// page, the checks also when the page first asks for them; a text to parse and
 // the trees the worker sends back as the parser's own binary buffers; a text to cut into
 // blocks and where each block ends; a reply's markdown asked for as HTML, or a drawn part asked for
 // as the text it copies as; the worker's asks for a long table's undrawn rows and the page's
@@ -106,9 +106,15 @@ export interface UndrawnRowsAnswer {
   readonly rows: readonly string[];
 }
 
+/** The page's ask, once something first needs the workflow checks, to compile their module. */
+export interface WorkflowChecksCompileRequest {
+  readonly kind: "compile-workflow-checks";
+}
+
 /** What the page sends the markdown worker. */
 export type MarkdownWorkerMessage =
   | MarkdownParserLoad
+  | WorkflowChecksCompileRequest
   | MarkdownParseRequest
   | MarkdownCutRequest
   | MarkdownWorkerRequest

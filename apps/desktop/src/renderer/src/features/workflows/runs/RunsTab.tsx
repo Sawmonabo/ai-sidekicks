@@ -144,14 +144,14 @@ function RunsList(
 ): React.JSX.Element {
   const { listState } = props;
   if (listState.kind === "not-loaded") {
-    return <LoadingNotice clock={props.clock} placement="block" title="Loading the runs…" />;
+    return <LoadingNotice clock={props.clock} placement="block" title="Loading runs…" />;
   }
   if (listState.kind === "failed") {
     return (
       <Nothing
         kind="error"
         placement="block"
-        title="Could not load the runs"
+        title="Couldn't load runs"
         detail={listState.refusal.detail}
         action={<TryAgainButton onPress={props.readListAgain} />}
         attempt={listState.refusal}
@@ -195,7 +195,7 @@ function renderAnsweredRuns(
           <Nothing
             kind="error"
             placement="block"
-            title="Could not load older runs"
+            title="Couldn't load older runs"
             detail={answer.earlierRefusal.detail}
             action={<TryAgainButton onPress={props.readListAgain} />}
             attempt={answer.earlierRefusal}

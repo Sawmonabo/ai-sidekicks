@@ -3,9 +3,10 @@
 // Every write is bound to the pane's open output subscription; while none is open (before the
 // first open, and between a stream's end and its re-open) what is typed waits here and goes once
 // the new subscription is bound. At most `TERMINAL_WRITES_WAITING_PER_SHELL` writes wait for the
-// daemon's answer at once; keys typed past that are joined and sent as answers return. An
-// interrupt, quit or suspend key is sent at once with everything before it while fewer than
-// `TERMINAL_WRITES_WAITING_LIMIT` wait, so Ctrl-C reaches a program that stopped reading. A paste
+// daemon's answer at once, counted over every pane on the connection as the daemon counts them;
+// keys typed past that are joined and sent as answers return. An interrupt, quit or suspend key is
+// sent at once with everything before it while fewer than `TERMINAL_WRITES_WAITING_LIMIT` wait,
+// so Ctrl-C reaches a program that stopped reading. A paste
 // goes as one paste of one or more parts, never joined with keys. Each write carries at most
 // `TERMINAL_WRITE_MAX_BYTES` of UTF-8, never cut inside a character.
 
@@ -16,6 +17,8 @@ import {
   TERMINAL_WRITES_WAITING_PER_SHELL,
   type TerminalWriteRequest,
 } from "@ai-sidekicks/contracts/terminal";
+
+import type { ConnectionShell } from "./connection-shells.js";
 
 /** The keys that reach a program as its signal: Ctrl-C, Ctrl-\ and Ctrl-Z. */
 const SIGNAL_KEYS: readonly string[] = ["\u0003", "\u001c", "\u001a"];
@@ -28,25 +31,39 @@ export type ShellWrite = TerminalWriteRequest extends infer Write
   : never;
 
 /**
- * One shell's typed keys and pastes, sent in order through `send` with the subscription bound
- * when each goes; `send` settles once the daemon answers and never rejects.
+ * One pane's typed keys and pastes for one shell, sent in order through `send` with the
+ * subscription bound when each goes; `send` settles once the daemon answers and never rejects.
  */
 export class ShellInputQueue {
+  readonly #connectionShell: () => ConnectionShell;
   readonly #send: (write: ShellWrite, outputSubscriptionId: SubscriptionId) => Promise<void>;
   /** What waits to be sent, oldest first; a keys write at the end takes the next keys. */
   #waiting: ShellWrite[] = [];
-  #answerWaitingCount = 0;
   #outputSubscriptionId: SubscriptionId | undefined;
+  #stopFollowingAnswers: (() => void) | undefined;
 
   public constructor(
+    connectionShell: () => ConnectionShell,
     send: (write: ShellWrite, outputSubscriptionId: SubscriptionId) => Promise<void>,
   ) {
+    this.#connectionShell = connectionShell;
     this.#send = send;
   }
 
-  /** Bind later writes to the open subscription and send what waited; `undefined` holds them. */
+  /**
+   * Bind later writes to the open subscription and send what waited, sending more as any pane's
+   * write is answered; `undefined` holds them.
+   */
   public bind(outputSubscriptionId: SubscriptionId | undefined): void {
     this.#outputSubscriptionId = outputSubscriptionId;
+    if (outputSubscriptionId === undefined) {
+      this.#stopFollowingAnswers?.();
+      this.#stopFollowingAnswers = undefined;
+      return;
+    }
+    this.#stopFollowingAnswers ??= this.#connectionShell().followWriteAnswers(() => {
+      this.#sendWaiting(TERMINAL_WRITES_WAITING_PER_SHELL);
+    });
     this.#sendWaiting(TERMINAL_WRITES_WAITING_PER_SHELL);
   }
 
@@ -87,15 +104,20 @@ export class ShellInputQueue {
 
   #sendWaiting(waitingCap: number): void {
     const outputSubscriptionId = this.#outputSubscriptionId;
-    while (outputSubscriptionId !== undefined && this.#answerWaitingCount < waitingCap) {
+    if (outputSubscriptionId === undefined) {
+      return;
+    }
+    // Looked up on each send, since an idle shell is let go; a followed one is kept.
+    const connectionShell = this.#connectionShell();
+    while (connectionShell.writesWaitingCount < waitingCap) {
       const write = this.#takeNextWrite();
       if (write === undefined) {
         return;
       }
-      this.#answerWaitingCount += 1;
+      connectionShell.sendWrite();
+      // The answer wakes every bound pane's queue, this one among them.
       void this.#send(write, outputSubscriptionId).finally(() => {
-        this.#answerWaitingCount -= 1;
-        this.#sendWaiting(TERMINAL_WRITES_WAITING_PER_SHELL);
+        connectionShell.answerWrite();
       });
     }
   }

@@ -21,7 +21,7 @@ export interface PartialReadProps {
    * Every reading this view holds; a view is incomplete once per producer that could not finish.
    */
   readonly states: readonly ReadingState[];
-  /** What was read, as a lowercase noun phrase ("the queue"); it sits mid-sentence in every arm. */
+  /** What was read, as a lowercase bare noun ("queue"); it sits mid-sentence in every arm. */
   readonly subject: string;
 }
 

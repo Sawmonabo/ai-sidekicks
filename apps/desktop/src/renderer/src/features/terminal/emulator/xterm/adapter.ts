@@ -267,7 +267,9 @@ export class XtermTerminalAdapter {
       // DOM. xterm builds its accessible row list and live region only under this option, and
       // `XtermMountPoint.tsx` names the region without announcing anything itself.
       screenReaderMode: true,
-      convertEol: true,
+      // The bytes are the PTY's own, which already end a line with CR LF; a bare LF is a cursor
+      // move a full-screen program relies on, so no line ending is rewritten.
+      convertEol: false,
       // A row exactly as tall as the face, which the library rounds up to whole device pixels at
       // every size and density, so rows abut. Past 1 the cell grows and a glyph the font draws is
       // centered in it, leaving a band of ground between one row's block glyphs and the next's.

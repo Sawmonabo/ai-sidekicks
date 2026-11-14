@@ -26,7 +26,7 @@ export interface FullOutputControlProps {
 }
 
 /**
- * `Show all`, `Show full output (840 KiB)`, `Loading the full output…`, or the refused read's
+ * `Show all`, `Show full output (840 KiB)`, `Loading full output…`, or the refused read's
  * retry.
  */
 export function FullOutputControl(props: FullOutputControlProps): React.JSX.Element {
@@ -45,9 +45,9 @@ export function FullOutputControl(props: FullOutputControlProps): React.JSX.Elem
       }}
     >
       {reading === "reading" ? (
-        "Loading the full output…"
+        "Loading full output…"
       ) : reading === "refused" ? (
-        "Couldn't load the full output · Retry"
+        "Couldn't load full output · Retry"
       ) : props.measure === undefined ? (
         "Show all"
       ) : (

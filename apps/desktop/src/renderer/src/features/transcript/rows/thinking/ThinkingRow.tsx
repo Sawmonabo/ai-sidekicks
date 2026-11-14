@@ -80,7 +80,7 @@ function renderReasoningReading(reading: ReasoningReading): React.ReactNode {
     case "not-asked":
       return null;
     case "reading":
-      return <Nothing kind="not-loaded" placement="block" title="Loading this turn's reasoning…" />;
+      return <Nothing kind="not-loaded" placement="block" title="Loading reasoning…" />;
     case "refused":
       // The daemon's own sentence; its code goes to no screen.
       return (

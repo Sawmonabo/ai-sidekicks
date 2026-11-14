@@ -2,7 +2,7 @@
 // hands it none and sending the compiled module back for later workers, and compiles the
 // compression module, the fuzzy matcher and the workflow checks on their own for the page, which
 // compiles nothing itself, whenever the page's codec, matcher or checks still want their module,
-// sending what that came to;
+// the checks also on the page's first ask for them, sending what that came to;
 // and then, off the page's thread, parses
 // each text the page sends into the parser's binary tree, cuts each body's text the page sends into
 // blocks, makes each reply's markdown into HTML under the screen's policy, and reads each drawn
@@ -117,6 +117,13 @@ async function compilePageModule(moduleUrl: string): Promise<CompiledPageModule>
   }
 }
 
+/** Compiles the workflow checks' module and sends what that came to. */
+function compileWorkflowChecks(): void {
+  void compilePageModule(workflowCheckModuleUrl).then((workflowChecks) => {
+    workerScope.postMessage({ status: "workflow-checks", workflowChecks }, []);
+  });
+}
+
 /**
  * Where the blocks of the text `request` holds end, cut a window at a time. The parser frees what a
  * window's parse held from finalizers, which run only once the worker's event loop turns, so it
@@ -158,9 +165,7 @@ const parserLoad = new Promise<MarkdownParserCalls | undefined>((resolve) => {
       });
     }
     if (event.data.shouldCompileWorkflowChecks) {
-      void compilePageModule(workflowCheckModuleUrl).then((workflowChecks) => {
-        workerScope.postMessage({ status: "workflow-checks", workflowChecks }, []);
-      });
+      compileWorkflowChecks();
     }
     resolve(
       loadParser(event.data).catch((error: unknown) => {
@@ -201,6 +206,10 @@ const answers = new MarkdownWorkerAnswers(
 workerScope.addEventListener("message", (event) => {
   const message = event.data;
   if (message.kind === "load") {
+    return;
+  }
+  if (message.kind === "compile-workflow-checks") {
+    compileWorkflowChecks();
     return;
   }
   if (message.kind === "cut") {

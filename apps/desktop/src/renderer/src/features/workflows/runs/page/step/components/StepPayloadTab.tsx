@@ -12,8 +12,8 @@ import { StepPayload, type StepPayloadView } from "./StepPayload.js";
 /**
  * One of a step's input, output and log tabs: the payload read through `workflow.step.read`, in
  * the view the panel's Table and JSON switch holds. While it is read it reads
- * `Loading this step's data…` after the session's short delay; a read that fails reads
- * `Could not load this step's data` with `Try again`.
+ * `Loading data…` after the session's short delay; a read that fails reads
+ * `Couldn't load data` with `Try again`.
  */
 export function StepPayloadTab(props: {
   readonly bridge: PlatformBridge;
@@ -27,13 +27,13 @@ export function StepPayloadTab(props: {
   const { read, readAgain } = useStepPayloadRead(props.bridge, props.step, props.which);
   switch (read.kind) {
     case "reading":
-      return <LoadingNotice clock={clock} placement="block" title="Loading this step's data…" />;
+      return <LoadingNotice clock={clock} placement="block" title="Loading data…" />;
     case "failed":
       return (
         <Nothing
           kind="error"
           placement="block"
-          title="Could not load this step's data"
+          title="Couldn't load data"
           detail={read.refusal.detail}
           action={<TryAgainButton onPress={readAgain} />}
           attempt={read.refusal}

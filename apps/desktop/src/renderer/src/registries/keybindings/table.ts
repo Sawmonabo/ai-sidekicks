@@ -16,6 +16,7 @@
 import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
 import { isTextEntryTarget } from "#renderer/lib/editable-target.js";
 import type { CommandRegistry } from "../commands/registry.js";
+import { reportCommandFailure } from "../commands/refusal.js";
 import type { Keybinding } from "../commands/keybinding.js";
 import { chordMatchesEvent } from "./chord.js";
 import {
@@ -215,6 +216,7 @@ export class KeybindingTable {
       // Only a press that ran something is consumed; a refused binding leaves the key to others.
       return false;
     }
+    reportCommandFailure(prepared.binding.commandId, outcome.completion);
     event.preventDefault();
     event.stopPropagation();
     return true;

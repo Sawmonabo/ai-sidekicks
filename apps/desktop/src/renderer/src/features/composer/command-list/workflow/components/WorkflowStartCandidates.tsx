@@ -57,7 +57,7 @@ function renderReading(
     ) : (
       <PartialRead
         states={[{ kind: "cut", servedCount: definitions.length }]}
-        subject="the saved workflows"
+        subject="saved workflows"
       />
     );
   }

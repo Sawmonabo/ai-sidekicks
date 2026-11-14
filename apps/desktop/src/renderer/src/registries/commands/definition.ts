@@ -15,9 +15,8 @@ export interface CommandDefinition {
   /** Extra words a person might type for this command. Matched below the title. */
   readonly keywords?: readonly string[];
   /**
-   * Performs the act. The registry never awaits it and the palette drops the promise, so a
-   * rejection becomes an unhandled rejection: a command that can fail must catch and render
-   * its own failure (see `raiseCommandRefusal`).
+   * Performs the act. The registry never awaits it; the palette and a chord state a rejection on
+   * the window (see `reportCommandFailure`), so a command that can fail may throw its refusal.
    */
   readonly run: () => void | Promise<void>;
   /**

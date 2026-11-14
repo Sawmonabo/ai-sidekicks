@@ -6,6 +6,7 @@
 // read and turned into the app's refusal shape. The registry alone decides eligibility.
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import { reportCommandFailure } from "#renderer/registries/commands/refusal.js";
 import type {
   CommandInvocationOutcome,
   CommandRegistry,
@@ -60,8 +61,8 @@ const REFUSAL_DETAIL: Readonly<
 
 /**
  * Runs one command against the latched reading, never the live one. Returns the refusal, or
- * `undefined` when it ran. The command's own promise is not returned: the palette must not hold
- * the dialog open on a command that opens another view, and a rejection is the command's to report.
+ * `undefined` when it ran. The command's own promise is not returned, since the palette must not
+ * hold the dialog open on a command that opens another view; a rejection is stated on the window.
  */
 export function runLatchedCommand(
   registry: CommandRegistry,
@@ -70,6 +71,7 @@ export function runLatchedCommand(
 ): PaletteInvocationRefusal | undefined {
   const outcome = registry.invoke(commandId, latchedContext);
   if (outcome.status === "ran") {
+    reportCommandFailure(commandId, outcome.completion);
     return undefined;
   }
   const detail = outcome.status === "unavailable" ? outcome.reason : REFUSAL_DETAIL[outcome.status];

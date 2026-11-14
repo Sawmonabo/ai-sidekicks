@@ -70,6 +70,7 @@ import { PackedText } from "#renderer/lib/text/packed.js";
 import { TEXT_PIECE_LENGTH } from "#renderer/lib/text/pieces.js";
 import { endWorkersWithTest } from "../helpers/worker-start.js";
 import cutCases from "./markdown-cut-cases.json" with { type: "json" };
+import { WorkflowChecksLoad } from "#renderer/components/Markdown/worker/workflow-checks-load.js";
 
 /** A reply whose parts each read something defined elsewhere in it, or as markup. */
 const REPLY = [
@@ -215,6 +216,7 @@ it("packs and unpacks a chunk on the page with the worker's compression module",
     new PageParser(loadMarkdownParserCalls),
     textCompression,
     new FuzzyMatcher(),
+    new WorkflowChecksLoad(),
   );
   connection.wake();
   await vi.waitFor(() => {
@@ -457,6 +459,7 @@ function workerOnly(): { readonly connection: MarkdownWorkerConnection } {
       new PageParser(loadMarkdownParserCalls),
       new TextCompression(window),
       new FuzzyMatcher(),
+      new WorkflowChecksLoad(),
     ),
   };
 }
@@ -489,6 +492,7 @@ async function pageAndWorker(): Promise<{
     pageParser,
     new TextCompression(window),
     new FuzzyMatcher(),
+    new WorkflowChecksLoad(),
   );
   const trees = new MarkdownTrees(connection);
   trees.wakeWorker();

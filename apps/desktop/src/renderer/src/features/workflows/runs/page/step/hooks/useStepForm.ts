@@ -22,11 +22,13 @@ import {
 } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import {
   checkParamAnswers,
+  hasConditionalParam,
   draftParamAnswers,
   seedParamAnswers,
   type ParamAnswers,
   type ParamIssues,
 } from "#renderer/features/workflows/param-form/answers.js";
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 
 /** Where the step's form read stands. */
 export type StepFormRead =
@@ -187,7 +189,11 @@ export function useStepForm(
   );
 
   const submit = useCallback(() => {
-    if (form === undefined) {
+    // A field the checks have not read yet cannot be told shown or hidden, so the press waits.
+    if (
+      form === undefined ||
+      (hasConditionalParam(form.fields) && markdownWorker.workflowChecks.state !== "ready")
+    ) {
       return;
     }
     const check = checkParamAnswers(form.fields, answers);

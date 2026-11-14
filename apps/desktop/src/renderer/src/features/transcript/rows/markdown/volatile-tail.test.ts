@@ -27,6 +27,7 @@ import { appTextCompression } from "#renderer/lib/text/compression.js";
 import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 import { mendVolatileTail, VolatileTailParser, type VolatileTailView } from "./volatile-tail.js";
+import { appWorkflowChecks } from "#renderer/components/Markdown/worker/workflow-checks-load.js";
 
 /** A tail parser on its own trees, and the stand-in workers those trees parse with. */
 function tailParser(): {
@@ -51,6 +52,7 @@ function standInTrees(): {
         appPageParser,
         appTextCompression,
         appFuzzyMatcher,
+        appWorkflowChecks,
       ),
     ),
     workers,

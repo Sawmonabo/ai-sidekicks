@@ -145,7 +145,7 @@ describe("the runs table's pages", () => {
 
     await press("Load older runs");
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(screen.getByText("Could not load older runs")).toBeDefined();
+      expect(screen.getByText("Couldn't load older runs")).toBeDefined();
     });
     // A rejection with no code of its own reads as the service not answering.
     expect(screen.getByText("The background service is not answering.")).toBeDefined();
@@ -160,6 +160,6 @@ describe("the runs table's pages", () => {
     await advanceScenarioUntil(mounted.engine, () => {
       expect(drawnRunIds()).toStrictEqual(idsOf(loaded));
     });
-    expect(screen.queryByText("Could not load older runs")).toBeNull();
+    expect(screen.queryByText("Couldn't load older runs")).toBeNull();
   });
 });

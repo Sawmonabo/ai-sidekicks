@@ -15,7 +15,8 @@ import type { BridgeComposition } from "#renderer/services/platform/bridge-conte
 import { formatRoute } from "#renderer/routing/routes.js";
 import { TRANSCRIPT_STATES_SCENARIO_ID } from "#fixtures/scenarios/transcript-states.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "#fixtures/scenarios/concurrent-streaming.js";
-import { WORKFLOW_FIX_SESSION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
+import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
+import { WORKFLOW_FIX_SESSION } from "#fixtures/data/workflow/run/seeds.js";
 import { renderAppSettled } from "../helpers/app/harness.js";
 import { withDaemonCall, type RecordedDaemonCall } from "../helpers/fixture/bridge.js";
 import { politeText } from "../helpers/live-region.js";
@@ -28,7 +29,7 @@ import { advanceScenarioUntil, runningScenario } from "../helpers/scenario/manua
 const GONE_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a4999";
 
 /** The refusal the background service answers for a session it does not hold. */
-const SESSION_NOT_FOUND = { code: "session.not_found", message: "That session is gone." };
+const SESSION_NOT_FOUND = { code: "session.notFound", message: "That session is gone." };
 
 /** The tier's own viewport, put back after a case that shrinks it. */
 const tierViewport = { width: window.innerWidth, height: window.innerHeight };

@@ -44,8 +44,8 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
 }
 
 /**
- * What stands in the canvas box while the canvas code is not there: `Loading the run graph…`
- * after the session's short delay while the chunk is in flight, and `Could not load the run graph`
+ * What stands in the canvas box while the canvas code is not there: `Loading run graph…`
+ * after the session's short delay while the chunk is in flight, and `Couldn't load run graph`
  * with `Retry` when it failed, never the failure's own text. Both use only styles
  * that load with the page, since one from the graph chunk would be missing exactly when the
  * chunk failed.
@@ -57,12 +57,12 @@ function renderUnloadedCanvas(
   clock: Clock,
 ): React.JSX.Element {
   return graphModule.status === "loading" ? (
-    <LoadingNotice clock={clock} placement="block" title="Loading the run graph…" />
+    <LoadingNotice clock={clock} placement="block" title="Loading run graph…" />
   ) : (
     <Nothing
       kind="error"
       placement="block"
-      title="Could not load the run graph"
+      title="Couldn't load run graph"
       action={<TryAgainButton word="Retry" onPress={retryChunk} />}
       attempt={chunkAttempt}
     />

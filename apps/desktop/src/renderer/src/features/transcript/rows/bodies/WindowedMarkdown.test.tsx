@@ -32,6 +32,7 @@ import {
 import { publishedTextOf } from "#renderer/lib/text/published.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
 import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
+import { appWorkflowChecks } from "#renderer/components/Markdown/worker/workflow-checks-load.js";
 
 const pageParses = vi.spyOn(appMarkdownTrees, "parseSettledBlockNow");
 const settledBlockHolds = vi.spyOn(appMarkdownTrees, "holdSettledBlock");
@@ -204,6 +205,7 @@ describe("a long body whose page parser is not ready", () => {
         pageParser,
         appTextCompression,
         appFuzzyMatcher,
+        appWorkflowChecks,
       ),
     );
     return { bodyBlocks: bodyBlocksForTest(trees), trees };

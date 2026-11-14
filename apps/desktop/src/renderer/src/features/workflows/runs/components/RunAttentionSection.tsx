@@ -46,12 +46,12 @@ export function RunAttentionSection(props: {
         Waiting on you
       </h2>
       {state.kind === "not-loaded" ? (
-        <LoadingNotice clock={props.clock} placement="block" title="Loading what is waiting…" />
+        <LoadingNotice clock={props.clock} placement="block" title="Loading pending runs…" />
       ) : state.kind === "failed" ? (
         <Nothing
           kind="error"
           placement="block"
-          title="Could not load what is waiting"
+          title="Couldn't load pending runs"
           detail={state.refusal.detail}
           action={<TryAgainButton onPress={props.readAgain} />}
           attempt={state.refusal}

@@ -1,13 +1,23 @@
 // The form drawn from a kind's parameter list, as a step waiting on a person shows it. It holds
 // no state; the answers and the last check's issues come from the caller, which seeds them and
-// checks them with `answers.ts`. Which fields are drawn is the workflow checks' to say, so the
-// fields wait for their module, which the app compiles as it starts.
+// checks them with `answers.ts`. Whether a field with a `showWhen` is drawn is the workflow checks'
+// to say, so those fields alone wait for the checks' module, which the form asks for, under a
+// loading line or, where the module did not start, a failure line with `Try again`.
 
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 
 import type { PickedFolder } from "#shared/preload-api.js";
-import { isParamFieldShown, seedParamAnswers } from "./answers.js";
-import { useAreWorkflowChecksReady } from "./hooks/useAreWorkflowChecksReady.js";
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import {
+  hasConditionalParam,
+  isParamConditional,
+  isParamFieldShown,
+  seedParamAnswers,
+} from "./answers.js";
+import { useWorkflowChecks } from "./hooks/useWorkflowChecks.js";
 import type { ParamAnswers, ParamIssues } from "./answers.js";
 import { ParamLeafField } from "./ParamLeafField.js";
 import "./ParamForm.css";
@@ -32,20 +42,32 @@ export interface ParamFormProps {
  * be what `seedParamAnswers` built for these fields, since a collection reads its nested shape.
  */
 export function ParamForm(props: ParamFormProps): React.JSX.Element {
-  const areWorkflowChecksReady = useAreWorkflowChecksReady();
+  const clock = useClock();
+  const hasCondition = hasConditionalParam(props.fields);
+  const checks = useWorkflowChecks(hasCondition);
+  const areConditionsRead = checks.state === "ready";
   return (
     <div className="meridian-workflow-param-form">
-      {areWorkflowChecksReady && (
-        <ParamFieldList
-          fields={props.fields}
-          answers={props.answers}
-          onAnswersChange={props.onAnswersChange}
-          issues={props.issues}
-          isDisabled={props.isDisabled === true}
-          idPrefix={props.idPrefix}
-          pathPrefix=""
-          pickFolder={props.pickFolder}
+      <ParamFieldList
+        fields={props.fields}
+        answers={props.answers}
+        onAnswersChange={props.onAnswersChange}
+        issues={props.issues}
+        isDisabled={props.isDisabled === true}
+        idPrefix={props.idPrefix}
+        pathPrefix=""
+        pickFolder={props.pickFolder}
+        areConditionsRead={areConditionsRead}
+      />
+      {!hasCondition || areConditionsRead ? null : checks.state === "failed" ? (
+        <Nothing
+          kind="error"
+          placement="block"
+          title="Couldn't load fields"
+          action={<TryAgainButton onPress={checks.loadAgain} />}
         />
+      ) : (
+        <LoadingNotice clock={clock} placement="block" title="Loading fields…" />
       )}
     </div>
   );
@@ -62,13 +84,19 @@ interface ParamFieldListProps {
   /** The dotted path this level's field ids extend, empty at the top. */
   readonly pathPrefix: string;
   readonly pickFolder: () => Promise<PickedFolder | null>;
+  /** Whether the checks answer, so a field with a `showWhen` can be read; until then it waits. */
+  readonly areConditionsRead: boolean;
 }
 
 function ParamFieldList(props: ParamFieldListProps): React.JSX.Element {
   return (
     <>
       {props.fields
-        .filter((field) => isParamFieldShown(field, props.answers, props.fields))
+        .filter((field) =>
+          isParamConditional(field)
+            ? props.areConditionsRead && isParamFieldShown(field, props.answers, props.fields)
+            : true,
+        )
         .map((field) => {
           const path = `${props.pathPrefix}${field.id}`;
           const answer = props.answers[field.id];
@@ -86,6 +114,7 @@ function ParamFieldList(props: ParamFieldListProps): React.JSX.Element {
               idPrefix={props.idPrefix}
               path={path}
               pickFolder={props.pickFolder}
+              areConditionsRead={props.areConditionsRead}
             />
           ) : (
             <ParamLeafField
@@ -114,6 +143,7 @@ interface ParamCollectionFieldProps {
   readonly idPrefix: string;
   readonly path: string;
   readonly pickFolder: () => Promise<PickedFolder | null>;
+  readonly areConditionsRead: boolean;
 }
 
 function ParamCollectionField(props: ParamCollectionFieldProps): React.JSX.Element {
@@ -133,6 +163,7 @@ function ParamCollectionField(props: ParamCollectionFieldProps): React.JSX.Eleme
           idPrefix={props.idPrefix}
           pathPrefix={`${props.path}.`}
           pickFolder={props.pickFolder}
+          areConditionsRead={props.areConditionsRead}
         />
       </fieldset>
     );
@@ -165,6 +196,7 @@ function ParamCollectionField(props: ParamCollectionFieldProps): React.JSX.Eleme
                   idPrefix={props.idPrefix}
                   pathPrefix={`${props.path}.${index}.`}
                   pickFolder={props.pickFolder}
+                  areConditionsRead={props.areConditionsRead}
                 />
                 <ActionButton
                   className="meridian-workflow-param-form__entry-action"

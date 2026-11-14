@@ -91,7 +91,7 @@ describe("push-driven read — no swallowed failure", () => {
       clock,
       read: () =>
         Promise.reject(
-          new RefusalError(refuse("daemon", "session.not_found", "That session is gone.")),
+          new RefusalError(refuse("daemon", "session.notFound", "That session is gone.")),
         ),
     });
     harness.model.start();
@@ -99,7 +99,7 @@ describe("push-driven read — no swallowed failure", () => {
     await settle();
     expect(harness.model.state).toStrictEqual({
       kind: "failed",
-      refusal: { code: "session.not_found", detail: "That session is gone.", origin: "daemon" },
+      refusal: { code: "session.notFound", detail: "That session is gone.", origin: "daemon" },
     });
   });
 
@@ -109,7 +109,7 @@ describe("push-driven read — no swallowed failure", () => {
       clock,
       read: () =>
         Promise.reject(
-          new RefusalError(refuse("daemon", "session.not_found", "That session is gone.")),
+          new RefusalError(refuse("daemon", "session.notFound", "That session is gone.")),
         ),
     });
     async function refreshFor(reason: "window-focus" | "user-request"): Promise<unknown> {

@@ -33,7 +33,7 @@ export function TranscriptFeedHeader(props: TranscriptFeedHeaderProps): React.JS
       {/* Opening a run group header brings the folded matches into the walk. */}
       <PartialRead
         states={[matchWalkReading(find.result.totalMatchCount, find.foldedAwayMatchCount)]}
-        subject="the run groups this transcript has folded"
+        subject="folded run groups"
       />
     </>
   );

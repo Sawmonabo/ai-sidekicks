@@ -237,9 +237,9 @@ describe("a reply whose body is too large to travel with its row", () => {
       // Pressed: one read of the row, and the control says it is out until it is refused.
       await pressControl();
       expect(bodyReads.slice(copyReadCount)).toStrictEqual([largeReplyRead]);
-      expect(control()?.textContent).toBe("Loading the full output…");
+      expect(control()?.textContent).toBe("Loading full output…");
       await answerRead(false);
-      expect(control()?.textContent).toBe("Couldn't load the full output · Retry");
+      expect(control()?.textContent).toBe("Couldn't load full output · Retry");
       expect(drawsWholeBody()).toBe(false);
 
       // Pressed again, the read lands and the body takes the control's place.
@@ -255,7 +255,7 @@ describe("a reply whose body is too large to travel with its row", () => {
       expect(isReplyStored()).toBe(false);
       expect(drawsWholeBody()).toBe(false);
       await scrollBackToControl();
-      expect(control()?.textContent).toBe("Loading the full output…");
+      expect(control()?.textContent).toBe("Loading full output…");
       expect(bodyReads).toHaveLength(copyReadCount + 3);
       await answerRead(true);
       expect(control()).toBe(null);

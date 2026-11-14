@@ -12,8 +12,8 @@ describe("RefusalCard — what a screen reader is told", () => {
   it("says the code's words and the message on the assertive lane, not the action", () => {
     const { container } = render(
       <RefusalCard
-        code="agent.resolution_refused"
-        reason="account_unavailable"
+        code="agent.definition.resolutionRefused"
+        reason="accountUnavailable"
         detail="The account this sidekick runs on is not on this computer."
         action={<button type="button">Try again</button>}
       />,
@@ -21,7 +21,7 @@ describe("RefusalCard — what a screen reader is told", () => {
     );
 
     expect(liveRegionText(container, "assertive")).toBe(
-      "Sidekick resolution refused · Account unavailable. " +
+      "Sidekick definition resolution refused · Account unavailable. " +
         "The account this sidekick runs on is not on this computer.",
     );
   });

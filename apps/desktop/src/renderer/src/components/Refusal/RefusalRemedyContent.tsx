@@ -11,21 +11,12 @@ export interface RefusalRemedyContentProps {
   readonly remedy: RefusalRemedy;
 }
 
-/** The remedy under a refusal: its next move and any exclusive cases. */
+/** The remedy under a refusal: its next move. */
 export function RefusalRemedyContent(props: RefusalRemedyContentProps): React.JSX.Element {
   const { remedy } = props;
-  const distinctions = "distinctions" in remedy ? remedy.distinctions : [];
   return (
     <div className="meridian-refusal-remedy">
       <p className="meridian-refusal-remedy__move">{remedy.nextMove}</p>
-      {distinctions.length === 0 ? null : (
-        // A list because the cases are exclusive alternatives, not steps in order.
-        <ul className="meridian-refusal-remedy__cases">
-          {distinctions.map((distinction) => (
-            <li key={distinction}>{distinction}</li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

@@ -174,7 +174,7 @@ describe("browser — the pane moves' chords", () => {
     layout.open({ kind: "agents" });
     const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const answered = withDaemonCall(fixture.bridge, async (call, passThrough) =>
-      call.method === "repo.workspaceList"
+      call.method === "workspace.list"
         ? {
             workspaces: [
               {

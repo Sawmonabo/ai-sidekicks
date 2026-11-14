@@ -148,10 +148,26 @@ export class XtermMountBinding {
     };
   }
 
-  /** Pushes the composed answer onto the library's option; the one writer of it. */
+  /**
+   * Pushes the composed answer onto the library's option, the one writer of it, and draws no
+   * cursor on a body that takes no keys.
+   */
   #applyStdinGate(): void {
-    if (this.#terminal !== undefined) {
-      this.#terminal.options.disableStdin = !this.isWriteEnabled;
+    if (this.#terminal === undefined) {
+      return;
     }
+    const isWriteEnabled = this.isWriteEnabled;
+    this.#terminal.options.disableStdin = !isWriteEnabled;
+    const {
+      cursor: _cursor,
+      cursorAccent: _cursorAccent,
+      ...theme
+    } = this.#terminal.options.theme ?? {};
+    this.#terminal.options.theme = isWriteEnabled
+      ? theme
+      : { ...theme, cursor: HIDDEN_CURSOR_COLOR, cursorAccent: HIDDEN_CURSOR_COLOR };
   }
 }
+
+/** A cursor painted in no color at all, so a read-only body shows none. */
+const HIDDEN_CURSOR_COLOR = "#00000000";

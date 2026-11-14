@@ -284,7 +284,10 @@ describe("a run's header", () => {
     await advanceDaemon(1_000);
 
     expect(calls).toStrictEqual([
-      { method: "workflow.run.rerun", params: { workflowRunId: source.workflowRunId } },
+      {
+        method: "workflow.run.rerun",
+        params: { workflowRunId: source.workflowRunId, clientIdempotencyKey: expect.any(String) },
+      },
     ]);
     expect(openedRuns).toStrictEqual([mintedRunId("rerun", 0)]);
   });
@@ -335,7 +338,7 @@ describe("a run's header", () => {
       refreshDebounceMs: 0,
       read: () =>
         Promise.reject(
-          new RefusalError(refuse("daemon", "session.not_found", "That session is gone.")),
+          new RefusalError(refuse("daemon", "session.notFound", "That session is gone.")),
         ),
     });
     const { bridge } = bridgeAnswering(async (_call, passThrough) => passThrough());

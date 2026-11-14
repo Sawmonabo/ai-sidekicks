@@ -1,9 +1,10 @@
 // One shell's output feed, keystrokes, pastes and size, for the pane showing it.
 //
 // `openOutput` is what the emulator calls once it is on screen: it follows the shell's output
-// stream into the emulator through the output writer, which declares the pane behind or caught up
-// with `terminal.flowControl.update`, and it is stable for the shell, so the emulator is built
-// once per shell. Each open of the stream names the subscription a write or a take is bound to;
+// stream into the emulator through the output writer, which says when the pane is behind or caught
+// up; the connection is declared behind with `terminal.flowControl.update` while any pane on it
+// watching the shell is behind. It is stable for the shell, so the emulator is built once per
+// shell. Each open of the stream names the subscription a write or a take is bound to;
 // between a stream's end and its re-open the input queue holds what is typed and sends it bound to
 // the new subscription. Sizes go to `terminal.resize`, the newest only while one is out.
 
@@ -21,6 +22,7 @@ import {
 } from "#renderer/services/daemon/terminal/output.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { TerminalGridSize } from "../../emulator/xterm/adapter.js";
+import { connectionShellFor } from "../connection-shells.js";
 import { ShellInputQueue } from "../input-queue.js";
 import { ShellOutputWriter, type ShellOutputSink } from "../output-writer.js";
 import { ShellResizeQueue } from "../resize-queue.js";
@@ -57,18 +59,25 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
 
   const inputQueue = useMemo(
     () =>
-      new ShellInputQueue(async (write, outputSubscriptionId) => {
-        const reply = await callDaemon(bridge, "terminal.write", {
-          ...write,
-          sessionId,
-          terminalId,
-          outputSubscriptionId,
-        });
-        publish((current) => ({
-          ...current,
-          refusal: reply.status === "refused" ? reply.refusal : undefined,
-        }));
-      }),
+      new ShellInputQueue(
+        () => connectionShellFor(bridge, { sessionId, terminalId }),
+        async (write, outputSubscriptionId) => {
+          const reply = await callDaemon(bridge, "terminal.write", {
+            ...write,
+            sessionId,
+            terminalId,
+            outputSubscriptionId,
+          });
+          // A write that goes through clears only a write's refusal; a size or flow refusal stands.
+          publish((current) =>
+            reply.status === "refused"
+              ? { ...current, refusal: reply.refusal, refusedCall: "write" }
+              : current.refusedCall === "write"
+                ? { ...current, refusal: undefined, refusedCall: undefined }
+                : current,
+          );
+        },
+      ),
     [bridge, publish, sessionId, terminalId],
   );
 
@@ -81,7 +90,7 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
           ...size,
         });
         if (reply.status === "refused") {
-          publish((current) => ({ ...current, refusal: reply.refusal }));
+          publish((current) => ({ ...current, refusal: reply.refusal, refusedCall: "resize" }));
         }
       }),
     [bridge, publish, sessionId, terminalId],
@@ -91,14 +100,21 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
     (sink: ShellOutputSink): Unsubscribe => {
       const shell = { sessionId, terminalId };
       const writer = new ShellOutputWriter(sink, (isBehind) => {
-        void callDaemon(bridge, "terminal.flowControl.update", {
-          ...shell,
-          paused: isBehind,
-        }).then((reply) => {
-          if (reply.status === "refused") {
-            publish((current) => ({ ...current, refusal: reply.refusal }));
-          }
-        });
+        const paused = connectionShellFor(bridge, shell).noteBehind(isBehind);
+        if (paused === undefined) {
+          return;
+        }
+        void callDaemon(bridge, "terminal.flowControl.update", { ...shell, paused }).then(
+          (reply) => {
+            if (reply.status === "refused") {
+              publish((current) => ({
+                ...current,
+                refusal: reply.refusal,
+                refusedCall: "flowControl",
+              }));
+            }
+          },
+        );
       });
       const stopFollowing = followShellOutput(bridge, shell, (delivery) => {
         switch (delivery.kind) {
@@ -118,7 +134,11 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
             writer.apply(delivery.frame);
             return;
           case "reopenRefusal":
-            publish((current) => ({ ...current, refusal: delivery.refusal }));
+            publish((current) => ({
+              ...current,
+              refusal: delivery.refusal,
+              refusedCall: "reopen",
+            }));
             return;
         }
       });
@@ -155,14 +175,32 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
     [resizeQueue],
   );
 
-  return { ...value, openOutput, typeKeys, pasteText, resizeShell };
+  const { outputSubscriptionId, isFollowing, refusal } = value;
+  return {
+    outputSubscriptionId,
+    isFollowing,
+    refusal,
+    openOutput,
+    typeKeys,
+    pasteText,
+    resizeShell,
+  };
 }
 
-/** The held part of the feed: the subscription, whether it is followed, and the refusal. */
-type ShellOutputState = Pick<ShellOutput, "outputSubscriptionId" | "isFollowing" | "refusal">;
+/**
+ * The held part of the feed: the subscription, whether it is followed, the refusal, and the call
+ * it answered.
+ */
+interface ShellOutputState extends Pick<
+  ShellOutput,
+  "outputSubscriptionId" | "isFollowing" | "refusal"
+> {
+  readonly refusedCall: "write" | "resize" | "flowControl" | "reopen" | undefined;
+}
 
 const UNOPENED_SHELL_OUTPUT: ShellOutputState = {
   outputSubscriptionId: undefined,
   isFollowing: false,
   refusal: undefined,
+  refusedCall: undefined,
 };

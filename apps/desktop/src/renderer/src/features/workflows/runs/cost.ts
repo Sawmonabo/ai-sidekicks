@@ -31,8 +31,8 @@ export function costFigure(cost: WorkflowCost | undefined): FigureSentencePart {
 
 /**
  * What `accounts`, the registry as read or `undefined` before the read, says about the account
- * `providerAccountId` names, its label worded from its provider's section in `sections`. Throws
- * for a payer whose provider the sections lack, since both lists come from the one service.
+ * `providerAccountId` names, its label worded from its provider's section in `sections`. A payer
+ * whose provider the sections lack, one no installed driver serves, has no name to word.
  */
 export function readPayer(
   accounts: readonly ProviderAccount[] | undefined,
@@ -47,10 +47,7 @@ export function readPayer(
     return { kind: "removed" };
   }
   const section = sections.find((held) => held.provider === payer.provider);
-  if (section === undefined) {
-    throw new Error(`The provider list holds no provider "${payer.provider}".`);
-  }
-  const listed = listedAccount(payer, section);
+  const listed = section === undefined ? undefined : listedAccount(payer, section);
   return listed === undefined ? { kind: "unnamed" } : { kind: "named", label: listed.label };
 }
 

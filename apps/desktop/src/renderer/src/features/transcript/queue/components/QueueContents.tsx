@@ -37,9 +37,7 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
     rendered.flatMap((item) => [item.createdAt, item.updatedAt]),
   );
   if (feed.phase === "reading") {
-    return (
-      <Nothing kind="not-loaded" placement="block" title="Loading what is waiting in the queue…" />
-    );
+    return <Nothing kind="not-loaded" placement="block" title="Loading queue…" />;
   }
   const readRefusal = findReadRefusal(feed);
   if (readRefusal !== undefined) {

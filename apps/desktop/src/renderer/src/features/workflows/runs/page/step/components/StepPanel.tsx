@@ -247,8 +247,7 @@ function StepBody(props: StepPanelProps & { readonly step: WorkflowStep }): Reac
 function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefined }) {
   const { run, step, bridge } = props;
   const goneFixSessionLine = useGoneSessionLine("step-fix-session");
-  // Each press is a new retry, so each carries a key of its own, which a resend of that press
-  // keeps.
+  // Each press is a new retry, so each carries a key of its own.
   const retry = useWorkflowCall(
     (failed: WorkflowStep) =>
       callDaemon(bridge, "workflow.run.retry", {

@@ -35,10 +35,10 @@ import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/
 import { WORKFLOW_FIXTURE_NOW_MS } from "#fixtures/data/workflow/clock.js";
 import {
   WORKFLOW_DEFINITION_RECORDS,
-  WORKFLOW_PAYING_ACCOUNT,
   WORKFLOW_RUN_IDS,
   WORKFLOW_RUN_RECORDS,
 } from "#fixtures/data/workflow/run/records.js";
+import { WORKFLOW_PAYING_ACCOUNT } from "#fixtures/data/workflow/run/seeds.js";
 import { withoutWait } from "#fixtures/data/workflow/run/writes.js";
 import type { SessionPointerOutcome } from "#renderer/features/workflows/open-session.js";
 import { StepPanel } from "./StepPanel.js";
@@ -302,7 +302,7 @@ describe("the step panel", () => {
   it("says in the daemon's words when it refuses the Keep mark", async () => {
     const refusal = Object.assign(new Error("That run is not on this computer."), {
       code: -32603,
-      data: { type: "workflow.not_found" },
+      data: { type: "workflow.run.notFound" },
     });
     renderPanel(fixtureRun(WORKFLOW_RUN_IDS.failed), { keepRefusal: refusal });
 

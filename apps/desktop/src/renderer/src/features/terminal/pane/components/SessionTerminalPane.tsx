@@ -4,7 +4,7 @@
 //
 // Split from `TerminalPane.tsx` because the store hooks may only be called when there is a store.
 // Until the list is read, and while the first shell is being opened for a session with none, the
-// pane reads `Loading the terminal…`; once the last tab is closed it reads `No active terminal.`
+// pane reads `Loading terminal…`; once the last tab is closed it reads `No active terminal.`
 // above the `+`, which takes the focus when this pane closed that tab.
 
 import { useMemo } from "react";
@@ -59,7 +59,7 @@ export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.
   if (terminals === undefined || (terminals.length === 0 && shells.isOpening)) {
     return (
       <>
-        <Nothing kind="not-loaded" placement="block" title="Loading the terminal…" />
+        <Nothing kind="not-loaded" placement="block" title="Loading terminal…" />
         {refusalLine}
       </>
     );

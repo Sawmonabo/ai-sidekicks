@@ -21,14 +21,12 @@ import type {
 import { minutesAgo, WORKFLOW_FIXTURE_NOW_MS } from "../clock.js";
 import {
   WORKFLOW_DEFINITION_RECORDS,
-  WORKFLOW_FIX_SESSION,
-  WORKFLOW_OWN_SESSION,
   WORKFLOW_RUN_RECORDS,
   WORKFLOW_STARTED_BY_PERSON,
   isGoing,
   isParked,
-  type WorkflowRunRecord,
 } from "./records.js";
+import { WORKFLOW_FIX_SESSION, WORKFLOW_OWN_SESSION, type WorkflowRunRecord } from "./seeds.js";
 import type { AnsweredRequests } from "#renderer/services/daemon/scenario/reply.fixture.js";
 import { readMember, readString } from "../../requests.js";
 

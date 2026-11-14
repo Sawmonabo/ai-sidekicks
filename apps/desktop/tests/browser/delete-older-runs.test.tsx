@@ -33,7 +33,7 @@ it("draws the count of runs that would go in the words' own face and ink", async
   installMeridianTokens(document);
   const base = bridgeOnClock("workflows");
   const { bridge } = withDaemonCall(base.bridge, async (call, passThrough) =>
-    call.method === "workflow.runsDeletePreview"
+    call.method === "workflow.run.purge.preview"
       ? { deleteCount: 3, keptCount: 0, waitingCount: 0 }
       : passThrough(),
   );

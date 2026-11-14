@@ -21,7 +21,8 @@ import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 
 import { advanceScenarioUntil } from "#test/helpers/scenario/manual-clock.js";
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
-import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
+import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
+import { WORKFLOW_OWN_SESSION } from "#fixtures/data/workflow/run/seeds.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { DiffPane } from "#renderer/features/repos/diff/components/DiffPane.js";

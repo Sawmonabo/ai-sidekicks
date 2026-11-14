@@ -24,6 +24,7 @@ import { publishedTextOf } from "#renderer/lib/text/published.js";
 import type { BlockRecords } from "../block-records.js";
 import type { MarkdownBodyBlocks } from "./reader.js";
 import { bodyBlocksForTest } from "./reader.test-support.js";
+import { appWorkflowChecks } from "#renderer/components/Markdown/worker/workflow-checks-load.js";
 
 /** How many blocks the slice a cut lands in records; every slice ends after this many. */
 const slice = vi.hoisted(() => ({ blockCount: Number.POSITIVE_INFINITY }));
@@ -96,6 +97,7 @@ describe("a body whose cut failed", () => {
         pageParser,
         appTextCompression,
         appFuzzyMatcher,
+        appWorkflowChecks,
       ),
     );
     const blocks = bodyBlocksForTest(trees);

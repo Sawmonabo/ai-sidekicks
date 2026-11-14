@@ -153,7 +153,7 @@ function costUpdateEntry(
       sessionId,
       runId: input.runId,
       costUsdMicros: input.costUsdMicros,
-      costSource: "provider_reported",
+      costSource: "providerReported",
     },
   };
 }
@@ -188,7 +188,7 @@ function approvalEntry(
       runId: RUN_IMPLEMENTER,
       approvalRequestId: APPROVAL_REQUEST_ID,
       // The wire's closed-set category for a write to the working tree.
-      category: "file_write",
+      category: "fileWrite",
       scope: APPROVAL_SCOPE,
       ...input.members,
     },

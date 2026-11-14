@@ -77,14 +77,16 @@ import type {
 import { minutesAgo } from "./clock.js";
 import {
   WORKFLOW_DEFINITION_RECORDS,
-  WORKFLOW_FIX_SESSION,
-  WORKFLOW_OWN_SESSION,
-  WORKFLOW_SPENT_ACCOUNT,
   WORKFLOW_RUN_RECORDS,
   isParked,
   summaryOfRun,
-  type WorkflowRunRecord,
 } from "./run/records.js";
+import {
+  WORKFLOW_FIX_SESSION,
+  WORKFLOW_OWN_SESSION,
+  WORKFLOW_SPENT_ACCOUNT,
+  type WorkflowRunRecord,
+} from "./run/seeds.js";
 import {
   NOW,
   currentRuns,

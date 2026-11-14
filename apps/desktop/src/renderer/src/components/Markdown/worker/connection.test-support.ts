@@ -24,6 +24,7 @@ import { parseMarkdownTree, serializeMarkdownTree } from "../parse/serialized-tr
 import { readTopLevelChildren } from "../parse/top-level-children.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
 import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
+import { appWorkflowChecks } from "./workflow-checks-load.js";
 
 /** One stand-in worker: the texts it was sent to parse, and the answers a test holds back. */
 export class InThreadMarkdownWorker implements MarkdownWorkerPort {
@@ -83,6 +84,10 @@ export class InThreadMarkdownWorker implements MarkdownWorkerPort {
         return;
       }
       this.#say({ status: "cut", cuts: [{ requestId: message.requestId, blockEnds }] });
+      return;
+    }
+    if (message.kind === "compile-workflow-checks") {
+      this.#say({ status: "workflow-checks", workflowChecks: IN_THREAD_WORKFLOW_CHECKS });
       return;
     }
     if (message.kind !== "parse") {
@@ -193,6 +198,7 @@ export function inThreadMarkdownWorker(view: Window): MarkdownWorkerConnection {
     appPageParser,
     appTextCompression,
     appFuzzyMatcher,
+    appWorkflowChecks,
   );
 }
 

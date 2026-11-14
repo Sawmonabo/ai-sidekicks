@@ -1,4 +1,4 @@
-// A run graph whose canvas code fails to load reads `Could not load the run graph` with
+// A run graph whose canvas code fails to load reads `Couldn't load run graph` with
 // `Retry`, and the browser's own failure text goes to the diagnostic capture, never the screen.
 
 import { render, screen } from "@testing-library/react";
@@ -66,7 +66,7 @@ describe("the run graph when its canvas code fails to load", () => {
       { wrapper: LiveAnnouncerProvider },
     );
 
-    expect(await screen.findByText("Could not load the run graph")).toBeTruthy();
+    expect(await screen.findByText("Couldn't load run graph")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
     expect(container.textContent).not.toContain("sidekicks-renderer://");
     expect(container.textContent).not.toContain("Failed to fetch");

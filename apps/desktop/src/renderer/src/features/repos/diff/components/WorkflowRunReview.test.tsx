@@ -5,7 +5,8 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
+import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
+import { WORKFLOW_OWN_SESSION } from "#fixtures/data/workflow/run/seeds.js";
 import { bridgeWrapper, withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 import { withAlignmentWorker } from "#test/helpers/diff/alignment-worker.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";

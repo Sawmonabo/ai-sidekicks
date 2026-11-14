@@ -52,6 +52,18 @@ export function seedParamAnswers(
   return answers;
 }
 
+/** Whether a field is drawn only as its `showWhen` reads, which the workflow checks decide. */
+export function isParamConditional(field: WorkflowParamSpec): boolean {
+  return field.type !== "collection" && field.showWhen !== undefined;
+}
+
+/** Whether any field, at any depth, is drawn only as its `showWhen` reads. */
+export function hasConditionalParam(fields: readonly WorkflowParamSpec[]): boolean {
+  return fields.some((field) =>
+    field.type === "collection" ? hasConditionalParam(field.fields) : isParamConditional(field),
+  );
+}
+
 /**
  * Whether a field is drawn: always, unless its `showWhen` names siblings, in which case the
  * contracts' condition check, the one the daemon's save runs, reads each named sibling's answer as
@@ -67,8 +79,9 @@ export function isParamFieldShown(
   if (field.type === "collection" || field.showWhen === undefined) {
     return true;
   }
+  const { showWhen } = field;
   const sentAnswers: Record<string, unknown> = {};
-  for (const siblingId of Object.keys(field.showWhen)) {
+  for (const siblingId of Object.keys(showWhen)) {
     const sentAnswer = sentValueOf(
       siblings.find((sibling) => sibling.id === siblingId),
       answers[siblingId],
@@ -77,10 +90,12 @@ export function isParamFieldShown(
       sentAnswers[siblingId] = sentAnswer;
     }
   }
+  // Only the siblings the condition names, whose defaults stand in for an answer left out, cross
+  // into the check, so a long form's whole list is not sent once per field.
   return isWorkflowConditionMet({
-    condition: field.showWhen,
+    condition: showWhen,
     params: sentAnswers,
-    specs: [...siblings],
+    specs: siblings.filter((sibling) => Object.hasOwn(showWhen, sibling.id)),
   });
 }
 

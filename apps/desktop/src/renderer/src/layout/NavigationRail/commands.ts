@@ -4,6 +4,7 @@
 // sessions list. Every row but that act sits in the palette's `Console` group; it sits in
 // `Sessions`, the group the Keyboard page lists it under.
 
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
 import { RAIL_DESTINATIONS, type RailDestination } from "#renderer/routing/readers.js";
 import type { AppRoute } from "#renderer/routing/routes.js";
 import type { CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
@@ -60,11 +61,18 @@ export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavig
   },
 };
 
-/** The Sessions button's act: it shows or hides the sessions list beside the rail. */
-export const SESSIONS_LIST_COMMAND = {
+/**
+ * The Sessions button's act: it shows or hides the sessions list beside the rail. Its chord is
+ * `⌘B` on macOS and Ctrl+Alt+B on Windows and Linux, where Ctrl+B is the background act.
+ */
+export const SESSIONS_LIST_COMMAND: {
+  readonly commandId: "frame.toggleSessionsList";
+  readonly title: "Sessions list";
+  readonly chord: string;
+} = {
   commandId: "frame.toggleSessionsList",
   title: "Sessions list",
-  chord: "$mod+b",
+  chord: HOST_KEYBOARD_CONVENTION.applicationModifier === "Meta" ? "$mod+b" : "$mod+Alt+KeyB",
 } as const;
 
 /**

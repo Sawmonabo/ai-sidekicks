@@ -120,14 +120,14 @@ describe("the attention list", () => {
       clock.advance(LOADING_NOTICE_DELAY_MS);
     });
     expect(
-      screen.getByText("Loading what is waiting…", { ignore: OUTSIDE_LIVE_REGIONS }),
+      screen.getByText("Loading pending runs…", { ignore: OUTSIDE_LIVE_REGIONS }),
     ).toBeTruthy();
     expect(screen.queryByText(/Nothing waiting/)).toBeNull();
 
     rerender(
       section({ kind: "failed", refusal: refuse("daemon", "daemon.unavailable", "Not running.") }),
     );
-    expect(screen.getByText("Could not load what is waiting")).toBeTruthy();
+    expect(screen.getByText("Couldn't load pending runs")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     expect(screen.queryByText(/Nothing waiting/)).toBeNull();
 
@@ -152,7 +152,7 @@ describe("the attention list", () => {
     rerender(section);
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-    const failure = "Could not load what is waiting. Not running.";
+    const failure = "Couldn't load pending runs. Not running.";
     expect(said.spokenOn("assertive")).toStrictEqual([failure, failure]);
   });
 });

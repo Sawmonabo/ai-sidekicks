@@ -19,7 +19,7 @@ describe("loading notice", () => {
     const clock = new ManualClock(0);
     const { container } = render(
       <LiveAnnouncerProvider clock={clock}>
-        <LoadingNotice clock={clock} title="Loading your settings…" />
+        <LoadingNotice clock={clock} title="Loading settings…" />
       </LiveAnnouncerProvider>,
     );
     const drawnLine = (): Element | null => container.querySelector(".meridian-loading-notice");
@@ -35,9 +35,9 @@ describe("loading notice", () => {
       clock.advance(1);
     });
     const line = drawnLine();
-    expect(line?.textContent).toBe("Loading your settings…");
+    expect(line?.textContent).toBe("Loading settings…");
     expect(line?.closest(".meridian-visually-hidden")).toBeNull();
     expect(line?.querySelector(".meridian-visually-hidden, [aria-hidden='true']")).toBeNull();
-    expect(liveRegionText(container, "polite")).toBe("Loading your settings…");
+    expect(liveRegionText(container, "polite")).toBe("Loading settings…");
   });
 });

@@ -28,6 +28,7 @@ import { MarkdownWorkerConnection, type MarkdownWorkerPort } from "./connection.
 import { inThreadParserModule } from "./connection.test-support.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
 import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
+import { appWorkflowChecks } from "./workflow-checks-load.js";
 
 /** A stand-in worker that keeps the requests to make a copy it is sent and answers only when told. */
 class StandInWorker implements MarkdownWorkerPort {
@@ -115,6 +116,7 @@ it("hands the compiled parser to the page; a worker's later load failure leaves 
     pageParser,
     appTextCompression,
     appFuzzyMatcher,
+    appWorkflowChecks,
   );
   void connection.html("# one").catch(() => undefined);
   await vi.waitFor(() => {
@@ -153,6 +155,7 @@ it("reports a page parser that fails to start as failed for good, while the work
     pageParser,
     appTextCompression,
     appFuzzyMatcher,
+    appWorkflowChecks,
   );
   const first = connection.html("# one");
   await vi.waitFor(() => {
@@ -183,6 +186,7 @@ it("hands over an answer's trees a slice at a time, in the order the texts were 
     new PageParser(loadMarkdownParserCalls),
     appTextCompression,
     appFuzzyMatcher,
+    appWorkflowChecks,
   );
   const handed: string[] = [];
   for (const source of ["first", "second", "third"]) {
@@ -221,6 +225,7 @@ it("fails every text when its worker stops, and starts a new one for the next", 
     new PageParser(loadMarkdownParserCalls),
     appTextCompression,
     appFuzzyMatcher,
+    appWorkflowChecks,
   );
 
   const first = connection.html("# one");
@@ -253,6 +258,7 @@ it("fails only a cut the worker could not make, and keeps the worker for the tex
     new PageParser(loadMarkdownParserCalls),
     appTextCompression,
     appFuzzyMatcher,
+    appWorkflowChecks,
   );
   const cuts: MarkdownCutAnswer[] = [];
   const parses: MarkdownParseAnswer[] = [];
@@ -283,6 +289,7 @@ it.each([
     new PageParser(loadMarkdownParserCalls),
     appTextCompression,
     appFuzzyMatcher,
+    appWorkflowChecks,
   );
   const cell: TableCell = { type: "tableCell", children: [{ type: "text", value: "x" }] };
   const table: Table = {

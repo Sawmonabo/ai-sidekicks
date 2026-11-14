@@ -29,7 +29,7 @@ const RENDER_FAILURE_MESSAGE = "the sessions list could not render this row";
 const SETTINGS_ROUTE: AppRoute = { kind: "settings", page: undefined };
 
 /** The words the banner and its announcement read for `REFUSAL_BANNER`'s code and reason. */
-const REFUSAL_BANNER_WORDS = "Sidekick resolution refused · Account unavailable";
+const REFUSAL_BANNER_WORDS = "Sidekick definition resolution refused · Account unavailable";
 
 /**
  * A refusal wide enough for a banner, raised the way a producer raises one, so the listed reason
@@ -38,10 +38,10 @@ const REFUSAL_BANNER_WORDS = "Sidekick resolution refused · Account unavailable
 const REFUSAL_BANNER: WindowBanner = bannerRaisedFrom({
   ...refuse(
     "sessions",
-    "agent.resolution_refused",
+    "agent.definition.resolutionRefused",
     "The account this sidekick runs on is not on this computer, so no run can start here.",
   ),
-  reason: "account_unavailable",
+  reason: "accountUnavailable",
 });
 
 function ExplodingScreen(): React.JSX.Element {
@@ -177,8 +177,8 @@ describe("AppFrame — the banner reaches the window's one live announcer", () =
     const bannerText = container.querySelector(".meridian-refusal--banner")?.textContent;
     expect(bannerText).toContain(REFUSAL_BANNER_WORDS);
     expect(bannerText).toContain(REFUSAL_BANNER.detail);
-    expect(bannerText).not.toContain("agent.resolution_refused");
-    expect(bannerText).not.toContain("account_unavailable");
+    expect(bannerText).not.toContain("agent.definition.resolutionRefused");
+    expect(bannerText).not.toContain("accountUnavailable");
     // Polite stays silent: the assertive lane is reserved for refusals.
     expect(liveRegionText(container, "polite")).toBe("");
   });

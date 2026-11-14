@@ -196,9 +196,8 @@ describe("the run graph follows a step through the memory gate", () => {
 
     expect(admitted.status).toBe("running");
     expect(admitted.accessibleName).toBe("Summarize · Running");
-  });
 
-  it("draws a held step whose phase failed as failed, with the failure it carries", () => {
+    // The phase after the hold fails instead: the next read carries the same step failed.
     const failed = step("summary", 1, {
       status: "failed",
       attempt: 1,
