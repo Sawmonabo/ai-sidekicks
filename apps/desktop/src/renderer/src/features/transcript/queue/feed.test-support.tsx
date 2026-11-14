@@ -2,15 +2,14 @@
 
 import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
-import {
-  validateQueueItemSummary,
-  type AgentQueueItemCreateRequest,
-  type QueueItemSummary,
-  type RunQueueStreamFrame,
+import type {
+  AgentQueueItemCreateRequest,
+  QueueItemId,
+  QueueItemSummary,
+  RunQueueStreamFrame,
 } from "@ai-sidekicks/contracts/run/queue";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
-import { checkedValue } from "#test/helpers/checked-value.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { createFixture } from "#test/helpers/fixture/bridge.js";
 import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
@@ -30,24 +29,28 @@ export const QUEUE_ITEM_A = "1a2b3c4d-5e6f-4071-8283-94a5b6c7d8e9";
 /** The second of two distinct queue items. */
 export const QUEUE_ITEM_B = "2b3c4d5e-6f70-4182-9394-a5b6c7d8e9f0";
 
-/** One message row of the registered shape, at one state, one `updatedAt` and one place. */
+/**
+ * One message row of the contract's type, at one state, one `updatedAt` and one place; a
+ * not-delivered row carries a failed delivery as its reason.
+ */
 export function queueRow(
   id: string,
   state: QueueItemSummary["state"],
   updatedAt: string,
   position = 0,
 ): QueueItemSummary {
-  return checkedValue(validateQueueItemSummary, {
+  const message = {
     kind: "message",
-    id,
-    state,
+    id: id as QueueItemId,
     position,
     content: "Also run the linter",
     isSentNow: false,
-    ...(state === "notDelivered" ? { notDeliveredReason: { kind: "failed" } } : {}),
     createdAt: "2026-09-02T09:00:00.000Z",
     updatedAt,
-  });
+  } as const;
+  return state === "notDelivered"
+    ? { ...message, state, notDeliveredReason: { kind: "failed" } }
+    : { ...message, state };
 }
 
 /** A queued row, as the tail or the snapshot carries it. */

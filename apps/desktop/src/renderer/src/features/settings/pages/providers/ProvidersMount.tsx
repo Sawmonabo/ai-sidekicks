@@ -1,6 +1,6 @@
 // The Providers page over this window's bridge. The registry read, the sign-in, its
 // cancellation, the token registration, the account check and the default move go through
-// `callDaemon`, so each reply is parsed against the method's registered shape. The service's
+// `callDaemon`, which takes each reply as the method's generated type. The service's
 // status, whose secrets file names where a pasted token is kept, is read once apart from them.
 // The registry's tail, opened before the first read, reaches the account fold through
 // `ProviderAccountDeliveries`: each read's snapshot is loaded into the fold with the tail held

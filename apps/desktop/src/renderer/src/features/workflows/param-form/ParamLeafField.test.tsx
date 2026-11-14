@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 
 import type { FilePathRef, PickedFolder } from "#shared/preload-api.js";
-import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { liveBridgeWrapper, withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 import { liveRegionText } from "#test/helpers/live-region.js";
 import { seedParamAnswers, type ParamAnswers } from "./answers.js";
 import { ParamForm } from "./ParamForm.js";
@@ -47,6 +47,7 @@ describe("a path field", () => {
           Promise.resolve({ ref: "file-path-ref-1" as FilePathRef, name: "ai-sidekicks" })
         }
       />,
+      { wrapper: liveBridgeWrapper() },
     );
     expect(container.querySelector(".meridian-figure--wire")).toBeNull();
 
@@ -60,7 +61,7 @@ describe("a path field", () => {
   it("says the chooser could not open when main names no reason", async () => {
     const { container } = render(
       <FolderForm pickFolder={() => Promise.reject(new Error("dialog failed"))} />,
-      { wrapper: LiveAnnouncerProvider },
+      { wrapper: withAnnouncer(liveBridgeWrapper()) },
     );
 
     await pressBrowse();
@@ -90,7 +91,7 @@ describe("a repeating collection", () => {
         />
       );
     }
-    render(<TargetForm />);
+    render(<TargetForm />, { wrapper: liveBridgeWrapper() });
 
     fireEvent.click(screen.getByRole("button", { name: "Add Target" }));
 

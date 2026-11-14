@@ -5,6 +5,7 @@
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import { USER_MESSAGE_EVENT_TYPE } from "@ai-sidekicks/contracts/transcript/operations";
 import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/row";
 
 import { clockLocaleFor, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
@@ -81,13 +82,13 @@ export function sampleRunRow(overrides: SampleRowOverrides = {}): ProjectedTrans
   };
 }
 
-/** A person's message row, its payload the `user.message` shape the body reads it from. */
+/** A person's message row, its payload the `user.message.sent` shape the body reads it from. */
 export function sampleUserMessageRow(
   overrides: Omit<SampleRowOverrides, "payload" | "type"> & { readonly message: string },
 ): ProjectedTranscriptRow {
   return sampleRunRow({
     ...overrides,
-    type: "user.message",
+    type: USER_MESSAGE_EVENT_TYPE,
     payload: { sessionId: SAMPLE_PAYLOAD_SESSION_ID, actor: "user", message: overrides.message },
   });
 }
