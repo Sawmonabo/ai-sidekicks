@@ -76,10 +76,12 @@ pub enum RewindTargetPresence {
     Held,
     /// The conversation held the message and a cut took it: it already ends before it.
     CutAway,
-    /// The provider's listing no longer shows the message, which only its own cut can confirm
-    /// gone, since the listing may lag the record the cut reads: asked of the cut's target, the
-    /// cut is sent and the provider's answer decides; asked of the message before, it reads as
-    /// cut away, since confirming it would cut past the undo's point.
+    /// The provider's listing does not show the message, which may lag the record its cut reads,
+    /// so only the provider's own check of a cut can show it gone: asked of the cut's target, the
+    /// cut is sent and the provider's answer decides. The message before the target is asked of
+    /// only once the target reads cut away, which follows a cut or a refused cut that brought the
+    /// listing up to the provider's record past that message's turn, so there it shows the
+    /// message gone.
     UnconfirmedCut,
 }
 

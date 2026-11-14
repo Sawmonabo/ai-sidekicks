@@ -295,8 +295,10 @@ impl RunQueue {
     /// live binding, so a retried undo never cuts twice: a conversation that no longer holds the
     /// reach's message reads as the cut already made only while it still holds the person's
     /// message just before the reach, or none stands there; a reach's message the record shows
-    /// gone only unconfirmed is cut, the provider's own check deciding, and a message before it
-    /// so shown reads as cut away. Fails with [`ConversationCutError`]'s
+    /// gone only unconfirmed is cut, the provider's own check deciding. The message before is read
+    /// only once the reach's reads cut away, which a driver answers only after a cut or a refused
+    /// cut brought its record up to the provider's, so no undo is refused for a message still
+    /// there. Fails with [`ConversationCutError`]'s
     /// `NoLiveBinding` where the session runs on none, `CutPastPoint` where the conversation was
     /// cut back past the reach, and `Queue` carrying the provider's failure of a read.
     pub async fn read_provider_cut(
@@ -358,6 +360,7 @@ impl RunQueue {
             .map_err(QueueError::from)?
         {
             RewindTargetPresence::Held => Ok(ProviderCut::AlreadyMade),
+            // Read on a record the cut behind the reach's answer brought up to the provider's.
             RewindTargetPresence::CutAway | RewindTargetPresence::UnconfirmedCut => {
                 Err(ConversationCutError::CutPastPoint)
             }

@@ -39,6 +39,12 @@ const REWIND_TARGET_UNKNOWN: &str = "rewind-target-not-a-recorded-boundary";
 /// The fallback a rewind takes when a running turn did not stop in time.
 const REWIND_TURN_IN_PROGRESS: &str = "rewind-deferred-turn-in-progress";
 
+/// A turn id no Codex thread holds: Codex names a turn by a version 7 UUID, `auto-compact-<n>`
+/// or, for a turn its history rebuilds, `rollout-<n>`, none with a colon. A cut sent before it
+/// changes nothing: Codex brings its listing up to its own record, then refuses it `turn not
+/// found`.
+const CODEX_NO_TURN_ID: &str = "sidekicks:no-turn";
+
 /// What the session recorded of the turn one of the person's messages started.
 pub(crate) struct CodexMessageTurn {
     /// The connection the session's conversation is on, or why the service has none.
@@ -81,11 +87,13 @@ impl CodexConversationRewind {
     /// stopped and its end awaited first, up to the request deadline, and no turn starts from the
     /// stop until the cut is done. A message the session recorded no turn for is looked up in the
     /// conversation's history, and where Codex lists no turn holding it the cut goes before the
-    /// turn the daemon's log names. A cut Codex refuses for a turn its own record does not hold is
-    /// followed by the history read again: the turn holding the message is cut before, and a
-    /// conversation that holds none is `TargetNotHeld`, the record then showing the cut Codex
-    /// already made. Degrades for a message not in the conversation and for a turn that did not
-    /// stop; fails with `CodexError::Transport` when the session was established anew meanwhile.
+    /// turn the daemon's log names or, with none named, before a turn no thread holds. A cut Codex
+    /// refuses for a turn its own record does not hold, which it reads having first brought its
+    /// listing up to that record, is followed by the history read again: the turn holding the
+    /// message is cut before, and a conversation that holds none is `TargetNotHeld`, the record
+    /// then showing the cut Codex already made, with the turns it lists. Degrades on a legacy
+    /// thread that shows no turn holding the message and for a turn that did not stop; fails with
+    /// `CodexError::Transport` when the session was established anew meanwhile.
     pub(crate) async fn rewind(
         &self,
         params: &RewindConversationParams,
@@ -134,19 +142,18 @@ impl CodexConversationRewind {
         }
     }
 
-    /// Whether the conversation still holds one of the person's messages, by Codex's own record:
-    /// a message a cut of this session took reads cut away. Any other is looked for in the turns
-    /// Codex lists, read newest first with no items and stopped at the first turn started before
-    /// the message's send: the turn the session recorded or the daemon's log named for it, or a
-    /// turn holding the message's id or its turn opener's ([`find_codex_turn`]). Where Codex lists
-    /// turns and none of them is that, the message reads cut away when no turn of it is known,
-    /// and unconfirmed when one is, since Codex's listing can lag the record its cut reads: the
-    /// cut sent before the known turn then tells the two apart ([`Self::rewind`]). A known turn
-    /// is where the search looks first, never the proof of a cut, since a retry's fork drops it
-    /// and sends the message again on a new turn. Wherever the listing cannot show it gone the
-    /// message reads held, a conversation Codex lists no turn of among them, where the cut tells
-    /// the same apart. Fails with `CodexError::Transport` when the session is not live, and as a
-    /// request fails.
+    /// Whether the conversation still holds one of the person's messages: it reads cut away only
+    /// where the session's record shows it taken by a cut Codex applied or by a refused cut that
+    /// showed it made, each sent with Codex's listing first brought up to its own record. Any
+    /// other is looked for in the turns Codex lists, read newest first with no items and stopped
+    /// at the first turn started before the message's send: the turn the session recorded or the
+    /// daemon's log named for it, or a turn holding the message's id or its turn opener's
+    /// ([`find_codex_turn`]). Since the listing can lag Codex's own record, a message it does not
+    /// show is not read as gone: it reads unconfirmed where a turn of it is known and held where
+    /// none is, as on a conversation Codex lists no turn of, and the cut [`Self::rewind`] sends
+    /// tells the two apart. A known turn is where the search looks first, never the proof of a
+    /// cut, since a retry's fork drops it and sends the message again on a new turn. Fails with
+    /// `CodexError::Transport` when the session is not live, and as a request fails.
     pub(crate) async fn read_target(
         &self,
         params: &RewindConversationParams,
@@ -181,30 +188,10 @@ impl CodexConversationRewind {
             CodexTurnListing::Unlisted if sought.turn_id.is_some() => {
                 RewindTargetPresence::UnconfirmedCut
             }
-            CodexTurnListing::Unlisted => RewindTargetPresence::CutAway,
-            CodexTurnListing::Empty | CodexTurnListing::Indeterminate => RewindTargetPresence::Held,
+            CodexTurnListing::Unlisted
+            | CodexTurnListing::Empty
+            | CodexTurnListing::Indeterminate => RewindTargetPresence::Held,
         })
-    }
-
-    /// Brings the session's record to a cut before one of the person's messages that Codex
-    /// already made, as a landed [`Self::rewind`] leaves it: its turns become those Codex lists,
-    /// and the message and every message of a turn no longer listed read cut away. Fails with
-    /// `CodexError::Transport` when the session is not live, and as the list's request fails.
-    pub(crate) async fn adopt(&self, params: &RewindConversationParams) -> Result<(), CodexError> {
-        let inbound = self.slots.require_live(params.session_id)?;
-        let recorded = call_codex_session(&inbound, |reply| CodexSessionCall::ReadMessageTurn {
-            message_id: params.target_message_id.clone(),
-            reply,
-        })
-        .await?;
-        let listed = read_codex_turns(&*recorded.connection?, &recorded.thread_id).await?;
-        adopt_listed_turns(
-            &inbound,
-            recorded.thread_id,
-            listed.into_iter().map(|turn| turn.id).collect(),
-            &params.target_message_id,
-        );
-        Ok(())
     }
 
     /// Hands a turn too long for the model's window back by cutting it out of the conversation
@@ -236,7 +223,8 @@ impl CodexConversationRewind {
     // The conversation and the turn the cut goes before for one of the person's messages: the
     // session's own record, else the conversation's history, which also serves a conversation this
     // daemon did not start or has forked, else, where Codex lists no turn holding it, the turn the
-    // daemon's log names. `None` where none of them names a turn.
+    // daemon's log names, else a turn no thread holds, whose refusal brings Codex's listing up to
+    // its own record. `None` on a legacy thread whose turns show no message holding it.
     async fn read_message_turn(
         &self,
         inbound: &CodexSessionInboundSender,
@@ -273,10 +261,11 @@ impl CodexConversationRewind {
             }
             // Codex looks the turn up in its own record before it cuts, so the cut lands where
             // the turn is only missing from the listing, and is refused where a cut took it.
-            CodexTurnListing::Empty | CodexTurnListing::Unlisted => match &params.target_turn_id {
-                Some(turn_id) => turn_id.as_str().to_owned(),
-                None => return Ok(None),
-            },
+            CodexTurnListing::Empty | CodexTurnListing::Unlisted => params
+                .target_turn_id
+                .as_ref()
+                .map_or(CODEX_NO_TURN_ID, ProviderTurnId::as_str)
+                .to_owned(),
             CodexTurnListing::Indeterminate => return Ok(None),
         };
         Ok(Some((recorded.thread_id, turn_id)))
@@ -313,8 +302,9 @@ async fn revert_before(
 // After Codex refused a cut for a turn its own record lacks, which it reads having first brought
 // its listing up to that record, reads the history again for the message: a turn holding it is cut
 // before, recorded as the message's; a conversation listing no turn holding it has the cut adopted
-// on the record with the turns it lists, so the ask that follows the refusal reads it. Fails as a
-// request fails.
+// on the record with the turns it lists, the one list read the adoption takes, so the ask that
+// follows the refusal reads it and reads the message before the point on that same listing. Fails
+// as a request fails.
 async fn cut_after_refusal(
     inbound: &CodexSessionInboundSender,
     params: &RewindConversationParams,

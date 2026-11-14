@@ -9,7 +9,7 @@ use tokio_util::task::TaskTracker;
 
 use sidekicks_contracts::turn::ProviderTurnId;
 
-use super::{CodexConversationRewind, REWIND_TARGET_UNKNOWN};
+use super::{CODEX_NO_TURN_ID, CodexConversationRewind, REWIND_TARGET_UNKNOWN};
 use crate::driver::codex::run::routes::CodexRunBinding;
 use crate::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::driver::codex::run::start::record::CodexTurnRequest;
@@ -42,15 +42,15 @@ fn rewind_on(session: &TestCodexSession) -> CodexConversationRewind {
 // newest first with no items and stops at the first turn started before the message's send
 // second: a turn id the daemon's log names is found among them, and a message whose known
 // turn is not listed, or with none, is found by its id, or its turn opener's, in the items of
-// the turns passed, oldest first. Killed by answering held for a message no turn since its send
-// holds and no turn of it is known, which cuts a cut Codex already made again, by answering cut
-// away for a retried message whose logged turn the retry's fork dropped, for a later message of
-// a turn its opener's id shows, for a known turn the listing lacks or for a conversation Codex
-// lists no turn of, by a page read past the send, by a turn's items asked in full or for a
-// listed known turn, by the adopt reading items, by a cut on a conversation listing no turn
-// holding the message sent before no turn, and by Codex's refusal of it failing the undo or
+// the turns passed, oldest first. Killed by answering cut away for a message no listed turn
+// holds, since the listing can lag Codex's own record, whether a turn of it is known or not, for
+// a retried message whose logged turn the retry's fork dropped, for a later message of a turn its
+// opener's id shows or for a conversation Codex lists no turn of, by a page read past the send,
+// by a turn's items asked in full or for a listed known turn, by a cut on a conversation listing
+// no turn holding the message sent before no turn, by Codex's refusal of it failing the undo or
 // leaving the record without the cut, whether the record lost the cut in a restart or kept the
-// turn of a cut whose answer was lost.
+// turn of a cut whose answer was lost, by a message with no known turn left uncut where the
+// listing lagged, and by the message before the point read on the listing that lagged.
 #[tokio::test(start_paused = true)]
 async fn a_cut_codex_made_before_a_restart_reads_cut_away_and_is_adopted() {
     // Messages sent in one second, 1,700,000,000, as their UUIDv7 ids date them.
@@ -62,18 +62,27 @@ async fn a_cut_codex_made_before_a_restart_reads_cut_away_and_is_adopted() {
     const FIRST: &str = "018bcfe5-6800-7000-8000-000000000005";
     const LOST: &str = "018bcfe5-6800-7000-8000-000000000006";
     const LATER: &str = "018bcfe5-6800-7000-8000-000000000007";
+    const LAGGED: &str = "018bcfe5-6800-7000-8000-000000000008";
     const CUT: &str = "018bcfe5-6800-7000-8000-000000000009";
+    const BEFORE: &str = "018bcfe5-6800-7000-8000-00000000000a";
+    const REACH: &str = "018bcfe5-6800-7000-8000-00000000000b";
     let mut session = TestCodexSession::start().await;
     let session_id = session.task.record.session_id;
     let binding_id = session.record_binding().await;
     let rewind = rewind_on(&session);
     let asked = Arc::new(Mutex::new(Vec::new()));
     let is_listing_empty = Arc::new(AtomicBool::new(false));
+    // Whether Codex's own record holds turn 4, and whether its listing shows it: the listing lags
+    // the record until a revert brings it up to date.
+    let has_lagging_turn = Arc::new(AtomicBool::new(false));
+    let is_lagging_turn_listed = Arc::new(AtomicBool::new(false));
     let turn = |id: &str, started: i64| json!({"id": id, "items": [], "startedAt": started});
     let mut script = session.scripted.script;
     let service_side = tokio::spawn({
         let asked = Arc::clone(&asked);
         let is_listing_empty = Arc::clone(&is_listing_empty);
+        let has_lagging_turn = Arc::clone(&has_lagging_turn);
+        let is_lagging_turn_listed = Arc::clone(&is_lagging_turn_listed);
         async move {
             loop {
                 let sent = script.next_sent().await;
@@ -84,24 +93,36 @@ async fn a_cut_codex_made_before_a_restart_reads_cut_away_and_is_adopted() {
                         if is_listing_empty.load(Ordering::SeqCst) {
                             json!({"data": [], "nextCursor": null})
                         } else if params["cursor"].is_null() {
-                            json!({"data": [
-                                turn("turn-3", SENT + 20),
-                                turn("turn-2", SENT + 10),
-                                turn("turn-1", SENT),
-                                turn("turn-0", SENT - 50),
-                            ], "nextCursor": "older"})
+                            let lagging = is_lagging_turn_listed
+                                .load(Ordering::SeqCst)
+                                .then(|| turn("turn-4", SENT + 30));
+                            let listed: Vec<_> = lagging
+                                .into_iter()
+                                .chain([
+                                    turn("turn-3", SENT + 20),
+                                    turn("turn-2", SENT + 10),
+                                    turn("turn-1", SENT),
+                                    turn("turn-0", SENT - 50),
+                                ])
+                                .collect();
+                            json!({"data": listed, "nextCursor": "older"})
                         } else {
                             let old = json!({"id": "turn-old", "items": []});
                             json!({"data": [old], "nextCursor": null})
                         }
                     }
-                    // Codex reads its own record for the turn: a cut made before the restart or
-                    // whose answer was lost left none, and an unprojected thread still holds it.
+                    // Codex brings its listing up to its own record, then reads it for the turn:
+                    // a cut made before the restart or whose answer was lost left none, no thread
+                    // holds the daemon's turn of none, and an unprojected thread still holds it.
                     Some("thread/revert") => {
                         let before = &params["beforeTurnId"];
                         lock(&asked).push(json!(["revert", before]));
+                        if has_lagging_turn.load(Ordering::SeqCst) {
+                            is_lagging_turn_listed.store(true, Ordering::SeqCst);
+                        }
                         if let Some(dropped) = before.as_str().filter(|turn_id| {
-                            ["turn-9", "turn-first", "turn-lost"].contains(turn_id)
+                            ["turn-9", "turn-first", "turn-lost", CODEX_NO_TURN_ID]
+                                .contains(turn_id)
                         }) {
                             script.send(&json!({"jsonrpc": "2.0", "id": sent["id"], "error": {
                                 "code": -32600, "message": format!("turn not found: {dropped}"),
@@ -130,6 +151,9 @@ async fn a_cut_codex_made_before_a_restart_reads_cut_away_and_is_adopted() {
                             (Some("turn-2"), None) => {
                                 json!({"data": [message(RETRIED)], "nextCursor": null})
                             }
+                            (Some("turn-4"), None) => json!({
+                                "data": [message(LAGGED), message(BEFORE)], "nextCursor": null,
+                            }),
                             _ => json!({"data": [], "nextCursor": null}),
                         }
                     }
@@ -229,13 +253,14 @@ async fn a_cut_codex_made_before_a_restart_reads_cut_away_and_is_adopted() {
             turn_items("turn-3"),
         ]
     };
+    // A listing that does not show the message shows no cut, since it can lag Codex's own record.
     let cut = task.drive(rewind.read_target(&params(CUT, None))).await;
     assert_eq!(
         cut.expect("the ask is answered"),
-        RewindTargetPresence::CutAway
+        RewindTargetPresence::Held
     );
     assert_eq!(take_asked(), searched());
-    // With a turn known, only Codex's own record, which its cut reads, shows the message gone.
+    // With a turn known, the cut sent before it decides.
     let unconfirmed = task
         .drive(rewind.read_target(&params(CUT, Some("turn-9"))))
         .await;
@@ -254,11 +279,12 @@ async fn a_cut_codex_made_before_a_restart_reads_cut_away_and_is_adopted() {
             fallback_action: Some(REWIND_TARGET_UNKNOWN.to_owned()),
         }
     );
+    // The refusal's adoption reads the whole listing once, and nothing reads it again.
     let all_pages = [first_page.clone(), json!(["notLoaded", "older"])];
     let mut expected = searched();
     expected.push(json!(["revert", "turn-9"]));
     expected.extend(searched());
-    expected.extend(all_pages.clone());
+    expected.extend(all_pages);
     assert_eq!(take_asked(), expected);
     let after_refusal = task
         .drive(rewind.read_target(&params(CUT, Some("turn-9"))))
@@ -267,11 +293,7 @@ async fn a_cut_codex_made_before_a_restart_reads_cut_away_and_is_adopted() {
         after_refusal.expect("the ask is answered"),
         RewindTargetPresence::CutAway
     );
-    task.drive(rewind.adopt(&params(CUT, Some("turn-9"))))
-        .await
-        .expect("the cut is adopted");
-    task.handle_next().await;
-    assert_eq!(take_asked(), all_pages);
+    assert_eq!(take_asked(), Vec::<serde_json::Value>::new());
     assert_eq!(
         task.record.turn_boundaries,
         ["turn-old", "turn-0", "turn-1", "turn-2", "turn-3"]
@@ -357,14 +379,75 @@ async fn a_cut_codex_made_before_a_restart_reads_cut_away_and_is_adopted() {
             after_refusal.expect("the ask is answered"),
             RewindTargetPresence::CutAway
         );
-        task.drive(rewind.adopt(&params(message_id, logged_turn)))
-            .await
-            .expect("the cut is adopted");
-        task.handle_next().await;
-        assert_eq!(take_asked(), std::slice::from_ref(&first_page));
+        assert_eq!(take_asked(), Vec::<serde_json::Value>::new());
         assert_eq!(task.record.turn_boundaries, Vec::<String>::new());
         assert!(task.record.cut_client_message_ids.contains(message_id));
     }
+    // Codex's record holds turn 4, which its listing lags, so the listing shows no turn holding
+    // the message and none of its turns is known: the ask reads it held, and the cut goes before
+    // a turn no thread holds, whose refusal brings the listing up to Codex's record, so the
+    // message is found there and cut before its turn, never adopted as a cut Codex did not make.
+    is_listing_empty.store(false, Ordering::SeqCst);
+    has_lagging_turn.store(true, Ordering::SeqCst);
+    let lagged = task.drive(rewind.read_target(&params(LAGGED, None))).await;
+    assert_eq!(
+        lagged.expect("the ask is answered"),
+        RewindTargetPresence::Held
+    );
+    assert_eq!(take_asked(), searched());
+    let applied = task.drive(rewind.rewind(&params(LAGGED, None))).await;
+    assert_eq!(
+        applied.expect("the cut is answered"),
+        RewindConversationResult::Applied {
+            fork: None,
+            cut_message_text: None,
+        }
+    );
+    let current = || {
+        let mut current = searched();
+        current.push(turn_items("turn-4"));
+        current
+    };
+    let mut expected = searched();
+    expected.push(json!(["revert", CODEX_NO_TURN_ID]));
+    expected.extend(current());
+    expected.push(json!(["revert", "turn-4"]));
+    assert_eq!(take_asked(), expected);
+    // A message the listing does not show because Codex cut it: the refusal brings the listing
+    // up to Codex's record and the cut is adopted, and the message before the point, in the turn
+    // the listing lagged, is read on that listing, held, so the undo is not refused for it.
+    is_lagging_turn_listed.store(false, Ordering::SeqCst);
+    let reach = task.drive(rewind.read_target(&params(REACH, None))).await;
+    assert_eq!(
+        reach.expect("the ask is answered"),
+        RewindTargetPresence::Held
+    );
+    assert_eq!(take_asked(), searched());
+    let refused = task.drive(rewind.rewind(&params(REACH, None))).await;
+    task.handle_next().await;
+    assert_eq!(
+        refused.expect("the cut is answered"),
+        RewindConversationResult::TargetNotHeld {
+            fallback_action: Some(REWIND_TARGET_UNKNOWN.to_owned()),
+        }
+    );
+    let after_refusal = task.drive(rewind.read_target(&params(REACH, None))).await;
+    assert_eq!(
+        after_refusal.expect("the ask is answered"),
+        RewindTargetPresence::CutAway
+    );
+    let mut expected = searched();
+    expected.push(json!(["revert", CODEX_NO_TURN_ID]));
+    expected.extend(current());
+    expected.extend([first_page.clone(), json!(["notLoaded", "older"])]);
+    assert_eq!(take_asked(), expected);
+    let before = task.drive(rewind.read_target(&params(BEFORE, None))).await;
+    task.handle_next().await;
+    assert_eq!(
+        before.expect("the ask is answered"),
+        RewindTargetPresence::Held
+    );
+    assert_eq!(take_asked(), current());
     service_side.abort();
 }
 

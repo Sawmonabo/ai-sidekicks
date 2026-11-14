@@ -156,15 +156,16 @@ pub trait ProviderDriver: Send + Sync {
     /// read fails. With its own record empty, as after a restart, a driver reads the provider's
     /// stored history: Claude Code its transcript, `CutAway` only where a cut's own row, written
     /// after the last turn and never taken back, names the entry holding the message, and `Held`
-    /// otherwise; Codex the conversation's turns. Where Codex lists turns and none listed since the
-    /// message's send, or running at it, is the turn its record or `params.target_turn_id` names
-    /// or holds the message's id or `params.target_turn_opener_id`, which a fork's copy keeps,
-    /// Codex answers `UnconfirmedCut` when it knows a turn of the message, since its listing can
-    /// lag the record its cut reads, and `CutAway` when it knows none; it answers `Held` where
-    /// Codex lists no turn or, on a legacy thread, shows only each turn's first message, and
-    /// `CutAway` once Codex's refusal of the cut showed that cut made. Asked when
-    /// [`rewind_target_ask`](Self::rewind_target_ask) says: on Codex before its cut, on Claude Code
-    /// after a refusal.
+    /// otherwise; Codex the conversation's turns. The Codex driver answers `CutAway` only from its
+    /// own record of a cut Codex applied or of a refused cut that showed the cut made, both sent
+    /// with Codex's listing first brought up to its own record. Where Codex lists turns and none
+    /// listed since the message's send, or running at it, is the turn its record or
+    /// `params.target_turn_id` names or holds the message's id or `params.target_turn_opener_id`,
+    /// which a fork's copy keeps, the listing can lag that record, so the Codex driver answers
+    /// `UnconfirmedCut` when it knows a turn of the message and `Held` when it knows none, as it
+    /// does where Codex lists no turn or, on a legacy thread, shows only each turn's first
+    /// message. Asked when [`rewind_target_ask`](Self::rewind_target_ask) says: on Codex before its
+    /// cut, on Claude Code after a refusal.
     fn read_rewind_target(
         &self,
         params: RewindConversationParams,
@@ -179,7 +180,8 @@ pub trait ProviderDriver: Send + Sync {
     /// message `params.target_message_id` that the provider already made, as a landed
     /// `rewind_conversation` leaves it, asking the provider for no cut (gated on `rollback`);
     /// called once `read_rewind_target` answered `CutAway`, so the next act reads the conversation
-    /// as it is. Fails as a read of the provider's record fails.
+    /// as it is. A driver whose record already holds the cut, as Codex's does, does nothing. Fails
+    /// as a read of the provider's record fails.
     fn adopt_conversation_rewind(
         &self,
         params: RewindConversationParams,

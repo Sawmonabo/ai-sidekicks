@@ -197,14 +197,6 @@ impl CodexDriver {
         Ok(self.parts()?.rewind.read_target(&params).await?)
     }
 
-    /// Brings the driver's record to a cut Codex already made; see the rewind's adopt.
-    pub(crate) async fn adopt_conversation_rewind(
-        &self,
-        params: RewindConversationParams,
-    ) -> Result<(), DriverError> {
-        Ok(self.parts()?.rewind.adopt(&params).await?)
-    }
-
     /// Moves every session on the driver's services onto the build that replaced the running one;
     /// none is live before the session pieces are composed.
     pub(crate) fn move_to_provider_build(&self, change: &ProviderBuildChange) {

@@ -121,8 +121,9 @@ pub(crate) enum CodexTurnListing {
         /// The turn's id.
         turn_id: String,
     },
-    /// Codex lists turns and none since the message's send, nor the one running at it, is the turn
-    /// sought or holds the message's id.
+    /// Codex lists turns and none since the message's send, nor the one running at it, nor one
+    /// listed with no start time, is the turn sought or holds the message's id or the id of the
+    /// message that opened the turn it rode in.
     Unlisted,
     /// Codex holds the conversation and lists no turn of it: one whose history it has not
     /// projected, or one cut to before its first turn, which the listing cannot tell apart.

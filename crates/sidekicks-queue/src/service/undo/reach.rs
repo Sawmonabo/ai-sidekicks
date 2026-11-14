@@ -25,11 +25,11 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_session::checkpoints::store::Checkpoint;
 use sidekicks_session::checkpoints::store::kept::{
     CheckpointReadError, checkpoints_reached_from, lead_message_checkpoint_before, read_checkpoint,
     reopening_turn_numbers, sent_message_checkpoint, turn_start_checkpoint,
 };
+use sidekicks_session::checkpoints::store::{Checkpoint, StoredCheckpoint};
 use sidekicks_session::driver_resolution::resolve_live_run_driver;
 use sidekicks_session::queue_store::{QueueItemBody, QueueItemReader, QueueMessageBody};
 use sidekicks_session::run::read::read_run_provider;
@@ -489,6 +489,9 @@ fn read_reach(
     } else {
         None
     };
+    // The group's turn start where it was read, which the opener's read below takes in place of
+    // reading the same row again.
+    let mut group_turn_start = None;
     let reach_start = match &group {
         // A start row naming a prompt an earlier turn of the run already sent, as a retry turn's
         // does, gives way to that prompt's own checkpoint: the provider's cut before the opening
@@ -499,6 +502,7 @@ fn read_reach(
                 .map_err(QueueError::from)?
                 .filter(|start| start.checkpoint.checkpoint_id != pressed.checkpoint_id)
                 .ok_or(ConversationCutError::MessageNotQueued)?;
+            group_turn_start = Some(start.clone());
             Some(match start.turn_opening_id {
                 Some(opening) => sent_message_checkpoint(reader, read_damaged, session_id, opening)
                     .map_err(cut_error_of)?
@@ -543,7 +547,13 @@ fn read_reach(
     let (message_turn_id, message_turn_opener_id) = if driver.is_some() {
         (
             read_provider_turn_id(reader, read_damaged, session_id, &checkpoint)?,
-            read_turn_opener_id(reader, session_id, &checkpoint, message_id)?,
+            read_turn_opener_id(
+                reader,
+                session_id,
+                &checkpoint,
+                message_id,
+                group_turn_start.as_ref(),
+            )?,
         )
     } else {
         (None, None)
@@ -782,22 +792,30 @@ fn read_provider_turn_id(
 }
 
 // The queue item that opened the turn `checkpoint`'s message `message_id` opened or steered, as
-// that turn's start recorded it, where it is another message.
+// that turn's start recorded it, where it is another message; a start row the caller already read
+// is taken where it is that turn's.
 fn read_turn_opener_id(
     reader: &Connection,
     session_id: SessionId,
     checkpoint: &Checkpoint,
     message_id: QueueItemId,
+    read_start: Option<&StoredCheckpoint>,
 ) -> Result<Option<QueueItemId>, ConversationCutError> {
-    Ok(turn_start_checkpoint(
-        reader,
-        session_id,
-        checkpoint.run_id,
-        checkpoint.turn_number,
-    )
-    .map_err(QueueError::from)?
-    .and_then(|start| start.turn_opening_id)
-    .filter(|opener_id| *opener_id != message_id))
+    let opening_id = match read_start.filter(|start| {
+        start.checkpoint.run_id == checkpoint.run_id
+            && start.checkpoint.turn_number == checkpoint.turn_number
+    }) {
+        Some(start) => start.turn_opening_id,
+        None => turn_start_checkpoint(
+            reader,
+            session_id,
+            checkpoint.run_id,
+            checkpoint.turn_number,
+        )
+        .map_err(QueueError::from)?
+        .and_then(|start| start.turn_opening_id),
+    };
+    Ok(opening_id.filter(|opener_id| *opener_id != message_id))
 }
 
 // The person's last message sent through the queue before `reach` that the lead's conversation
@@ -818,7 +836,7 @@ fn read_message_before(
     Ok(Some(AskedMessage {
         message_id,
         turn_id: read_provider_turn_id(reader, read_damaged, session_id, &before)?,
-        turn_opener_id: read_turn_opener_id(reader, session_id, &before, message_id)?,
+        turn_opener_id: read_turn_opener_id(reader, session_id, &before, message_id, None)?,
     }))
 }
 

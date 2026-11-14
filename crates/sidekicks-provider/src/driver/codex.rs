@@ -282,17 +282,19 @@ impl ProviderDriver for CodexDriver {
         self.read_rewind_target(params).boxed()
     }
 
-    // A Codex cut it cannot place answers a fallback, never a refusal for a message Codex no
-    // longer holds, so the ask goes first.
+    // The ask reads the driver's record and Codex's listing and cuts nothing, so a retried undo
+    // learns before anything stops whether its cut was made or went past its point.
     fn rewind_target_ask(&self) -> RewindTargetAsk {
         RewindTargetAsk::BeforeCut
     }
 
+    // The driver reads a message cut away only from its own record, which the cut Codex applied,
+    // or the refused cut that showed it made, already brought to the cut, so nothing is left.
     fn adopt_conversation_rewind(
         &self,
-        params: RewindConversationParams,
+        _params: RewindConversationParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.adopt_conversation_rewind(params).boxed()
+        async { Ok(()) }.boxed()
     }
 
     fn respond_to_request(
