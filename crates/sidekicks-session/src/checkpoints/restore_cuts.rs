@@ -1,13 +1,15 @@
 //! The conversation cuts recorded under an undo's key once the cut applied, with the checkpoint
-//! the undo's files go back to, the message the undo resends and, once the files went back, what
-//! their put-back did, so a retry under that key after an outcome the daemon could not read never
-//! cuts again, finishes the files to the point the cut took away and sends the resend.
+//! the undo's files go back to, the message the undo resends, where the session's log stood at the
+//! cut and, once the files went back, what their put-back did, so a retry under that key after an
+//! outcome the daemon could not read never cuts again, finishes the files to the point the cut took
+//! away while no lead turn has started since, and sends the resend.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use rusqlite::types::Type;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{
     SessionRestoreFileOutcome, SessionRestoreResend, SnapshotId,
@@ -23,17 +25,28 @@ use super::store::kept::read_kept_checkpoint;
 static RECORD_CUT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO session_restore_cuts
-    (session_id, client_idempotency_key, checkpoint_id, resend, created_at)
-  VALUES (@sessionId, @key, @checkpointId, @resend, {DATABASE_NOW_SQL})"
+    (session_id, client_idempotency_key, checkpoint_id, resend, cut_sequence, created_at)
+  VALUES (@sessionId, @key, @checkpointId, @resend,
+    (SELECT COALESCE(MAX(sequence), 0) FROM session_events WHERE session_id = @sessionId),
+    {DATABASE_NOW_SQL})"
     )
 });
 
 const RECORD_FILES_SQL: &str = "UPDATE session_restore_cuts SET files_outcome = @filesOutcome
   WHERE session_id = @sessionId AND client_idempotency_key = @key";
 
-const RECORDED_CUT_SQL: &str = "SELECT checkpoint_id, resend, files_outcome
-  FROM session_restore_cuts
-  WHERE session_id = @sessionId AND client_idempotency_key = @key";
+// A turn of a lead run that started after the cut's write; a child run's turn leaves the files.
+static RECORDED_CUT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT checkpoint_id, resend, files_outcome,
+    EXISTS (SELECT 1 FROM session_events AS started JOIN runs ON runs.run_id = started.run_id
+      WHERE started.session_id = cut.session_id AND started.sequence > cut.cut_sequence
+        AND started.type = '{turn_started}' AND runs.parent_run_id IS NULL)
+  FROM session_restore_cuts AS cut
+  WHERE session_id = @sessionId AND client_idempotency_key = @key",
+        turn_started = SessionEventType::AgentTurnStarted.as_str(),
+    )
+});
 
 /// What an undo's key recorded of its conversation cut.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,6 +57,9 @@ pub struct RecordedCut {
     pub resend: Option<SessionRestoreResend>,
     /// What the files' put-back did once every file went back, `None` until then.
     pub files: Option<SessionRestoreFileOutcome>,
+    /// Whether a lead turn started after the cut was recorded, so the files a retry would finish
+    /// may hold that turn's work.
+    pub is_lead_turn_started_since: bool,
 }
 
 /// The statement that records the conversation cut of `session_id`'s undo `undo_key`, whose files
@@ -96,8 +112,8 @@ pub fn read_recorded_cut(
     session_id: SessionId,
     undo_key: &ClientUuid,
 ) -> rusqlite::Result<Option<RecordedCut>> {
-    let Some((checkpoint_id, resend, files)) = connection
-        .prepare_cached(RECORDED_CUT_SQL)?
+    let Some((checkpoint_id, resend, files, is_lead_turn_started_since)) = connection
+        .prepare_cached(RECORDED_CUT_SQL.as_str())?
         .query_row(
             named_params! {
                 "@sessionId": session_id.text().as_str(),
@@ -108,6 +124,7 @@ pub fn read_recorded_cut(
                     row.get::<_, String>(0)?,
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, Option<String>>(2)?,
+                    row.get::<_, bool>(3)?,
                 ))
             },
         )
@@ -134,5 +151,6 @@ pub fn read_recorded_cut(
         checkpoint,
         resend,
         files,
+        is_lead_turn_started_since,
     }))
 }

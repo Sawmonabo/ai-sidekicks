@@ -20,7 +20,9 @@ use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::establishment::continuation::CodexHeldLeadContinue;
-use crate::driver::codex::session::history::{CodexSoughtTurn, CodexTurnListing, find_codex_turn};
+use crate::driver::codex::session::history::{
+    CodexSoughtMessage, CodexTurnListing, find_codex_turn,
+};
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
 use crate::driver::codex::session::lifecycle_call::{
     CodexLifecycleCall, call_codex_lifecycle, let_go_codex_session_record,
@@ -459,7 +461,10 @@ impl CodexDriver {
         let listing = find_codex_turn(
             &*reading.connection?,
             &reading.thread_id,
-            CodexSoughtTurn::Message(&first),
+            CodexSoughtMessage {
+                message_id: &first,
+                turn_id: None,
+            },
         )
         .await?;
         let taken: Vec<QueueItemId> = match listing {

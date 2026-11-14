@@ -4,6 +4,7 @@
 
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
 use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
@@ -20,6 +21,9 @@ pub struct RewindConversationParams {
     pub binding_id: RuntimeBindingId,
     /// The person's message the cut lands before.
     pub target_message_id: String,
+    /// The provider's id of the turn that message opened or steered, as the daemon's log recorded
+    /// its start, so a driver whose own record lost the message finds its turn by id.
+    pub target_turn_id: Option<ProviderTurnId>,
 }
 
 /// What a rewind did: a cut landed in place or on a fork the session restarts on, or a fallback the
@@ -29,7 +33,7 @@ pub enum RewindConversationResult {
     /// The cut landed.
     Applied {
         /// The binding the cut's restart runs under when the provider cut by forking, for the
-        /// daemon to record once the cut is fenced; `None` for a cut in place.
+        /// daemon to record in the cut's own write; `None` for a cut in place.
         fork: Option<ForkedBinding>,
         /// The text of the message the cut removed, for the composer, where the provider returned
         /// it.

@@ -52,14 +52,17 @@ async fn cut_to_target(scene: &Scene) -> (Vec<SourcePosition>, UndoReach) {
         )
         .await
         .expect("the cut applies");
-    let ConversationCut::Applied { rollbacks, reach } = cut else {
+    let ConversationCut::Applied {
+        rollbacks, reach, ..
+    } = cut
+    else {
         panic!("the provider applied the cut");
     };
     let positions = rollbacks
         .iter()
         .map(|rollback| rollback.event.target_position)
         .collect();
-    (positions, reach)
+    (positions, *reach)
 }
 
 /// The edit of a steer to [`EDITED_WORDS`], carrying nothing else.

@@ -153,7 +153,8 @@ impl UndoSteps for RecordingSteps {
         } else {
             Ok(UndoPoint {
                 checkpoint: reach_at_point(self.run_id).checkpoint,
-                resend: edited,
+                resend: edited.clone(),
+                edited,
                 reach: Some(()),
             })
         };
@@ -310,14 +311,15 @@ impl UndoSteps for RecordingSteps {
         _reach: &'a (),
         _companions: RollbackCompanions,
         _provider_cut: ProviderCut,
-        _resend: Option<SessionRestoreResend>,
+        edited: Option<SessionRestoreResend>,
     ) -> BoxFuture<'a, Result<ConversationCut, ConversationCutError>> {
         let answer = if self.take(Step::Cut) {
             Err(ConversationCutError::Superseded)
         } else {
             Ok(ConversationCut::Applied {
                 rollbacks: Vec::new(),
-                reach: reach_at_point(self.run_id),
+                reach: Box::new(reach_at_point(self.run_id)),
+                resend: edited,
             })
         };
         async move { answer }.boxed()
@@ -516,37 +518,61 @@ async fn two_undos_of_one_session_run_one_after_the_other() {
 // A retry under the key of an undo whose cut applied, the outcome lost with the process, cuts
 // nothing again and sends the resend the key recorded, which goes under the key: with its files
 // recorded put back it answers both applied and moves nothing; with them not recorded it finishes
-// them to the checkpoint the key kept, its stops and captures first, and records them. Killed by
-// the recorded cut not looked for, where the retry reads its own cut's point as superseded or cuts
-// a second time, by the files answered failed or left unfinished, by files recorded put back run
-// again, and by the recorded resend dropped.
+// them to the checkpoint the key kept, its stops and captures first, and records them, unless a
+// lead turn started since the cut, where it stops nothing, puts nothing back and names the files
+// not put back. Killed by the recorded cut not looked for, where the retry reads its own cut's
+// point as superseded or cuts a second time, by the files answered failed or left unfinished, by
+// files recorded put back run again, by files finished over a later turn, and by the recorded
+// resend dropped.
 #[rstest]
-#[case::files_recorded(true)]
-#[case::files_not_recorded(false)]
+#[case::files_recorded(true, false)]
+#[case::files_not_recorded(false, false)]
+#[case::turn_started_since(false, true)]
 #[tokio::test]
 async fn a_retry_after_its_recorded_cut_answers_applied_and_cuts_nothing(
     #[case] is_files_recorded: bool,
+    #[case] is_lead_turn_started_since: bool,
 ) {
     let mut steps = RecordingSteps::new(&[RunState::Running]);
     steps.recorded = Some(RecordedCut {
         checkpoint: reach_at_point(steps.run_id).checkpoint,
         resend: Some(edited()),
         files: is_files_recorded.then(file_outcome),
+        is_lead_turn_started_since,
     });
     let files = RecordingFiles { steps: &steps };
 
     let undone = run_undo(&steps, &KeyedLock::new(), request(&files)).await;
 
-    assert_eq!(
-        undone.expect("a recorded cut answers"),
-        SessionRestoreOutcome::RestoreFinished {
-            requested: SessionRestoreScope::ConversationAndFiles,
-            restored: SessionRestoredScope::ConversationAndFiles,
-            files: Some(file_outcome()),
-            failures: None,
-        }
-    );
-    let finished: &[Step] = if is_files_recorded {
+    let undone = undone.expect("a recorded cut answers");
+    if is_lead_turn_started_since {
+        assert!(
+            matches!(
+                &undone,
+                SessionRestoreOutcome::RestoreFinished {
+                    restored: SessionRestoredScope::Conversation,
+                    files: None,
+                    failures: Some(SessionRestoreFailures {
+                        conversation: None,
+                        files: Some(_)
+                    }),
+                    ..
+                }
+            ),
+            "{undone:?}"
+        );
+    } else {
+        assert_eq!(
+            undone,
+            SessionRestoreOutcome::RestoreFinished {
+                requested: SessionRestoreScope::ConversationAndFiles,
+                restored: SessionRestoredScope::ConversationAndFiles,
+                files: Some(file_outcome()),
+                failures: None,
+            }
+        );
+    }
+    let finished: &[Step] = if is_files_recorded || is_lead_turn_started_since {
         &[]
     } else {
         &[

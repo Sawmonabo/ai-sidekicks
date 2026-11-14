@@ -9,6 +9,7 @@ mod release;
 mod retry;
 mod steer;
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -101,8 +102,9 @@ struct Scene {
     failing_closes: Arc<AtomicUsize>,
     /// How many cuts the provider already made the driver was brought to.
     adopts: Arc<AtomicUsize>,
-    /// What the provider's read answers of the cut's message.
-    presence: Arc<Mutex<RewindTargetPresence>>,
+    /// What the provider's read answers of each message, by its queue item; one not named reads
+    /// held.
+    presence: Arc<Mutex<HashMap<String, RewindTargetPresence>>>,
     run_id: RunId,
     target: SessionRestoreTarget,
     /// The queue item of the message at `target`.
@@ -171,10 +173,15 @@ async fn scene_on(answer: RewindAnswer, opening: Form) -> Scene {
             let answered = answer();
             async move { answered }.boxed()
         });
-    let presence = Arc::new(Mutex::new(RewindTargetPresence::Held));
+    let presence = Arc::new(Mutex::new(HashMap::new()));
     let read = Arc::clone(&presence);
-    driver.expect_read_rewind_target().returning(move |_| {
-        let answered = *read.lock().expect("unpoisoned");
+    driver.expect_read_rewind_target().returning(move |params| {
+        let answered = read
+            .lock()
+            .expect("unpoisoned")
+            .get(&params.target_message_id)
+            .copied()
+            .unwrap_or(RewindTargetPresence::Held);
         async move { Ok(answered) }.boxed()
     });
     let adopts = Arc::new(AtomicUsize::new(0));

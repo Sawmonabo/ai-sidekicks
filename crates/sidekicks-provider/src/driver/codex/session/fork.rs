@@ -375,7 +375,7 @@ pub(crate) async fn read_codex_fork_or_let_go(
             read_thread_reasoning_effort(&forked.reply).as_deref(),
         )
         .await?;
-        let turns = read_codex_turns(connection, &forked.thread_id).await?;
+        let turns = read_codex_turns(connection, &forked.thread_id, None).await?;
         Ok(turns.into_iter().map(|listed| listed.id).collect())
     };
     let turn_ids = read.await;

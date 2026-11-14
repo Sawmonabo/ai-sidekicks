@@ -287,17 +287,20 @@ CREATE TABLE session_restore_cuts (
   checkpoint_id           TEXT NOT NULL,        -- the checkpoint the undo's files go back to
   resend                  TEXT,                 -- JSON: the message the undo resends
   files_outcome           TEXT,                 -- JSON: what the files' put-back did, once it ended
+  cut_sequence            INTEGER NOT NULL,     -- the session's last log sequence at the cut
   created_at              TEXT NOT NULL,
   PRIMARY KEY (session_id, client_idempotency_key)
 ) STRICT;
 
 -- An undo's edited message, kept from before its cut until its hold is let go; a row a stop left
--- goes back into the session's draft at the next start.
+-- goes back into the session's draft at the next start and stays, marked returned, so no retry
+-- under its key sends the words the draft now holds.
 CREATE TABLE session_restore_resends (
   session_id              TEXT NOT NULL,
   client_idempotency_key  TEXT NOT NULL,
   resend                  TEXT NOT NULL,        -- JSON: the edited message as the wire carries it
   created_at              TEXT NOT NULL,
+  returned_at             TEXT,                 -- when a start put it back into the draft
   PRIMARY KEY (session_id, client_idempotency_key)
 ) STRICT;
 "

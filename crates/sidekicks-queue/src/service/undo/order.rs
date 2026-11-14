@@ -177,6 +177,10 @@ enum UndoStepFailure {
     /// A later undo cut the conversation back past the point while this one stopped its work.
     #[error("the undo's point lies in history a later undo cut away")]
     Superseded,
+    /// A lead turn started after the undo's recorded cut, so its retry leaves the files as they
+    /// are.
+    #[error("a turn started after the undo's cut, so its files were not put back")]
+    TurnSinceCut,
 }
 
 /// Runs every undo in its one order, over the run queue, the interventions and the undo's stops.
@@ -207,7 +211,9 @@ impl UndoService {
     /// Undoes as `request` asks, in order, once every earlier undo of the session has ended: holds
     /// the session; answers the conversation applied with nothing cut again where the undo's key
     /// already recorded its cut, sending the resend recorded with it, and the files applied too
-    /// where it recorded them put back, else finishes them to the checkpoint the key kept; waits
+    /// where it recorded them put back, else finishes them to the checkpoint the key kept while no
+    /// lead turn has started since the cut, and once one has stops nothing and names the files not
+    /// put back; waits
     /// out a pause or resume of the lead already under way, at most [`UNDO_PAUSE_WAIT_BOUND`], a
     /// paused lead resting as it is; answers [`SessionRestoreOutcome::StopsChanged`] with nothing
     /// moved when more runs after the point than the person agreed to stop, a live lead turn a
@@ -236,6 +242,8 @@ struct UndoPoint<Reach> {
     checkpoint: Checkpoint,
     // What a resend of the edited message sends, built over what the undo takes back.
     resend: Option<SessionRestoreResend>,
+    // The person's edit of the pressed message, which the cut composes its resend from again.
+    edited: Option<SessionRestoreResend>,
     // What the provider's read and the cut take, `None` for the checkpoint a recorded cut kept.
     reach: Option<Reach>,
 }
@@ -345,7 +353,7 @@ trait UndoSteps: Sync {
         reach: &'a Self::Reach,
         companions: RollbackCompanions,
         provider_cut: ProviderCut,
-        resend: Option<SessionRestoreResend>,
+        edited: Option<SessionRestoreResend>,
     ) -> BoxFuture<'a, Result<ConversationCut, ConversationCutError>>;
 
     fn record_files(
@@ -470,9 +478,23 @@ async fn run_held<Steps: UndoSteps>(
                     resend: recorded.resend,
                 });
             }
+            // The files may hold the later turn's work, so nothing is stopped or put back.
+            (Some(_), None) if recorded.is_lead_turn_started_since => {
+                return Ok(HeldUndo {
+                    outcome: restore_outcome(
+                        requested,
+                        Some(Ok(())),
+                        Some(FilesPutBack::Failed(SessionRestoreFailure {
+                            reason: reason_of(&UndoStepFailure::TurnSinceCut),
+                        })),
+                    ),
+                    resend: recorded.resend,
+                });
+            }
             (Some(_), None) => UndoPoint {
                 checkpoint: recorded.checkpoint,
                 resend: recorded.resend,
+                edited: None,
                 reach: None,
             },
         },
@@ -705,11 +727,13 @@ async fn held_after_stops<Steps: UndoSteps>(
                 ));
             }
             let cut = steps
-                .cut(hold, &reach, companions, provider_cut, point.resend.clone())
+                .cut(hold, &reach, companions, provider_cut, point.edited.clone())
                 .await;
             conversation = Some(match cut {
-                Ok(ConversationCut::Applied { .. }) => {
-                    resend = point.resend.clone();
+                Ok(ConversationCut::Applied {
+                    resend: cut_resend, ..
+                }) => {
+                    resend = cut_resend;
                     Ok(())
                 }
                 Ok(ConversationCut::Degraded { fallback_action }) => Err(SessionRestoreFailure {

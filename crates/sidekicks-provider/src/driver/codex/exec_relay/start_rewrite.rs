@@ -161,15 +161,20 @@ impl CodexExecRelay {
         own_process_id: String,
         is_minted: bool,
     ) {
+        // No send below holds the executor, so one that stays alive and never reads lets go of it.
         let Ok(mut message) = serde_json::from_str::<Map<String, Value>>(&line) else {
-            forward(&executor, line).await;
+            let sent = forward(&executor, line);
+            drop(executor);
+            sent.await;
             return;
         };
         let Some(read) = message
             .get("params")
             .and_then(|params| StartRead::deserialize(params).ok())
         else {
-            forward(&executor, line).await;
+            let sent = forward(&executor, line);
+            drop(executor);
+            sent.await;
             return;
         };
         let started = self.relayed_start(&read, &own_process_id);
@@ -187,7 +192,9 @@ impl CodexExecRelay {
         let call = read.metadata.and_then(|metadata| metadata.tool_call_id);
         let id = message.get("id").map(Value::to_string);
         let Some((((command, _is_side_question), call), id)) = started.zip(call).zip(id) else {
-            forward(&executor, Value::Object(message).to_string()).await;
+            let sent = forward(&executor, Value::Object(message).to_string());
+            drop(executor);
+            sent.await;
             return;
         };
         let process_id = command.executor_process_id.clone();
@@ -195,13 +202,20 @@ impl CodexExecRelay {
         let mut exited = executor.watch_exit(&process_id);
         let answered = executor.watch_client_answer(id);
         self.record_command(call.clone(), command);
-        forward(&executor, Value::Object(message).to_string()).await;
+        let sent = forward(&executor, Value::Object(message).to_string());
+        // An executor whose service let it go while it never answers the start is still ended.
+        let executor = {
+            let held = Arc::downgrade(&executor);
+            drop(executor);
+            held
+        };
         let relay = Arc::downgrade(&self);
         drop(self);
+        sent.await;
         let terminate = match answered.await {
             Ok(WatchedAnswer::Refused) => {
                 // A refused start runs nothing, so nothing of it is kept.
-                if is_minted {
+                if is_minted && let Some(executor) = executor.upgrade() {
                     executor.forget_exit(&process_id);
                 }
                 if let Some(relay) = relay.upgrade() {
@@ -215,13 +229,12 @@ impl CodexExecRelay {
                 let is_command = relay
                     .upgrade()
                     .is_some_and(|relay| relay.runs_command(&process_id));
-                (!is_command)
-                    .then(|| forward(&executor, executor.compose_process_terminate(&process_id)))
+                executor.upgrade().filter(|_| !is_command).map(|executor| {
+                    forward(&executor, executor.compose_process_terminate(&process_id))
+                })
             }
             Ok(WatchedAnswer::Taken) | Err(_) => None,
         };
-        // The terminate's send holds no handle on the executor, so the watch keeps none alive.
-        drop(executor);
         if let Some(terminate) = terminate {
             terminate.await;
         }

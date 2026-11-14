@@ -61,7 +61,8 @@ impl UndoSteps for UndoService {
                 .read_undo_reach(session_id, &target, scope)
                 .await?;
             Ok(UndoPoint {
-                resend: edited.map(|edited| read.reach.resend_with(edited)),
+                resend: edited.clone().map(|edited| read.reach.resend_with(edited)),
+                edited,
                 checkpoint: read.reach.checkpoint.clone(),
                 reach: Some(read),
             })
@@ -188,11 +189,11 @@ impl UndoSteps for UndoService {
         reach: &'a ReachRead,
         companions: RollbackCompanions,
         provider_cut: ProviderCut,
-        resend: Option<SessionRestoreResend>,
+        edited: Option<SessionRestoreResend>,
     ) -> BoxFuture<'a, Result<ConversationCut, ConversationCutError>> {
         async move {
             self.queue
-                .cut_conversation(hold, reach, companions, provider_cut, resend.as_ref())
+                .cut_conversation(hold, reach, companions, provider_cut, edited.as_ref())
                 .await
         }
         .boxed()

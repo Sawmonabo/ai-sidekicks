@@ -40,7 +40,6 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::session::followers::CommittedEvent;
 use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 
@@ -369,19 +368,15 @@ impl RunBindingCursors {
         Ok(())
     }
 
-    /// Records the binding a resume or a fork restart runs under, whose cursor `open_relaunch` or
-    /// the fork restart's `fence_cut` opened, without opening it again, with the caller's own
-    /// `companions` in the same write. Fails as the store fails, its predecessor missing or a
-    /// companion refused among the refused writes, and then forgets the binding's cursor,
-    /// recording nothing.
+    /// Records the binding a resume runs under, whose cursor `open_relaunch` opened, without
+    /// opening it again. Fails as the store fails, its predecessor missing among the refused
+    /// writes, and then forgets the binding's cursor, recording nothing.
     pub async fn record_relaunch(
         &self,
         relaunch: RuntimeBindingRelaunch,
-        companions: Vec<WriteStatement>,
     ) -> Result<(), RunBindingCursorError> {
-        let binding_id = relaunch.binding_id.clone();
-        if let Err(error) = self.store.record_relaunch(relaunch, companions).await {
-            self.forget_binding(&binding_id);
+        if let Err(error) = self.store.record_relaunch(&relaunch).await {
+            self.forget_binding(&relaunch.binding_id);
             return Err(error.into());
         }
         Ok(())
@@ -394,10 +389,12 @@ impl RunBindingCursors {
         sessions.forget(&mut lock(&self.epochs), binding_id);
     }
 
-    /// Sets the fence of `cut` once its rollback is written, so a delivery from before the cut is
-    /// told apart from the new epoch's. A fork and restart holds the fork's binding as the run's,
-    /// and the session's current one, so its cursor drops with the run's. Fails as
-    /// [`ExecutionEpochs::fence_cut`] fails, fencing nothing.
+    /// Sets the fence of `cut`, so a delivery from before the cut is told apart from the new
+    /// epoch's: a cut in place once its rollback is written, a fork and restart before the one
+    /// write of its rollback and the fork's binding row, lifted with [`Self::lift_fork_fence`] and
+    /// the fork's cursor forgotten where that write is refused. A fork and restart holds the fork's
+    /// binding as the run's, and the session's current one, so its cursor drops with the run's.
+    /// Fails as [`ExecutionEpochs::fence_cut`] fails, fencing nothing.
     pub fn fence_cut(&self, cut: ConfirmedCut) -> Result<(), EpochCursorError> {
         let mut sessions = self.lock_sessions();
         let mut epochs = lock(&self.epochs);

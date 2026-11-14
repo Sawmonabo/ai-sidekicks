@@ -150,7 +150,11 @@ pub trait ProviderDriver: Send + Sync {
     /// person's message `params.target_message_id` or already ends before it, so a retried undo
     /// never cuts twice (gated on `rollback`). Answers `CutAway` only where the record shows the
     /// message once held and no longer in the conversation, and `Held` wherever it cannot tell;
-    /// fails as the read fails.
+    /// fails as the read fails. With its own record empty, as after a restart, a driver reads the
+    /// provider's stored history: Claude Code its transcript, `CutAway` for a message written
+    /// there off the live chain and `Held` with no transcript or no such message; Codex the
+    /// conversation's turns, `CutAway` where no turn listed since the message's send is
+    /// `params.target_turn_id` or holds the message's id, which a fork's copy keeps.
     fn read_rewind_target(
         &self,
         params: RewindConversationParams,

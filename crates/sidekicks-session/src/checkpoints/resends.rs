@@ -1,6 +1,7 @@
 //! The edited message of an undo's resend, kept under the undo's key from before its cut until its
 //! hold is let go, so a daemon that stops in between puts the words back into the session's draft
-//! at its next start rather than losing them.
+//! at its next start rather than losing them, and marks them returned, so a retry under the key
+//! never sends them beside the draft.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -18,7 +19,7 @@ use sidekicks_store::database::stored_column::text_column;
 use crate::draft_store::returned_messages_statement;
 use crate::queue_store::QueueMessageBody;
 
-// A retried undo under the same key keeps its newest edit.
+// A retried undo under the same key keeps its newest edit, and a resend returned stays returned.
 static STAGE_RESEND_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO session_restore_resends
@@ -28,15 +29,26 @@ static STAGE_RESEND_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// A returned resend's row stays, so its key's retry reads it returned.
 const UNSTAGE_RESEND_SQL: &str = "DELETE FROM session_restore_resends
-  WHERE session_id = @sessionId AND client_idempotency_key = @key";
+  WHERE session_id = @sessionId AND client_idempotency_key = @key AND returned_at IS NULL";
+
+static MARK_RETURNED_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE session_restore_resends SET returned_at = {DATABASE_NOW_SQL}
+  WHERE session_id = @sessionId AND client_idempotency_key = @key"
+    )
+});
 
 // A resend the release already sent stands as a queue item under the undo's key.
 const STAGED_RESENDS_SQL: &str = "SELECT session_id, client_idempotency_key, resend,
     EXISTS (SELECT 1 FROM queue_items AS sent
       WHERE sent.session_id = kept.session_id
         AND sent.client_idempotency_key = kept.client_idempotency_key)
-  FROM session_restore_resends AS kept ORDER BY created_at, rowid";
+  FROM session_restore_resends AS kept WHERE returned_at IS NULL ORDER BY created_at, rowid";
+
+const IS_RETURNED_SQL: &str = "SELECT EXISTS (SELECT 1 FROM session_restore_resends
+  WHERE session_id = ?1 AND client_idempotency_key = ?2 AND returned_at IS NOT NULL)";
 
 /// An undo's resend a stop left kept: its session, the undo's key, and the edited message.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,7 +82,8 @@ pub fn stage_resend_statement(
     }
 }
 
-/// The statement that drops what `session_id`'s undo `undo_key` kept; none kept drops nothing.
+/// The statement that drops what `session_id`'s undo `undo_key` kept; none kept, or one a start
+/// returned to the draft, drops nothing.
 pub fn unstage_resend_statement(session_id: SessionId, undo_key: &ClientUuid) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(UNSTAGE_RESEND_SQL),
@@ -82,7 +95,8 @@ pub fn unstage_resend_statement(session_id: SessionId, undo_key: &ClientUuid) ->
     }
 }
 
-/// Every resend kept, oldest first. Fails as SQLite does, or when a stored column does not read.
+/// Every resend kept and not yet returned, oldest first. Fails as SQLite does, or when a stored
+/// column does not read.
 pub fn read_staged_resends(connection: &Connection) -> rusqlite::Result<Vec<StagedResend>> {
     connection
         .prepare_cached(STAGED_RESENDS_SQL)?
@@ -97,17 +111,41 @@ pub fn read_staged_resends(connection: &Connection) -> rusqlite::Result<Vec<Stag
         .collect()
 }
 
+/// Whether a start put `session_id`'s undo `undo_key`'s edited message back into the draft, so
+/// the undo sends nothing under the key. Fails as SQLite does.
+pub fn is_resend_returned(
+    connection: &Connection,
+    session_id: SessionId,
+    undo_key: &ClientUuid,
+) -> rusqlite::Result<bool> {
+    connection
+        .prepare_cached(IS_RETURNED_SQL)?
+        .query_row([session_id.text().as_str(), undo_key.as_str()], |row| {
+            row.get(0)
+        })
+}
+
 /// The statements of one write that put `staged`'s edited message back into its session's draft,
-/// as a Stop returns a message, unless the release already sent it, and drop it from the kept
-/// resends.
+/// as a Stop returns a message, and mark it returned; one the release already sent is dropped from
+/// the kept resends instead.
 pub fn return_staged_resend_statements(
     staged: &StagedResend,
     now: &WireInstant,
 ) -> Vec<WriteStatement> {
-    let unstaged = unstage_resend_statement(staged.session_id, &staged.undo_key);
     if staged.is_sent {
-        return vec![unstaged];
+        return vec![unstage_resend_statement(
+            staged.session_id,
+            &staged.undo_key,
+        )];
     }
+    let returned = WriteStatement {
+        sql: Cow::Borrowed(MARK_RETURNED_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@sessionId", staged.session_id.text().as_str()),
+            text_binding("@key", staged.undo_key.as_str()),
+        ]),
+        expected_row_count: Some(1),
+    };
     let resend = &staged.resend;
     let body = QueueMessageBody {
         content: resend.content.clone(),
@@ -120,6 +158,6 @@ pub fn return_staged_resend_statements(
     };
     returned_messages_statement(&staged.session_id, &[&body], now)
         .into_iter()
-        .chain([unstaged])
+        .chain([returned])
         .collect()
 }

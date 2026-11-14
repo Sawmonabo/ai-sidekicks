@@ -1,10 +1,10 @@
 //! The run queue as an undo uses it: the hold on a session's lead while the undo stops its work,
 //! cuts its conversation and puts its files back; the cut, asked of the provider outside every lock
-//! and recorded as one rollback write of every run it reaches with the caller's companions, then
-//! fenced on the session's live binding, a fork the provider cut onto recorded as that binding's
-//! relaunch once the fence opened its cursor; and the release, which sends the edited message ahead
-//! of every send held meanwhile and opens the lead's next turn with it. The order an undo runs
-//! these in, with its stops and the lead's interrupt between, is `order`'s.
+//! and recorded as one rollback write of every run it reaches with the caller's companions, fenced
+//! on the session's live binding, a fork the provider cut onto recorded in that write as that
+//! binding's relaunch once the fence opened its cursor; and the release, which sends the edited
+//! message ahead of every send held meanwhile and opens the lead's next turn with it. The order an
+//! undo runs these in, with its stops and the lead's interrupt between, is `order`'s.
 
 pub mod order;
 pub(crate) mod reach;
@@ -21,22 +21,26 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{SessionRestoreResend, SessionRestoreTarget};
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::rewind::{
-    RewindConversationParams, RewindConversationResult, RewindTargetPresence,
+    ForkedBinding, RewindConversationParams, RewindConversationResult, RewindTargetPresence,
 };
 use sidekicks_provider::left_conversations::{
     LeftConversation, compose_fork_left_conversation_insert,
 };
 use sidekicks_provider::runtime_binding::store::{
-    RuntimeBinding, RuntimeBindingRelaunch, read_binding,
+    RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStoreError, compose_relaunch_statements,
+    read_binding,
 };
+use sidekicks_session::checkpoints::resends::{is_resend_returned, stage_resend_statement};
 use sidekicks_session::checkpoints::restore_cuts::record_cut_statement;
 use sidekicks_session::checkpoints::store::kept::{CheckpointReadError, read_checkpoint};
 use sidekicks_session::queue_store::{QueueItemRecord, placement_statements};
+use sidekicks_session::run::binding_cursors::RunBindingCursorError;
 use sidekicks_session::run::engine::undo::{
     RollbackCheckError, RollbackCompanionCheck, RollbackCompanions, RunCut, RunRollback,
     check_rollback,
@@ -46,9 +50,10 @@ use sidekicks_session::run::read::read_run_through;
 use sidekicks_session::run::superseded::StoredRollbackMismatchError;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
+use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 
-use self::reach::{ReachRead, UndoReach};
+use self::reach::{CutMessage, ReachRead, UndoReach, read_reach};
 use super::RunQueue;
 use crate::delivery::{UndoHoldId, reordered_of};
 use crate::error::QueueError;
@@ -117,9 +122,11 @@ pub enum ConversationCut {
     Applied {
         /// The rollbacks written, the reach's run first, then each later run oldest first.
         rollbacks: Vec<RunRollback>,
-        /// Where the cut went back to and the person's messages it took back, for the draft and a
-        /// resend.
-        reach: UndoReach,
+        /// Where the cut went back to and the person's messages it took back, as read under the
+        /// hold, for the draft; boxed, since it is most of the cut's size.
+        reach: Box<UndoReach>,
+        /// What the release resends: the edit composed over the messages `reach` resends.
+        resend: Option<SessionRestoreResend>,
     },
     /// The provider took a fallback instead; nothing was written.
     Degraded {
@@ -138,10 +145,10 @@ pub enum ProviderCut {
     AlreadyMade,
 }
 
-/// Why a conversation cut was not made or not recorded. Every refusal but [`Unrecorded`],
-/// [`Fence`] and [`ForkUnrecorded`] writes nothing and drops the companions, and each is answered
-/// before the provider is asked, the companions' check among them, except a [`Queue`] that carries
-/// the provider's own failure of the cut.
+/// Why a conversation cut was not made or not recorded. Every refusal but [`Fence`] writes nothing
+/// and drops the companions, and each is answered before the provider is asked, the companions'
+/// check among them, except [`Unrecorded`], [`ForkUnrecorded`] and a [`Queue`] that carries the
+/// provider's own failure of the cut.
 ///
 /// [`Unrecorded`]: ConversationCutError::Unrecorded
 /// [`Fence`]: ConversationCutError::Fence
@@ -182,6 +189,10 @@ pub enum ConversationCutError {
         /// The statement's position among the companions.
         companion_index: usize,
     },
+    /// The provider's conversation no longer holds the reach's message nor the person's message
+    /// just before it: a cut took it back past the undo's point, so nothing is recorded.
+    #[error("the conversation was cut back past the undo's point")]
+    CutPastPoint,
     /// The session runs on no binding whose run the cut reaches, so the cut has nothing to fence.
     #[error("the session has no live provider binding the cut reaches")]
     NoLiveBinding,
@@ -194,9 +205,10 @@ pub enum ConversationCutError {
     /// holds no rollback of turns the provider no longer has.
     #[error("the provider cut the conversation, but the store recorded no rollback")]
     Unrecorded(#[source] QueueError),
-    /// The provider cut onto a fork and the store recorded the rollback, but the daemon could not
-    /// take the fork up: its fence or its binding row was refused. The fork's process is closed,
-    /// or the error says it could not be.
+    /// The provider cut onto a fork the daemon could not take up: the store refused its handle,
+    /// its fence was refused, or the rollback's write was refused and the fork's close failed. No
+    /// rollback and no row were written, and the fork's process is closed, or the error says it
+    /// could not be.
     #[error("the provider cut the conversation onto a fork the daemon could not take up")]
     ForkUnrecorded(#[source] ProviderSessionError),
     /// A read or the provider's cut failed, writing nothing.
@@ -212,6 +224,33 @@ fn driver_of(reach: &ReachRead) -> &Arc<dyn ProviderDriver> {
         .expect("a reach read with the conversation in scope resolves its driver")
 }
 
+// The statements taking up `fork`, which a cut moved the session onto off `source`: the fork as a
+// conversation the session left, so the purge reaches it whatever follows, then the fork's binding
+// row as `source`'s relaunch with the conversation it left. Fails where the store refuses the
+// fork's handle.
+fn compose_fork_statements(
+    session_id: SessionId,
+    source: &RuntimeBinding,
+    fork: &ForkedBinding,
+) -> Result<Vec<WriteStatement>, RuntimeBindingStoreError> {
+    let resume_handle = fork.resume_handle.as_str();
+    let mut statements = vec![compose_fork_left_conversation_insert(
+        session_id,
+        source,
+        resume_handle,
+    )?];
+    statements.extend(compose_relaunch_statements(&RuntimeBindingRelaunch {
+        predecessor_id: source.id.clone(),
+        binding_id: fork.binding_id.clone(),
+        resume_handle: resume_handle.to_owned(),
+        spawned_version: fork.spawned_version.clone(),
+        left_conversations: LeftConversation::of_relaunch(session_id, source, resume_handle)
+            .into_iter()
+            .collect(),
+    })?);
+    Ok(statements)
+}
+
 impl From<DatabaseReadError> for ConversationCutError {
     fn from(error: DatabaseReadError) -> Self {
         Self::Queue(error.into())
@@ -220,6 +259,9 @@ impl From<DatabaseReadError> for ConversationCutError {
 
 // What the cut of a reach writes, read before the provider is asked.
 struct CutReach {
+    // The person's messages the cut takes back, read again under the hold, so a member of the
+    // pressed message's group that landed since goes with the group's words.
+    cut_messages: Vec<CutMessage>,
     // The reach's run, cut at the position before the reach's.
     cut: RunCut,
     // The session's later lead runs, each cut whole.
@@ -250,9 +292,12 @@ impl RunQueue {
 
     /// Whether the provider of `reach`'s run, read with the conversation in scope, still holds on
     /// the session's live binding the person's message the cut before `reach` is asked before,
-    /// read from the provider's own record, so a retried undo never cuts twice. Fails with
-    /// [`ConversationCutError`]'s `NoLiveBinding` where the session runs on none, and with `Queue`
-    /// carrying the provider's failure of the read.
+    /// read from the provider's own record, so a retried undo never cuts twice: a conversation
+    /// that no longer holds it reads as the cut already made only while it still holds the
+    /// person's message just before the reach, or none stands there. Fails with
+    /// [`ConversationCutError`]'s `NoLiveBinding` where the session runs on none, `CutPastPoint`
+    /// where the conversation was cut back past the reach, and `Queue` carrying the provider's
+    /// failure of a read.
     pub async fn read_provider_cut(
         &self,
         session_id: SessionId,
@@ -263,48 +308,59 @@ impl RunQueue {
             .binding_cursors()
             .current_binding(&session_id)
             .ok_or(ConversationCutError::NoLiveBinding)?;
-        let presence = driver_of(reach)
-            .read_rewind_target(RewindConversationParams {
+        let read = |message_id: QueueItemId, turn_id: Option<ProviderTurnId>| {
+            driver_of(reach).read_rewind_target(RewindConversationParams {
                 session_id,
-                binding_id,
-                target_message_id: reach.reach.message_id.to_string(),
+                binding_id: binding_id.clone(),
+                target_message_id: message_id.to_string(),
+                target_turn_id: turn_id,
             })
+        };
+        let presence = read(reach.reach.message_id, reach.message_turn_id.clone())
             .await
             .map_err(QueueError::from)?;
-        Ok(match presence {
-            RewindTargetPresence::Held => ProviderCut::ToMake,
-            RewindTargetPresence::CutAway => ProviderCut::AlreadyMade,
-        })
+        if presence == RewindTargetPresence::Held {
+            return Ok(ProviderCut::ToMake);
+        }
+        let Some(before) = &reach.message_before else {
+            return Ok(ProviderCut::AlreadyMade);
+        };
+        match read(before.message_id, before.turn_id.clone())
+            .await
+            .map_err(QueueError::from)?
+        {
+            RewindTargetPresence::Held => Ok(ProviderCut::AlreadyMade),
+            RewindTargetPresence::CutAway => Err(ConversationCutError::CutPastPoint),
+        }
     }
 
     /// Cuts the held session's conversation before the person's message `reach`, read with the
     /// conversation in scope, is asked before, as the provider of the reach's run does it, outside
     /// every lock, or, for a cut `provider_cut` says the provider already made, records it with no
     /// cut asked, once the driver brought its own record to it: before that message, or, for one
-    /// whose landing names a group the cut takes it with, before the group's first message.
-    /// Once the provider applied it, one write records an `agent.run.rolledBack` of that run at the
-    /// position before the reach's and of each later lead run at its start, with `companions`
-    /// committing in it, and the cut is fenced on the session's live binding; a fork the provider
-    /// cut onto is recorded in that write as a conversation the binding left, so the purge reaches
-    /// it whatever follows, and then as that binding's relaunch, the conversation it left and the
-    /// cut under the undo's key with it, under the same holds; a cut in place is recorded under the
-    /// key in the rollback's write, with `resend`, which a retry under the key sends. The hold
-    /// stays. A turn opening on the session that meets the write in progress opens once the write
-    /// has ended. Refuses as [`ConversationCutError`] says before the provider is asked, a reach a
-    /// later cut took meanwhile, an open turn among the runs it reaches and a companion its check
-    /// refuses included; a provider's fallback or failure writes nothing, a write the store does
-    /// not record once the provider cut answers [`ConversationCutError::Unrecorded`], and a fork
-    /// whose rollback, fence or row is refused is closed and answers
+    /// whose landing names a group the cut takes it with, before the group's first message. Once
+    /// the provider applied it, one write records an `agent.run.rolledBack` of that run at the
+    /// position before the reach's and of each later lead run at its start, with `companions` and
+    /// the cut under the undo's key, with `resend`, which a retry under the key sends, committing
+    /// in it. A cut in place is then fenced on the session's live binding; a fork the provider cut
+    /// onto is fenced before the write and recorded in it as a conversation the binding left and as
+    /// that binding's relaunch, so a refused write leaves neither the rollback nor the fork's row.
+    /// The hold stays. A turn opening on the session that meets the write in progress opens once
+    /// the write has ended. Refuses as [`ConversationCutError`] says before the provider is asked,
+    /// a reach a later cut took meanwhile, an open turn among the runs it reaches and a companion
+    /// its check refuses included; a provider's fallback or failure writes nothing, a write the
+    /// store does not record once the provider cut answers [`ConversationCutError::Unrecorded`],
+    /// and a fork whose handle, fence or write is refused is closed and answers
     /// [`ConversationCutError::Unrecorded`] or [`ConversationCutError::ForkUnrecorded`], the
-    /// session left on the binding it was cut on, unfrozen, and its process forgotten as opened, a
-    /// fork whose close failed held until a later close of it succeeds.
+    /// session left on the binding it was cut on, unfrozen, the fork's cursor and process
+    /// forgotten, a fork whose close failed held until a later close of it succeeds.
     pub async fn cut_conversation(
         &self,
         hold: &UndoHold,
         reach: &ReachRead,
         companions: RollbackCompanions,
         provider_cut: ProviderCut,
-        resend: Option<&SessionRestoreResend>,
+        edited: Option<&SessionRestoreResend>,
     ) -> Result<ConversationCut, ConversationCutError> {
         let session_id = hold.session_id;
         let binding_id = self
@@ -320,6 +376,7 @@ impl RunQueue {
             session_id,
             binding_id: cut_reach.binding.id.clone(),
             target_message_id: reach.reach.message_id.to_string(),
+            target_turn_id: reach.message_turn_id.clone(),
         };
         // A cut the provider already made was made in place on the binding the session runs on.
         let fork = match provider_cut {
@@ -344,35 +401,38 @@ impl RunQueue {
                 }
             }
         };
+        let cut_reach_messages = UndoReach {
+            cut_messages: cut_reach.cut_messages,
+            ..reach.reach.clone()
+        };
+        let resend = edited.map(|edited| cut_reach_messages.resend_with(edited.clone()));
         // Pushed after the caller's statements, so each keeps the index its check names.
         let mut companion_write = companions.write;
-        // A retry under the undo's key reads the cut as applied and never cuts again; a cut onto a
-        // fork is recorded in the write that takes the fork up, so a fork refused records none.
-        let cut_record = record_cut_statement(
+        // A retry under the undo's key reads the cut as applied and never cuts again, and a
+        // restart puts back the resend as the cut composed it.
+        companion_write.statements.push(record_cut_statement(
             session_id,
             &hold.undo_key,
             &reach.reach.checkpoint.checkpoint_id,
-            resend,
-        );
-        let fork_companions = if fork.is_some() {
-            vec![cut_record]
-        } else {
-            companion_write.statements.push(cut_record);
-            Vec::new()
-        };
-        if let Some(fork) = &fork {
-            match compose_fork_left_conversation_insert(
+            resend.as_ref(),
+        ));
+        if let Some(resend) = &resend {
+            companion_write.statements.push(stage_resend_statement(
                 session_id,
-                &cut_reach.binding,
-                fork.resume_handle.as_str(),
-            ) {
-                Ok(statement) => companion_write.statements.push(statement),
-                Err(error) => tracing::error!(
-                    session_id = %session_id,
-                    error = &error as &(dyn std::error::Error + 'static),
-                    "the provider forked the session's conversation onto a handle the daemon \
-                     cannot record"
-                ),
+                &hold.undo_key,
+                resend,
+            ));
+        }
+        // A fork is taken up in the rollback's own write: the conversation the session left for it
+        // and the fork's binding row, so a refused write leaves no rollback and no row behind.
+        if let Some(fork) = &fork {
+            match compose_fork_statements(session_id, &cut_reach.binding, fork) {
+                Ok(statements) => companion_write.statements.extend(statements),
+                Err(refused) => {
+                    return Err(self
+                        .close_untaken_fork(driver, session_id, refused.into())
+                        .await);
+                }
             }
         }
         // A turn opening that meets this mark waits for the write to end, so it cannot refuse the
@@ -380,6 +440,24 @@ impl RunQueue {
         let undo_write = self.engine.mark_undo_write(session_id);
         let queue_hold = self.session_lock.hold_session(session_id).await;
         let append_hold = SESSION_APPEND_LOCK.acquire(session_id).await;
+        let binding_cursors = self.provider_sessions.binding_cursors();
+        let source_binding_id = cut_reach.binding.id.clone();
+        // The fork's cursor opens before the write that records its row, under both holds, so no
+        // delivery meets the fork's binding with a row and no cursor.
+        if let Some(fork) = &fork
+            && let Err(refused) = binding_cursors.fence_cut(ConfirmedCut::ForkRestart {
+                binding_id: source_binding_id.clone(),
+                point: cut_reach.binding_point,
+                new_binding_id: fork.binding_id.clone(),
+            })
+        {
+            drop(undo_write);
+            drop(append_hold);
+            drop(queue_hold);
+            return Err(self
+                .close_untaken_fork(driver, session_id, RunBindingCursorError::from(refused))
+                .await);
+        }
         let written = self
             .engine
             .roll_back(
@@ -399,8 +477,11 @@ impl RunQueue {
                     error = &error as &(dyn std::error::Error + 'static),
                     "the provider cut the session's conversation, but its rollback was not recorded"
                 );
-                // The source conversation was never cut, so a retry cuts it once the fork goes.
-                if fork.is_some() {
+                // The source conversation was never cut, so a retry cuts it once the fork goes;
+                // the session carries on from the binding it was cut on, unfrozen.
+                if let Some(fork) = &fork {
+                    binding_cursors.lift_fork_fence(&source_binding_id);
+                    binding_cursors.forget_binding(&fork.binding_id);
                     drop(append_hold);
                     drop(queue_hold);
                     if let Err(closed) = self
@@ -416,103 +497,66 @@ impl RunQueue {
                 return Err(ConversationCutError::Unrecorded(error));
             }
         };
-        let binding_cursors = self.provider_sessions.binding_cursors();
-        let Some(fork) = fork else {
+        if fork.is_none() {
             binding_cursors
                 .fence_cut(ConfirmedCut::InPlace {
-                    binding_id: cut_reach.binding.id,
+                    binding_id: source_binding_id,
                     point: cut_reach.binding_point,
                 })
                 .map_err(ConversationCutError::Fence)?;
-            return Ok(ConversationCut::Applied {
-                rollbacks,
-                reach: reach.reach.clone(),
-            });
-        };
-        // The fork's row is recorded once this fence opened its cursor, under both holds: a row
-        // recorded through a path that opens a cursor would be refused the one the fence opened.
-        let source_binding_id = cut_reach.binding.id.clone();
-        let fenced = binding_cursors.fence_cut(ConfirmedCut::ForkRestart {
-            binding_id: cut_reach.binding.id.clone(),
-            point: cut_reach.binding_point,
-            new_binding_id: fork.binding_id.clone(),
-        });
-        let is_fenced = fenced.is_ok();
-        let recorded = match fenced {
-            Ok(()) => {
-                let left_conversations = LeftConversation::of_relaunch(
-                    session_id,
-                    &cut_reach.binding,
-                    fork.resume_handle.as_str(),
-                )
-                .into_iter()
-                .collect();
-                binding_cursors
-                    .record_relaunch(
-                        RuntimeBindingRelaunch {
-                            predecessor_id: cut_reach.binding.id,
-                            binding_id: fork.binding_id,
-                            resume_handle: fork.resume_handle.as_str().to_owned(),
-                            spawned_version: fork.spawned_version,
-                            left_conversations,
-                        },
-                        fork_companions,
-                    )
-                    .await
-            }
-            Err(refused) => Err(refused.into()),
-        };
-        if let Err(failure) = recorded {
-            // Claude Code's close appends the closed runs' ends under the session's append lock,
-            // so both holds go first. Nothing runs under the fork meanwhile: the undo's own hold
-            // keeps every hand and start off the session, and the fork has no cursor.
-            drop(append_hold);
-            drop(queue_hold);
-            let unrecorded = ProviderSessionError::from(failure);
-            let error = match self
-                .provider_sessions
-                .close_unrecorded_fork(driver, session_id)
-                .await
-            {
-                Ok(()) => unrecorded,
-                Err(closed) => ProviderSessionError::UnrecordedNotClosed {
-                    session_id,
-                    recorded: Box::new(unrecorded),
-                    closed,
-                },
-            };
-            // The session carries on from the binding it was cut on, its log holding the rollback
-            // and its conversation the turns rolled back until its next turn; a fence refused set
-            // no freeze, and one set earlier stays.
-            if is_fenced {
-                binding_cursors.lift_fork_fence(&source_binding_id);
-            }
-            tracing::error!(
-                session_id = %session_id,
-                error = &error as &(dyn std::error::Error + 'static),
-                "the provider cut the session's conversation onto a fork the daemon could not take up"
-            );
-            return Err(ConversationCutError::ForkUnrecorded(error));
         }
         Ok(ConversationCut::Applied {
             rollbacks,
-            reach: reach.reach.clone(),
+            reach: Box::new(cut_reach_messages),
+            resend,
         })
+    }
+
+    // Closes the fork `driver` cut `session_id` onto, which no write recorded, and answers
+    // `ForkUnrecorded` with `unrecorded`, or with the close's failure beside it where the fork
+    // still runs. The caller holds no lock the driver's close appends under, since Claude Code's
+    // close appends the closed runs' ends under the session's append lock.
+    async fn close_untaken_fork(
+        &self,
+        driver: Arc<dyn ProviderDriver>,
+        session_id: SessionId,
+        unrecorded: RunBindingCursorError,
+    ) -> ConversationCutError {
+        let unrecorded = ProviderSessionError::from(unrecorded);
+        let error = match self
+            .provider_sessions
+            .close_unrecorded_fork(driver, session_id)
+            .await
+        {
+            Ok(()) => unrecorded,
+            Err(closed) => ProviderSessionError::UnrecordedNotClosed {
+                session_id,
+                recorded: Box::new(unrecorded),
+                closed,
+            },
+        };
+        tracing::error!(
+            session_id = %session_id,
+            error = &error as &(dyn std::error::Error + 'static),
+            "the provider cut the session's conversation onto a fork the daemon could not take up"
+        );
+        ConversationCutError::ForkUnrecorded(error)
     }
 
     /// Lets go the undo's `hold`. With `resend`, the edited message is first sent from `device_id`
     /// as any send is, under the undo's key, so a repeated undo sends it once, and placed ahead of
-    /// every lead message waiting for its run. Once the session's last undo lets go, the lead's
-    /// next turn is opened once, as a send would open it, for the run its first waiting message
-    /// waits for: the resend, then the sends held meanwhile in the order they were recorded. A run
-    /// that reads its opening later (a queued or interrupted run's start, a paused one's resume)
-    /// has the resend reserved as that opening, so no reorder or `Send now` meanwhile puts another
-    /// message ahead of it; a resume that does not go drops the reservation while it still names
-    /// this resend. Then each run whose resume the session's undos held back is resumed once, in
-    /// the order the resumes came, at its version read then, while it is still pausing or paused;
-    /// one the undo moved on is dropped. The hold is let go and the turn opened whatever the
-    /// resend answered, on a task of the queue's own, so a caller that goes away meanwhile still
-    /// lets it go; fails afterwards with the first failure, the resend's first.
+    /// every lead message waiting for its run; a key whose edited message a start put back into the
+    /// draft sends nothing, the draft holding the words. Once the session's last undo lets go, the
+    /// lead's next turn is opened once, as a send would open it, for the run its first waiting
+    /// message waits for: the resend, then the sends held meanwhile in the order they were
+    /// recorded. A run that reads its opening later (a queued or interrupted run's start, a paused
+    /// one's resume) has the resend reserved as that opening, so no reorder or `Send now` meanwhile
+    /// puts another message ahead of it; a resume that does not go drops the reservation while it
+    /// still names this resend. Then each run whose resume the session's undos held back is resumed
+    /// once, in the order the resumes came, at its version read then, while it is still pausing or
+    /// paused; one the undo moved on is dropped. The hold is let go and the turn opened whatever
+    /// the resend answered, on a task of the queue's own, so a caller that goes away meanwhile
+    /// still lets it go; fails afterwards with the first failure, the resend's first.
     pub async fn release_undo_hold(
         &self,
         hold: UndoHold,
@@ -543,7 +587,8 @@ impl RunQueue {
     }
 
     // Lets go the hold `hold_id` the undo `undo_key` took on `session_id` as `release_undo_hold`
-    // says, with `resend` sent from its device first under that key.
+    // says, with `resend` sent from its device first under that key, unless a start put the key's
+    // edited message back into the draft, which then holds the words and nothing is sent.
     async fn let_go_undo_hold(
         &self,
         session_id: SessionId,
@@ -552,6 +597,26 @@ impl RunQueue {
         resend: Option<(SessionRestoreResend, DeviceId)>,
     ) -> Result<(), QueueError> {
         let mut first_failure = None;
+        let resend = match resend {
+            Some(resend) => {
+                let key = undo_key.clone();
+                match self
+                    .pool
+                    .read(ReadLength::Short, move |reader| {
+                        Ok::<_, QueueError>(is_resend_returned(reader, session_id, &key)?)
+                    })
+                    .await
+                {
+                    Ok(false) => Some(resend),
+                    Ok(true) => None,
+                    Err(error) => {
+                        first_failure = Some(error);
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
         if let Some((resend, device_id)) = resend {
             let request = AgentQueueItemCreateRequest {
                 session_id,
@@ -632,7 +697,10 @@ impl RunQueue {
     ) -> Result<CutReach, ConversationCutError> {
         let checkpoint = reach.reach.checkpoint.clone();
         let later_run_ids = reach.later_run_ids.clone();
+        let target = reach.target.clone();
+        let scope = reach.scope;
         let check = Arc::clone(check);
+        let providers = Arc::clone(&self.providers);
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
         self.pool
             .read(ReadLength::Short, move |reader| {
@@ -707,7 +775,18 @@ impl RunQueue {
                     .find(|reached| reached.run_id == binding.run_id)
                     .map(|reached| reached.target_position)
                     .ok_or(ConversationCutError::NoLiveBinding)?;
+                let cut_messages = read_reach(
+                    reader,
+                    &providers,
+                    &*read_damaged_from_sequence,
+                    session_id,
+                    &target,
+                    scope,
+                )?
+                .reach
+                .cut_messages;
                 Ok(CutReach {
+                    cut_messages,
                     cut,
                     later_cuts,
                     binding,

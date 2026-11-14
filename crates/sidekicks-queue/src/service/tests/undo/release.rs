@@ -3,8 +3,8 @@
 //! says meanwhile, a run that ends first never records it admitted, back-to-back undos open the run
 //! once with the newer edit first, a resume pressed during the undo runs once at the release, a
 //! start or continue already under way waits out the undo, a hold dropped unreleased still lets
-//! the session go, a retry under its key keeps its own, and an edited message kept when the daemon
-//! stopped mid-undo goes back into the draft at the next start.
+//! the session go, and a retry under its key keeps its own. An edited message kept when the daemon
+//! stopped mid-undo is in `retry`.
 
 use std::sync::Arc;
 
@@ -23,7 +23,6 @@ use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
-use sidekicks_session::checkpoints::resends::stage_resend_statement;
 use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
 use sidekicks_session::run::engine::undo::RollbackCompanions;
 use sidekicks_session::run::read::safe_run_version;
@@ -753,46 +752,4 @@ async fn an_opening_read_under_way_waits_out_the_undo(#[case] under_way: UnderWa
     let resent = fixture.resent(&key);
     assert_eq!(calls.starts(), [(run_id, resent.id)]);
     assert_eq!(calls.steers(), [(earlier_send, false)]);
-}
-
-// An undo's edited message kept before its cut, the daemon stopped before the hold was let go,
-// goes back into the session's draft at the next start and is kept no longer. Killed by the
-// start's return of kept resends removed and by the kept row left behind.
-#[tokio::test]
-async fn a_restart_puts_an_undos_kept_resend_back_into_the_draft() {
-    let calls = Arc::new(DriverCalls::default());
-    let fixture = fixture(recording_driver(&calls)).await;
-    fixture
-        .queue
-        .writer
-        .write(vec![stage_resend_statement(
-            fixture.session_id,
-            &client_key(),
-            &resend_of("Use the newer client"),
-        )])
-        .await
-        .expect("the resend is kept");
-
-    let failures = fixture
-        .queue
-        .recover()
-        .await
-        .expect("the start's reads run");
-
-    assert!(failures.is_empty(), "{failures:?}");
-    let reader = fixture.database.reader();
-    let draft: String = reader
-        .query_row(
-            "SELECT text FROM session_drafts WHERE session_id = ?1",
-            params![fixture.session_id.text().as_str()],
-            |row| row.get(0),
-        )
-        .expect("the draft holds the edited message");
-    assert_eq!(draft, "Use the newer client");
-    let kept: i64 = reader
-        .query_row("SELECT COUNT(*) FROM session_restore_resends", [], |row| {
-            row.get(0)
-        })
-        .expect("the test reads the kept resends");
-    assert_eq!(kept, 0);
 }

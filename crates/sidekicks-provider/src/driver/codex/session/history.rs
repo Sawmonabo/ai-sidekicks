@@ -1,11 +1,12 @@
 //! A conversation's turns, and the turn one of the person's messages started, read back from
 //! Codex page by page, since a resume asks only for the newest turn.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
 use crate::driver::codex::app_server_protocol::{
-    SortDirection, ThreadResumeInitialTurnsPageParams, ThreadTurnsListParams, TurnItemsView,
+    SortDirection, ThreadItemsListParams, ThreadResumeInitialTurnsPageParams,
+    ThreadTurnsListParams, TurnItemsView,
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
@@ -17,6 +18,14 @@ const CODEX_TURNS_PAGE_LIMIT: u32 = 100;
 const CODEX_NOT_MATERIALIZED_MESSAGE: &str = "is not materialized yet";
 
 const THREAD_TURNS_LIST_METHOD: &str = "thread/turns/list";
+
+const THREAD_ITEMS_LIST_METHOD: &str = "thread/items/list";
+
+/// The continuation a `thread/items/list` page names, sent back as it came: the daemon pages
+/// forward only, so it never sends Codex's item anchor.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(transparent)]
+pub(crate) struct CodexItemsCursor(pub(crate) String);
 
 /// One turn of a conversation as `thread/turns/list` lists it.
 #[derive(Debug)]
@@ -41,10 +50,15 @@ struct ListedTurnId {
 }
 
 #[derive(Deserialize)]
-struct ListedTurnItems {
+#[serde(rename_all = "camelCase")]
+struct ListedTurnStart {
     id: Option<String>,
-    #[serde(default)]
-    items: Vec<Box<RawValue>>,
+    started_at: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct ListedItemEntry {
+    item: Option<Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
@@ -55,14 +69,14 @@ struct ListedUserMessage {
     client_id: Option<String>,
 }
 
-/// The turn a search of a conversation's turns looks for.
+/// One of the person's messages a search of a conversation's turns looks for the turn of.
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum CodexSoughtTurn<'a> {
-    /// The turn with this id.
-    Turn(&'a str),
-    /// The turn holding the person's message with this id, which Codex keeps on the message's
-    /// item as the `clientId` its `turn/start` or `turn/steer` was sent with.
-    Message(&'a str),
+pub(crate) struct CodexSoughtMessage<'a> {
+    /// The message's id, which Codex keeps on its item as the `clientId` its `turn/start` or
+    /// `turn/steer` was sent with; a `UUIDv7` dates its send.
+    pub(crate) message_id: &'a str,
+    /// The turn the message opened or steered, where a record holds it.
+    pub(crate) turn_id: Option<&'a str>,
 }
 
 /// What a search of a conversation's turns found.
@@ -79,18 +93,25 @@ pub(crate) enum CodexTurnListing {
     Unmaterialized,
 }
 
-/// Every turn of `thread_id`, oldest first; a conversation no message has reached yet answers
-/// none. Fails as the connection's request does, and with `CodexError::Transport` for a reply
-/// that is not a page.
+/// Every turn of `thread_id`, oldest first, each turn's items as `items_view` asks, Codex's
+/// summary where it is `None`; a conversation no message has reached yet answers none. Fails as
+/// the connection's request does, and with `CodexError::Transport` for a reply that is not a page.
 pub(crate) async fn read_codex_turns(
     connection: &CodexAppServerConnection,
     thread_id: &str,
+    items_view: Option<TurnItemsView>,
 ) -> Result<Vec<CodexListedTurn>, CodexError> {
     let mut newest_first = Vec::new();
     let mut cursor = None;
     loop {
-        let Some(page) =
-            read_turns_page(connection, thread_id, cursor, CODEX_TURNS_PAGE_LIMIT, None).await?
+        let Some(page) = read_turns_page(
+            connection,
+            thread_id,
+            cursor,
+            CODEX_TURNS_PAGE_LIMIT,
+            items_view,
+        )
+        .await?
         else {
             return Ok(Vec::new());
         };
@@ -105,56 +126,131 @@ pub(crate) async fn read_codex_turns(
     Ok(newest_first)
 }
 
-/// Where `thread_id` lists the turn `sought` names, its turns read newest first and the paging
-/// stopped at the page that lists it; a message is found by its `clientId` among each turn's full
-/// items, which a turn's summary leaves out for a steered message. Fails as [`read_codex_turns`]
-/// does.
+/// Where `thread_id` lists the turn of the message `sought` names. Its turns are read newest
+/// first with no items, and the paging stops at the first turn that started before the second
+/// the message was sent in, which no turn of the message can follow. A turn id is found among
+/// them; with none, the message's `clientId` is looked for in the items of the turns that paging
+/// passed, one turn at a time through `thread/items/list`, which Codex serves only for a
+/// paginated thread. Fails as [`read_codex_turns`] does.
 pub(crate) async fn find_codex_turn(
     connection: &CodexAppServerConnection,
     thread_id: &str,
-    sought: CodexSoughtTurn<'_>,
+    sought: CodexSoughtMessage<'_>,
 ) -> Result<CodexTurnListing, CodexError> {
-    let items_view = || match sought {
-        CodexSoughtTurn::Turn(_) => TurnItemsView::NotLoaded,
-        CodexSoughtTurn::Message(_) => TurnItemsView::Full,
-    };
+    let sent_second = sent_second_of(sought.message_id);
+    // The turns started since the send, newest first, and the one running when it was sent.
+    let mut since_send = Vec::new();
+    let mut before_send = None;
     let mut cursor = None;
-    loop {
+    'pages: loop {
         let Some(page) = read_turns_page(
             connection,
             thread_id,
             cursor,
             CODEX_TURNS_PAGE_LIMIT,
-            Some(items_view()),
+            Some(TurnItemsView::NotLoaded),
         )
         .await?
         else {
             return Ok(CodexTurnListing::Unmaterialized);
         };
-        if let Some(turn_id) = page.data.iter().find_map(|turn| find_sought(turn, sought)) {
-            return Ok(CodexTurnListing::Listed { turn_id });
+        for turn in &page.data {
+            let Some(listed) = read_codex_object::<ListedTurnStart>(turn.get()) else {
+                continue;
+            };
+            let Some(turn_id) = listed.id.filter(|id| !id.is_empty()) else {
+                continue;
+            };
+            if sought.turn_id == Some(turn_id.as_str()) {
+                return Ok(CodexTurnListing::Listed { turn_id });
+            }
+            // A steered message joined the turn running when it was sent, so the first turn
+            // started before the send is still searched.
+            let is_before_send = sent_second
+                .zip(listed.started_at)
+                .is_some_and(|(sent, started)| started < sent);
+            if is_before_send {
+                before_send = Some(turn_id);
+                break 'pages;
+            }
+            since_send.push(turn_id);
         }
         cursor = page.next_cursor.filter(|next| !next.is_empty());
         if cursor.is_none() {
-            return Ok(CodexTurnListing::Unlisted);
+            break;
         }
     }
+    if sought.turn_id.is_some() {
+        return Ok(CodexTurnListing::Unlisted);
+    }
+    // The message most often opened the oldest turn started since its send, or steered the one
+    // running then, so those two are read first and any later turn after them, oldest first.
+    since_send.reverse();
+    let mut since_send = since_send.into_iter();
+    let candidates = since_send
+        .next()
+        .into_iter()
+        .chain(before_send)
+        .chain(since_send);
+    for turn_id in candidates {
+        if holds_message(connection, thread_id, &turn_id, sought.message_id).await? {
+            return Ok(CodexTurnListing::Listed { turn_id });
+        }
+    }
+    Ok(CodexTurnListing::Unlisted)
 }
 
-// The id of listed `turn` where it is the one `sought` names.
-fn find_sought(turn: &RawValue, sought: CodexSoughtTurn<'_>) -> Option<String> {
-    let listed = read_codex_object::<ListedTurnItems>(turn.get())?;
-    let turn_id = listed.id.filter(|id| !id.is_empty())?;
-    let is_sought = match sought {
-        CodexSoughtTurn::Turn(sought_id) => turn_id == sought_id,
-        CodexSoughtTurn::Message(message_id) => listed.items.iter().any(|item| {
-            read_codex_object::<ListedUserMessage>(item.get()).is_some_and(|message| {
-                message.item_type.as_deref() == Some("userMessage")
-                    && message.client_id.as_deref() == Some(message_id)
-            })
-        }),
-    };
-    is_sought.then_some(turn_id)
+// The second a message whose id is a UUIDv7 was sent in, from the id's time; `None` for an id of
+// another form, whose search then reads every page.
+fn sent_second_of(message_id: &str) -> Option<u64> {
+    let (seconds, _) = uuid::Uuid::parse_str(message_id)
+        .ok()?
+        .get_timestamp()?
+        .to_unix();
+    Some(seconds)
+}
+
+// Whether turn `turn_id` of `thread_id` holds the person's message `message_id`, its items read
+// page by page.
+async fn holds_message(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+    turn_id: &str,
+    message_id: &str,
+) -> Result<bool, CodexError> {
+    let mut cursor = None;
+    loop {
+        let params = ThreadItemsListParams {
+            cursor,
+            limit: Some(CODEX_TURNS_PAGE_LIMIT),
+            sort_direction: None,
+            thread_id: thread_id.to_owned(),
+            turn_id: Some(turn_id.to_owned()),
+        };
+        let reply = connection
+            .request(THREAD_ITEMS_LIST_METHOD, &params)
+            .await?;
+        let page = read_page(THREAD_ITEMS_LIST_METHOD, &reply, "items")?;
+        let is_held = page.data.iter().any(|entry| {
+            read_codex_object::<ListedItemEntry>(entry.get())
+                .and_then(|entry| entry.item)
+                .and_then(|item| read_codex_object::<ListedUserMessage>(item.get()))
+                .is_some_and(|message| {
+                    message.item_type.as_deref() == Some("userMessage")
+                        && message.client_id.as_deref() == Some(message_id)
+                })
+        });
+        if is_held {
+            return Ok(true);
+        }
+        cursor = page
+            .next_cursor
+            .filter(|next| !next.is_empty())
+            .map(CodexItemsCursor);
+        if cursor.is_none() {
+            return Ok(false);
+        }
+    }
 }
 
 /// The newest turn of `thread_id`, `None` for a conversation no message has reached yet. Fails

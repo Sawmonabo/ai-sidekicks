@@ -779,7 +779,7 @@ async fn read_resumed_thread(
     reply: &RawValue,
     was_held: bool,
 ) -> Result<CodexResumedThread, CodexError> {
-    let mut listed_turns = read_codex_turns(connection, &record.thread_id).await?;
+    let mut listed_turns = read_codex_turns(connection, &record.thread_id, None).await?;
     let newest_turn = read_codex_resumed_newest_turn(reply);
     let newest_turn_id = newest_turn.as_ref().map(|newest| newest.id.clone());
     if let Some(newest) = newest_turn
