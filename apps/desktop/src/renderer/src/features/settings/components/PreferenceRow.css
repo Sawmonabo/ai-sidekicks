@@ -1,5 +1,5 @@
-/* The preference row around its switch; imported by the component so any page that renders the
- * row gets the styles. */
+/* The preference row around its switch or choice; imported by the row frame so any page that
+ * renders a row gets the styles. */
 
 /* --- One preference row -------------------------------------------------- */
 
@@ -37,6 +37,10 @@
   font-family: var(--meridian-settings-row-label-font, inherit);
   font-size: var(--meridian-settings-row-label-size, var(--meridian-text-sm));
   font-weight: 500;
+}
+
+/* Only a label tied to a drawn control takes a press; a row whose control is not drawn does not. */
+label.meridian-settings-row__label {
   cursor: pointer;
 }
 
