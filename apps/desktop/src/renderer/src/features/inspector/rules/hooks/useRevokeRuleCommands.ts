@@ -45,6 +45,7 @@ function buildRevokeCommand(
   return {
     id: `approvals.ruleRevoke.${row.ruleId}`,
     title: row.title,
+    name: row.name,
     group: APPROVAL_COMMAND_GROUP,
     when: WHEN_SESSION_ACTIVE,
     keywords: ["revoke", "permission", "grant"],

@@ -34,18 +34,20 @@ export function raiseCommandRefusal(refusal: Refusal): void {
 }
 
 /**
- * The line a command that ran and failed draws: `Couldn't` and its title with the first letter
- * lower-cased (`Couldn't stop run`), or `<Title> failed` for a title that is no verb phrase
- * (`Undo failed`), then ` · <cause>` where the failure carries words for the person.
+ * The line a command that ran and failed draws: `Couldn't` and its name with the first letter
+ * lower-cased (`Couldn't stop run`), or `<Name> failed` for a name that is no verb phrase
+ * (`Undo failed`), then ` · <cause>` where the failure carries words for the person. The name is
+ * the title without its subject, so the line carries no second subject and no id.
  */
 export function commandFailedLine(
-  command: Pick<CommandDefinition, "title" | "isTitleVerbPhrase">,
+  command: Pick<CommandDefinition, "title" | "name" | "isTitleVerbPhrase">,
   cause: string | undefined,
 ): string {
+  const name = command.name ?? command.title;
   const head =
     command.isTitleVerbPhrase === false
-      ? `${command.title} failed`
-      : `Couldn't ${command.title.charAt(0).toLowerCase()}${command.title.slice(1)}`;
+      ? `${name} failed`
+      : `Couldn't ${name.charAt(0).toLowerCase()}${name.slice(1)}`;
   return cause === undefined ? head : `${head} · ${cause}`;
 }
 
@@ -56,7 +58,7 @@ export function commandFailedLine(
  */
 export function stateCommandFailure(
   origin: string,
-  command: Pick<CommandDefinition, "id" | "title" | "isTitleVerbPhrase">,
+  command: Pick<CommandDefinition, "id" | "title" | "name" | "isTitleVerbPhrase">,
   failure: unknown,
 ): void {
   const thrownRefusal =
@@ -73,7 +75,7 @@ export function stateCommandFailure(
  * failure is never thrown from the handler.
  */
 export function reportCommandFailure(
-  command: Pick<CommandDefinition, "id" | "title" | "isTitleVerbPhrase">,
+  command: Pick<CommandDefinition, "id" | "title" | "name" | "isTitleVerbPhrase">,
   completion: Promise<void>,
 ): void {
   completion.catch((failure: unknown) => {

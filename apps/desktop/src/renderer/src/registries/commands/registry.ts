@@ -26,7 +26,7 @@ export type CommandInvocationOutcome =
   | {
       readonly status: "ran";
       readonly commandId: string;
-      /** The command that ran, whose title its failure line reads. */
+      /** The command that ran, whose name its failure line reads. */
       readonly command: CommandDefinition;
       readonly completion: Promise<void>;
     }

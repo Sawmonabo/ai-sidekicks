@@ -30,7 +30,7 @@ import { inThreadParserModule } from "./connection.test-support.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
 import { appFuzzyMatcherLoad, appWorkflowChecks, PageModuleLoad } from "./page-module-load.js";
 
-/** A stand-in worker that keeps the requests to make a copy it is sent and answers only when told. */
+/** A stand-in worker that keeps each copy request it is sent and answers only when told. */
 class StandInWorker implements MarkdownWorkerPort {
   public onmessage: ((event: MessageEvent<MarkdownWorkerReply>) => void) | null = null;
   public onerror: ((event: ErrorEvent) => void) | null = null;
@@ -109,7 +109,7 @@ async function settledAt(parser: PageParser, state: PageParser["state"]): Promis
   });
 }
 
-it("hands the compiled parser to the page; a worker's later load failure leaves it ready", async () => {
+it("hands the page the compiled parser; a later worker load failure leaves it ready", async () => {
   const workers: StandInWorker[] = [];
   const { view, runIdleTasks } = idleTasksView();
   const pageParser = new PageParser(loadMarkdownParserCalls);
@@ -148,7 +148,7 @@ it("hands the compiled parser to the page; a worker's later load failure leaves 
   expect(pageParser.parse("# kept").children.map((node) => node.type)).toStrictEqual(["heading"]);
 });
 
-it("reports a page parser that fails to start as failed for good, while the worker still answers", async () => {
+it("fails a page parser that cannot start for good, while the worker still answers", async () => {
   const worker = new StandInWorker();
   const { view, runIdleTasks } = idleTasksView();
   let loadCount = 0;
@@ -257,7 +257,7 @@ it("fails every text when its worker stops, and starts a new one for the next", 
   expect((await third).text).toBe("<h1>three</h1>");
 });
 
-it("fails only a cut the worker could not make, and keeps the worker for the texts it holds", () => {
+it("fails only a cut the worker could not make, keeping the worker for the texts it holds", () => {
   const worker = new StandInWorker();
   const connection = new MarkdownWorkerConnection(
     () => worker,
@@ -325,7 +325,7 @@ it.each([
   expect(worker.isEnded).toBe(true);
 });
 
-it("asks the running worker for a matcher whose load failed, and hands over what it compiles", () => {
+it("asks the running worker again for a failed matcher, and hands over what it compiles", () => {
   const handedOver: WebAssembly.Module[] = [];
   const matcherLoad = new PageModuleLoad(
     {

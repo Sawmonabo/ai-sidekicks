@@ -74,7 +74,7 @@ afterEach(() => {
 });
 
 describe("createConsoleCommandExecutor", () => {
-  it("states a command that rejects in its own name, its cause captured, never applied", async () => {
+  it("states a rejecting command in its own name, its cause captured, never applied", async () => {
     registerCommand({
       id: FAILING_COMMAND_ID,
       run: () => Promise.reject(new Error("the act did not complete")),

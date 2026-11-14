@@ -1,7 +1,8 @@
 // The lease line's take control: `Take the terminal`, which opens the confirm in place, and the
 // confirm's `Cancel` and `Take it`. `Take it` takes focus when the confirm opens and Escape
-// cancels it, and once it closes focus goes back to `Take the terminal`. It never derives the holder
-// from the take: the line moves when a `terminal.control.changed` transition reaches the fold.
+// cancels it, and once it closes focus goes back to `Take the terminal`. It never derives the
+// holder from the take: the line moves when a `terminal.control.changed` transition reaches the
+// fold.
 
 import { useEffect, useRef } from "react";
 

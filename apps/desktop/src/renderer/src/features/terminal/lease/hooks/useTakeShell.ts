@@ -1,8 +1,8 @@
-// `Take the terminal` and its confirm: whether the confirm is open, whether the take is out, and why
-// the last one was refused. The hook never derives the holder; the fold in `state.ts` owns it, so
-// a served take closes the confirm and the line moves only when the change reaches the fold. The
-// take is always forced, since it is offered only while another device holds the shell, and it is
-// bound to the pane's own output subscription to that shell, whose end gives the hold back.
+// `Take the terminal` and its confirm: whether the confirm is open, whether the take is out, and
+// why the last one was refused. The hook never derives the holder; the fold in `state.ts` owns it,
+// so a served take closes the confirm and the line moves only when the change reaches the fold.
+// The take is always forced, since it is offered only while another device holds the shell, and
+// it is bound to the pane's own output subscription to that shell, whose end gives the hold back.
 //
 // The state is scoped to the shell, that subscription and the device the take would move the shell
 // off, so a pane showing another shell, or the same one through a new subscription, starts closed
@@ -58,10 +58,10 @@ const CONFIRMING_TAKE_SHELL: TakeShellPhase = {
 };
 
 /**
- * Drive `Take the terminal`, its confirm and the forced `terminal.control.take` it sends, against the
- * shell's holder as the fold read it (`holderDeviceId`, `null` while nobody holds it). A served
- * take closes the confirm and sets no holder: the daemon accepting a take is not this device now
- * holding the shell. A refused take keeps the confirm open with the refusal beside it.
+ * Drive `Take the terminal`, its confirm and the forced `terminal.control.take` it sends, against
+ * the shell's holder as the fold read it (`holderDeviceId`, `null` while nobody holds it). A
+ * served take closes the confirm and sets no holder: the daemon accepting a take is not this
+ * device now holding the shell. A refused take keeps the confirm open with the refusal beside it.
  */
 export function useTakeShell(
   bridge: PlatformBridge,

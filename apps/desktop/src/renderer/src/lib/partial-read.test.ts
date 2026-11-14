@@ -19,8 +19,9 @@ describe("partial-read — a view hands over every reading it holds", () => {
       { kind: "served" },
       { kind: "partial", unreadableCount: 3, newestRefusal: PARSE_REFUSAL },
     ]);
-    expect(notices.length).toBe(1);
-    expect(notices.every((notice) => notice.shape !== "none")).toBe(true);
+    expect(notices).toStrictEqual([
+      { figure: "3", copy: "deliveries could not be read.", refusal: PARSE_REFUSAL },
+    ]);
   });
 });
 

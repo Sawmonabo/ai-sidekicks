@@ -20,6 +20,8 @@ export interface ApprovalCommandRow {
   readonly kind: "approve" | "reject";
   /** The record answered. */
   readonly record: ApprovalProjectionRow;
+  /** The answer's own name, which the title follows with the record's subject. */
+  readonly name: string;
   readonly title: string;
 }
 
@@ -47,16 +49,7 @@ export function approvalCommandRows(input: ApprovalCommandInput): readonly Appro
     if (!offersAnAnswer(record, input)) {
       continue;
     }
-    rows.push({
-      kind: "approve",
-      record,
-      title: `Approve once · ${record.subject}`,
-    });
-    rows.push({
-      kind: "reject",
-      record,
-      title: `Decline · ${record.subject}`,
-    });
+    rows.push(answerRow("approve", "Approve once", record), answerRow("reject", "Decline", record));
   }
   return rows;
 }
@@ -73,6 +66,14 @@ export function performApprovalCommand(row: ApprovalCommandRow, input: ApprovalC
     return;
   }
   input.resolve(approvalAnswer(live, row.kind === "approve" ? "approved" : "rejected", undefined));
+}
+
+function answerRow(
+  kind: ApprovalCommandRow["kind"],
+  name: string,
+  record: ApprovalProjectionRow,
+): ApprovalCommandRow {
+  return { kind, record, name, title: `${name} · ${record.subject}` };
 }
 
 /**

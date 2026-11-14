@@ -4,18 +4,19 @@
 // handed to the page's own parser too, at an idle moment, which parses the blocks a body mounts,
 // and the compression module, the fuzzy matcher and the workflow checks a worker compiles while the
 // page's text codec, matcher or checks want one go to them, the checks' only once something first
-// asks for them and the matcher's again when a list asks after its load failed; the worker parses what the page does not: a streaming tail, a block too long to
-// parse on the page, a long table's pieces, and every block while the page's parser could not
-// start. It sends each text to parse and hands back the parser's binary tree; a reply's markdown as
-// the UTF-8 bytes of its pieces, moved to the worker, or a drawn part's tree as a copy, to be made
-// into what it copies as; and it answers each of the worker's asks for a long table's undrawn rows
-// from the table the page drew, with the rows one slice writes, so no task on the page grows with a
-// text or a table. When the worker stops, fails to load or run the parser, sends what cannot be
-// read or an ask no copied table answers, or leaves a request unanswered past its deadline, it ends
-// that worker and fails every request still waiting; the next request starts a new one, and a
-// module still on its way starts one at once. A worker left unused for a minute, with no turn
-// holding it awake, is ended to give its memory back while the compiled module stays; a request
-// sent while a new worker loads waits in the worker's own queue.
+// asks for them and the matcher's again when a list asks after its load failed; the worker
+// parses what the page does not: a streaming tail, a block too long to parse on the page, a long
+// table's pieces, and every block while the page's parser could not start. It sends each text to
+// parse and hands back the parser's binary tree; a reply's markdown as the UTF-8 bytes of its
+// pieces, moved to the worker, or a drawn part's tree as a copy, to be made into what it copies
+// as; and it answers each of the worker's asks for a long table's undrawn rows from the table the
+// page drew, with the rows one slice writes, so no task on the page grows with a text or a table.
+// When the worker stops, fails to load or run the parser, sends what cannot be read or an ask no
+// copied table answers, or leaves a request unanswered past its deadline, it ends that worker and
+// fails every request still waiting; the next request starts a new one, and a module still on its
+// way starts one at once. A worker left unused for a minute, with no turn holding it awake, is
+// ended to give its memory back while the compiled module stays; a request sent while a new
+// worker loads waits in the worker's own queue.
 
 import type { Table } from "mdast";
 

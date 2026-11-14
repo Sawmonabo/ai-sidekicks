@@ -348,9 +348,9 @@
       // rather than one. `build`, `build:smoke` and `build:fixtures` all write `out/**` and differ
       // in the `define` that decides what the renderer talks to, so one invocation would schedule
       // them concurrently and hand a tier the wrong bundle: the bundle tier's release-absence
-      // assertions would read a fixture tree that legitimately contains what they refuse. The chain runs the
-      // source-only tiers first, then the browser tier (which builds nothing), then release, smoke
-      // and fixtures, each with its own consumers.
+      // assertions would read a fixture tree that legitimately contains what they refuse. The
+      // chain runs the source-only tiers first, then the browser tier (which builds nothing), then
+      // release, smoke and fixtures, each with its own consumers.
       //
       // No `dependsOn` of its own: every enumerated task declares the build edge it needs, and an
       // aggregate-level edge would run a build outside the sequence above rather than inside it.

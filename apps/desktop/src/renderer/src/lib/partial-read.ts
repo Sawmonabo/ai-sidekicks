@@ -3,9 +3,9 @@
 //
 // A view never claims a completeness it cannot prove: `served` and a read still in flight, which
 // its view draws its own loading line for, are the only states with no notice, and
-// `readingNoticeFor` is total over the union, so a state without a sentence fails to compile.
-// `partialReadNotices` takes every reading a view holds, so a served snapshot beside an unreadable
-// tail cannot render as exhaustive.
+// `partialReadNotices` is total over the union, so a state without a sentence fails to compile.
+// It takes every reading a view holds, so a served snapshot beside an unreadable tail cannot
+// render as exhaustive.
 
 import type { Refusal } from "./refusal/contract.js";
 import { formatCount } from "./wire/figures.js";
@@ -30,23 +30,14 @@ export type ReadingState =
       readonly newestRefusal: Refusal | undefined;
     };
 
-/**
- * What a notice says, so its reader branches on a closed instruction. The counted sentence is led
- * by its figure.
- */
-export type PartialReadNotice =
-  | { readonly shape: "none" }
-  | {
-      readonly shape: "counted-sentence";
-      /** The count, already `Intl`-formatted. */
-      readonly figure: string;
-      /** The rest of the sentence, which the figure leads. */
-      readonly copy: string;
-      readonly refusal: Refusal | undefined;
-    };
-
-/** The one shape that owes no notice: the reading is whole, or still in flight. */
-const NO_NOTICE: PartialReadNotice = { shape: "none" };
+/** What a reading that is not the whole of it says: a counted sentence, led by its figure. */
+export interface PartialReadNotice {
+  /** The count, already `Intl`-formatted. */
+  readonly figure: string;
+  /** The rest of the sentence, which the figure leads. */
+  readonly copy: string;
+  readonly refusal: Refusal | undefined;
+}
 
 /**
  * The reading a count of unreadable deliveries is: a running count and the newest parse refusal
@@ -69,18 +60,23 @@ export function unreadableDeliveryReading(
  * every reading is served or still in flight, the only way this module says a view owes no notice.
  */
 export function partialReadNotices(states: readonly ReadingState[]): readonly PartialReadNotice[] {
-  return states.map((state) => readingNoticeFor(state)).filter((notice) => notice.shape !== "none");
+  return states.flatMap((state) => {
+    const notice = readingNoticeFor(state);
+    return notice === "none" ? [] : [notice];
+  });
 }
 
-/** The notice a reading state owes. Total over `ReadingState`. */
-function readingNoticeFor(state: ReadingState): PartialReadNotice {
+/**
+ * The notice a reading state owes, or `none` for a reading that is whole or still in flight. Total
+ * over `ReadingState`.
+ */
+function readingNoticeFor(state: ReadingState): PartialReadNotice | "none" {
   switch (state.kind) {
     case "served":
     case "reading":
-      return NO_NOTICE;
+      return "none";
     case "partial":
       return {
-        shape: "counted-sentence",
         figure: formatCount(state.unreadableCount),
         copy: `${state.unreadableCount === 1 ? "delivery" : "deliveries"} could not be read.`,
         refusal: state.newestRefusal,

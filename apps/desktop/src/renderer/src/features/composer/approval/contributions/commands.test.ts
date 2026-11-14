@@ -65,7 +65,7 @@ describe("what answering from the palette sends", () => {
     const record = pendingAsk(FIRST_REQUEST);
 
     performApprovalCommand(
-      { kind: "approve", record, title: "Approve once · approval.ts" },
+      { kind: "approve", record, name: "Approve once", title: "Approve once · approval.ts" },
       inputFor({ resolve }),
     );
 
@@ -81,7 +81,12 @@ describe("what answering from the palette sends", () => {
     const resolve = vi.fn();
 
     performApprovalCommand(
-      { kind: "reject", record: pendingAsk(FIRST_REQUEST), title: "Decline · approval.ts" },
+      {
+        kind: "reject",
+        record: pendingAsk(FIRST_REQUEST),
+        name: "Decline",
+        title: "Decline · approval.ts",
+      },
       inputFor({ resolve }),
     );
 

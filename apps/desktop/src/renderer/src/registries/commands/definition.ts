@@ -8,6 +8,12 @@ export interface CommandDefinition {
   readonly id: string;
   /** Sentence case, no trailing punctuation, names the act. */
   readonly title: string;
+  /**
+   * The command's own name, for a title that adds what it acts on (`Approve once` under
+   * `Approve once · src/a.ts`): its failure line reads it in the title's place, so the line names
+   * no subject and no id.
+   */
+  readonly name?: string;
   /** The palette category this row sits under. Also a secondary match field. */
   readonly group: string;
   /** A `when-clause/semantics.ts` expression. Absent means unconditional. */

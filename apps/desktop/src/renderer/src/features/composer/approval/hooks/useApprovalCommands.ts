@@ -46,6 +46,7 @@ function buildApprovalCommand(
   return {
     id: `approvals.${row.kind}.${recordId}`,
     title: row.title,
+    name: row.name,
     group: APPROVAL_COMMAND_GROUP,
     when: WHEN_SESSION_ACTIVE,
     keywords: [row.record.category, row.record.requestedBy, "approval"],

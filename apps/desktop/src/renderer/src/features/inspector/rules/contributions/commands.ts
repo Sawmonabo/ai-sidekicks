@@ -10,6 +10,8 @@ export const REVOKE_RULE_COMMAND_OWNER = "inspector-rules";
 /** One contributed row: which rule, under what title. */
 export interface RevokeRuleCommandRow {
   readonly ruleId: string;
+  /** The command's own name, with no rule named after it. */
+  readonly name: string;
   readonly title: string;
 }
 
@@ -49,6 +51,7 @@ export function revokeRuleCommandRows(
   const namesTheRule = revocable.length > 1;
   return revocable.map((rule) => ({
     ruleId: rule.ruleId,
+    name: "Revoke the standing permission",
     title: namesTheRule
       ? `Revoke standing permission ${rule.ruleId}`
       : "Revoke the standing permission",

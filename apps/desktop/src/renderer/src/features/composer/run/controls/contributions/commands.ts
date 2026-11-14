@@ -18,18 +18,21 @@ import { type RunControlDispatchState } from "../hooks/useRunControlDispatch.js"
 export const RUN_CONTROL_COMMAND_OWNER = "run-controls";
 
 /**
- * What a contributed row says. Derived per render; cheap and allocation-light. A steer row names
- * the child whose box it opens.
+ * What a contributed row says: the control's own name, and the title that adds the child or run
+ * it acts on. Derived per render; cheap and allocation-light. A steer row names the child whose
+ * box it opens.
  */
 export type RunControlCommandRow =
   | {
       readonly runId: string;
       readonly control: Exclude<RunControl, "steer">;
+      readonly name: string;
       readonly title: string;
     }
   | {
       readonly runId: string;
       readonly control: "steer";
+      readonly name: string;
       readonly title: string;
       readonly child: RunChild;
     };
@@ -72,18 +75,17 @@ export function runControlCommandRows(
     const offered = offeredRunControls(run.state, run.children.length > 0);
     const titled = (title: string): string => (namesTheRun ? `${title} ${run.runId}` : title);
     for (const control of offered.primary) {
-      rows.push({
-        runId: run.runId,
-        control,
-        title: titled(RUN_CONTROL_PRESENTATION[control].title),
-      });
+      const name = RUN_CONTROL_PRESENTATION[control].title;
+      rows.push({ runId: run.runId, control, name, title: titled(name) });
     }
     for (const control of offered.overflow) {
+      const name = RUN_CONTROL_PRESENTATION[control].label;
       for (const child of run.children) {
         rows.push({
           runId: run.runId,
           control,
-          title: titled(`${RUN_CONTROL_PRESENTATION[control].label} ${child.agentName}`),
+          name,
+          title: titled(`${name} ${child.agentName}`),
           child,
         });
       }

@@ -1,7 +1,8 @@
 // The holder line's words, and where it draws nothing: another device's hold names the device
-// beside `Take the terminal`, a free shell draws nothing because the first keystroke takes it, and a
-// device whose name has not been read draws nothing either, so the line never speaks for a holder
-// it cannot name. A running command's hold, named by its run's agent, is `LeaseLine.run.test.tsx`.
+// beside `Take the terminal`, a free shell draws nothing because the first keystroke takes it,
+// and a device whose name has not been read draws nothing either, so the line never speaks for a
+// holder it cannot name. A running command's hold, named by its run's agent, is
+// `LeaseLine.run.test.tsx`.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

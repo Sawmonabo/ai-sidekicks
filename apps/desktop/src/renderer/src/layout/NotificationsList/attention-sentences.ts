@@ -39,14 +39,9 @@ function uncheckedSessionsSentence(refusedCount: number): string {
  * `partialReadNotices`, each figure kept with its sentence.
  */
 function incompletenessSentences(reading: AnsweredAttentionReading): readonly string[] {
-  const sentences: string[] = [];
-  for (const notice of partialReadNotices(answeredReadingStates(reading))) {
-    // `none` owes no sentence.
-    if (notice.shape === "counted-sentence") {
-      sentences.push(`${notice.figure} ${notice.copy}`);
-    }
-  }
-  return sentences;
+  return partialReadNotices(answeredReadingStates(reading)).map(
+    (notice) => `${notice.figure} ${notice.copy}`,
+  );
 }
 
 /**

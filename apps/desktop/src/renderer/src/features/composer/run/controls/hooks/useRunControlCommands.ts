@@ -54,6 +54,7 @@ function buildRunControlCommand(
   return {
     id: commandIdFor(row),
     title: row.title,
+    name: row.name,
     group: RUN_CONTROL_COMMAND_GROUP,
     // Nothing narrower: a fact that changes with every event does not belong in a vocabulary
     // recomputed per route.

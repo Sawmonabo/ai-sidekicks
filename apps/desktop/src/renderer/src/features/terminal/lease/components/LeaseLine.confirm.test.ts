@@ -1,8 +1,8 @@
-// `Take the terminal` asks once, in place on the line: `<device> holds the terminal. Take it?` under
-// `Cancel` and `Take it`, which takes focus, and Escape cancels. Only `Take it` sends, one forced
-// take of this shell bound to the pane's output subscription, and the line never derives the
-// holder from it: a served take closes the confirm and the line moves only when the change reaches
-// the fold. A refused take keeps the confirm open and says why.
+// `Take the terminal` asks once, in place on the line: `<device> holds the terminal. Take it?`
+// under `Cancel` and `Take it`, which takes focus, and Escape cancels. Only `Take it` sends, one
+// forced take of this shell bound to the pane's output subscription, and the line never derives
+// the holder from it: a served take closes the confirm and the line moves only when the change
+// reaches the fold. A refused take keeps the confirm open and says why.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -57,7 +57,7 @@ describe("taking the shell from another device", () => {
     expect(takes.takes).toStrictEqual([]);
   });
 
-  it("sends one forced take through the pane's subscription, and waits for the change", async () => {
+  it("sends one forced take through the pane's subscription and waits for the change", async () => {
     const takes = new HeldTakes();
     openConfirm(takes);
     fireEvent.click(screen.getByRole("button", { name: "Take it" }));
@@ -94,7 +94,7 @@ describe("taking the shell from another device", () => {
     expect(takes.takes).toHaveLength(1);
   });
 
-  it("keeps the confirm open with the daemon's reason when the take is refused, said each time", async () => {
+  it("keeps the confirm open with the reason a refused take gives, said each time", async () => {
     const takes = new HeldTakes();
     const { said } = openConfirm(takes);
     const reason = "an agent's running command holds this shell";
@@ -120,7 +120,7 @@ describe("taking the shell from another device", () => {
     expect(said.spokenOn("polite")).toStrictEqual([]);
   });
 
-  it("closes an open confirm when the holder changes, so it never asks about a device that let go", () => {
+  it("closes an open confirm when the holder changes, never asking of a device that let go", () => {
     const takes = new HeldTakes();
     const view = renderLease(HELD_BY_THE_MAC_MINI, "Mac mini", takes.bridge);
     fireEvent.click(screen.getByRole("button", { name: "Take the terminal" }));

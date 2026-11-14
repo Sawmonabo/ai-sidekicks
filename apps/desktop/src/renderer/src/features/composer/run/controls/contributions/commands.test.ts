@@ -36,7 +36,7 @@ describe("what running a contributed row does", () => {
     const { dispatchState, calls } = recordingRunControlDispatch();
 
     await dispatchRunControlCommand(
-      { runId: FIRST_RUN, control: "interrupt", title: "Stop the run" },
+      { runId: FIRST_RUN, control: "interrupt", name: "Stop the run", title: "Stop the run" },
       inputFor([commandRun(FIRST_RUN)], dispatchState),
     );
 

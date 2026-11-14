@@ -1,7 +1,8 @@
 // The worktree chip and its popover: the repo root row, a rule, one row per tree with its base,
 // ahead, behind and uncommitted figures and who occupies it, a trash on a tree the app made, a
 // rule, and `Details`. Picking a row moves the session there, at once when idle or when the run
-// ends; a removal confirms in the row's place and leaves `<name> removed · Put back` behind.
+// ends, and a refused move is said on the row pressed; a removal confirms in the row's place and
+// leaves `<name> removed · Put back` behind.
 
 import { Popover } from "@base-ui/react/popover";
 import { useState } from "react";
@@ -28,6 +29,7 @@ import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { useWorktreeStatus } from "../hooks/useWorktreeStatus.js";
+import { moveRefusalWords, type MovedTree } from "../move-refusal.js";
 import { NewWorktreeForm } from "./NewWorktreeForm.js";
 import { readWorktreeRow, type WorktreeRow } from "../worktrees.js";
 
@@ -54,6 +56,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
   const [standIn, setStandIn] = useState<RowStandIn | undefined>(undefined);
   const [isMakingNew, setIsMakingNew] = useState(false);
   const [refusal, setRefusal] = useState<ExtendedRefusal | undefined>(undefined);
+  const [moveRefusal, setMoveRefusal] = useState<MoveRefusal | undefined>(undefined);
   // The move a pick asked for waits only until the session's listed branch is its target's, or,
   // for a root picked before its branch was read, until the listing leaves the one it was picked
   // from: the run boundary applied it.
@@ -71,21 +74,23 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
     // A root picked before the read landed is named by that read, open or closed.
     pending !== undefined && pending.branchName === undefined,
   );
-  // `target` is the picked row, or `undefined` for a cancel, which leaves no move.
-  const moveTo = (path: string, target: MoveTarget | undefined): void => {
+  // `row` is the row pressed, where a refusal is said; `target` is the picked tree, or `undefined`
+  // for a cancel, which leaves no move.
+  const moveTo = (row: PickedRow, tree: MovedTree, target: MoveTarget | undefined): void => {
     const fromName = props.currentName;
     void callDaemon(props.bridge, "session.workingFolder.update", {
       sessionId: props.sessionId,
-      path,
+      path: tree.path,
     }).then((reply) => {
       if (reply.status === "refused") {
-        setRefusal(reply.refusal);
+        const words = moveRefusalWords(reply.refusal, tree);
+        setMoveRefusal({ row, refusal: reply.refusal, words });
         return;
       }
-      setRefusal(undefined);
+      setMoveRefusal(undefined);
       setPendingMove(
         reply.value.disposition === "pending" && target !== undefined
-          ? { name: target.name, branchName: target.branchName, path, fromName }
+          ? { name: target.name, branchName: target.branchName, row, fromName }
           : undefined,
       );
     });
@@ -119,22 +124,33 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
     reading.kind === "loaded"
       ? { name: reading.status.repoRoot.branchName, branchName: reading.status.repoRoot.branchName }
       : { name: props.project.name, branchName: undefined };
-  const pendingLine = (path: string): React.JSX.Element | null =>
-    pending?.path === path && reading.kind === "loaded" ? (
-      <span className="meridian-composer-worktrees__faint">
-        switching when this run ends{" "}
-        <button
-          type="button"
-          className="meridian-clickable-word"
-          onClick={() => {
-            // Re-targeting the tree the session works in now cancels the move.
-            moveTo(currentPathIn(reading.status, props.sessionId), undefined);
-          }}
-        >
-          Cancel
-        </button>
-      </span>
-    ) : null;
+  // What a row says after its pick: the held move with its `Cancel`, then a refused move.
+  const pickLines = (row: PickedRow): React.JSX.Element => (
+    <>
+      {pending !== undefined && isSameRow(pending.row, row) && reading.kind === "loaded" ? (
+        <span className="meridian-composer-worktrees__faint">
+          switching when this run ends{" "}
+          <button
+            type="button"
+            className="meridian-clickable-word"
+            onClick={() => {
+              // Re-targeting the tree the session works in now cancels the move.
+              moveTo(row, currentTreeIn(reading.status, props.sessionId), undefined);
+            }}
+          >
+            Cancel
+          </button>
+        </span>
+      ) : null}
+      {moveRefusal !== undefined && isSameRow(moveRefusal.row, row) ? (
+        <InlineRefusal
+          code={moveRefusal.refusal.code}
+          detail={moveRefusal.words}
+          attempt={moveRefusal.refusal}
+        />
+      ) : null}
+    </>
+  );
   // A root picked before the read landed is named by its branch once the read has it.
   const pendingName =
     pending !== undefined && pending.branchName === undefined && reading.kind === "loaded"
@@ -155,6 +171,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
           setStandIn(undefined);
           setIsMakingNew(false);
           setRefusal(undefined);
+          setMoveRefusal(undefined);
         }
       }}
     >
@@ -169,12 +186,12 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
             type="button"
             className="meridian-composer-worktrees__pick"
             onClick={() => {
-              moveTo(rootPath, rootTarget);
+              moveTo(ROOT_ROW, { path: rootPath, name: rootTarget.name }, rootTarget);
             }}
           >
             {rootTarget.name}
           </button>
-          {pendingLine(rootPath)}
+          {pickLines(ROOT_ROW)}
         </div>
         {isMakingNew && reading.kind === "loaded" && reading.status.newWorktree !== undefined ? (
           <NewWorktreeForm
@@ -278,7 +295,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
                     type="button"
                     className="meridian-composer-worktrees__pick"
                     onClick={() => {
-                      moveTo(row.path, row);
+                      moveTo({ kind: "worktree", path: row.path }, row, row);
                     }}
                   >
                     <span>{row.name}</span>
@@ -305,7 +322,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
                       )}
                     </span>
                   </button>
-                  {pendingLine(row.path)}
+                  {pickLines({ kind: "worktree", path: row.path })}
                   {row.removableWorktreeId === undefined ? null : (
                     <HoverLabel
                       text={
@@ -360,10 +377,28 @@ interface MoveTarget {
   readonly branchName: string | undefined;
 }
 
-/** A move the daemon holds until the run ends: its target, and the tree it was picked from. */
+/** The row a pick was pressed on: the repo root's, whichever path it was read with, or a tree's. */
+type PickedRow = { readonly kind: "root" } | { readonly kind: "worktree"; readonly path: string };
+
+const ROOT_ROW: PickedRow = { kind: "root" };
+
+/** A move the daemon holds until the run ends: its target, its row, and the tree it left. */
 interface PendingMove extends MoveTarget {
-  readonly path: string;
+  readonly row: PickedRow;
   readonly fromName: string;
+}
+
+/** A move the daemon refused: the row it was pressed on, the refusal, and the words it reads. */
+interface MoveRefusal {
+  readonly row: PickedRow;
+  readonly refusal: ExtendedRefusal;
+  readonly words: string;
+}
+
+function isSameRow(picked: PickedRow, row: PickedRow): boolean {
+  return picked.kind === "root" || row.kind === "root"
+    ? picked.kind === row.kind
+    : picked.path === row.path;
 }
 
 /** A row standing in for its tree while its removal is confirmed, or after it went. */
@@ -396,11 +431,13 @@ function countWords(count: number, singular: string, plural: string): string | u
 }
 
 /** The tree `sessionId` works in now: the one it occupies, else the project's own checkout. */
-function currentPathIn(status: WorktreeStatusReadResponse, sessionId: SessionId): string {
-  return (
-    status.worktrees.find((record) => record.occupyingSessionIds.includes(sessionId))?.path ??
-    status.repoRoot.path
+function currentTreeIn(status: WorktreeStatusReadResponse, sessionId: SessionId): MovedTree {
+  const occupied = status.worktrees.find((record) =>
+    record.occupyingSessionIds.includes(sessionId),
   );
+  return occupied === undefined
+    ? { path: status.repoRoot.path, name: status.repoRoot.branchName }
+    : { path: occupied.path, name: occupied.name };
 }
 
 /** Whether the tree `sessionId` works in holds uncommitted changes a new tree could carry. */
