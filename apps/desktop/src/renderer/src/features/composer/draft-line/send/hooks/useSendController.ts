@@ -90,11 +90,16 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     publishStatus("sending");
     // Captured before the await, so what settles is measured against the draft sent from.
     const identity = issueSettlementIdentity("send");
+    // Whether the await a rejection comes from is the message's own send, which alone reads
+    // `Send failed`; a file's copy or a command's run rejects in its own words.
+    let isMessageInFlight = false;
     try {
       // A file dropped just before the press is still copying; the message waits and carries it.
       await heldDraft.whenCopied();
       const extras = heldDraft.extrasFor(body);
+      isMessageInFlight = true;
       const routed = await router.send(body, target, extras);
+      isMessageInFlight = false;
       if (routed.status === "empty") {
         // Nothing to send: Send is already dimmed, and no line is drawn for the press.
         settle(identity, undefined);
@@ -129,6 +134,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         }
       }
       // A line its command did not act on goes out untrimmed, as any other message does.
+      isMessageInFlight = true;
       const outcome =
         routed.status === "intercepted" ? await router.sendAsTyped(body, target, extras) : routed;
       switch (outcome.status) {
@@ -145,10 +151,16 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
           return;
       }
     } catch (rejection) {
-      // A rejected daemon call is held as the daemon's own refusal; the text stays in the line.
+      // A rejected daemon call is held as the daemon's own refusal, its code kept for the remedy;
+      // a message's own reads `Send failed · <cause>`. The text stays in the line.
+      const refusal = normalizeWireRejection(
+        DAEMON_REFUSAL_ORIGIN,
+        rejection,
+        CALL_REJECTED_FALLBACK,
+      );
       settle(
         identity,
-        normalizeWireRejection(DAEMON_REFUSAL_ORIGIN, rejection, CALL_REJECTED_FALLBACK),
+        isMessageInFlight ? { ...refusal, detail: `Send failed · ${refusal.detail}` } : refusal,
       );
     } finally {
       // Releases the round this act claimed even after a switch of session; the reading is

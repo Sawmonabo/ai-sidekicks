@@ -97,7 +97,7 @@ describe("DraftLine — the unsent body lives in the supplied draft store", () =
 });
 
 describe("DraftLine — a refused message stays in the line", () => {
-  it("leaves the text and renders the daemon's cause", async () => {
+  it("leaves the text and reads `Send failed` with the daemon's cause", async () => {
     // Nothing reached the queue, so clearing the line would lose what the person wrote.
     const rejection = {
       code: "agent.queueItem.persistenceUnavailable",
@@ -112,7 +112,7 @@ describe("DraftLine — a refused message stays in the line", () => {
 
     expect(bar.line().value).toBe("keep going on the parser");
     const refusal = bar.result.container.querySelector(".meridian-refusal--inline");
-    expect(refusal?.textContent).toContain("The queue cannot be stored right now.");
+    expect(refusal?.textContent).toContain("Send failed · The queue cannot be stored right now.");
   });
 
   it("negative control: the same send against a queued answer clears the line", async () => {

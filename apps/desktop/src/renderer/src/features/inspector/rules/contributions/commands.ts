@@ -10,8 +10,6 @@ export const REVOKE_RULE_COMMAND_OWNER = "inspector-rules";
 /** One contributed row: which rule, under what title. */
 export interface RevokeRuleCommandRow {
   readonly ruleId: string;
-  /** The command's own name, with no rule named after it. */
-  readonly name: string;
   readonly title: string;
 }
 
@@ -39,23 +37,13 @@ export function offersRevoke(rule: RememberedRule, revokingRuleIds: ReadonlySet<
   return !revokingRuleIds.has(rule.ruleId);
 }
 
-/**
- * The rows the list offers right now.
- *
- * The rule is named in the title only where more than one is revocable.
- */
+/** The rows the list offers right now, one per revocable rule; no row draws the rule's id. */
 export function revokeRuleCommandRows(
   input: RevokeRuleCommandInput,
 ): readonly RevokeRuleCommandRow[] {
-  const revocable = input.rules.filter((rule) => offersRevoke(rule, input.revokingRuleIds));
-  const namesTheRule = revocable.length > 1;
-  return revocable.map((rule) => ({
-    ruleId: rule.ruleId,
-    name: "Revoke the standing permission",
-    title: namesTheRule
-      ? `Revoke standing permission ${rule.ruleId}`
-      : "Revoke the standing permission",
-  }));
+  return input.rules
+    .filter((rule) => offersRevoke(rule, input.revokingRuleIds))
+    .map((rule) => ({ ruleId: rule.ruleId, title: REVOKE_RULE_TITLE }));
 }
 
 /**
@@ -74,3 +62,6 @@ export function askToRevokeFromCommand(
   }
   input.onAskToRevoke(live.ruleId);
 }
+
+/** What every revoke row reads. */
+const REVOKE_RULE_TITLE = "Revoke the standing permission";

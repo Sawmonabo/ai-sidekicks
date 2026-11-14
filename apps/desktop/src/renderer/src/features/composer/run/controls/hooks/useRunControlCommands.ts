@@ -22,11 +22,11 @@ import {
 /** The palette category the controls sit under. */
 const RUN_CONTROL_COMMAND_GROUP = "Run";
 
-/** Contributes the controls of every described run while the caller is mounted. */
+/** Contributes the controls of the run in view while the caller is mounted. */
 export function useRunControlCommands(input: RunControlCommandInput): void {
-  const rows = runControlCommandRows(input.runs);
+  const rows = runControlCommandRows(input.run);
   // Refreshed by every committed render, never in the render body: a write during a render
-  // React discards would leave a row on screen dispatching through that pass's runs and latch.
+  // React discards would leave a row on screen dispatching through that pass's run and latch.
   const inputRef = useLatestRef(input);
 
   // Keyed by what the rows say: only a change in what the palette would list may
@@ -54,20 +54,18 @@ function buildRunControlCommand(
   return {
     id: commandIdFor(row),
     title: row.title,
-    name: row.name,
     group: RUN_CONTROL_COMMAND_GROUP,
     // Nothing narrower: a fact that changes with every event does not belong in a vocabulary
     // recomputed per route.
     when: WHEN_SESSION_ACTIVE,
-    keywords: [row.runId, RUN_CONTROL_PRESENTATION[row.control].label],
+    keywords: [RUN_CONTROL_PRESENTATION[row.control].label],
     run: async () => {
       await dispatchRunControlCommand(row, inputRef.current);
     },
   };
 }
 
-/** The palette id of one row: a steer row is one per child, so its child joins the id. */
+/** The palette id of one row, never drawn: per run, so a run in view replaced registers anew. */
 function commandIdFor(row: RunControlCommandRow): string {
-  const id = `runs.${row.control}.${row.runId}`;
-  return row.control === "steer" ? `${id}.${row.child.childHandle}` : id;
+  return `runs.${row.control}.${row.runId}`;
 }

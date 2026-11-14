@@ -1,7 +1,6 @@
 // The composer's run controls: pause or resume and interrupt for the lead's live run, contributed
-// to the command palette while the composer is mounted, dispatched through the daemon. The lead's
-// run is listed without its children: a child is steered only in its own view, never from the
-// composer.
+// to the command palette while the composer is mounted, dispatched through the daemon. A child's
+// controls are reached in its own view, never from the composer.
 
 import { useMemo } from "react";
 
@@ -28,22 +27,14 @@ export function useLeadRunControlCommands(
   const addressedRun = target.kind === "run" ? runs[target.targetRunId] : undefined;
   const state = addressedRun?.state === undefined ? undefined : readRunState(addressedRun.state);
   const runVersion: unknown = addressedRun?.body?.["runVersion"];
-  const leadRuns = useMemo<readonly RunControlCommandRun[]>(
+  const leadRun = useMemo<RunControlCommandRun | undefined>(
     () =>
       addressedRun === undefined || state === undefined || typeof runVersion !== "number"
-        ? []
-        : [
-            {
-              sessionId: sessionStore.sessionId,
-              runId: addressedRun.id,
-              runVersion,
-              state,
-              children: [],
-            },
-          ],
+        ? undefined
+        : { sessionId: sessionStore.sessionId, runId: addressedRun.id, runVersion, state },
     [addressedRun, state, runVersion, sessionStore.sessionId],
   );
-  useRunControlCommands({ runs: leadRuns, dispatchState, onRequestSteer: NO_CHILD_STEER });
+  useRunControlCommands({ run: leadRun, dispatchState });
 }
 
 /** The four control calls over the daemon; a refused call rejects with the daemon's refusal. */
@@ -59,6 +50,3 @@ function runControlCallsOver(bridge: PlatformBridge): RunControlCalls {
       unwrapDaemonReply(await callDaemon(bridge, "agent.childRun.steer", request)),
   };
 }
-
-/** The lead's run lists no child, so no steer row exists to ask for one. */
-const NO_CHILD_STEER = (): void => undefined;

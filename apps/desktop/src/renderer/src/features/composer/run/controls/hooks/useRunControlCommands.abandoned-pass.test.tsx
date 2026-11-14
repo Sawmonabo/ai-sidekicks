@@ -37,11 +37,10 @@ function ReaddressableRunCommandContributor(props: {
   const [suspend, setSuspend] = useState(false);
   const input = useMemo<RunControlCommandInput>(
     () => ({
-      runs: [commandRun(TARGET_RUN)],
+      run: commandRun(TARGET_RUN),
       dispatchState: addressedToAbandoned
         ? props.abandonedDispatchState
         : props.committedDispatchState,
-      onRequestSteer: () => undefined,
     }),
     [addressedToAbandoned, props.abandonedDispatchState, props.committedDispatchState],
   );

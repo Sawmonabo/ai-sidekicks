@@ -1,5 +1,5 @@
-// What happens when starting a session settles. The new-session draft creates a session on its
-// own send and hands out the id; this module is where that id goes, in order:
+// What happens when starting a session settles. The new-session picker creates a session at the
+// pick and hands out the id; this module is where that id goes, in order:
 //   1. The store opens. The all-sessions list merges the daemon's directory with the registry's own
 //      set, so a create the directory has not yet answered still shows because the registry holds
 //      it. Opening is idempotent, so it does not fight the route's own open.

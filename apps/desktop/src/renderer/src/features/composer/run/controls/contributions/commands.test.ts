@@ -1,6 +1,6 @@
-// What the contributed run-control rows are and what pressing one does: a control dispatches
-// through the caller's dispatch state, guarded with the run's comparand, and a steer row, one per
-// child, opens that child's box.
+// What the contributed run-control rows are and what pressing one does: the run in view offers
+// its controls by their own words, with no id, and a control dispatches through the caller's
+// dispatch state, guarded with the run's comparand.
 
 import { describe, expect, it } from "vitest";
 
@@ -9,57 +9,22 @@ import {
   commandRun,
   recordingRunControlDispatch,
 } from "../commands.test-support.js";
-import {
-  dispatchRunControlCommand,
-  runControlCommandRows,
-  type RunChild,
-  type RunControlCommandInput,
-  type RunControlCommandRun,
-} from "./commands.js";
-import { type RunControlDispatchState } from "../hooks/useRunControlDispatch.js";
-
-function inputFor(
-  runs: readonly RunControlCommandRun[],
-  dispatchState: RunControlDispatchState,
-): RunControlCommandInput {
-  return {
-    runs,
-    dispatchState,
-    onRequestSteer: () => undefined,
-  };
-}
-
-const BUILDER: RunChild = { childHandle: "agent-builder-1", agentName: "builder" };
+import { dispatchRunControlCommand, runControlCommandRows } from "./commands.js";
 
 describe("what running a contributed row does", () => {
   it("dispatches through the caller's dispatch state, carrying the run's comparand", async () => {
     const { dispatchState, calls } = recordingRunControlDispatch();
+    const run = commandRun(FIRST_RUN);
+    const rows = runControlCommandRows(run);
+    // The rows read the controls' own words; the run's id is in none of them.
+    expect(rows.map((row) => row.title)).toStrictEqual(["Pause the run", "Stop the run"]);
+    const interrupt = rows.find((row) => row.control === "interrupt");
+    if (interrupt === undefined) {
+      throw new Error("a running run offered no interrupt row");
+    }
 
-    await dispatchRunControlCommand(
-      { runId: FIRST_RUN, control: "interrupt", name: "Stop the run", title: "Stop the run" },
-      inputFor([commandRun(FIRST_RUN)], dispatchState),
-    );
+    await dispatchRunControlCommand(interrupt, { run, dispatchState });
 
     expect(calls).toEqual([{ verb: "interrupt", runId: FIRST_RUN, expectedRunVersion: 7 }]);
-  });
-
-  it("offers a steer row per child, which opens that child's box", async () => {
-    const { dispatchState, calls } = recordingRunControlDispatch();
-    const parent = commandRun(FIRST_RUN, "running", [BUILDER]);
-    const steerRow = runControlCommandRows([parent]).find((row) => row.control === "steer");
-    if (steerRow === undefined) {
-      throw new Error("a run with a child offered no steer row");
-    }
-    expect(steerRow.title).toBe("Steer builder");
-    const steered: [string, RunChild][] = [];
-    await dispatchRunControlCommand(steerRow, {
-      ...inputFor([parent], dispatchState),
-      onRequestSteer: (runId, child) => {
-        steered.push([runId, child]);
-      },
-    });
-
-    expect(steered).toEqual([[FIRST_RUN, BUILDER]]);
-    expect(calls).toEqual([]);
   });
 });

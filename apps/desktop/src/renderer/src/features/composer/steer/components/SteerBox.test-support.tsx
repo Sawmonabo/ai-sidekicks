@@ -51,7 +51,7 @@ export function steerCalls(calls: RecordedDaemonCall[], answer: ScriptedAnswer):
   };
 }
 
-/** A run in the given state, at the version and identity a case names, with the steered child. */
+/** A run in the given state, at the version and identity a case names. */
 export function runAt(
   state: RunState,
   runVersion = 8,
@@ -62,7 +62,6 @@ export function runAt(
     runId,
     runVersion,
     state,
-    children: [{ childHandle: STEERED_CHILD_HANDLE, agentName: STEERED_AGENT_NAME }],
   };
 }
 
