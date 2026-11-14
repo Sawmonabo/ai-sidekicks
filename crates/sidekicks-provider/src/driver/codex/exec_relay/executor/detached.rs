@@ -8,11 +8,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Map, Value};
+use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::random_hex::random_hex;
 use tokio::time::Instant;
 
 use super::{CodexExecutor, RelayConnectionId};
+use crate::driver::codex::exec_relay::methods::ClientMethod;
 
 /// How long a dropped connection's processes are held for its resume: the longer of the windows
 /// the executors Codex ships keep a detached session, which is also how long they keep a closed
@@ -23,10 +25,6 @@ pub(in crate::driver::codex::exec_relay) const DETACHED_CONNECTION_HOLD: Duratio
 /// The JSON-RPC code Codex's executor refuses the resume of a session another connection holds
 /// with, which Codex's client retries.
 const SESSION_ALREADY_ATTACHED_ERROR_CODE: i64 = -32010;
-
-/// The JSON-RPC code of a request the executor cannot take, a resume of an unknown session among
-/// them.
-const INVALID_REQUEST_ERROR_CODE: i64 = -32600;
 
 /// The random bytes of the session id the relay gives each connection.
 const SESSION_ID_BYTES: usize = 16;
@@ -44,7 +42,7 @@ impl InitializeRefusal {
     /// The refusal of a request the executor cannot take, under `message`.
     pub(super) fn invalid(message: String) -> Self {
         Self {
-            code: INVALID_REQUEST_ERROR_CODE,
+            code: i64::from(JsonRpcErrorCode::InvalidRequest.code()),
             message,
         }
     }
@@ -211,8 +209,9 @@ impl CodexExecutor {
             let held = sessions.resume(connection, &environment, session_id)?;
             drop(sessions);
             lock(&self.process_ids).move_connection(held, connection);
+            // Only a start moves: a file open the drop left is answered for no one and closed.
             for request in lock(&self.client_requests).values_mut() {
-                if request.connection == held {
+                if request.connection == held && request.method == ClientMethod::ProcessStart {
                     request.connection = connection;
                 }
             }

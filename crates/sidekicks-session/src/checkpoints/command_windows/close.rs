@@ -32,7 +32,9 @@ use super::{
     BeforeCapture, OpenWindow, WindowFailure, WindowRecorder, push_taken_shadow,
     uncovered_close_statements,
 };
-use crate::checkpoints::copies::{COPIES_LOCK, CopyStore, FileCopyError};
+use crate::checkpoints::copies::{
+    COPIES_LOCK, CopyStore, FileCopyError, mark_unnamed_keep_session,
+};
 use crate::checkpoints::schema::{
     CheckpointVersionContent, CheckpointVersionLeg, CopyMode, NotKeptReason,
 };
@@ -244,20 +246,33 @@ impl WindowRecorder {
         }));
         statements.push(unlink_window_shadows_statement(window_id));
         let hold = self.shadow_lock.acquire(session_id).await;
-        statements.extend(
-            self.close_shadows(
+        let written = match self
+            .close_shadows(
                 &hold,
                 &before.checkout_real_path,
                 &linked,
                 reading,
                 captured_at,
             )
-            .await?,
-        );
-        self.writer.write(statements).await?;
+            .await
+        {
+            Ok(shadows) => {
+                statements.extend(shadows);
+                self.writer
+                    .write(statements)
+                    .await
+                    .map(drop)
+                    .map_err(WindowFailure::from)
+            }
+            Err(failure) => Err(failure),
+        };
         drop(hold);
         drop(copies_hold);
-        Ok(())
+        // What the close kept may now lie unnamed, so the next orphans walk takes the session.
+        if written.is_err() {
+            mark_unnamed_keep_session(session_id);
+        }
+        written
     }
 
     // The shadow rows a close writes under `hold`: each fresh shadow, the path's current one

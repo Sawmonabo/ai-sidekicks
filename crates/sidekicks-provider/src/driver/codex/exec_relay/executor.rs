@@ -95,6 +95,18 @@ pub(super) struct ProcessEnd {
     pub(super) exit_code: Option<i32>,
 }
 
+/// How the executor answered a client's request the relay watches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WatchedAnswer {
+    /// The executor refused it.
+    Refused,
+    /// The executor took it, and what it names is still a connection's.
+    Taken,
+    /// The executor took it after the connection that sent it went, so what it names, a process
+    /// it started, is no connection's: the relay ends it or keeps it.
+    TakenUnowned,
+}
+
 /// One connection the relay serves onto its executor, unique for the executor's life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct RelayConnectionId(u64);
@@ -155,7 +167,7 @@ pub(super) struct CodexExecutor {
     missing_watches: MissingWatches,
     // Keyed by the relay's process id.
     exits: Mutex<HashMap<String, watch::Sender<Option<ProcessEnd>>>>,
-    client_replies: Mutex<HashMap<String, oneshot::Sender<bool>>>,
+    client_replies: Mutex<HashMap<String, oneshot::Sender<WatchedAnswer>>>,
     ledger: Mutex<ProcessLedger>,
     ended: watch::Sender<bool>,
     process_id: Option<u32>,
@@ -512,9 +524,9 @@ impl CodexExecutor {
     }
 
     /// Watches the executor's answer to the client's request whose relay id is `id` as compact
-    /// JSON, still handed to the client: true for a refusal, false for a result; the sender drops
-    /// when the connection ends first.
-    pub(super) fn watch_client_answer(&self, id: String) -> oneshot::Receiver<bool> {
+    /// JSON, still handed to the client; the sender drops when the connection ends first. A start
+    /// answered after its connection went is the watcher's to end or keep.
+    pub(super) fn watch_client_answer(&self, id: String) -> oneshot::Receiver<WatchedAnswer> {
         let (answer, answered) = oneshot::channel();
         lock(&self.client_replies).insert(id, answer);
         answered
@@ -611,6 +623,24 @@ impl CodexExecutor {
                 }
             }
         }
+    }
+
+    // Sends `line`, one of the relay's own that must reach the executor, on a task of its own that
+    // awaits the executor's input, so it is never dropped past the own queue's bound; the task
+    // holds the executor weakly until it runs, so it keeps no ended executor.
+    fn send_own_line_awaited(&self, line: String) {
+        let executor = self.me.clone();
+        tokio::spawn(async move {
+            let Some(executor) = executor.upgrade() else {
+                return;
+            };
+            if let Err(error) = executor.send_line(line).await {
+                tracing::debug!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "the Codex executor ended before a line of the relay's own went out"
+                );
+            }
+        });
     }
 
     // Marks the connection ended: every waiting request fails, every watched process ends and the

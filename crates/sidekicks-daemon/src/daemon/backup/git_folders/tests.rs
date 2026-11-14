@@ -226,6 +226,7 @@ impl LiveGitFolders for SweepDuringCopy {
                     None,
                     &[],
                     &[],
+                    &[],
                     SystemTime::now(),
                     &ProcessorMeter::default(),
                 )

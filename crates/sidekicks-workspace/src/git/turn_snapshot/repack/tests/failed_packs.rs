@@ -126,6 +126,7 @@ async fn a_sweep_packs_again_a_capture_whose_own_pack_failed(#[case] is_restarte
             None,
             &[],
             &[],
+            &[],
             SystemTime::now(),
             &ProcessorMeter::default(),
         )
@@ -217,6 +218,7 @@ async fn a_sweep_or_a_pack_queued_behind_the_owners_hold_finds_its_folder_gone(
                     &owner,
                     &common,
                     None,
+                    &[],
                     &[],
                     &[],
                     SystemTime::now(),
@@ -315,6 +317,7 @@ async fn sweep(failed: &FailedCapture) -> Result<CaptureFolderSweep, PackingErro
             &failed.owner,
             &failed.common,
             None,
+            &[],
             &[],
             &[],
             SystemTime::now(),

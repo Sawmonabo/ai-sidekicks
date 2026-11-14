@@ -10,6 +10,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use sidekicks_platforms::{PathRules, Spawner};
 use sidekicks_std::child_run::ChildRunError;
+use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
 use super::{AgentSdkModule, SDK_FILE_NAME};
@@ -92,7 +93,9 @@ struct ForkAnswer {
 
 /// The fork's conversation id, exactly as the SDK named the fork's file, or why there is none.
 /// Runs the SDK in `module` under the bun at `bun`; the caller bounds its own waits for both. A
-/// fork that fails after the SDK began writing has the file it began removed.
+/// fork that fails after the SDK began writing has each file it may have begun named in the log
+/// once its processes have ended, and kept: the SDK names a fork's file by an id of its own, so a
+/// fork of the same conversation another caller made meanwhile cannot be told apart from it.
 #[cfg_attr(
     not(test),
     expect(
@@ -112,15 +115,19 @@ pub(crate) async fn fork_claude_conversation(
     let before = list_conversation_files(&project_folder)
         .await
         .map_err(ClaudeForkError::Listing)?;
-    let forked = run_fork(spawner, fork_run_request(bun, module, request), deadline).await;
-    if forked.is_err()
-        && let Err(error) = remove_begun_forks(&project_folder, &before, &source).await
-    {
-        tracing::error!(
-            error = &error as &dyn std::error::Error,
-            folder = %project_folder.display(),
-            "a failed fork's begun file could not be removed"
-        );
+    let tree_ends = TaskTracker::new();
+    let forked = run_fork(
+        spawner,
+        fork_run_request(bun, module, request),
+        deadline,
+        &tree_ends,
+    )
+    .await;
+    // A failed run's processes are ended on a task of their own; none writes once it is done.
+    tree_ends.close();
+    tree_ends.wait().await;
+    if forked.is_err() {
+        log_begun_forks(&project_folder, &before, &source).await;
     }
     forked
 }
@@ -130,8 +137,9 @@ async fn run_fork(
     spawner: &Spawner,
     run: ProgramRunRequest,
     deadline: Duration,
+    tree_ends: &TaskTracker,
 ) -> Result<String, ClaudeForkError> {
-    let output = run_program_to_end(spawner, run, deadline, FORK_OUTPUT_BOUND)
+    let output = run_program_to_end(spawner, run, deadline, FORK_OUTPUT_BOUND, Some(tree_ends))
         .await
         .map_err(ClaudeForkError::Run)?;
     if !output.status.success() {
@@ -158,21 +166,35 @@ async fn list_conversation_files(folder: &Path) -> io::Result<HashSet<PathBuf>> 
     Ok(files)
 }
 
-// Removes each conversation file in `folder` that `before` did not list and whose first entry
-// names `source` as the conversation it was forked from: the file a failed fork began.
-async fn remove_begun_forks(
-    folder: &Path,
-    before: &HashSet<PathBuf>,
-    source: &str,
-) -> io::Result<()> {
-    for file in list_conversation_files(folder).await? {
-        if !before.contains(&file)
-            && read_claude_fork_source(&file).await?.as_deref() == Some(source)
-        {
-            tokio::fs::remove_file(&file).await?;
+// Logs each conversation file in `folder` that `before` did not list and whose first entry names
+// `source` as the conversation it was forked from, a file a failed fork may have begun; a file
+// that cannot be read is logged and the rest still read.
+async fn log_begun_forks(folder: &Path, before: &HashSet<PathBuf>, source: &str) {
+    let files = match list_conversation_files(folder).await {
+        Ok(files) => files,
+        Err(error) => {
+            tracing::error!(
+                error = &error as &(dyn std::error::Error + 'static),
+                folder = %folder.display(),
+                "a failed fork's folder could not be listed for a file it began"
+            );
+            return;
+        }
+    };
+    for file in files.difference(before) {
+        match read_claude_fork_source(file).await {
+            Ok(forked_from) if forked_from.as_deref() == Some(source) => tracing::error!(
+                file = %file.display(),
+                "a failed fork may have left this conversation file, which is kept"
+            ),
+            Ok(_) => {}
+            Err(error) => tracing::error!(
+                error = &error as &(dyn std::error::Error + 'static),
+                file = %file.display(),
+                "a new conversation file beside a failed fork could not be read"
+            ),
         }
     }
-    Ok(())
 }
 
 // bun with every input an argument after `--`, run in the SDK's own folder, which holds no
@@ -236,7 +258,7 @@ mod tests {
 
     use super::{
         AgentSdkModule, ClaudeForkError, ClaudeForkRequest, FORK_SCRIPT, fork_claude_conversation,
-        fork_run_request, list_conversation_files, remove_begun_forks,
+        fork_run_request,
     };
 
     const SOURCE_ID: &str = "5b0c5a0e-6f2a-4d47-9a8e-0f6c2d1e3b4a";
@@ -382,47 +404,6 @@ mod tests {
             | (ForkOutcome::UnreadableAnswer, Err(ClaudeForkError::UnreadableAnswer)) => {}
             _ => panic!("expected {expected:?}, got {forked:?}"),
         }
-    }
-
-    // Killed by removing a file listed before the run, a fork of another conversation or a file
-    // that is no conversation's, and by keeping the fork the failed run began.
-    #[tokio::test]
-    async fn a_failed_forks_begun_file_alone_is_removed() {
-        let folder = tempfile::tempdir().expect("the project folder is made");
-        let write = |name: &str, first_entry: Value| {
-            std::fs::write(folder.path().join(name), format!("{first_entry}\n"))
-                .expect("the file is written");
-        };
-        let fork_of = |source: &str| {
-            json!({
-                "type": "user",
-                "uuid": "copy",
-                "forkedFrom": {"sessionId": source, "messageUuid": "entry"},
-            })
-        };
-        write("source.jsonl", json!({"type": "user", "uuid": "entry"}));
-        write("earlier-fork.jsonl", fork_of(SOURCE_ID));
-        let before = list_conversation_files(folder.path())
-            .await
-            .expect("the folder lists");
-        write("begun.jsonl", fork_of(SOURCE_ID));
-        write("other-fork.jsonl", fork_of(FORK_ID));
-        write("begun.txt", fork_of(SOURCE_ID));
-
-        remove_begun_forks(folder.path(), &before, SOURCE_ID)
-            .await
-            .expect("the begun fork is removed");
-
-        let kept: BTreeSet<PathBuf> = [
-            "source.jsonl",
-            "earlier-fork.jsonl",
-            "other-fork.jsonl",
-            "begun.txt",
-        ]
-        .iter()
-        .map(|name| folder.path().join(name))
-        .collect();
-        assert_eq!(list_files(folder.path()), kept);
     }
 
     // Every file under `folder`, at any depth.

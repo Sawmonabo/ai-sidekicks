@@ -379,6 +379,7 @@ async fn a_sweep_pass_clears_what_a_cut_git_or_a_crash_left_and_keeps_the_rest()
             None,
             &[],
             &[],
+            &[],
             settled,
             &ProcessorMeter::default(),
         )
@@ -445,6 +446,7 @@ async fn a_sweep_pass_clears_what_a_cut_git_or_a_crash_left_and_keeps_the_rest()
             Some(&pass),
             &[],
             &[],
+            &[],
             settled,
             &ProcessorMeter::default(),
         )
@@ -502,6 +504,7 @@ async fn a_sweep_packs_the_captures_whose_base_no_ref_reaches_and_skips_an_idle_
             None,
             &[],
             &[],
+            &[],
             SystemTime::now(),
             &ProcessorMeter::default(),
         )
@@ -556,6 +559,7 @@ async fn a_sweep_packs_the_captures_whose_base_no_ref_reaches_and_skips_an_idle_
             None,
             &[],
             &[],
+            &[],
             settled,
             &ProcessorMeter::default(),
         )
@@ -569,6 +573,7 @@ async fn a_sweep_packs_the_captures_whose_base_no_ref_reaches_and_skips_an_idle_
             &owner,
             &common,
             Some(&pass),
+            &[],
             &[],
             &[],
             settled,
@@ -588,6 +593,7 @@ async fn a_sweep_packs_the_captures_whose_base_no_ref_reaches_and_skips_an_idle_
             &owner,
             &common,
             Some(&idle),
+            &[],
             &[],
             &[],
             settled,
@@ -645,6 +651,7 @@ async fn a_sweep_of_a_deleted_repository_answers_its_absence_and_keeps_its_folde
             &owner,
             &common,
             None,
+            &[],
             &[],
             &[],
             SystemTime::now(),

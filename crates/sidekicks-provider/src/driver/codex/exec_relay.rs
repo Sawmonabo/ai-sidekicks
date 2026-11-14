@@ -505,20 +505,21 @@ impl CodexExecRelay {
     // hold's or a sessionless connection's: every one is terminated but a command the relay
     // started under a call, which runs to its end.
     async fn end_unowned_processes(&self, executor: &CodexExecutor, processes: Vec<String>) {
-        let ended: Vec<String> = {
-            let commands = lock(&self.commands);
-            processes
-                .into_iter()
-                .filter(|relay_id| {
-                    !commands.values().any(|record| {
-                        record.end.is_none() && record.command.executor_process_id == *relay_id
-                    })
-                })
-                .collect()
-        };
+        let ended: Vec<String> = processes
+            .into_iter()
+            .filter(|relay_id| !self.runs_command(relay_id))
+            .collect();
         for relay_id in ended {
             forward(executor, executor.compose_process_terminate(&relay_id)).await;
         }
+    }
+
+    // Whether the executor's process `relay_id` is a command the relay started under a call and
+    // still holds, which runs to its end once no connection owns it.
+    fn runs_command(&self, relay_id: &str) -> bool {
+        lock(&self.commands)
+            .values()
+            .any(|record| record.end.is_none() && record.command.executor_process_id == relay_id)
     }
 
     /// Carries one of the connection `connection`'s messages to `executor`: an `initialize` is

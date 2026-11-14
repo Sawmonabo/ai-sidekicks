@@ -13,27 +13,24 @@
 //! - Work that must land whole, or not at all, runs held in a task of its own (`run_held`), which
 //!   keeps the key until the work ends even after its caller stops waiting.
 
+mod handles;
 pub mod read_write;
 
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
 use tokio::sync::{OwnedMutexGuard, oneshot};
 use tokio::task::JoinError;
 
-use crate::mutex_lock::lock;
+use crate::keyed_lock::handles::{KeyHandle, KeyHandles};
 
 /// A per-key, first-come-first-served lock held across awaits; see the module doc.
 pub struct KeyedLock<Key> {
     canonical_key: fn(Key) -> Key,
     // Each key's queue, held by its holder and every waiter.
-    queues: Mutex<HashMap<Key, Arc<tokio::sync::Mutex<()>>>>,
-    // Told each time a caller joins a key's queue, so a test awaits a waiter instead of polling.
-    #[cfg(any(test, feature = "test-support"))]
-    queue_joined: tokio::sync::Notify,
+    queues: KeyHandles<Key, tokio::sync::Mutex<()>>,
 }
 
 impl<Key: Eq + Hash + Clone> Default for KeyedLock<Key> {
@@ -53,26 +50,18 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
     pub(crate) fn with_canonical_key(canonical_key: fn(Key) -> Key) -> Self {
         Self {
             canonical_key,
-            queues: Mutex::new(HashMap::new()),
-            #[cfg(any(test, feature = "test-support"))]
-            queue_joined: tokio::sync::Notify::new(),
+            queues: KeyHandles::new(),
         }
     }
 
     /// Waits for `requested_key` behind every caller that asked for it first and returns the hold,
     /// which releases the key when it drops. Dropping the future while it waits gives up its place.
     pub async fn acquire(&self, requested_key: Key) -> KeyHold<'_, Key> {
-        let key = (self.canonical_key)(requested_key);
-        let queue = Arc::clone(self.lock_queues().entry(key.clone()).or_default());
         let mut hold = KeyHold {
-            lock: self,
-            key,
-            queue: Some(Arc::clone(&queue)),
             guard: None,
+            handle: self.queues.join((self.canonical_key)(requested_key)),
         };
-        #[cfg(any(test, feature = "test-support"))]
-        self.queue_joined.notify_waiters();
-        hold.guard = Some(queue.lock_owned().await);
+        hold.guard = Some(hold.handle.key_lock().lock_owned().await);
         hold
     }
 
@@ -160,10 +149,8 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
     /// count rises once a caller waits behind the holder.
     #[cfg(any(test, feature = "test-support"))]
     pub fn queue_handle_count(&self, requested_key: Key) -> usize {
-        let key = (self.canonical_key)(requested_key);
-        self.lock_queues()
-            .get(&key)
-            .map_or(0, |queue| Arc::strong_count(queue) - 1)
+        self.queues
+            .handle_count(&(self.canonical_key)(requested_key))
     }
 
     /// Waits until `requested_key`'s queue holds more handles than `handles`, a count
@@ -171,21 +158,9 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
     /// caller that joins a queue, never by a timer.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn wait_for_queue_past(&self, requested_key: Key, handles: usize) {
-        loop {
-            let joined = self.queue_joined.notified();
-            let mut joined = std::pin::pin!(joined);
-            // Registered before the count is read, so a join after the read still wakes it.
-            joined.as_mut().enable();
-            if self.queue_handle_count(requested_key.clone()) > handles {
-                return;
-            }
-            joined.await;
-        }
-    }
-
-    fn lock_queues(&self) -> std::sync::MutexGuard<'_, HashMap<Key, Arc<tokio::sync::Mutex<()>>>> {
-        // The map holds no invariant a panicking holder could break.
-        lock(&self.queues)
+        self.queues
+            .wait_for_handles_past(&(self.canonical_key)(requested_key), handles)
+            .await;
     }
 }
 
@@ -204,16 +179,15 @@ pub enum HeldWorkEnd {
 /// the hold, wakes the next waiter and removes the key's queue once no one else holds or waits on
 /// it. Code that runs on the holder's key takes it by reference.
 pub struct KeyHold<'lock, Key: Eq + Hash + Clone> {
-    lock: &'lock KeyedLock<Key>,
-    key: Key,
-    queue: Option<Arc<tokio::sync::Mutex<()>>>,
+    // Declared before `handle`, so the guard drops first.
     guard: Option<OwnedMutexGuard<()>>,
+    handle: KeyHandle<'lock, Key, tokio::sync::Mutex<()>>,
 }
 
 impl<Key: Eq + Hash + Clone> KeyHold<'_, Key> {
     /// The key held, in its canonical spelling.
     pub fn key(&self) -> &Key {
-        &self.key
+        self.handle.key()
     }
 }
 
@@ -229,21 +203,6 @@ impl<'lock, Key: Eq + Hash + Clone> Future for KeyWait<'lock, Key> {
 
     fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
         self.0.as_mut().poll(context)
-    }
-}
-
-impl<Key: Eq + Hash + Clone> Drop for KeyHold<'_, Key> {
-    fn drop(&mut self) {
-        drop(self.guard.take());
-        let mut queues = self.lock.lock_queues();
-        drop(self.queue.take());
-        // A waiter or a new holder keeps its own handle on the queue, taken under the map's lock.
-        if queues
-            .get(&self.key)
-            .is_some_and(|queue| Arc::strong_count(queue) == 1)
-        {
-            queues.remove(&self.key);
-        }
     }
 }
 
@@ -281,7 +240,7 @@ mod tests {
         let spawned = tokio::spawn(async move { work_on(&hold).await });
         assert_eq!(spawned.await.expect("the spawned task ends"), "session");
         drop(outside.await);
-        assert!(LOCK.lock_queues().is_empty());
+        assert_eq!(LOCK.queues.key_count(), 0);
     }
 
     #[tokio::test]
@@ -294,7 +253,7 @@ mod tests {
         assert!(poll!(second.as_mut()).is_pending());
         drop(first);
         drop(second.await);
-        assert!(lock.lock_queues().is_empty());
+        assert_eq!(lock.queues.key_count(), 0);
     }
 
     // A place taken with no await is kept ahead of a caller that asks later, whichever polls first.
@@ -319,7 +278,7 @@ mod tests {
         assert!(poll!(later.as_mut()).is_pending());
         drop(placed);
         drop(later.await);
-        assert!(lock.lock_queues().is_empty());
+        assert_eq!(lock.queues.key_count(), 0);
     }
 
     #[tokio::test]
@@ -351,16 +310,16 @@ mod tests {
         }
         .await;
         assert_eq!(failed, Err("refused"));
-        assert!(lock.lock_queues().is_empty());
+        assert_eq!(lock.queues.key_count(), 0);
 
         let held = lock.acquire("session").await;
         let mut dropped = Box::pin(lock.acquire("session"));
         assert!(poll!(dropped.as_mut()).is_pending());
         drop(dropped);
-        assert_eq!(lock.lock_queues().len(), 1);
+        assert_eq!(lock.queues.key_count(), 1);
         drop(held);
-        assert!(lock.lock_queues().is_empty());
+        assert_eq!(lock.queues.key_count(), 0);
         drop(lock.acquire("session").await);
-        assert!(lock.lock_queues().is_empty());
+        assert_eq!(lock.queues.key_count(), 0);
     }
 }

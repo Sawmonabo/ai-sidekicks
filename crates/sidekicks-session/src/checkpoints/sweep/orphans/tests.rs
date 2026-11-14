@@ -209,8 +209,8 @@ async fn a_walk_removes_what_no_row_names_an_hour_on_and_keeps_the_rest() {
     );
 }
 
-// Kills: the walk reading the names before it holds the session's copies lock, which reads the copy
-// unnamed and removes it once the keeper lets go.
+// Kills: the walk removing what its unlocked listing read as unnamed without reading the names
+// again under the session's copies lock, which removes the copy once the keeper lets go.
 #[tokio::test]
 async fn a_copy_named_again_while_the_walk_waits_is_kept() {
     let fixture = Fixture::with_repository(&[]).await;

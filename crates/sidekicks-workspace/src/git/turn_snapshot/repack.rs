@@ -243,8 +243,9 @@ pub struct CapturePacking {
     /// Each folder's captures whose own pack failed, until a pack of them succeeds: a fold packs
     /// a loose tree without what it borrows, which a sweep then no longer finds loose.
     failed_packs: Mutex<HashMap<PathBuf, FailedPacks>>,
-    /// The folders a sweep pass of this daemon run has read: a capture's pack folds none before its
-    /// first pass, which packs what an earlier run's failed packs left loose.
+    /// The folders a sweep pass of this daemon run has read, and those this run made: a capture's
+    /// pack folds none before its first pass, which packs what an earlier run's failed packs left
+    /// loose.
     swept_folders: Mutex<HashSet<PathBuf>>,
     /// The daemon run's record of the old gits already reported.
     floor_reports: Arc<GitFloorReports>,
@@ -336,6 +337,11 @@ impl CapturePacking {
         if is_folder_removed(&folder).await {
             return;
         }
+        // A folder made in this run holds nothing an earlier run left loose, so its folds need
+        // no first sweep pass.
+        if capture_folder.is_made_in_this_run() {
+            lock(&self.swept_folders).insert(folder.clone());
+        }
         let packed = self
             .pack_revisions(place, capture_folder, revisions.into_bytes(), &hold)
             .await;
@@ -385,8 +391,10 @@ impl CapturePacking {
     /// reclaimed from its refs, `extra_points` and its kept indexes, and the packs folded; a
     /// folder holding a reclaim due is never skipped. The reclaim also keeps what each of
     /// `kept_commits` reaches, a commit the folder lacks skipped, so a capture an owner's window
-    /// recorded under another spelling of the repository stays whole. Fails with the step's
-    /// failure, so no pass is kept and the next sweep runs it all.
+    /// recorded under another spelling of the repository stays whole; each of `unplaced_points`,
+    /// recorded under a spelling that no longer resolves, whose commit the folder holds joins
+    /// `extra_points` for the packing of what no ref reaches. Fails with the step's failure, so no
+    /// pass is kept and the next sweep runs it all.
     #[expect(
         clippy::too_many_arguments,
         reason = "each is one fact of the pass the caller holds, the meter its job's own"
@@ -399,6 +407,7 @@ impl CapturePacking {
         last_pass: Option<&CaptureFolderPass>,
         extra_points: &[SnapshotPoint],
         kept_commits: &[GitObjectId],
+        unplaced_points: &[SnapshotPoint],
         read_at: SystemTime,
         meter: &ProcessorMeter,
     ) -> Result<CaptureFolderSweep, PackingError> {
@@ -484,6 +493,10 @@ impl CapturePacking {
         }
         let mut points = self.read_capture_points(place, &folder, &hold).await?;
         points.extend_from_slice(extra_points);
+        points.extend(
+            self.read_points_held(place, &folder, unplaced_points, &hold)
+                .await?,
+        );
         let reach = self
             .read_base_reach(place, &folder, common_folder, &points, &hold)
             .await?;
@@ -632,8 +645,8 @@ impl CapturePacking {
 
     // A fold a capture's pack found due, run when the folder's lock comes free and only when it is
     // still due and still there then, and once a sweep pass of this daemon run has read the
-    // folder, so no fold rolls up what an earlier run's failed pack left loose before that pass
-    // packs it. Fails as the fold does.
+    // folder or this run made it, so no fold rolls up what an earlier run's failed pack left loose
+    // before that pass packs it. Fails as the fold does.
     async fn fold_when_due(
         &self,
         place: Option<&Place>,

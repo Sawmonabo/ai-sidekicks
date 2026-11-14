@@ -114,9 +114,10 @@ impl Leveling<'_> {
     // the copy's reach or an object was still vanishing at the last read, the round runs again,
     // and after the last one, or when git cannot read an index, nothing is placed or removed and
     // the folder is named skipped. A folder gone at a round's start, once its hold is taken, or
-    // when its objects' copy ends no longer a git folder, has its copy removed; a pack that vanished
-    // with none to replace it runs the round again, since git removes packs it no longer needs. Each git folder nested among the files (a submodule's) is copied
-    // after by a routine of its own.
+    // when its objects' copy finds it no longer a git folder, has its copy removed; a pack that
+    // vanished with none to replace it runs the round again, since git removes packs it no longer
+    // needs. Each git folder nested among the files (a submodule's) is copied after by a routine of
+    // its own.
     pub(super) fn copy_git_folder(&mut self, folder: &Path, copy: &Path) -> Result<(), LevelStop> {
         let mut nested = Vec::new();
         for round in 1..=ROUNDS {

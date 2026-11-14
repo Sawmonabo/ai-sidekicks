@@ -5,11 +5,13 @@
 //! taken as it stands, its times untouched, so every keeper holds the session's [`COPIES_LOCK`]
 //! shared until a row names its copy, and the orphans walk removes none meanwhile.
 
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
+use std::mem;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 
 use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::session::id::SessionId;
@@ -25,6 +27,7 @@ use sidekicks_std::file::publish_without_replacing::{
 };
 use sidekicks_std::file::removal_after_failure::remove_file_after_failure;
 use sidekicks_std::keyed_lock::read_write::KeyedReadWriteLock;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::random_hex::random_hex;
 use sidekicks_workspace::git::turn_snapshot::capture_folder::CAPTURES_SEGMENT;
 
@@ -36,10 +39,26 @@ const TEMPORARY_SUFFIX: &str = ".copying";
 
 /// Each session's copies lock: held shared by every keeper of a copy or a clone, from before it
 /// keeps it until the write of the row that names it returns, and exclusive by the orphans walk
-/// from before it reads the names until its removals end. One hold per operation, the copies lock
-/// taken before the command windows' shadow lock.
+/// while it reads the names again and removes what they leave unnamed. One hold per operation, the
+/// copies lock taken before the command windows' shadow lock.
 pub static COPIES_LOCK: LazyLock<KeyedReadWriteLock<SessionId>> =
     LazyLock::new(KeyedReadWriteLock::new);
+
+/// The sessions a keeper's row write failed for since the orphans walk last took them: what it
+/// kept may lie unnamed with no later activity to bring the session to a walk.
+static UNNAMED_KEEP_SESSIONS: LazyLock<Mutex<HashSet<SessionId>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Marks `session_id` for the next orphans walk, whatever its activity, after a keeper's write of
+/// the row naming what it kept failed.
+pub(crate) fn mark_unnamed_keep_session(session_id: SessionId) {
+    lock(&UNNAMED_KEEP_SESSIONS).insert(session_id);
+}
+
+/// Takes the sessions [`mark_unnamed_keep_session`] marked since the last take.
+pub(crate) fn take_unnamed_keep_sessions() -> HashSet<SessionId> {
+    mem::take(&mut *lock(&UNNAMED_KEEP_SESSIONS))
+}
 
 /// The mode a byte copy is made with: its owner's alone.
 const BYTE_COPY_MODE: u32 = 0o600;

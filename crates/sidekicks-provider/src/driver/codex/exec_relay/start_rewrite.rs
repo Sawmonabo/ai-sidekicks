@@ -21,7 +21,7 @@ use sidekicks_workspace::git::process::environment::{
 };
 
 use crate::command::askpass::command_prompt_environment;
-use crate::driver::codex::exec_relay::executor::CodexExecutor;
+use crate::driver::codex::exec_relay::executor::{CodexExecutor, WatchedAnswer};
 use crate::driver::codex::exec_relay::{CodexExecRelay, RelayedCommand, forward};
 
 /// The wrapper's flags ahead of a relayed command's own words.
@@ -198,15 +198,28 @@ impl CodexExecRelay {
         forward(&executor, Value::Object(message).to_string()).await;
         let relay = Arc::downgrade(&self);
         drop(self);
-        if answered.await.unwrap_or(false) {
-            // A refused start runs nothing, so nothing of it is kept.
-            if is_minted {
-                executor.forget_exit(&process_id);
+        match answered.await {
+            Ok(WatchedAnswer::Refused) => {
+                // A refused start runs nothing, so nothing of it is kept.
+                if is_minted {
+                    executor.forget_exit(&process_id);
+                }
+                if let Some(relay) = relay.upgrade() {
+                    relay.forget_command(&call);
+                }
+                return;
             }
-            if let Some(relay) = relay.upgrade() {
-                relay.forget_command(&call);
+            // Answered once no connection owned it: it runs on only as a command the relay still
+            // holds under its call, as a hold's end judges one.
+            Ok(WatchedAnswer::TakenUnowned) => {
+                let is_command = relay
+                    .upgrade()
+                    .is_some_and(|relay| relay.runs_command(&process_id));
+                if !is_command {
+                    forward(&executor, executor.compose_process_terminate(&process_id)).await;
+                }
             }
-            return;
+            Ok(WatchedAnswer::Taken) | Err(_) => {}
         }
         drop(executor);
         let end = exited

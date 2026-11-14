@@ -16,6 +16,7 @@ use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_platforms::remove_tree;
 use sidekicks_std::missing_entry::{MissingEntry as _, is_gone};
 
+use super::reclaim::RECLAIM_PACK_PREFIX;
 use super::{PACK_EXTENSION, PACK_INDEX_EXTENSION, PACK_REVERSE_INDEX_EXTENSION, PACK_SEGMENT};
 use crate::git::turn_snapshot::capture_folder::{
     CAPTURES_SEGMENT, INDEXES_SEGMENT, OBJECTS_SEGMENT, is_partial_capture_folder_name,
@@ -40,14 +41,54 @@ const TEMPORARY_PACK_PREFIXES: [&str; 2] = ["tmp_", ".tmp-"];
 /// it finishes.
 const TEMPORARY_OBJECT_PREFIX: &str = "tmp_obj_";
 
-/// Removes from `pack_folder` each temporary pack, a file or a folder, and each index or reverse
-/// index whose pack's data file is gone, as a reclaim stopped between the two leaves one, each last
-/// written an hour or more ago, and answers how many it removed. Blocking. Fails as a listing, a
-/// stat or a removal does; a folder or an entry already gone is none.
+/// Puts back in place each pack data file a reclaim stopped after setting it aside left beside its
+/// index, then removes from `pack_folder` each temporary pack, a file or a folder, and each index
+/// or reverse index whose pack's data file is gone, as a reclaim stopped between the two leaves
+/// one, each last written an hour or more ago, and answers how many it removed. Run under the
+/// folder's lock, so no reclaim is under way. Blocking. Fails as a listing, a stat, a rename or a
+/// removal does; a folder or an entry already gone is none.
 pub(super) fn remove_stale_temporary_packs(pack_folder: &Path) -> io::Result<u64> {
+    restore_set_aside_packs(pack_folder)?;
     remove_stale_entries(pack_folder, stale_cutoff(), |name| {
         has_any_prefix(name, &TEMPORARY_PACK_PREFIXES) || is_index_without_pack(pack_folder, name)
     })
+}
+
+// Renames each data file a reclaim set aside under its own prefix back to its pack's name where the
+// pack's index still stands and no data file took its place: the reclaim stopped before it either
+// removed the pack or put it back, and a pack kept costs nothing where one lost loses a capture.
+fn restore_set_aside_packs(pack_folder: &Path) -> io::Result<()> {
+    let Some(entries) = fs::read_dir(pack_folder).none_if_missing()? else {
+        return Ok(());
+    };
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(pack_name) = name
+            .to_str()
+            .and_then(|name| name.strip_prefix(RECLAIM_PACK_PREFIX))
+            .filter(|pack_name| {
+                pack_name.starts_with(PACK_SEGMENT)
+                    && Path::new(pack_name)
+                        .extension()
+                        .is_some_and(|extension| extension == PACK_EXTENSION)
+            })
+        else {
+            continue;
+        };
+        let pack = pack_folder.join(pack_name);
+        let is_index_standing = fs::symlink_metadata(pack.with_extension(PACK_INDEX_EXTENSION))
+            .none_if_missing()?
+            .is_some();
+        if is_index_standing && fs::symlink_metadata(&pack).none_if_missing()?.is_none() {
+            match fs::rename(entry.path(), &pack) {
+                Ok(()) => {}
+                Err(gone) if is_gone(&gone) => {}
+                Err(failure) => return Err(failure),
+            }
+        }
+    }
+    Ok(())
 }
 
 // Whether `name` in `pack_folder` is a pack's index or reverse index whose data file reads as

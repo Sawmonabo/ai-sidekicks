@@ -42,8 +42,9 @@ use crate::git::turn_snapshot::retention::RunContextKey;
 const RECLAIMS_SEGMENT: &str = "reclaims";
 
 /// The name prefix an old pack takes while the reclaim checks it is untouched before removing it:
-/// a `tmp_` name, which the leftovers' clearing removes an hour on should the daemon stop between.
-const RECLAIM_PACK_PREFIX: &str = "tmp_reclaim_";
+/// a `tmp_` name, should the daemon stop between, which the leftovers' clearing puts back in place
+/// while its index stands and removes an hour on once its index is gone.
+pub(super) const RECLAIM_PACK_PREFIX: &str = "tmp_reclaim_";
 
 /// One pack of the folder, by its data file, and when it was last written.
 struct FolderPack {

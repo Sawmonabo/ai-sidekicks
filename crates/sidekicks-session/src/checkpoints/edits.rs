@@ -22,7 +22,9 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::writer::DatabaseWriter;
 use tokio::task::JoinError;
 
-use crate::checkpoints::copies::{COPIES_LOCK, CopyStore, FileCopyError, FileCopyOutcome};
+use crate::checkpoints::copies::{
+    COPIES_LOCK, CopyStore, FileCopyError, FileCopyOutcome, mark_unnamed_keep_session,
+};
 use crate::checkpoints::schema::{
     CheckpointVersionContent, CheckpointVersionLeg, CopyMode, NotKeptReason,
 };
@@ -191,6 +193,8 @@ impl EditCheckpoints {
             .await;
         drop(copies_hold);
         if let Err(error) = written {
+            // The copy may now lie unnamed, so the next orphans walk takes the session.
+            mark_unnamed_keep_session(session_id);
             tracing::error!(
                 %session_id,
                 tool_call_id = tool_call,

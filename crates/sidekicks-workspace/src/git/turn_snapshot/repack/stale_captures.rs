@@ -174,6 +174,35 @@ impl CapturePacking {
         }
     }
 
+    // Each of `points` whose commit the capture folder `folder` holds, the folder read alone, for
+    // points whose recorded repository no longer says which folder holds them. Fails as git's read
+    // does.
+    pub(super) async fn read_points_held(
+        &self,
+        place: Option<&Place>,
+        folder: &Path,
+        points: &[SnapshotPoint],
+        _hold: &KeyHold<'_, PathBuf>,
+    ) -> Result<Vec<SnapshotPoint>, PackingError> {
+        if points.is_empty() {
+            return Ok(Vec::new());
+        }
+        let commits: Vec<&GitObjectId> = points.iter().map(|point| &point.commit).collect();
+        let arguments = in_git_folder(folder, &[], &["cat-file", "--batch-check"]);
+        let input = object_lines(commits.iter().copied());
+        let output = self
+            .git
+            .run(place, GitCall::read(arguments).with_input(input))
+            .await?;
+        let presence = read_bases_present(&output.stdout, &commits)?;
+        Ok(points
+            .iter()
+            .zip(presence)
+            .filter(|(_point, presence)| *presence == BasePresence::Commit)
+            .map(|(point, _presence)| point.clone())
+            .collect())
+    }
+
     // The distinct bases of `points` by whether a ref of the repository reaches each; a base gone
     // or naming no commit is logged and counted as unreached.
     pub(super) async fn read_base_reach(

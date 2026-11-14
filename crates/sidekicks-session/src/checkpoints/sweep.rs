@@ -57,8 +57,9 @@ pub const CHECKPOINT_SWEEP_INTERVAL: Duration = Duration::from_hours(1);
 
 /// The statements the sweep prepares on a pooled connection: every owner's repositories, one
 /// session's window points, the owed folders, the sessions holding unused shadows, and the orphans
-/// walk's start, its sessions and one session's copy hashes, cloned shadows and volume folders.
-pub const CHECKPOINT_SWEEP_STATEMENT_CAPACITY: usize = 9;
+/// walk's start, its sessions on a first walk, its active sessions, one marked session's check,
+/// and one session's copy hashes, cloned shadows and volume folders.
+pub const CHECKPOINT_SWEEP_STATEMENT_CAPACITY: usize = 11;
 
 /// A pair's row from a session run's context; the parts are read in this order, so a pair keeps
 /// its first part's spelling and place.
@@ -196,6 +197,9 @@ struct Pair {
     session_id: Option<SessionId>,
     /// Every spelling of the common git folder the session's windows recorded.
     window_spellings: HashSet<String>,
+    /// The spellings the session's windows recorded that no longer resolve, so their points may
+    /// lie in this pair's folder or in another of the session's.
+    unplaced_spellings: HashSet<String>,
 }
 
 /// One row of the pairs' read.
@@ -229,7 +233,11 @@ enum CheckpointSweepWorkUnit {
 /// A pass's processor time on the daemon's own threads: 2 ms per pair examined, 20 ms more per
 /// pair swept, 2 ms per owed folder, 5 ms per session reclaimed, and for the orphans walk 0.5 ms
 /// per session walked, 5 µs per file looked at and 1 ms per orphan removed; git's own time is its
-/// own.
+/// own. A later walk's session read is one pass over the sessions with a probe of each one's
+/// checkpoints, plus one probe per session marked again; only a daemon run's first walk reads every
+/// checkpoint row. A session's exclusive copies hold covers only its names' second read and its
+/// orphans' removal, taken only when its listing found one. A start pass over 2,000 sessions of
+/// 100 entries walks in 2 s.
 const CHECKPOINT_SWEEP_BUDGET: JobBudget<CheckpointSweepWorkUnit> = JobBudget::new(&[
     BudgetTerm {
         figure: Duration::from_millis(2),
@@ -470,7 +478,7 @@ impl CheckpointSweep {
                 break;
             }
             counts.pairs_examined += 1;
-            let (points, kept_commits) = match self
+            let window_points = match self
                 .read_window_points(&pair, &mut session_windows, meter)
                 .await
             {
@@ -491,8 +499,9 @@ impl CheckpointSweep {
                     &pair.key.owner_folder,
                     &pair.common_folder,
                     last.as_ref(),
-                    &points,
-                    &kept_commits,
+                    &window_points.points,
+                    &window_points.kept_commits,
+                    &window_points.unplaced_points,
                     self.deps.clock.now(),
                     meter,
                 ) => swept,
@@ -540,6 +549,7 @@ impl CheckpointSweep {
         let mut canonical: HashMap<String, Option<PathBuf>> = HashMap::new();
         let mut pairs: Vec<Pair> = Vec::new();
         let mut positions: HashMap<PairKey, usize> = HashMap::new();
+        let mut unplaced: HashMap<SessionId, HashSet<String>> = HashMap::new();
         for row in rows {
             if !canonical.contains_key(&row.common_folder) {
                 let resolved = match canonical_folder_path(Path::new(&row.common_folder)).await {
@@ -557,6 +567,12 @@ impl CheckpointSweep {
             }
             let common_folder = canonical.get(&row.common_folder).cloned().flatten();
             let Some(common_folder) = common_folder else {
+                if row.source == FROM_WINDOW {
+                    unplaced
+                        .entry(row.session_id)
+                        .or_default()
+                        .insert(row.common_folder);
+                }
                 continue;
             };
             let (owner_folder, session_id) = match &row.workflow_run {
@@ -580,6 +596,7 @@ impl CheckpointSweep {
                     place: row.place.clone(),
                     session_id,
                     window_spellings: HashSet::new(),
+                    unplaced_spellings: HashSet::new(),
                 });
                 pairs.len() - 1
             });
@@ -587,21 +604,27 @@ impl CheckpointSweep {
                 pairs[position].window_spellings.insert(row.common_folder);
             }
         }
+        for pair in &mut pairs {
+            if let Some(spellings) = pair.session_id.and_then(|session| unplaced.get(&session)) {
+                pair.unplaced_spellings.clone_from(spellings);
+            }
+        }
         Ok(pairs)
     }
 
     // The points of `pair`'s session's windows on its repository, each window's before-capture
-    // and, once taken, its after-capture, and the commit of every point of the session's windows
-    // whatever repository their rows spell, which the reclaim keeps; each session's windows are
-    // read once a pass, into `session_windows`. A workflow run's pair has none.
+    // and, once taken, its after-capture, the commit of every point of the session's windows
+    // whatever repository their rows spell, which the reclaim keeps, and the points of the windows
+    // whose spelling no longer resolves; each session's windows are read once a pass, into
+    // `session_windows`. A workflow run's pair has none.
     async fn read_window_points(
         &self,
         pair: &Pair,
         session_windows: &mut HashMap<SessionId, Vec<WindowPointRow>>,
         meter: &ProcessorMeter,
-    ) -> Result<(Vec<SnapshotPoint>, Vec<GitObjectId>), CheckpointSweepError> {
+    ) -> Result<WindowPoints, CheckpointSweepError> {
         let Some(session_id) = pair.session_id else {
-            return Ok((Vec::new(), Vec::new()));
+            return Ok(WindowPoints::default());
         };
         let rows = match session_windows.entry(session_id) {
             Entry::Occupied(read) => read.into_mut(),
@@ -619,17 +642,32 @@ impl CheckpointSweep {
                 unread.insert(rows)
             }
         };
-        let points = rows
-            .iter()
-            .filter(|(spelling, _)| pair.window_spellings.contains(spelling))
-            .flat_map(|(_, points)| points.iter().cloned())
-            .collect();
-        let commits = rows
-            .iter()
-            .flat_map(|(_, points)| points.iter().map(|point| point.commit.clone()))
-            .collect();
-        Ok((points, commits))
+        let points_spelled = |spellings: &HashSet<String>| -> Vec<SnapshotPoint> {
+            rows.iter()
+                .filter(|(spelling, _)| spellings.contains(spelling))
+                .flat_map(|(_, points)| points.iter().cloned())
+                .collect()
+        };
+        Ok(WindowPoints {
+            points: points_spelled(&pair.window_spellings),
+            kept_commits: rows
+                .iter()
+                .flat_map(|(_, points)| points.iter().map(|point| point.commit.clone()))
+                .collect(),
+            unplaced_points: points_spelled(&pair.unplaced_spellings),
+        })
     }
+}
+
+/// What a pair's pass is handed of its session's windows.
+#[derive(Default)]
+struct WindowPoints {
+    /// The points of the windows on the pair's repository.
+    points: Vec<SnapshotPoint>,
+    /// The commit of every point of the session's windows, whatever their repository.
+    kept_commits: Vec<GitObjectId>,
+    /// The points of the windows whose recorded repository no longer resolves.
+    unplaced_points: Vec<SnapshotPoint>,
 }
 
 // A window's recorded common git folder and its points.
