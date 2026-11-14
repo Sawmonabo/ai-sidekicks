@@ -24,7 +24,7 @@ function eventAt(
   sequence: number,
   overrides: Partial<ProjectedSessionEvent> = {},
 ): ProjectedSessionEvent {
-  return { ...eventOfKind("session-1", "run.starting", sequence), ...overrides };
+  return { ...eventOfKind("session-1", "agent.run.starting", sequence), ...overrides };
 }
 
 // Tripwires throw in development. Under test they are recorded, since the re-entrancy case
@@ -208,7 +208,7 @@ describe("a registered projector throws on an event", () => {
     return new SessionStore({
       sessionId: "session-1",
       projectors: {
-        "run.starting": (event) => {
+        "agent.run.starting": (event) => {
           if (event.sequence === sequence) {
             throw new TypeError("the payload was not the shape this projector claims");
           }
@@ -249,7 +249,7 @@ describe("a registered projector throws on an event", () => {
     const store = new SessionStore({
       sessionId: "session-1",
       projectors: {
-        "run.starting": () => [
+        "agent.run.starting": () => [
           { operation: "upsert", entity: { kind: "run", id: "run-half-applied" } },
           {
             operation: "upsert",
@@ -289,8 +289,8 @@ describe("a read places a window whose rows imply entities", () => {
     return new SessionStore({
       sessionId: "session-1",
       projectors: {
-        "run.running": projectRunRow("running"),
-        "run.completed": projectRunRow("completed"),
+        "agent.run.running": projectRunRow("running"),
+        "agent.run.completed": projectRunRow("completed"),
       },
     });
   }
@@ -315,9 +315,9 @@ describe("a read places a window whose rows imply entities", () => {
         },
       ],
       transcript: [
-        runRowAt("run.running", 1, "run-ended"),
-        runRowAt("run.completed", 2, "run-ended"),
-        runRowAt("run.running", 3, "run-live"),
+        runRowAt("agent.run.running", 1, "run-ended"),
+        runRowAt("agent.run.completed", 2, "run-ended"),
+        runRowAt("agent.run.running", 3, "run-live"),
       ],
     });
 
@@ -343,8 +343,8 @@ describe("a read places a window whose rows imply entities", () => {
       cursor: 2,
       entities: [],
       transcript: [
-        runRowAt("run.running", 1, "run-unreadable"),
-        runRowAt("run.running", 2, "run-a"),
+        runRowAt("agent.run.running", 1, "run-unreadable"),
+        runRowAt("agent.run.running", 2, "run-a"),
       ],
     });
 
@@ -357,7 +357,7 @@ describe("the standing events stand whatever rows the window holds", () => {
   it("keeps the newest of each kind from the read and the stream past a release", () => {
     const store = new SessionStore({ sessionId: "session-1" });
     const measuredAt = (sequence: number, runId: string): ProjectedSessionEvent =>
-      eventOfKind("session-1", "usage.context_window_update", sequence, {
+      eventOfKind("session-1", "usage.contextWindow.updated", sequence, {
         runId,
         windowUsedTokens: 10,
         windowMaxTokens: 100,
@@ -372,7 +372,7 @@ describe("the standing events stand whatever rows the window holds", () => {
     });
     // A row that measures nothing never stands over the one that did.
     store.applyBatch([
-      eventOfKind("session-1", "usage.context_window_update", 4, {
+      eventOfKind("session-1", "usage.contextWindow.updated", 4, {
         runId: "run-a",
         exceeded: true,
       }),
@@ -380,10 +380,10 @@ describe("the standing events stand whatever rows the window holds", () => {
     ]);
     store.releaseBeyondNewest(1);
     const switchedAt = (sequence: number, agentId: string): ProjectedSessionEvent =>
-      eventOfKind("session-1", "agent.provider_binding_changed", sequence, { agentId });
+      eventOfKind("session-1", "agent.providerBinding.changed", sequence, { agentId });
     store.applyBatch([
       measuredAt(6, "run-b"),
-      eventOfKind("session-1", "pty.control_changed", 7, { terminalId: "shell-1" }),
+      eventOfKind("session-1", "terminal.control.changed", 7, { terminalId: "shell-1" }),
       // Each agent's newest switch stands: the lead's second replaces its first.
       switchedAt(8, "agent-lead"),
       switchedAt(9, "agent-helper"),
@@ -410,7 +410,7 @@ describe("the hue wheel follows the order agents joined", () => {
     accentHue: string | null,
   ): ProjectedSessionEvent =>
     actedBy(
-      eventOfKind("session-1", "run.queued", sequence, {
+      eventOfKind("session-1", "agent.run.queued", sequence, {
         runId: `run-${agentId}`,
         resolvedAgent: { agentId, resolvedConfiguration: { accentHue } },
       }),
@@ -460,7 +460,7 @@ describe("the hue wheel follows the order agents joined", () => {
     const store = new SessionStore({ sessionId: "session-1" });
     const joins = [
       opens,
-      helperJoins(2, "agent-chosen", "hue-07"),
+      helperJoins(2, "agent-chosen", "hue07"),
       helperJoins(3, "agent-unchosen", null),
     ];
     store.initialize({
@@ -471,7 +471,7 @@ describe("the hue wheel follows the order agents joined", () => {
       transcript: joins,
     });
     // A stream's helper choosing the lead's step wears it too, and says it shares it.
-    store.applyBatch([helperJoins(4, "agent-sharing", "hue-00")]);
+    store.applyBatch([helperJoins(4, "agent-sharing", "hue00")]);
 
     const assignmentOf = (agentId: string) => store.hueAllocator.assignmentFor(agentId);
     expect(assignmentOf("agent-chosen")?.step).toBe(7);

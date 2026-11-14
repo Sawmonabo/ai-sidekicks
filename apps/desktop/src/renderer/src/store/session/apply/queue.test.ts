@@ -21,13 +21,13 @@ describe("ApplyQueue — when a batch drains", () => {
     });
 
     // A window that draws frames drains on the first, and leaves no timer behind.
-    queue.enqueue(eventOfKind("session-1", "run.starting", 1));
+    queue.enqueue(eventOfKind("session-1", "agent.run.starting", 1));
     clock.runFrame();
     expect(drained).toHaveLength(1);
     expect(clock.pendingCount).toBe(0);
 
     // One that draws none, as a hidden window may, drains when the fallback runs out.
-    queue.enqueue(eventOfKind("session-1", "run.starting", 2));
+    queue.enqueue(eventOfKind("session-1", "agent.run.starting", 2));
     clock.advance(APPLY_FRAME_FALLBACK_MS - 1);
     expect(drained).toHaveLength(1);
     clock.advance(1);
@@ -74,9 +74,9 @@ describe("ApplyQueue — a drain that throws", () => {
     });
 
     queue.enqueueAll([
-      eventOfKind("session-1", "run.starting", 1),
-      eventOfKind("session-1", "run.starting", 2),
-      eventOfKind("session-1", "run.starting", 3),
+      eventOfKind("session-1", "agent.run.starting", 1),
+      eventOfKind("session-1", "agent.run.starting", 2),
+      eventOfKind("session-1", "agent.run.starting", 3),
     ]);
     expect(() => {
       clock.runFrame();

@@ -54,11 +54,22 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
   const [standIn, setStandIn] = useState<RowStandIn | undefined>(undefined);
   const [isMakingNew, setIsMakingNew] = useState(false);
   const [refusal, setRefusal] = useState<ExtendedRefusal | undefined>(undefined);
+  // The move a pick asked for waits only until the session's listed branch is its target's, or,
+  // for a root picked before its branch was read, until the listing leaves the one it was picked
+  // from: the run boundary applied it.
+  const isMoveApplied =
+    pendingMove !== undefined &&
+    (pendingMove.branchName === undefined
+      ? pendingMove.fromName !== props.currentName
+      : pendingMove.branchName === props.currentName);
+  const pending = isMoveApplied ? undefined : pendingMove;
   const { reading, readAgain } = useWorktreeStatus(
     props.bridge,
     props.project.projectId,
     props.sessionId,
     isOpen,
+    // A root picked before the read landed is named by that read, open or closed.
+    pending !== undefined && pending.branchName === undefined,
   );
   // `target` is the picked row, or `undefined` for a cancel, which leaves no move.
   const moveTo = (path: string, target: MoveTarget | undefined): void => {
@@ -104,15 +115,6 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
       readAgain();
     });
   };
-  // The move a pick asked for waits only until the session's listed branch is its target's, or,
-  // for a root picked before its branch was read, until the listing leaves the one it was picked
-  // from: the run boundary applied it.
-  const isMoveApplied =
-    pendingMove !== undefined &&
-    (pendingMove.branchName === undefined
-      ? pendingMove.fromName !== props.currentName
-      : pendingMove.branchName === props.currentName);
-  const pending = isMoveApplied ? undefined : pendingMove;
   const rootTarget: MoveTarget =
     reading.kind === "loaded"
       ? { name: reading.status.repoRoot.branchName, branchName: reading.status.repoRoot.branchName }

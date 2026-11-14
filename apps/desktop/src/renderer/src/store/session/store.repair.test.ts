@@ -4,7 +4,7 @@
 // row, a lost page or a lost projection is the failure guarded here.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import { describe, expect, it } from "vitest";
 
 import { eventOfKind } from "#test/helpers/session/events.js";
@@ -22,7 +22,7 @@ const AT_HEAD: RepairReopening = { from: "head", headCursor: undefined };
 const REPAIR_READ: SessionBaseState = { shape: "project", entities: [] };
 
 function eventAt(sequence: number): ProjectedSessionEvent {
-  return eventOfKind(SESSION_ID, "run.starting", sequence);
+  return eventOfKind(SESSION_ID, "agent.run.starting", sequence);
 }
 
 function eventsAt(sequences: readonly number[]): ProjectedSessionEvent[] {
@@ -47,10 +47,10 @@ function readAfterRow(sequence: number): SessionBaseState {
   return { shape: "project", entities: [], streamAfterCursor: cursorAt(sequence) };
 }
 
-/** One run per `run.starting` row, named for its sequence; the row at `failingSequence` throws. */
+/** One run per `agent.run.starting` row, named for its sequence; the row at `failingSequence` throws. */
 function runPerRow(failingSequence?: number): EntityProjectorTable {
   return {
-    "run.starting": (event) => {
+    "agent.run.starting": (event) => {
       if (event.sequence === failingSequence) {
         throw new TypeError("the payload was not the shape this projector claims");
       }
@@ -280,7 +280,7 @@ describe("what a window keeps across its repair", () => {
     { repair: "from the window's head", reopening: AT_HEAD, sentAgain: [11, 12, 13, 14, 15] },
   ])("keeps what pages and the read loaded, before and during a repair $repair", (scenario) => {
     const leaseChangeAt = (sequence: number, terminalId: string): ProjectedSessionEvent =>
-      eventOfKind(SESSION_ID, "pty.control_changed", sequence, { terminalId });
+      eventOfKind(SESSION_ID, "terminal.control.changed", sequence, { terminalId });
     const store = new SessionStore({ sessionId: SESSION_ID });
     store.initialize({
       shape: "project",
@@ -338,7 +338,7 @@ describe("what a window keeps across its repair", () => {
       const runId = "11111111-2222-4333-8444-555555555555";
       // The run's rows name no one, so only the facts the page served say who acts for it.
       const runRowAt = (sequence: number): ProjectedSessionEvent =>
-        eventOfKind(SESSION_ID, "assistant.message", sequence, { sessionId: SESSION_ID, runId });
+        eventOfKind(SESSION_ID, "agent.message.sent", sequence, { sessionId: SESSION_ID, runId });
       const store = new SessionStore({ sessionId: SESSION_ID });
       store.initialize({
         shape: "project",
@@ -355,7 +355,7 @@ describe("what a window keeps across its repair", () => {
           {
             runId: runId as RunId,
             actor: "agent-1",
-            stateEventType: "run.completed",
+            stateEventType: "agent.run.completed",
             isRewound: false,
             foldedThroughSequence: 5,
           },
@@ -368,7 +368,7 @@ describe("what a window keeps across its repair", () => {
       expect(store.snapshot()).toMatchObject({ degradedCause: undefined, isReplaying: false });
       expect(store.snapshot().partitions.run[runId]).toMatchObject({
         state: "completed",
-        runFacts: { actor: "agent-1", stateEventType: "run.completed" },
+        runFacts: { actor: "agent-1", stateEventType: "agent.run.completed" },
       });
     },
   );

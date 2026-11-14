@@ -2,12 +2,12 @@
 // `services/daemon/session/event/streams.ts` says which beats reach a subscription; this module
 // says what reaches it.
 //
-// The two `run.*` streams deliver frames of changes, each a registered projection
-// (`RunStateChangeEvent`, `AgentRunRolledBackEvent`, `QueueItemSummary`) at its beat's cursor, not the
-// session envelope: a projection has a top-level `newState`, not `payload.newState`, and no `kind`
-// or `sequence`. A fixture that handed over the envelope would make every end-to-end result about
-// a frame no daemon produces. Codex's safety hold is a live frame with no session row, so no beat
-// projects to it.
+// The two run streams deliver frames of changes, each a registered projection
+// (`RunStateChangeEvent`, `AgentRunRolledBackEvent`, `QueueItemSummary`) at its beat's cursor, not
+// the session envelope: a projection has a top-level `newState`, not `payload.newState`, and no
+// `kind` or `sequence`. A fixture that handed over the envelope would make every end-to-end result
+// about a frame no daemon produces. Codex's safety hold is a live frame with no session row, so no
+// beat projects to it.
 //
 // Every member is sourced from the beat, not invented. `occurredAt` becomes the state-change
 // `timestamp` and the queue row's `updatedAt`, and the beat's kind supplies the queue state
@@ -17,13 +17,13 @@
 // `createdAt` come from the caller's row lookup.
 //
 // Every composed candidate is checked with its shape's generated check before delivery and a
-// failure is a refusal with the failing member's path. Hand-checking required members and casting would
-// leave optionals such as `intendedClose` unchecked; the run-lifecycle kinds register no payload
-// variant for the scenario contract check to read, so nothing else catches it. The check also removes
-// the branded-identifier casts. The value import of the checks costs the release bundle nothing:
-// this module is reached only from the fixture bridge, and the fixture composition sits behind
-// the build-time `__FIXTURE_BUILD__` branch in `App.tsx`. `projection.ts` holds what all
-// arms share, and `lib/wire/strings.ts` the string reader every wire reader uses.
+// failure is a refusal with the failing member's path. Hand-checking required members and casting
+// would leave optionals such as `intendedClose` unchecked; the run-lifecycle kinds register no
+// payload variant for the scenario contract check to read, so nothing else catches it. The check
+// also removes the branded-identifier casts. The value import of the checks costs the release
+// bundle nothing: this module is reached only from the fixture bridge, and the fixture composition
+// sits behind the build-time `__FIXTURE_BUILD__` branch in `App.tsx`. `projection.ts` holds what
+// all arms share, and `lib/wire/strings.ts` the string reader every wire reader uses.
 
 import {
   validateAgentRunRolledBackEvent,
@@ -50,7 +50,7 @@ import {
   runStateStreamArmFor,
 } from "../daemon/session/event/stream-kinds.js";
 
-/** What the `run.subscribeState` stream delivers: a state change, or the forward rollback row. */
+/** What the `agent.run.subscribe` stream delivers: a state change, or the forward rollback row. */
 export type RunStateStreamDelivery = RunStateChangeEvent | AgentRunRolledBackEvent;
 
 /**
@@ -97,8 +97,8 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
 /**
  * The `QueueItemSummary` members, beyond the row's own columns, carried through from the queue row
  * where it names them: the message's files, the child whose queue holds it, whether it is sent now,
- * what kind of item it is and where it goes, its plan message, and why its delivery failed. Keyed by
- * the derived member union like the table above.
+ * what kind of item it is and where it goes, its plan message, and why its delivery failed. Keyed
+ * by the derived member union like the table above.
  */
 const QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS: Readonly<
   Record<
@@ -118,7 +118,7 @@ const QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS: Readonly<
   notDeliveredReason: true,
 };
 
-/** The registered payload one beat travels as on the `run.subscribeState` stream. */
+/** The registered payload one beat travels as on the `agent.run.subscribe` stream. */
 export function projectRunStateStreamDelivery(
   event: ProjectedSessionEvent,
 ): RunStreamProjection<RunStateStreamDelivery> {
@@ -154,7 +154,7 @@ export function projectRunStreamChange(
 /** Finds one queue row by its queue item id, or `undefined` where there is none. */
 type QueueRowLookup = (queueItemId: string) => Readonly<Record<string, unknown>> | undefined;
 
-/** The `run.subscribeState` arms: a state transition, or the forward rollback row. */
+/** The `agent.run.subscribe` arms: a state transition, or the forward rollback row. */
 function projectRunStateStreamBeat(
   event: ProjectedSessionEvent,
 ): RunStreamProjection<RunStateStreamDelivery> {
@@ -183,7 +183,7 @@ function projectStateChange(
     return sessionDisagreement;
   }
   // The kind and the payload each name the state the run is now in, and they must agree. Checked
-  // before the check because a `run.running` frame reporting `paused` passes the registered
+  // before the check because an `agent.run.running` frame reporting `paused` passes the registered
   // vocabulary and then routes by one key and renders by the other.
   const announcedState = runStateForTransitionKind(event.kind);
   const statedState = payload["newState"];
@@ -231,7 +231,7 @@ function projectRollback(
   });
 }
 
-/** `QueueItemSummary` — what `run.subscribeQueue` streams for one queue row. */
+/** `QueueItemSummary` — what `agent.queueItem.subscribe` streams for one queue row. */
 function projectRunQueueStreamBeat(
   event: ProjectedSessionEvent,
   queueRowFor: QueueRowLookup,

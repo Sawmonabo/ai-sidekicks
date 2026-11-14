@@ -31,7 +31,7 @@ function baseStateAt(position: number): SessionBaseState {
 
 /** One event of the entry's session at `sequence`. */
 function eventAt(sequence: number): ProjectedSessionEvent {
-  return eventOfKind("session-1", "run.starting", sequence);
+  return eventOfKind("session-1", "agent.run.starting", sequence);
 }
 
 /** A repair read's base state: the stream reopened after the row at `sequence`. */
@@ -240,7 +240,7 @@ describe("OpenSessionEntry — the read places the window and the stream follows
       offScreenRowLimit,
       refreshDebounceMs: 20,
       projectors: {
-        "run.starting": (event) => {
+        "agent.run.starting": (event) => {
           if (event.sequence === 7) {
             throw new TypeError("the payload was not the shape this projector claims");
           }

@@ -63,7 +63,7 @@ describe("artifact list reader — what makes it read again", () => {
 
   it("negative control: an unrelated frame asks for nothing", async () => {
     // Without this every case above would pass against a reader that re-read on any store
-    // transition. `workspace.stale` is the repos section's event, not this session's artifacts'.
+    // transition. `git.settled` shares the artifact frames' category but is no artifact frame.
     const clock = new ManualClock();
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const reader = readerOver(sessionStore, clock);
@@ -72,8 +72,8 @@ describe("artifact list reader — what makes it read again", () => {
 
     sessionStore.initialize({ shape: "project", cursor: 0, entities: [] });
     sessionStore.applyBatch([
-      eventOfKind(SESSION_ID, "run.queued", 1),
-      eventOfKind(SESSION_ID, "workspace.stale", 2),
+      eventOfKind(SESSION_ID, "agent.run.queued", 1),
+      eventOfKind(SESSION_ID, "git.settled", 2),
     ]);
     await readThrough(clock);
 

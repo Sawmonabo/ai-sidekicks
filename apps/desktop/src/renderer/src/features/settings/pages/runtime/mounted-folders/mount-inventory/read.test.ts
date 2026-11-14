@@ -173,7 +173,7 @@ describe("what refreshes the inventory", () => {
     const { clock, read, listCallCount } = await startedRead(sessionStore);
     expect(listCallCount()).toBe(1);
 
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.completed", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "agent.run.completed", 1));
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
@@ -185,7 +185,7 @@ describe("what refreshes the inventory", () => {
     const sessionStore = initializedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "workspace.ready", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "workspace.prepared", 1));
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
@@ -200,9 +200,9 @@ describe("what refreshes the inventory", () => {
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.applyBatch([
-      eventOfKind(sessionStore.sessionId, "run.completed", 1),
+      eventOfKind(sessionStore.sessionId, "agent.run.completed", 1),
       eventOfKind(sessionStore.sessionId, "workspace.archived", 2),
-      eventOfKind(sessionStore.sessionId, "workspace.ready", 3),
+      eventOfKind(sessionStore.sessionId, "workspace.prepared", 3),
     ]);
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
@@ -217,7 +217,7 @@ describe("what refreshes the inventory", () => {
     const sessionStore = initializedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.starting", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "agent.run.starting", 1));
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 

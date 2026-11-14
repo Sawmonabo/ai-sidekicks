@@ -117,7 +117,7 @@ describe("SessionCatchUpLine", () => {
       clock,
       refreshDebounceMs: 20,
       projectors: {
-        "run.starting": (event) => {
+        "agent.run.starting": (event) => {
           if (event.sequence === 7) {
             throw new TypeError("the payload was not the shape this projector claims");
           }
@@ -145,7 +145,9 @@ describe("SessionCatchUpLine", () => {
     function deliver(sequences: readonly number[]): void {
       act(() => {
         entry.applyQueue.enqueueAll(
-          sequences.map((sequence) => eventOfKind(entry.store.sessionId, "run.starting", sequence)),
+          sequences.map((sequence) =>
+            eventOfKind(entry.store.sessionId, "agent.run.starting", sequence),
+          ),
         );
         entry.applyQueue.flush();
       });

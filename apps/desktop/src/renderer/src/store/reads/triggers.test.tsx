@@ -13,7 +13,7 @@ import { eventOfKind } from "#test/helpers/session/events.js";
 import { SessionStore } from "../session/store.js";
 
 const SESSION_ID = "session-read-triggers";
-const DECLARED_KIND = "run.completed";
+const DECLARED_KIND = "agent.run.completed";
 /** The subject every frame here names. */
 const SUBJECT_ELSEWHERE = "019b7a10-0280-7aa1-8100-70100000000b";
 

@@ -41,7 +41,7 @@ function runIdOf(event: ProjectedSessionEvent): string {
 
 /** One projector, so an applied event is observable as an entity rather than a count. */
 export const projectors: EntityProjectorTable = {
-  "run.starting": (event) => [
+  "agent.run.starting": (event) => [
     {
       operation: "upsert",
       entity: { kind: "run", id: runIdOf(event), state: "running" },
@@ -51,7 +51,7 @@ export const projectors: EntityProjectorTable = {
 
 /** One event at `sequence`, carrying the run id the projector reads. */
 export function runEventAt(sequence: number, runId: string): ProjectedSessionEvent {
-  return eventOfKind("session-1", "run.starting", sequence, { runId });
+  return eventOfKind("session-1", "agent.run.starting", sequence, { runId });
 }
 
 /** A base state at `cursor` holding nothing, which the read answers with. */
