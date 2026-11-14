@@ -21,8 +21,9 @@ use tokio_util::sync::CancellationToken;
 use crate::tools::secret_key::ToolServerSecretKey;
 use crate::tools::server::ToolServerPath;
 
-/// The live entries by the route each sits at: the session, its conversation and the server.
-type EntryMap = Mutex<HashMap<ToolServerPath, Arc<ToolServerEntry>>>;
+/// The live entries by the route each sits at: the session, its conversation and the server. An
+/// entry's guard shares the route it was added at rather than holding a copy.
+type EntryMap = Mutex<HashMap<Arc<ToolServerPath>, Arc<ToolServerEntry>>>;
 
 /// The live adoptions by the session and the server each answers on.
 type AdoptionMap = Mutex<HashMap<(SessionId, String), ToolServerAdoption>>;
@@ -51,7 +52,8 @@ pub struct ToolServerEntry {
     spawn_ended: CancellationToken,
 }
 
-// The budget: an entry is at most 256 B beside what its dispatcher points at.
+// Counts the inline struct only: not its `Arc`'s counts, the heap its token, provider id and
+// cancellation node hold, its admitted sessions, the table's key and slot, or its guard.
 const _: () = assert!(size_of::<ToolServerEntry>() <= 256);
 
 impl ToolServerEntry {
@@ -124,9 +126,10 @@ impl ToolServerEntries {
             mcp_sessions: Mutex::new(HashMap::new()),
             spawn_ended: CancellationToken::new(),
         });
+        let path = Arc::new(path);
         let guard = ToolServerEntryGuard {
             entries: Arc::downgrade(&self.entries),
-            path: path.clone(),
+            path: Arc::clone(&path),
             entry: Arc::downgrade(&entry),
         };
         lock(&self.entries).insert(path, entry);
@@ -208,8 +211,8 @@ impl Drop for ToolServerAdoptionGuard {
 pub struct ToolServerEntryGuard {
     /// The table the entry sits in.
     entries: Weak<EntryMap>,
-    /// Where it sits.
-    path: ToolServerPath,
+    /// Where it sits, the table's own key.
+    path: Arc<ToolServerPath>,
     /// The entry itself, to tell it from a later spawn's under the same key.
     entry: Weak<ToolServerEntry>,
 }

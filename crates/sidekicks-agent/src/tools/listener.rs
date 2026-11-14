@@ -9,6 +9,7 @@ use std::mem;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Router;
 use axum::http::{StatusCode, Uri};
@@ -19,7 +20,8 @@ use rmcp::transport::streamable_http_server::session::local::{LocalSessionManage
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use sidekicks_platforms::{AtomicWriteError, LeftoverSweep, replace_file_atomically};
 use sidekicks_provider::pricing::receiver::refuse_unknown_telemetry_path;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use crate::tools::admission::{ToolServerAdmission, admit};
@@ -31,6 +33,10 @@ const PORT_FILE_NAME: &str = "tool-server-port";
 
 /// The port file's mode: only the person's account reads it.
 const PORT_FILE_MODE: u32 = 0o600;
+
+/// How long a connect to the kept port may go unanswered before the port counts as held: a
+/// loopback port no one listens on refuses at once.
+const HELD_PORT_ANSWER_BOUND: Duration = Duration::from_secs(1);
 
 /// Why the listener did not bind; nothing is listening.
 #[derive(Debug, thiserror::Error)]
@@ -77,6 +83,7 @@ impl ToolServerListener {
         let port_file = data_folder.join(PORT_FILE_NAME);
         let kept = read_kept_port(&port_file).await?;
         let listener = match kept {
+            Some(kept) if is_held(kept).await => bind_free_port().await?,
             Some(kept) => match TcpListener::bind((Ipv4Addr::LOCALHOST, kept)).await {
                 Ok(listener) => listener,
                 Err(error) if error.kind() == io::ErrorKind::AddrInUse => bind_free_port().await?,
@@ -186,6 +193,22 @@ async fn read_kept_port(port_file: &Path) -> Result<Option<u16>, ToolServerListe
         .filter(|port| *port != 0))
 }
 
+// Whether a program listens on `127.0.0.1:<port>`, on loopback or on a wildcard address: a bind
+// cannot tell, since Tokio's sets `SO_REUSEADDR`, under which BSD rules let a loopback bind share
+// a wildcard holder's port, while the option is what lets a restart bind past its own closing
+// connections. A refused connect, or any other failed one, leaves the answer to the bind.
+async fn is_held(port: u16) -> bool {
+    match timeout(
+        HELD_PORT_ANSWER_BOUND,
+        TcpStream::connect((Ipv4Addr::LOCALHOST, port)),
+    )
+    .await
+    {
+        Ok(connected) => connected.is_ok(),
+        Err(_unanswered) => true,
+    }
+}
+
 async fn bind_free_port() -> Result<TcpListener, ToolServerListenerError> {
     TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .await
@@ -215,6 +238,7 @@ fn answer_unmounted(uri: &Uri) -> Response {
 
 #[cfg(test)]
 pub(super) mod tests {
+    use std::net::Ipv4Addr;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -433,17 +457,41 @@ pub(super) mod tests {
         }
     }
 
-    // The kept port is bound again at the next start; while another program holds it, the
-    // listener moves, says from where, and keeps the new port for the start after. Killed by
-    // binding a fresh port each start, by failing on a held port, and by not keeping a new one.
+    // The kept port is bound again at the next start, though the last start's connections are still
+    // closing on it; while another program listens there, on loopback or on the wildcard address,
+    // the listener moves, says from where, and keeps the new port for the start after. Killed by
+    // binding a fresh port each start, by a bind without `SO_REUSEADDR`, by failing on a held port,
+    // by sharing a wildcard holder's port, and by not keeping a new port.
     #[tokio::test]
-    async fn the_kept_port_is_bound_again_and_a_held_one_moves_and_is_kept() {
+    async fn a_restart_keeps_its_port_and_a_held_one_moves_and_is_kept() {
         let data_folder = tempfile::tempdir().expect("a scratch folder");
         let bind = || ToolServerListener::bind(data_folder.path(), CancellationToken::new());
-        let first = bind().await.expect("loopback binds");
+        let stop = CancellationToken::new();
+        let first = ToolServerListener::bind(data_folder.path(), stop.clone())
+            .await
+            .expect("loopback binds");
         let kept = first.port();
         assert_eq!(first.moved_from(), None);
-        drop(first);
+        let serving = tokio::spawn(first.serve());
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("the client builds");
+        let answer = client
+            .get(format!("http://127.0.0.1:{kept}/"))
+            .send()
+            .await
+            .expect("an answer");
+        assert_eq!(answer.status(), StatusCode::NOT_FOUND);
+        drop(answer);
+        // The stop closes the client's idle connection from the listener's side first, which
+        // leaves that side waiting out its close on the kept port.
+        stop.cancel();
+        serving
+            .await
+            .expect("serving does not panic")
+            .expect("serving ends cleanly");
+        drop(client);
 
         let again = bind().await.expect("the kept port binds again");
         assert_eq!((again.port(), again.moved_from()), (kept, None));
@@ -456,6 +504,14 @@ pub(super) mod tests {
 
         let after = bind().await.expect("the new port binds again");
         assert_eq!((after.port(), after.moved_from()), (moved_to, None));
+        drop(after);
+
+        let wildcard = std::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, moved_to))
+            .expect("a stand-in program listens on the wildcard address");
+        let beside = bind().await.expect("a wildcard-held port moves");
+        assert_ne!(beside.port(), moved_to);
+        assert_eq!(beside.moved_from(), Some(moved_to));
+        drop(wildcard);
     }
 
     // A port file that holds no port is no kept port: the listener binds a port the system picks
