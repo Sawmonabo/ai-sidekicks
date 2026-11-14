@@ -6,7 +6,9 @@ import "./ErrorBoundary.css";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 import { InlineRefusal } from "../Refusal/InlineRefusal.js";
+import { LoadingNotice } from "../LoadingNotice/LoadingNotice.js";
 import { RenderFailureCard } from "./RenderFailureCard.js";
+import type { Clock } from "#renderer/lib/clock.js";
 import { RereadableRefusalError } from "#renderer/lib/refusal/contract.js";
 import { reportTripwire } from "#renderer/lib/tripwires/registry.js";
 import { wireRejectionToError } from "#renderer/lib/wire/errors.js";
@@ -18,16 +20,21 @@ export interface ErrorBoundaryProps {
   readonly children: ReactNode;
   /** Rendered instead of the default line, when a region wants its own. */
   readonly fallback?: (error: Error, retry: () => void) => ReactNode;
+  /** The window's clock, from `useClock()`, which delays a read asked again's loading line. */
+  readonly clock: Clock;
 }
 
 /**
  * Catches a render failure in its subtree, reports it, and offers a retry in place; a read that
- * failed draws its own line with `Try again`.
+ * failed draws its own line with `Try again`, and its loading line while it is asked again.
  */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  /** Stops waiting on the read asked again, while one is out. */
+  #stopReadingAgain: (() => void) | undefined;
+
   public constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { error: undefined, attempt: 0 };
+    this.state = { error: undefined, attempt: 0, isReadingAgain: false };
   }
 
   public static getDerivedStateFromError(error: unknown): Partial<ErrorBoundaryState> {
@@ -42,6 +49,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       `ErrorBoundary(${this.props.regionName})`,
       `${error.message}${describeComponentStack(errorInfo)}`,
     );
+  }
+
+  public override componentWillUnmount(): void {
+    this.#stopReadingAgain?.();
+    this.#stopReadingAgain = undefined;
   }
 
   public override render(): ReactNode {
@@ -63,24 +75,48 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     }
     // A read that failed is asked again, and the region drawn again once it has answered.
     if (error instanceof RereadableRefusalError) {
+      if (this.state.isReadingAgain) {
+        return <LoadingNotice clock={this.props.clock} title={READING_AGAIN_WORDS} />;
+      }
       return (
         <InlineRefusal
           code={error.refusal.code}
           detail={error.refusal.detail}
           onTryAgain={() => {
-            void error.readAgain().then(retry);
+            this.#readAgain(error);
           }}
         />
       );
     }
     return <RenderFailureCard regionName={this.props.regionName} onRetry={retry} />;
   }
+
+  // One read asked again at a time; its answer draws the region again.
+  #readAgain(error: RereadableRefusalError): void {
+    if (this.#stopReadingAgain !== undefined) {
+      return;
+    }
+    this.setState({ isReadingAgain: true });
+    this.#stopReadingAgain = error.readAgain(() => {
+      this.#stopReadingAgain = undefined;
+      this.setState((previous) => ({
+        error: undefined,
+        attempt: previous.attempt + 1,
+        isReadingAgain: false,
+      }));
+    });
+  }
 }
+
+/** The loading line a read asked again draws once it runs past the delay. */
+const READING_AGAIN_WORDS = "Loading…";
 
 interface ErrorBoundaryState {
   readonly error: Error | undefined;
   /** Bumped by `retry`, remounting the subtree so a transient failure can clear. */
   readonly attempt: number;
+  /** Whether a failed read was asked again and has not answered yet. */
+  readonly isReadingAgain: boolean;
 }
 
 /** The innermost component from React's stack, or nothing; the report is read in a list. */

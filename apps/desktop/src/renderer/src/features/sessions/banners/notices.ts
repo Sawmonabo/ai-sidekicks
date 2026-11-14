@@ -7,7 +7,10 @@
 // refused press draws. A signal reads in words; its name stays in the daemon's log.
 
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
-import type { RepoMountHealth } from "@ai-sidekicks/contracts/repo/mount";
+import type {
+  RepoMountHealth,
+  RepoMountHealthChangedPayload,
+} from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionNoticePostedPayload } from "@ai-sidekicks/contracts/session/controls/events";
 import type { FilePathRef } from "#shared/preload-api.js";
 
@@ -67,29 +70,35 @@ export interface SettingsFilePlaces {
 
 /**
  * The banners `standingEvents` raise, in the order their events arrived. A crash loop stands until
- * a later `providerRestarted` of its provider; a later crash loop raises its banner again. A
- * session works in one folder, so only its newest mount health speaks: a re-attach moves it onto
- * a new mount, whose `healthy` takes the old mount's banner away.
+ * a later `providerRestarted` of its provider; a later crash loop raises its banner again. Each
+ * mount's banner stands on that mount's own newest health, since a session can work in several
+ * folders. A folder holding another repository that git still answers for is the one a re-attach
+ * ends, so a later `healthy` of another mount, the re-attach's new one, takes its banner away.
  */
 export function foldSessionNoticeBanners(
   standingEvents: readonly ProjectedSessionEvent[],
 ): readonly SessionNoticeBanner[] {
   const restartedAtByProvider = new Map<string, number>();
-  let newestMountHealthSequence = -1;
+  const newestHealthSequenceByMount = new Map<string, number>();
+  const newestHealthySequenceByMount = new Map<string, number>();
   // Each payload is read once: the first pass keeps what it raised beside the event's place.
   const raised: { readonly banner: SessionNoticeBanner; readonly sequence: number }[] = [];
   for (const event of standingEvents) {
     let banner: SessionNoticeBanner | undefined;
     if (event.kind === MOUNT_HEALTH_EVENT_KIND) {
-      newestMountHealthSequence = Math.max(newestMountHealthSequence, event.sequence);
-      banner = readFolderLostBanner(event);
+      const changed = readRepoMountHealthChangedPayload(event.payload);
+      if (changed !== undefined) {
+        const { repoMountId } = changed;
+        keepNewest(newestHealthSequenceByMount, repoMountId, event.sequence);
+        if (changed.health.status === "healthy") {
+          keepNewest(newestHealthySequenceByMount, repoMountId, event.sequence);
+        }
+        banner = folderLostBannerOf(event, changed);
+      }
     } else if (event.kind === SESSION_NOTICE_EVENT_KIND) {
       const notice = readSessionNoticePostedPayload(event.payload);
       if (notice?.kind === "providerRestarted") {
-        restartedAtByProvider.set(
-          notice.provider,
-          Math.max(restartedAtByProvider.get(notice.provider) ?? -1, event.sequence),
-        );
+        keepNewest(restartedAtByProvider, notice.provider, event.sequence);
       }
       banner = notice === undefined ? undefined : noticeBannerOf(event, notice);
     }
@@ -97,13 +106,21 @@ export function foldSessionNoticeBanners(
       raised.push({ banner, sequence: event.sequence });
     }
   }
-  return raised.flatMap(({ banner, sequence }) =>
-    (banner.kind === "crashLoop" &&
-      (restartedAtByProvider.get(banner.provider) ?? -1) > sequence) ||
-    (banner.kind === "folderLost" && sequence < newestMountHealthSequence)
-      ? []
-      : [banner],
-  );
+  return raised.flatMap(({ banner, sequence }): readonly SessionNoticeBanner[] => {
+    if (banner.kind === "crashLoop") {
+      return (restartedAtByProvider.get(banner.provider) ?? -1) > sequence ? [] : [banner];
+    }
+    if (banner.kind !== "folderLost") {
+      return [banner];
+    }
+    const isSuperseded = (newestHealthSequenceByMount.get(banner.repoMountId) ?? -1) > sequence;
+    const isReattached =
+      banner.isRepository &&
+      [...newestHealthySequenceByMount].some(
+        ([repoMountId, healthyAt]) => repoMountId !== banner.repoMountId && healthyAt > sequence,
+      );
+    return isSuperseded || isReattached ? [] : [banner];
+  });
 }
 
 /**
@@ -137,11 +154,14 @@ export function refusedLine(refusal: ExtendedRefusal): string {
   return refusalSentence(refusal.code, refusal.reason, formatWireString(refusal.detail));
 }
 
-function readFolderLostBanner(event: ProjectedSessionEvent): SessionNoticeBanner | undefined {
-  const changed = readRepoMountHealthChangedPayload(event.payload);
-  if (changed === undefined) {
-    return undefined;
-  }
+function keepNewest(newest: Map<string, number>, key: string, sequence: number): void {
+  newest.set(key, Math.max(newest.get(key) ?? -1, sequence));
+}
+
+function folderLostBannerOf(
+  event: ProjectedSessionEvent,
+  changed: RepoMountHealthChangedPayload,
+): SessionNoticeBanner | undefined {
   const { health } = changed;
   return health.status === "healthy"
     ? undefined

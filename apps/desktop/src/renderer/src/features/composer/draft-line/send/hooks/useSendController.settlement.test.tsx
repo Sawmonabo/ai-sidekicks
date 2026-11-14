@@ -21,7 +21,7 @@ import { RUN_TARGET } from "../router.test-support.js";
 const SESSION_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
 const SESSION_B = "2c3d4e5f-6071-4283-8495-bc6d7e8f9012";
 
-const REJECTION_REASON = "queue.persistence_unavailable";
+const REJECTION_REASON = "agent.queueItem.persistenceUnavailable";
 
 function runTargetIn(sessionId: string): ComposerRunTarget {
   return { ...RUN_TARGET, sessionId };

@@ -113,6 +113,8 @@ export interface TranscriptViewportBinding {
    * fold; see `shouldHoldPlaceInsideRow`. Read when called; stable for the binding's controller.
    */
   readonly holdsPlaceInsideRow: (rowKey: string) => boolean;
+  /** The clock the binding was given, which each row's error boundary times its lines on. */
+  readonly clock: Clock;
   /**
    * The height a row the feed has not drawn yet would be laid out at, from its kind and body
    * length; see `RowMeasurementTable.estimatedHeightOf`. Stable for the binding's controller.
@@ -347,6 +349,7 @@ export function useTranscriptViewport(
   return {
     snapshot,
     virtualItems,
+    clock,
     attachScrollContainer: useCallback(
       (element: HTMLElement | null) => {
         scrollContainerRef.current = element;

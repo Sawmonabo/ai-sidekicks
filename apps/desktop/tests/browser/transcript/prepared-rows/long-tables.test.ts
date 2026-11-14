@@ -191,7 +191,7 @@ describe("a listed reply whose large body is opened", () => {
       const replyId = transcriptFixtureEventId(LARGE_BODY_INDEX);
       const readBody: TranscriptBodyRead = async () => ({
         status: "served",
-        value: { status: "available", body: largeBody },
+        value: { status: "available", body: largeBody, offset: 0, nextOffset: null },
       });
       const container = await mountFeed(history.read, pictures, readBody);
       await waitFor(() => {

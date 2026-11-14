@@ -1,7 +1,8 @@
-// The mount point's life and its write gate: one emulator per terminal id, kept across callback
-// and lease changes so scrollback survives, disposed on unmount or a failed setup, the shell's
-// output fed only while it is on screen, keystrokes sent to the newest handler, and a keyboard
-// that stays shut for a device that does not hold the shell. The readers are in `XtermMountPoint.test-support.ts`.
+// The mount point's life and its write gate: one emulator per terminal id, kept across callback and
+// lease changes so scrollback survives, disposed on unmount or a failed setup, the shell's output
+// fed only while it is on screen, keystrokes sent to the newest handler, and a keyboard that stays
+// shut for a device that does not hold the shell. The readers are in
+// `XtermMountPoint.test-support.ts`.
 
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

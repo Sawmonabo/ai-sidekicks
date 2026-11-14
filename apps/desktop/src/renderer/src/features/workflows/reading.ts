@@ -9,6 +9,7 @@ import type { WorkflowDefinitionListResponse } from "@ai-sidekicks/contracts/wor
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowRunAttentionListResponse } from "@ai-sidekicks/contracts/workflow/run/attention";
 import type {
+  WorkflowRunListCursor,
   WorkflowRunListResponse,
   WorkflowRunSummary,
 } from "@ai-sidekicks/contracts/workflow/run/list";
@@ -68,7 +69,7 @@ export function createRunListRead(
     read: async (signal) => {
       const ask = readAsk();
       const request = runListRequestFor(ask.filters, clock.now());
-      const readPage = (limit: number, cursor: string | undefined) =>
+      const readPage = (limit: number, cursor: WorkflowRunListCursor | undefined) =>
         callDaemon(
           bridge,
           "workflow.run.list",
@@ -199,7 +200,7 @@ async function readEarlierPage(
   ask: RunListAsk,
   readPage: (
     limit: number,
-    cursor: string | undefined,
+    cursor: WorkflowRunListCursor | undefined,
   ) => Promise<DaemonReply<WorkflowRunListResponse>>,
 ): Promise<RunListAnswer> {
   const { nextCursor } = drawn.response;

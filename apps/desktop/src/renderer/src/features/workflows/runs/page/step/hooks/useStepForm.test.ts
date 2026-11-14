@@ -1,10 +1,11 @@
 // A step's form saves what was typed to the daemon, so a half-filled form survives a reload: saves
 // go one at a time, each on the revision the one before it returned; a save still resting when the
 // form goes is sent then; and a secret's answer never leaves the window. A picked folder is sent
-// apart from the other answers, at its dotted place, where main swaps its token for the path.
+// apart from the other answers, at its dotted place, where main swaps its token for the path, and a
+// press the field checks hold goes once they answer.
 
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import type { WorkflowHumanFormReadResponse } from "@ai-sidekicks/contracts/workflow/run/step/methods";
 import type { WorkflowStepKey } from "@ai-sidekicks/contracts/workflow/run/step/record";
@@ -15,6 +16,8 @@ import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { WORKFLOW_READ_LATENCY_MS } from "#fixtures/data/workflow/replies.js";
 import { WORKFLOW_RUN_IDS, WORKFLOW_RUN_RECORDS } from "#fixtures/data/workflow/run/records.js";
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
+import type { PageModuleState } from "#renderer/components/Markdown/worker/page-module-load.js";
 import { DRAFT_SAVE_REST_MS, useStepForm, type StepFormHold } from "./useStepForm.js";
 
 function waitingFormStep(): WorkflowStepKey {
@@ -181,5 +184,63 @@ describe("a step's form submit", () => {
     expect(JSON.stringify((submits[0]?.params as { fields: unknown }).fields)).not.toContain(
       pickedFolder.ref,
     );
+  });
+
+  it("holds a press made while the field checks load and sends it once they answer", async () => {
+    const { bridge, calls, engine } = bridgeAnswering(async (call, passThrough) => {
+      if (call.method === "workflow.humanForm.read") {
+        // A field drawn only under its sibling's value, which the checks must read.
+        const form = (await passThrough()) as WorkflowHumanFormReadResponse;
+        return {
+          ...form,
+          fields: [
+            { id: "retries", label: "Retries", type: "number" },
+            { id: "reason", label: "Reason", type: "string", showWhen: { retries: [3] } },
+          ],
+        };
+      }
+      return passThrough();
+    });
+    // The checks' load as the page sees it, moved by the test: loading until it answers.
+    const checks = markdownWorker.workflowChecks;
+    let checksState: PageModuleState = "loading";
+    const listeners = new Set<() => void>();
+    const stateSpy = vi.spyOn(checks, "state", "get").mockImplementation(() => checksState);
+    const subscribeSpy = vi.spyOn(checks, "subscribe").mockImplementation((listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    });
+    onTestFinished(() => {
+      stateSpy.mockRestore();
+      subscribeSpy.mockRestore();
+    });
+    const { result } = renderHook(() => useStepForm(bridge, waitingFormStep(), () => undefined), {
+      wrapper: bridgeWrapper(bridge, engine.clock),
+    });
+    await act(async () => {
+      engine.advance(WORKFLOW_READ_LATENCY_MS);
+      await crossMacrotaskBoundary();
+    });
+    expect(result.current.read.kind).toBe("read");
+    const submits = () => calls.filter((call) => call.method === "workflow.humanForm.submit");
+
+    await act(async () => {
+      result.current.changeAnswers({ retries: "2", reason: "" });
+      await crossMacrotaskBoundary();
+    });
+    await act(async () => {
+      result.current.submit();
+      await crossMacrotaskBoundary();
+    });
+    expect(submits()).toHaveLength(0);
+
+    await act(async () => {
+      checksState = "ready";
+      for (const listener of [...listeners]) {
+        listener();
+      }
+      await crossMacrotaskBoundary();
+    });
+    expect(submits()).toHaveLength(1);
   });
 });

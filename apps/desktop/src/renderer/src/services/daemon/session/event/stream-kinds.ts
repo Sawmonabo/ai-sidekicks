@@ -18,13 +18,13 @@ import {
 } from "#renderer/store/session/events/run/state-kinds.js";
 
 /**
- * The event kinds `run.subscribeState` projects: every run state a run can transition into, plus
+ * The event kinds `agent.run.subscribe` projects: every run state a run can transition into, plus
  * `agent.run.rolledBack`.
  *
- * `agent.run.rolledBack` is the stream's second arm and records no state change. `run.queued`
- * and the other forward run rows (provider initialization, turn start, worker shutdown) are absent
- * because neither arm can represent them; the run-and-queue scenario check subtracts this type
- * from the `run.` census to hold each of those to its own payload.
+ * `agent.run.rolledBack` is the stream's second arm and records no state change.
+ * `agent.run.queued` and the other forward run rows (provider initialization, turn start, worker
+ * shutdown) are absent because neither arm can represent them; the run-and-queue scenario check
+ * subtracts this type from the `agent.run.` census to hold each of those to its own payload.
  */
 export type RunStateStreamKind =
   | RunStateTransitionKind
@@ -36,7 +36,7 @@ export type RunStateStreamKind =
  */
 export type RunStateStreamArm = "state-change" | "rollback";
 
-/** The arm table: state changes ride `state-change`, and `agent.run.rolledBack` rides `rollback`. */
+/** The arm table: state changes ride `state-change`, `agent.run.rolledBack` rides `rollback`. */
 const RUN_STATE_STREAM_ARM_BY_KIND: Readonly<Record<string, RunStateStreamArm>> = Object.freeze(
   Object.fromEntries<RunStateStreamArm>([
     ...RUN_STATE_EVENT_TYPES.filter((kind) => runStateForTransitionKind(kind) !== undefined).map(
@@ -47,24 +47,25 @@ const RUN_STATE_STREAM_ARM_BY_KIND: Readonly<Record<string, RunStateStreamArm>> 
 );
 
 /**
- * The event kinds `run.subscribeQueue` projects, each mapped to the queue state it announces.
+ * The event kinds `agent.queueItem.subscribe` projects, each mapped to the queue state it
+ * announces.
  *
- * A record rather than a list because the name and the state differ: `queue_item.created`
+ * A record rather than a list because the name and the state differ: `agent.queueItem.created`
  * announces `queued`.
  */
-type RunQueueStreamKind = Extract<SessionEventType, `queue_item.${string}`>;
+type RunQueueStreamKind = Extract<SessionEventType, `agent.queueItem.${string}`>;
 
 const RUN_QUEUE_STREAM_STATE_BY_KIND: Readonly<Record<RunQueueStreamKind, QueueItemState>> =
   Object.freeze({
-    "queue_item.created": "queued",
-    "queue_item.admitted": "admitted",
-    "queue_item.superseded": "superseded",
-    "queue_item.canceled": "canceled",
-    "queue_item.not_delivered": "not_delivered",
+    "agent.queueItem.created": "queued",
+    "agent.queueItem.admitted": "admitted",
+    "agent.queueItem.superseded": "superseded",
+    "agent.queueItem.canceled": "canceled",
+    "agent.queueItem.notDelivered": "notDelivered",
   } satisfies Record<RunQueueStreamKind, QueueItemState>);
 
 /**
- * The kinds `run.subscribeState` carries.
+ * The kinds `agent.run.subscribe` carries.
  *
  * Typed as strings because a subscriber's event `kind` arrives wire-verbatim. A frozen array, so a
  * caller cannot add to it.
@@ -73,13 +74,13 @@ export const RUN_STATE_STREAM_CARRIED_KINDS: readonly string[] = Object.freeze(
   Object.keys(RUN_STATE_STREAM_ARM_BY_KIND),
 );
 
-/** The kinds `run.subscribeQueue` carries, frozen like the list above. */
+/** The kinds `agent.queueItem.subscribe` carries, frozen like the list above. */
 export const RUN_QUEUE_STREAM_CARRIED_KINDS: readonly string[] = Object.freeze(
   Object.keys(RUN_QUEUE_STREAM_STATE_BY_KIND),
 );
 
 /**
- * The wire arm of `run.subscribeState` this event kind travels as, or `undefined` when the stream
+ * The wire arm of `agent.run.subscribe` this event kind travels as, or `undefined` when the stream
  * does not carry it.
  */
 export function runStateStreamArmFor(eventKind: string): RunStateStreamArm | undefined {
@@ -87,8 +88,8 @@ export function runStateStreamArmFor(eventKind: string): RunStateStreamArm | und
 }
 
 /**
- * The queue state a `queue_item.*` kind announces, or `undefined` for any other kind. For example
- * `queue_item.created` announces `queued`.
+ * The queue state an `agent.queueItem.*` kind announces, or `undefined` for any other kind. For
+ * example `agent.queueItem.created` announces `queued`.
  */
 export function runQueueStreamStateFor(eventKind: string): QueueItemState | undefined {
   return readFrozenRecord(RUN_QUEUE_STREAM_STATE_BY_KIND, eventKind);

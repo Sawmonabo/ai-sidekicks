@@ -12,10 +12,7 @@
 // A rejected call is not caught here: it rejects the whole read, and `PushDrivenRead`
 // settles it as the read's failed state.
 
-import type {
-  RepoMountReadRequest,
-  RepoMountReadResponse,
-} from "@ai-sidekicks/contracts/repo/folders";
+import type { RepoMountReadResponse, RepoMountRequest } from "@ai-sidekicks/contracts/repo/folders";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type {
   WorkspaceListRequest,
@@ -31,6 +28,7 @@ import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import { PushDrivenRead } from "#renderer/store/reads/push-driven.js";
 import { isReadAbandoned } from "#renderer/lib/reads/scope.js";
 import { subscribeToSessionEventKinds } from "#renderer/store/session/events/signal.js";
+import { MOUNT_HEALTH_EVENT_KIND } from "#renderer/store/session/standing-events.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 
 /** Names this read in a refusal, so a failure says which read failed. */
@@ -44,7 +42,7 @@ export type WorkspaceListCall = (
 
 /** The call that answers one mount's path and health. */
 export type MountReadCall = (
-  request: RepoMountReadRequest,
+  request: RepoMountRequest,
   signal: AbortSignal,
 ) => Promise<RepoMountReadResponse>;
 
@@ -58,19 +56,20 @@ export interface MountInventoryCalls {
  * Every session event kind that can change what this list says.
  *
  * The `workspace.*` lifecycle kinds change which mounts the workspace list names; a run
- * ending re-probes the worktree it executed in, so health moves at those four run kinds.
- * A run beginning changes neither axis. Typed as the contract's own census, so a kind the
- * daemon never sends fails to compile.
+ * ending re-probes the worktree it executed in, so health moves at those four run kinds, and
+ * the daemon's own re-probe says when a mount's health moved. A run beginning changes neither
+ * axis. Typed as the contract's own census, so a kind the daemon never sends fails to compile.
  */
 const MOUNT_AFFECTING_EVENT_KINDS: readonly SessionEventType[] = [
   "workspace.preparing",
-  "workspace.ready",
-  "workspace.stale",
+  "workspace.prepared",
+  "workspace.rootLost",
   "workspace.archived",
-  "run.completed",
-  "run.failed",
-  "run.interrupted",
-  "run.stopped",
+  "agent.run.completed",
+  "agent.run.failed",
+  "agent.run.interrupted",
+  "agent.run.stopped",
+  MOUNT_HEALTH_EVENT_KIND,
 ];
 
 /** What one inventory read answers. */

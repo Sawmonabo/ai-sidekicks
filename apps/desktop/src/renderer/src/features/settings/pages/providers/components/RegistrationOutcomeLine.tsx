@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { readKeychainRefusalCause } from "#renderer/services/provider-accounts/refusal-details.js";
-import { TOKEN_KEPT_WORDS, type SecretsPlace } from "../secrets-place.js";
+import { TOKEN_KEPT_WORDS, TOKEN_SAVED_WORDS, type SecretsPlace } from "../secrets-place.js";
 import type { TokenRegistrationOutcome } from "../sign-in/flow.js";
 
 /** The title over every keychain refusal's line. */
@@ -28,8 +28,8 @@ const TOKEN_NOT_ACCEPTED_LINE = "The provider did not accept that token.";
  */
 export function RegistrationOutcomeLine(props: {
   readonly outcome: TokenRegistrationOutcome;
-  /** Where the service keeps a saved token, which the saved line names. */
-  readonly secretsPlace: SecretsPlace;
+  /** Where the service keeps a saved token, which the saved line names when it is known. */
+  readonly secretsPlace: SecretsPlace | undefined;
 }): ReactNode {
   const { outcome } = props;
   // While the call is out, `Register` is disabled and the slot stays empty.
@@ -73,7 +73,11 @@ export function RegistrationOutcomeLine(props: {
     <AnnouncedLine
       element="p"
       className="meridian-settings-page__state"
-      words={TOKEN_KEPT_WORDS[props.secretsPlace].saved}
+      words={
+        props.secretsPlace === undefined
+          ? TOKEN_SAVED_WORDS
+          : TOKEN_KEPT_WORDS[props.secretsPlace].saved
+      }
       politeness="polite"
     />
   );

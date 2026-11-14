@@ -9,6 +9,7 @@ import { memo, useCallback } from "react";
 
 import { WindowedListRow } from "#renderer/components/WindowedListRow/WindowedListRow.js";
 import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
+import type { Clock } from "#renderer/lib/clock.js";
 import { usePreservedRowSelection } from "../hooks/selection/usePreservedRowSelection.js";
 import type { ViewportRow } from "../snapshot.js";
 
@@ -30,6 +31,8 @@ export interface VirtualRowProps {
   readonly row: ViewportRow;
   readonly renderRow: ViewportRowRenderer;
   readonly attachRow: (element: HTMLElement | null) => void;
+  /** The window's clock, from `useClock()`, for the row's error boundary. */
+  readonly clock: Clock;
 }
 
 /**
@@ -60,7 +63,9 @@ export const VirtualRow: React.MemoExoticComponent<(props: VirtualRowProps) => R
         totalRowCount={props.totalRowCount}
         rowRef={attachRowElement}
       >
-        <ErrorBoundary regionName="This entry">{props.renderRow(props.row)}</ErrorBoundary>
+        <ErrorBoundary regionName="This entry" clock={props.clock}>
+          {props.renderRow(props.row)}
+        </ErrorBoundary>
       </WindowedListRow>
     );
   });

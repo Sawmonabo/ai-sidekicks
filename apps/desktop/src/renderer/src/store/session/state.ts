@@ -2,9 +2,9 @@
 // because the selectors, the hooks and the store all read it, and a shape declared inside the
 // writing class would force every reader to import the writer.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
-import type { TranscriptRunFacts } from "@ai-sidekicks/contracts/transcript/run-facts";
+import type { TranscriptRunFacts } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { worstDegradedCause, type SessionDegradedCause } from "./degradation.js";
 import {

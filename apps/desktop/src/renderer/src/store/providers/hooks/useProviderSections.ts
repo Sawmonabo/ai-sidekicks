@@ -6,7 +6,9 @@ import { createContext, useContext, type Context } from "react";
 
 import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 
+import { unreadableDeliveryReading, type ReadingState } from "#renderer/lib/partial-read.js";
 import { RereadableRefusalError, refuse } from "#renderer/lib/refusal/contract.js";
+import type { ProviderSectionsState } from "../sections.js";
 import type { ProviderSectionsReading } from "./useProviderSectionsState.js";
 
 /** The app's provider store reading, provided above every window. */
@@ -19,7 +21,21 @@ export const ProviderSectionsContext: Context<ProviderSectionsReading | undefine
  * list could not be read, and an `Error` where no list is provided or it has not been read yet.
  */
 export function useProviderSections(): readonly ProviderSection[] {
-  const reading = useContext(ProviderSectionsContext);
+  return servedSections(useContext(ProviderSectionsContext)).sections;
+}
+
+/**
+ * How whole the served sections are: partial once a section delivered since the list could not
+ * be read, until the next list. Throws as `useProviderSections` does.
+ */
+export function useProviderSectionsReading(): ReadingState {
+  const served = servedSections(useContext(ProviderSectionsContext));
+  return unreadableDeliveryReading(served.droppedCount, undefined);
+}
+
+function servedSections(
+  reading: ProviderSectionsReading | undefined,
+): Extract<ProviderSectionsState, { readonly status: "served" }> {
   if (reading === undefined || reading.state.status === "reading") {
     throw new Error("Read the providers' sections only under a served provider list.");
   }
@@ -29,5 +45,5 @@ export function useProviderSections(): readonly ProviderSection[] {
       reading.readAgain,
     );
   }
-  return reading.state.sections;
+  return reading.state;
 }

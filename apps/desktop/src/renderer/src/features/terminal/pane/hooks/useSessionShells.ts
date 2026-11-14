@@ -137,10 +137,13 @@ export function useSessionShells(
           if (reply.status === "served") {
             return { ...current, refusal: undefined };
           }
-          // Another device took the shell after the list was read: ask, as for a listed hold.
-          return reply.refusal.code === HELD_BY_OTHER_DEVICE && !isForced
-            ? { ...current, heldTerminalIdsAsked: [...current.heldTerminalIdsAsked, terminalId] }
-            : { ...current, refusal: reply.refusal };
+          if (reply.refusal.code !== HELD_BY_OTHER_DEVICE || isForced) {
+            return { ...current, refusal: reply.refusal };
+          }
+          // Another device took the shell after the list was read: ask, as for a listed hold, once.
+          return current.heldTerminalIdsAsked.includes(terminalId)
+            ? current
+            : { ...current, heldTerminalIdsAsked: [...current.heldTerminalIdsAsked, terminalId] };
         });
       });
     },

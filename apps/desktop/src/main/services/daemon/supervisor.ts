@@ -46,6 +46,7 @@ import type { MainDiagnosticLog } from "../diagnostic-log.js";
 import { describeFailure } from "#shared/failure-message.js";
 import {
   DaemonRefusal,
+  ServiceAskFailed,
   type ClientHelperConnectOutcome,
   type ClientHelperListener,
   type ClientHelperProcess,
@@ -218,8 +219,11 @@ export class DaemonSupervisor implements ClientHelperListener {
     try {
       outcome = await ending;
     } catch (failure) {
-      // No ending ran: a later loss is not the person's stop.
-      this.#isStopRequested = false;
+      // The helper answered that no ending ran, so a later loss is not the person's stop. An ending
+      // its exit cut short may have stopped the service, and the loss that follows still reads so.
+      if (failure instanceof ServiceAskFailed) {
+        this.#isStopRequested = false;
+      }
       throw failure;
     }
     if (isStop) {

@@ -2,6 +2,8 @@
 
 import { useCallback, useMemo } from "react";
 
+import type { Unsubscribe } from "#shared/preload-api.js";
+
 import { useSharedFeedState } from "../../hooks/useSharedFeedState.js";
 import {
   ProviderSectionsStore,
@@ -12,8 +14,8 @@ import {
 /** The providers' sections as read, and a way to read them again after a failure. */
 export interface ProviderSectionsReading {
   readonly state: ProviderSectionsState;
-  /** Open the feed afresh; settles once it has answered again. */
-  readonly readAgain: () => Promise<void>;
+  /** Open the feed afresh, calling `onAnswered` once it has answered; the handle stops the wait. */
+  readonly readAgain: (onAnswered: () => void) => Unsubscribe;
 }
 
 /**
@@ -28,11 +30,15 @@ export function useProviderSectionsState(
     [feed],
   );
   const state = useSharedFeedState(store, NOT_OPENED);
-  const readAgain = useCallback(async () => {
-    await store?.readAgain();
-  }, [store]);
+  const readAgain = useCallback(
+    (onAnswered: () => void) => store?.readAgain(onAnswered) ?? NOTHING_TO_STOP,
+    [store],
+  );
   return useMemo(() => ({ state, readAgain }), [state, readAgain]);
 }
+
+/** The handle of a read asked again with no feed open, which never answers. */
+const NOTHING_TO_STOP: Unsubscribe = () => undefined;
 
 /** What is read while no feed is open yet. */
 const NOT_OPENED: ProviderSectionsState = { status: "reading" };

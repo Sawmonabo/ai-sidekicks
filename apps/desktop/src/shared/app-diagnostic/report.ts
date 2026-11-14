@@ -76,7 +76,9 @@ export interface ThrownValueParts {
   readonly stack: string | null;
 }
 
-/** Reads a thrown or rejected value: an error's own parts, or a sentence naming the value's type. */
+/**
+ * Reads a thrown or rejected value: an error's own parts, or a sentence naming the value's type.
+ */
 export function readThrownValue(value: unknown, kind: AppErrorThrown["kind"]): ThrownValueParts {
   if (isErrorLike(value)) {
     return {

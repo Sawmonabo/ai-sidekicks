@@ -133,10 +133,17 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
         </button>
       </span>
     ) : null;
+  // A root picked before the read landed is named by its branch once the read has it.
+  const pendingName =
+    pending !== undefined && pending.branchName === undefined && reading.kind === "loaded"
+      ? reading.status.repoRoot.branchName
+      : pending?.name;
   const chipWords =
-    pending === undefined
+    pendingName === undefined
       ? props.currentName
-      : `${props.currentName} → ${pending.name} when this run ends`;
+      : `${props.currentName} → ${pendingName} when this run ends`;
+  const rootPath =
+    reading.kind === "loaded" ? reading.status.repoRoot.path : props.project.folderPath;
   return (
     <Popover.Root
       open={isOpen}
@@ -155,21 +162,18 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
       </Popover.Trigger>
       <OverlayPopoverPopup className="meridian-composer-worktrees" sideOffset={4}>
         {/* Drawn at once from the project; the read names the checkout's branch once it lands. */}
-        <button
-          type="button"
-          className="meridian-composer-worktrees__row"
-          onClick={() => {
-            moveTo(
-              reading.kind === "loaded" ? reading.status.repoRoot.path : props.project.folderPath,
-              rootTarget,
-            );
-          }}
-        >
-          {rootTarget.name}
-        </button>
-        {pendingLine(
-          reading.kind === "loaded" ? reading.status.repoRoot.path : props.project.folderPath,
-        )}
+        <div className="meridian-composer-worktrees__row">
+          <button
+            type="button"
+            className="meridian-composer-worktrees__pick"
+            onClick={() => {
+              moveTo(rootPath, rootTarget);
+            }}
+          >
+            {rootTarget.name}
+          </button>
+          {pendingLine(rootPath)}
+        </div>
         {isMakingNew && reading.kind === "loaded" && reading.status.newWorktree !== undefined ? (
           <NewWorktreeForm
             bridge={props.bridge}

@@ -88,7 +88,7 @@ describe("MutationOutcomeLine", () => {
       sessionId,
       bindingId: `leg-${sessionId}` as RuntimeBindingId,
       outcome: "failed",
-      errorCode: "mcp.config_write_conflict",
+      errorCode: "mcp.server.configWriteConflict",
     });
     const { announcer, spoken } = spiedAnnouncer();
     const { container } = render(
@@ -135,7 +135,7 @@ describe("MutationOutcomeLine", () => {
       "New chat is still running with the old setting.",
       "New session is still running with the old setting.",
     ]);
-    for (const hidden of [TITLED_SESSION, "mcp.config_write_conflict", "failed", "applied"]) {
+    for (const hidden of [TITLED_SESSION, "mcp.server.configWriteConflict", "failed", "applied"]) {
       expect(container.textContent).not.toContain(hidden);
     }
   });
@@ -148,7 +148,7 @@ describe("MutationOutcomeLine", () => {
           sessionId: UNLISTED_SESSION,
           bindingId: "leg-unlisted" as RuntimeBindingId,
           outcome: "failed",
-          errorCode: "mcp.config_write_conflict",
+          errorCode: "mcp.server.configWriteConflict",
         },
       ],
     );
@@ -202,7 +202,7 @@ describe("MutationOutcomeLine", () => {
           sessionId: TITLED_SESSION,
           bindingId: "leg-titled" as RuntimeBindingId,
           outcome: "failed",
-          errorCode: "mcp.config_write_conflict",
+          errorCode: "mcp.server.configWriteConflict",
         },
       ],
     );

@@ -3,9 +3,11 @@ import type { ReactNode } from "react";
 import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/server";
 import type { ProjectListEntry } from "@ai-sidekicks/contracts/project";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
+import { PartialRead } from "#renderer/components/PartialRead/PartialRead.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { Switch } from "#renderer/components/Switch/Switch.js";
 import type { Clock } from "#renderer/lib/clock.js";
+import { unreadableDeliveryReading } from "#renderer/lib/partial-read.js";
 import type { ProjectListState } from "#renderer/store/projects/list.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import type { McpMutationOutcome } from "../mutation.js";
@@ -23,7 +25,8 @@ const PROJECT_LIST_UNREAD_CODE = "project-list-unread";
 /**
  * `On for runs` once per project attached to this computer, each named for its project and on
  * unless the service names that project among those the server is switched off in. Until the
- * project list is served the section reads its loading line, or its failure with `Try again`.
+ * project list is served the section reads its loading line, or its failure with `Try again`; a
+ * list that dropped projects it could not read says how many.
  */
 export function ProjectSwitches(props: {
   readonly entry: McpServerInventoryEntry;
@@ -48,6 +51,12 @@ export function ProjectSwitches(props: {
           code={PROJECT_LIST_UNREAD_CODE}
           detail="Couldn't load projects"
           onTryAgain={projects.readAgain}
+        />
+      ) : null}
+      {state.status === "served" ? (
+        <PartialRead
+          states={[unreadableDeliveryReading(state.droppedCount, undefined)]}
+          subject="projects"
         />
       ) : null}
       {attached.map((project) => (

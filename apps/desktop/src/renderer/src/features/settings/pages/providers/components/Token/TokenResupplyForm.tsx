@@ -24,7 +24,7 @@ export function TokenResupplyForm(props: {
   /** Asks for a fresh registry read once the token is stored, so the row reads its new state. */
   readonly onTokenStored: () => void;
   /** Where the service keeps the token, which the lines under the field name. */
-  readonly secretsPlace: SecretsPlace;
+  readonly secretsPlace: SecretsPlace | undefined;
 }): ReactNode {
   const { account, register, onTokenStored, secretsPlace } = props;
   const tokenFieldId = useId();
@@ -66,7 +66,9 @@ export function TokenResupplyForm(props: {
         spellCheck={false}
         required
       />
-      <p className="meridian-settings-page__aside">{TOKEN_KEPT_WORDS[secretsPlace].underField}</p>
+      {secretsPlace === undefined ? null : (
+        <p className="meridian-settings-page__aside">{TOKEN_KEPT_WORDS[secretsPlace].underField}</p>
+      )}
       <span className="meridian-accounts__resupply-actions">
         <button
           type="submit"

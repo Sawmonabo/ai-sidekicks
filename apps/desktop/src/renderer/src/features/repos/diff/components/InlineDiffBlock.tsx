@@ -36,6 +36,7 @@ import {
   UNDRAWN_TEXT_SOURCE_ATTRIBUTE,
 } from "#renderer/components/TranscriptBodyViewport/drawn-window-sources.js";
 import { type OffScreenMeasurement } from "#renderer/lib/off-screen-measurement.js";
+import { isHighSurrogate } from "#renderer/lib/text/pieces.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { useClipboardCopy } from "#renderer/services/platform/hooks/useClipboardCopy.js";
 import { useIntralineSegmentCache } from "../hooks/useIntralineSegmentCache.js";
@@ -232,7 +233,8 @@ const RAW_PATCH_ROW_CHARACTER_LIMIT = 1024;
 
 /**
  * The first `lineCount` lines of `text`, one or more, and no more characters than that many rows
- * can hold, so a patch with few line breaks is cut too; `text` itself when it holds no more.
+ * can hold, so a patch with few line breaks is cut too; `text` itself when it holds no more. A
+ * cut never splits a surrogate pair.
  */
 function leadingLinesOf(text: string, lineCount: number): string {
   const characterLimit = lineCount * RAW_PATCH_ROW_CHARACTER_LIMIT;
@@ -240,7 +242,13 @@ function leadingLinesOf(text: string, lineCount: number): string {
   for (let line = 0; line < lineCount; line += 1) {
     lineEnd = text.indexOf("\n", lineEnd + 1);
     if (lineEnd === -1 || lineEnd >= characterLimit) {
-      return text.length <= characterLimit ? text : text.slice(0, characterLimit);
+      if (text.length <= characterLimit) {
+        return text;
+      }
+      const cut = isHighSurrogate(text.charCodeAt(characterLimit - 1))
+        ? characterLimit - 1
+        : characterLimit;
+      return text.slice(0, cut);
     }
   }
   return lineEnd === text.length - 1 ? text : text.slice(0, lineEnd);

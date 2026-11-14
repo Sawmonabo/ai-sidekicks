@@ -1,8 +1,8 @@
 // Every channel answers only the app's own renderer documents: the asking frame must be on an
 // origin an app window may navigate within. A page's port to the client helper arrives on its own
-// channel and is handed to the helper, which serves the page's daemon calls and streams on it. Any other frame is refused before its request is
-// read; this is a backstop, as only a navigation the policy failed to stop could put another
-// origin in a window.
+// channel and is handed to the helper, which serves the page's daemon calls and streams on it. Any
+// other frame is refused before its request is read; this is a backstop, as only a navigation the
+// policy failed to stop could put another origin in a window.
 
 import path from "node:path";
 
@@ -60,7 +60,9 @@ export interface BridgeHandlerServices {
   readonly helperProcess: Pick<ClientHelperProcess, "adoptWindowPort">;
   readonly daemonLink: Pick<DaemonLink, "client" | "subscribe">;
   readonly log: Pick<MainDiagnosticLog, "write">;
-  /** Where what a window records about itself goes, on to the background service's diagnostic log. */
+  /**
+   * Where what a window records about itself goes, on to the background service's diagnostic log.
+   */
   readonly appDiagnosticRelay: Pick<AppDiagnosticRelay, "reportFromWindow">;
   readonly windowContext: WindowHandlerContext;
   readonly operatingSystem: Pick<

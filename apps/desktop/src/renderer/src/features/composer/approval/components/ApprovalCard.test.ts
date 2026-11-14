@@ -340,10 +340,14 @@ describe("the requested resource is the structured value the reply carried", () 
 
 const ALREADY_RESOLVED: Refusal = refuse(
   "approvals",
-  "approval.already_resolved",
+  "approval.alreadyResolved",
   "Answered elsewhere.",
 );
-const RETRYABLE: Refusal = refuse("approvals", "approval.decision_conflict", "Two answers raced.");
+const RETRYABLE: Refusal = refuse(
+  "approvals",
+  "approval.persistenceUnavailable",
+  "Two answers raced.",
+);
 
 /** The palette's view of one record and one refusal against it. */
 function rowsFor(refusalForRecord: Refusal): ApprovalCommandInput {

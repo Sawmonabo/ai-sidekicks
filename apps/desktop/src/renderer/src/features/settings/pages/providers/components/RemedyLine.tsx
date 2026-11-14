@@ -42,7 +42,7 @@ export function RemedyLine(props: {
   readonly requestRegistryRead: () => void;
   readonly probe: ProviderAccountProbeCall;
   /** Where the service keeps a pasted token, which the token field names. */
-  readonly secretsPlace: SecretsPlace;
+  readonly secretsPlace: SecretsPlace | undefined;
 }): ReactNode {
   const { remedy, state, provider, onStartSignIn, startBlockedReason, startRefusal } = props;
   const providerName = useProviderName(provider);

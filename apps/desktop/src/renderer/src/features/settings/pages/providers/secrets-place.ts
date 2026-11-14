@@ -1,5 +1,5 @@
 // Where the service keeps a pasted token, and the pair of lines that names it: one under the
-// token field, one when a token registers.
+// token field, one when a token registers, which says only that it saved while no place is known.
 
 import type { DaemonSecretsFile } from "@ai-sidekicks/contracts/daemon/status";
 
@@ -8,6 +8,9 @@ import type { DaemonSecretsFile } from "@ai-sidekicks/contracts/daemon/status";
  * sealed to this computer, or that file in plain form.
  */
 export type SecretsPlace = "keychain" | "sealed" | "plain";
+
+/** The line a registered token settles with while nothing names where the service keeps it. */
+export const TOKEN_SAVED_WORDS = "Token saved.";
 
 /** The line under a token field, and the line a registered token settles with, per place. */
 export const TOKEN_KEPT_WORDS: Readonly<

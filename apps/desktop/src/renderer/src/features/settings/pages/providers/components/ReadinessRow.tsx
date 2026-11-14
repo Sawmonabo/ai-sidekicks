@@ -39,7 +39,7 @@ export function ReadinessRow(props: {
   readonly requestRegistryRead: () => void;
   readonly probe: ProviderAccountProbeCall;
   /** Where the service keeps a pasted token, which a token remedy's field names. */
-  readonly secretsPlace: SecretsPlace;
+  readonly secretsPlace: SecretsPlace | undefined;
 }): ReactNode {
   const { readiness, onStartSignIn, startBlockedReason, startRefusal } = props;
   const clockLocale = useClockLocale();

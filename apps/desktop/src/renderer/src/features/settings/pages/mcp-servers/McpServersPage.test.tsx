@@ -169,6 +169,7 @@ const LINEAR: McpServerInventoryEntry = {
 // The projects attached to this computer: one on the machine, one in a WSL distribution.
 const ATTACHED_PROJECTS: ProjectListState = {
   status: "served",
+  droppedCount: 0,
   projects: [
     {
       projectId: "project-atlas" as ProjectId,
@@ -210,7 +211,7 @@ const PARTIAL_APPLICATION: McpServerMutationResponse = {
       sessionId: SESSION_B,
       bindingId: LEG_B,
       outcome: "failed",
-      errorCode: "mcp.config_write_conflict",
+      errorCode: "mcp.server.configWriteConflict",
     },
   ],
 };

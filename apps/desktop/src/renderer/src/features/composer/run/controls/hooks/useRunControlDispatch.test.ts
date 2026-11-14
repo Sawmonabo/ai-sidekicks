@@ -97,7 +97,7 @@ describe("one control per run or child is in flight at a time", () => {
   it("releases the latch on a rejected perform and hands the rejection to the caller", async () => {
     // Without the release the control is busy for the window; without the rethrow the
     // rejection reaches nobody.
-    const rejection = { code: "run.not_found", message: "no such run" };
+    const rejection = { code: "agent.run.notFound", message: "no such run" };
     const perform = vi.fn((): Promise<RunControlOutcome> => Promise.reject(rejection));
     const bridge = inertBridge();
     const { result } = renderHook(() => useRunControlDispatch(bridge, UNUSED_CALLS));

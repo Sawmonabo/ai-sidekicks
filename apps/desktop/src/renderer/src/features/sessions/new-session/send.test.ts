@@ -30,7 +30,7 @@ describe("NewSessionDraft — the send", () => {
     // message is queued on the session the create returned.
     expect(result.outcome).toBe("sent");
     expect(result.sessionId).toBe(CREATED_SESSION_ID);
-    expect(result.completedCalls).toStrictEqual(["session.create", "run.queueCreate"]);
+    expect(result.completedCalls).toStrictEqual(["session.create", "agent.queueItem.create"]);
     expect(result.refusal).toBeUndefined();
     expect(counted.calls.map((call) => call.method)).toStrictEqual(["session.create"]);
     expect(counted.firstTurns).toStrictEqual([

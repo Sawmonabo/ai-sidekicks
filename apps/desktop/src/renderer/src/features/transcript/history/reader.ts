@@ -286,7 +286,7 @@ export class TranscriptHistoryReader {
       request: {
         sessionId: heldIdAsWireId(this.#sessionStore.sessionId),
         // No cursor reads forward from the log's start; the stream's newest position, backward.
-        ...(side === "tail" ? { beforeCursor: newestCursor } : {}),
+        ...(side === "tail" && newestCursor !== undefined ? { beforeCursor: newestCursor } : {}),
         limit: pageLimitFor(owedHeightPx, measure.smallestRowHeightPx()),
       },
       owedHeightPx,

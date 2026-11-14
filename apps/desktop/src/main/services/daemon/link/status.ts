@@ -1,6 +1,7 @@
 // Main's link to the background service: what main knows about the service and the link, and the
-// client main calls through while a link is up. The supervisor is its one writer; main's own callers
-// read the client from it, and the service's status topic delivers its state to every window.
+// client main calls through while a link is up. The supervisor is its one writer; main's own
+// callers read the client from it, and the service's status topic delivers its state to every
+// window.
 
 import type { DaemonConnection, MainProcessState } from "#shared/daemon/status-topic.js";
 

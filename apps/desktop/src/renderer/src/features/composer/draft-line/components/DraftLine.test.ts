@@ -100,7 +100,7 @@ describe("DraftLine — a refused message stays in the line", () => {
   it("leaves the text and renders the daemon's cause", async () => {
     // Nothing reached the queue, so clearing the line would lose what the person wrote.
     const rejection = {
-      code: "queue.persistence_unavailable",
+      code: "agent.queueItem.persistenceUnavailable",
       message: "The queue cannot be stored right now.",
     };
     const bar = mountOverLead(sendCallsAnswering(vi.fn().mockRejectedValue(rejection)));

@@ -143,7 +143,10 @@ describe("the comparand is the newer of the two readings", () => {
 
 describe("the daemon's answer is the only settlement", () => {
   it("carries a rejection through to the caller untouched", async () => {
-    const rejection = { code: "intervention.idempotency_conflict", message: "the key was reused" };
+    const rejection = {
+      code: "agent.intervention.idempotencyConflict",
+      message: "the key was reused",
+    };
     const { dispatcher } = dispatcherOver(async () => {
       throw rejection;
     });

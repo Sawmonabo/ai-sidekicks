@@ -33,7 +33,7 @@ export function TokenRegistrationForm(props: {
   /** The accounts already registered, whose names a new one must differ from per provider. */
   readonly accounts: readonly ProviderAccount[];
   /** Where the service keeps the token, which the lines under the field name. */
-  readonly secretsPlace: SecretsPlace;
+  readonly secretsPlace: SecretsPlace | undefined;
 }): ReactNode {
   const { register, provider, accounts, secretsPlace } = props;
   const providerName = useProviderName(provider);
@@ -130,7 +130,9 @@ export function TokenRegistrationForm(props: {
           on the smallest model. Each check counts toward this account&rsquo;s spend.
         </p>
       ) : null}
-      <p className="meridian-settings-page__aside">{TOKEN_KEPT_WORDS[secretsPlace].underField}</p>
+      {secretsPlace === undefined ? null : (
+        <p className="meridian-settings-page__aside">{TOKEN_KEPT_WORDS[secretsPlace].underField}</p>
+      )}
 
       <span className="meridian-accounts__register-actions">
         <button

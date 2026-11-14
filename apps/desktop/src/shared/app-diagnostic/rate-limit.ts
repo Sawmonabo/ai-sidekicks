@@ -17,7 +17,9 @@ export const APP_DIAGNOSTIC_RATE_BOUNDS = {
   all: 30,
 } as const;
 
-/** Arms the end of a counting window after `ms`; the caller picks a timer that suits its process. */
+/**
+ * Arms the end of a counting window after `ms`; the caller picks a timer that suits its process.
+ */
 export type CountingWindowTimer = (end: () => void, ms: number) => void;
 
 /** Counts records against the rate and tells how many were held back once each window ends. */

@@ -345,6 +345,48 @@ describe("the client helper", () => {
     ]);
   });
 
+  it("leaves a shell told as it was when the daemon refuses its flow update", async () => {
+    const helper = servedHelper();
+    const pause = (callId: number) => {
+      helper.sendFromWindow({
+        kind: "call",
+        callId,
+        method: "terminal.flowControl.update",
+        params: {
+          sessionId: "0199f0a4-5c2e-7a3b-8c1d-2e3f4a5b6c7d",
+          terminalId: "terminal-1",
+          paused: true,
+        },
+        attachments: [],
+      });
+    };
+    const toldPaused = () =>
+      helper.daemon.calls.map(
+        (call) => (JSON.parse(call.paramsJson) as { paused: boolean }).paused,
+      );
+
+    pause(1);
+    await vi.waitFor(() => {
+      expect(toldPaused()).toStrictEqual([true]);
+    });
+    helper.daemon.callAnswers.get(helper.daemon.calls[0]!.addonCallId)!({
+      error: {
+        code: -31000,
+        message: "The connection has too many calls open",
+        data: { type: "connection.call.limitReached" },
+      },
+    });
+    await vi.waitFor(() => {
+      expect(helper.toWindow).toContainEqual(expect.objectContaining({ kind: "call.refused" }));
+    });
+
+    // The daemon never paused the shell, so the same pause is sent again rather than taken as held.
+    pause(2);
+    await vi.waitFor(() => {
+      expect(toldPaused()).toStrictEqual([true, true]);
+    });
+  });
+
   it("drops a wait main closed before it settled, closing its client and telling main nothing", async () => {
     const daemon = fakeDaemonClient();
     const toMain: ClientHelperToMainMessage[] = [];

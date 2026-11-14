@@ -28,7 +28,6 @@ import {
   type ParamAnswers,
   type ParamIssues,
 } from "#renderer/features/workflows/param-form/answers.js";
-import type { PageModuleState } from "#renderer/components/Markdown/worker/page-module-load.js";
 import { useWorkflowChecks } from "#renderer/features/workflows/param-form/hooks/useWorkflowChecks.js";
 
 /** Where the step's form read stands. */
@@ -45,11 +44,6 @@ export interface StepFormHold {
   readonly changeAnswers: (next: ParamAnswers) => void;
   readonly submit: () => void;
   readonly submitState: WorkflowCallState<unknown>;
-  /**
-   * Where the workflow checks stood after a press they held, since a field they have not read
-   * cannot be told shown or hidden; `undefined` once they answer or no press was held.
-   */
-  readonly heldSubmit: Exclude<PageModuleState, "ready"> | undefined;
   /** A draft the daemon refused to save, said in place; typing goes on. */
   readonly draftRefusal: Refusal | undefined;
   readonly readAgain: () => void;
@@ -70,7 +64,8 @@ export const DRAFT_SAVE_REST_MS = 600;
  * window, and the submit that replaces the form with its receipt. Saves go one at a time, each on
  * the revision the one before it returned; a save still resting when the form goes is sent then;
  * a secret's answer is never saved. A picked folder or file is sent in `paths` at its dotted place,
- * never in `fields`. An answer the form refuses is said in place and sends nothing.
+ * never in `fields`. An answer the form refuses is said in place and sends nothing. A press made
+ * while the workflow checks load is held and sent once they answer, or dropped when they fail.
  */
 export function useStepForm(
   bridge: PlatformBridge,
@@ -194,18 +189,13 @@ export function useStepForm(
     },
   );
 
+  // The form asks for the checks wherever a field waits on them; this hook only follows them.
   const checks = useWorkflowChecks(false);
   const [isSubmitHeld, setIsSubmitHeld] = useState(false);
-  const submit = useCallback(() => {
+  const sendAnswers = useCallback(() => {
     if (form === undefined) {
       return;
     }
-    // A field the checks have not read yet cannot be told shown or hidden, so the press waits.
-    if (hasConditionalParam(form.fields) && checks.state !== "ready") {
-      setIsSubmitHeld(true);
-      return;
-    }
-    setIsSubmitHeld(false);
     const check = checkParamAnswers(form.fields, answers);
     if (check.kind === "invalid") {
       setIssues(check.issues);
@@ -223,7 +213,28 @@ export function useStepForm(
       paths: check.paths,
       expectedRevision: form.formRevision,
     });
-  }, [answers, checks.state, clock, form, submission]);
+  }, [answers, clock, form, submission]);
+  const submit = useCallback(() => {
+    if (form === undefined) {
+      return;
+    }
+    // A field the checks have not read yet cannot be told shown or hidden, so the press waits.
+    if (hasConditionalParam(form.fields) && checks.state !== "ready") {
+      setIsSubmitHeld(true);
+      return;
+    }
+    sendAnswers();
+  }, [checks.state, form, sendAnswers]);
+  // The held press goes once the checks answer; the form's own failure line stands for one dropped.
+  useEffect(() => {
+    if (!isSubmitHeld || (checks.state !== "ready" && checks.state !== "failed")) {
+      return;
+    }
+    setIsSubmitHeld(false);
+    if (checks.state === "ready") {
+      sendAnswers();
+    }
+  }, [checks.state, isSubmitHeld, sendAnswers]);
 
   const readAgain = useCallback(() => {
     setReadRevision((revision) => revision + 1);
@@ -236,7 +247,6 @@ export function useStepForm(
     changeAnswers,
     submit,
     submitState: submission.state,
-    heldSubmit: isSubmitHeld && checks.state !== "ready" ? checks.state : undefined,
     draftRefusal,
     readAgain,
   };

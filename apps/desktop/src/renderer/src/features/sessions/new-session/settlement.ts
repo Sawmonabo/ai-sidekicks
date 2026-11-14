@@ -64,7 +64,7 @@ export function refuseNewSessionDraft(
 /** The wire name a send reports its create leg under, spelled once. */
 export const SESSION_CREATE_METHOD = "session.create";
 /** The wire name a send reports its first-turn leg under, spelled once. */
-export const RUN_QUEUE_CREATE_METHOD = "run.queueCreate";
+export const RUN_QUEUE_CREATE_METHOD = "agent.queueItem.create";
 
 /**
  * What the coalesced send did. `completedCalls` carries the wire names verbatim and in order,

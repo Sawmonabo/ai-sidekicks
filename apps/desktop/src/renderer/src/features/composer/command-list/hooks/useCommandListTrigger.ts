@@ -87,6 +87,10 @@ export function useCommandListTrigger(
       if (event.target !== lineElementWithin(element)) {
         return;
       }
+      // A key that confirms or steers an input-method composition is the composition's own.
+      if (event.isComposing) {
+        return;
+      }
       if (event.key === "Enter" && !event.shiftKey) {
         // While only the word is typed, the list may choose its row: prevented then, which Send
         // reads as handled. A line with more after the word is Send's.

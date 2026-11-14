@@ -11,8 +11,8 @@ export function ServedProviderSections(props: { readonly children: ReactNode }):
   return (
     <ProviderSectionsContext.Provider
       value={{
-        state: { status: "served", sections: providerSectionsFixture() },
-        readAgain: () => Promise.resolve(),
+        state: { status: "served", sections: providerSectionsFixture(), droppedCount: 0 },
+        readAgain: () => () => undefined,
       }}
     >
       {props.children}

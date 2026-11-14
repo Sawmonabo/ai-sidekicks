@@ -146,12 +146,21 @@ describe("the banners a session's standing notices raise", () => {
     expect(drawn([mismatched, mountHealth(2, { status: "healthy" }, NEW_MOUNT_ID)])).toStrictEqual(
       [],
     );
-    // Only the newest health speaks, whichever mount it names.
+    // A mount healthy before the mismatch, or one git no longer answers for, takes nothing away.
     expect(
       foldSessionNoticeBanners([
         mountHealth(1, { status: "healthy" }, NEW_MOUNT_ID),
         mountHealth(2, { status: "identityMismatch", isRepository: false }),
       ]),
     ).toMatchObject([{ kind: "folderLost", repoMountId: MOUNT_ID, isRepository: false }]);
+  });
+
+  it("keeps one mount's lost banner while another mount reads healthy later", () => {
+    expect(
+      drawn([
+        mountHealth(5, { status: "unreachable" }),
+        mountHealth(7, { status: "healthy" }, NEW_MOUNT_ID),
+      ]),
+    ).toStrictEqual(["/work/app can't be reached · new runs wait until it's back"]);
   });
 });

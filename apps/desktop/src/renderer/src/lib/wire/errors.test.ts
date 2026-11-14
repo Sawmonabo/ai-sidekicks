@@ -29,15 +29,21 @@ describe("readGuardedProperty — absent and unreadable answer the same", () => 
 describe("readWireErrorEnvelopeWithCode — the discriminant costs no second read", () => {
   it("answers a snapshot on a match and undefined on a miss", () => {
     expect(
-      readWireErrorEnvelopeWithCode({ code: "repo.not_found", message: "gone" }, "repo.not_found"),
-    ).toStrictEqual({ code: "repo.not_found", message: "gone" });
+      readWireErrorEnvelopeWithCode(
+        { code: "repoMount.notFound", message: "gone" },
+        "repoMount.notFound",
+      ),
+    ).toStrictEqual({ code: "repoMount.notFound", message: "gone" });
     expect(
-      readWireErrorEnvelopeWithCode({ code: "repo.not_found", message: "gone" }, "repo.locked"),
+      readWireErrorEnvelopeWithCode(
+        { code: "repoMount.notFound", message: "gone" },
+        "repoMount.detachConflict",
+      ),
     ).toBeUndefined();
   });
 
   it("answers undefined for a value whose every trap throws", () => {
-    expect(readWireErrorEnvelopeWithCode(everyTrapThrows(), "repo.not_found")).toBeUndefined();
+    expect(readWireErrorEnvelopeWithCode(everyTrapThrows(), "repoMount.notFound")).toBeUndefined();
   });
 });
 

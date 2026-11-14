@@ -94,7 +94,7 @@ describe("the expand control", () => {
       onExpand,
       reading: {
         status: "refused",
-        refusal: { code: "transcript.run_not_found", detail: "No such run.", origin: "daemon" },
+        refusal: { code: "agent.run.notFound", detail: "No such run.", origin: "daemon" },
       },
     });
     const control = container.querySelector<HTMLButtonElement>(
@@ -111,10 +111,10 @@ describe("the states around the read", () => {
     const container = renderThinkingRow({
       reading: {
         status: "refused",
-        refusal: { code: "transcript.run_not_found", detail: "No such run.", origin: "daemon" },
+        refusal: { code: "agent.run.notFound", detail: "No such run.", origin: "daemon" },
       },
     });
     expect(drawnText(container)).toContain("No such run.");
-    expect(drawnText(container)).not.toContain("transcript.run_not_found");
+    expect(drawnText(container)).not.toContain("agent.run.notFound");
   });
 });

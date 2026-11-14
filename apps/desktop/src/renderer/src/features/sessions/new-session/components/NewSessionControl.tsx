@@ -1,5 +1,5 @@
 // "+ New": the one control that constructs a `NewSessionDraft`. It offers the first message
-// only, since the draft cannot compose `run.queueCreate` without the turn's body; the lead
+// only, since the draft cannot compose `agent.queueItem.create` without the turn's body; the lead
 // comes from the props. Discard and "+ New" stay reachable during a send, so the result and the
 // sending flag are held per draft and a settlement closes the draft only while the revision it
 // sent is still current. The field is `readOnly`, not disabled, while a send runs, so focus and

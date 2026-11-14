@@ -135,6 +135,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
                       totalRowCount={snapshot.rows.length}
                       renderRow={props.renderRow}
                       attachRow={binding.attachRow}
+                      clock={binding.clock}
                     />
                   );
                 })}

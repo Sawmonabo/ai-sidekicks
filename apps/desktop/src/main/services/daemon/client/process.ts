@@ -70,6 +70,14 @@ export class DaemonRefusal extends Error {
   }
 }
 
+/** The helper's answer that a service ask threw in the addon, as the ask rejects with it. */
+export class ServiceAskFailed extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "ServiceAskFailed";
+  }
+}
+
 /** The part of Electron's `UtilityProcess` main drives the helper through. */
 export interface ClientHelperUtilityProcess {
   postMessage(message: MainToClientHelperMessage, transfer?: ClientHelperPortTransfer[]): void;
@@ -439,7 +447,7 @@ export class ClientHelperProcess implements MainDaemonClient {
       case "service.askFailed":
         (
           takeAsk(this.#endings, message.askId) ?? takeAsk(this.#identityReads, message.askId)
-        )?.reject(new Error(message.error));
+        )?.reject(new ServiceAskFailed(message.error));
         return;
       case "link.state":
         this.#listener?.linkStateChanged(message.state);

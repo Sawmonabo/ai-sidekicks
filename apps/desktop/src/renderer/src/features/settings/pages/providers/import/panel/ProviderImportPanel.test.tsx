@@ -54,7 +54,7 @@ interface SentRequests {
 }
 
 /** What the stubbed start answers when a case has it refuse. */
-const START_REFUSAL = refuse("daemon", "session.import_unavailable", "The import service is down.");
+const START_REFUSAL = refuse("daemon", "connection.unavailable", "The import service is down.");
 
 /** The three calls, each recording what it was sent; every subscription opens a fresh stream. */
 function recordingCalls(options: { readonly isStartRefused: boolean }): {

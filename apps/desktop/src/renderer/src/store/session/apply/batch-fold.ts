@@ -22,7 +22,7 @@
 // there. An admitted rollback marks the held rows it supersedes.
 
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 
 import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";

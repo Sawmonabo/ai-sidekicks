@@ -14,6 +14,7 @@ import { paneContext } from "#test/helpers/pane-context.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
+import { RealClock } from "#renderer/lib/clock.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { type LazyBodyModule } from "#renderer/components/LazyBody/loader.js";
 import { countingLoader } from "./registry.lazy-body.test-support.js";
@@ -148,7 +149,7 @@ describe("a rejected body load — the error boundary's retry reaches it", () =>
     registry.register({ kind: "diff", owner: "repos", body: loader.load });
 
     const { container } = render(
-      <ErrorBoundary regionName="The diff pane">
+      <ErrorBoundary regionName="The diff pane" clock={new RealClock()}>
         <MountedDiffPane registry={registry} context={diffPaneContext()} />
       </ErrorBoundary>,
       { wrapper: LiveAnnouncerProvider },

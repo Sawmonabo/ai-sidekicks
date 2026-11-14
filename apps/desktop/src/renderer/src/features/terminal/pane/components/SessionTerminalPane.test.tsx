@@ -1,8 +1,8 @@
 // The terminal pane over a fake daemon wire: the shell list draws one tab per shell and a
 // middle-click closes one, a session read empty opens one shell and no more; a close of a shell
-// another device holds is asked first and forced on the answer, and a moved tab sends its order; an exited shell
-// reads its exit line and one that did not start reads its cause with `Try again`; the holding
-// pane tells the shell its grid's size; a paste goes as one paste; and keys typed while the
+// another device holds is asked first and forced on the answer, and a moved tab sends its order; an
+// exited shell reads its exit line and one that did not start reads its cause with `Try again`; the
+// holding pane tells the shell its grid's size; a paste goes as one paste; and keys typed while the
 // output stream is opened again go once the new subscription is acknowledged.
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";

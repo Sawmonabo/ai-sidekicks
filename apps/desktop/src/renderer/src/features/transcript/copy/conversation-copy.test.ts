@@ -111,7 +111,7 @@ describe("a copy built a slice at a time", () => {
 
   it("copies nothing when a large body's read is refused", async () => {
     const refusal = {
-      code: "transcript.body_not_found",
+      code: "transcript.row.notFound",
       detail: "No such body.",
       origin: "daemon",
     };

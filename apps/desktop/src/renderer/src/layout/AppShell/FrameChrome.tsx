@@ -20,6 +20,7 @@ import type { WindowSize } from "#shared/window/size.js";
 import { WindowFloorBox } from "./WindowFloorBox.js";
 import { useAnimateSessionsTrack } from "./hooks/useAnimateSessionsTrack.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 
 /** What a caller hands the frame chrome. */
 export interface FrameChromeProps {
@@ -51,6 +52,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
     isEnabled: props.route.kind !== "session",
   });
   const sessionsTrack = useAnimateSessionsTrack(props.sessionsTrack);
+  const clock = useClock();
   return (
     <div
       ref={sessionsTrack.frameRef}
@@ -94,7 +96,11 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
           )}
           <main className="meridian-frame__screen" ref={screenScrollbarRef}>
             {/* Keyed by the route so navigating away from a crash clears the boundary's error. */}
-            <ErrorBoundary key={formatRoute(props.route)} regionName={screenNameFor(props.route)}>
+            <ErrorBoundary
+              key={formatRoute(props.route)}
+              regionName={screenNameFor(props.route)}
+              clock={clock}
+            >
               {props.children}
             </ErrorBoundary>
           </main>

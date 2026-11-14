@@ -1,6 +1,7 @@
 // Every bridge member's channels are answered, and refuse a frame that is not one of the app's own
-// documents; a page's port to the client helper reaches the helper only from one of them. A system failure reaches the page as the channel's own sentence, with no path, channel
-// or code in it, and main's log keeps it whole; a failure main wrote crosses as it is.
+// documents; a page's port to the client helper reaches the helper only from one of them. A system
+// failure reaches the page as the channel's own sentence, with no path, channel or code in it, and
+// main's log keeps it whole; a failure main wrote crosses as it is.
 
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

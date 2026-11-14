@@ -2,8 +2,8 @@
 // whose every message is one provider's whole section. The stream opens before the list is read,
 // so no change falls between the two; a section the stream delivers before the list moves nothing,
 // since the list sent after it holds it. Every delivery is checked with the contract's generated
-// check. An unreadable section is refused alone, its fault going to the window's diagnostic
-// capture, and the rest of the list stands; a refused or unreadable list and a stream the daemon
+// check. An unreadable section is refused alone and handed on as such, its fault going to the
+// window's diagnostic capture, and the rest of the list stands; a refused or unreadable list and a stream the daemon
 // refuses are handed on as the list being lost. A stream that opens again reads the list again,
 // since the gap may have hidden a change.
 
@@ -117,5 +117,6 @@ class ProviderSectionsFollower {
       subject: PROVIDER_NOTICE_STREAM,
       issues: checkFaultPaths(validateProviderSettingsResponse, payload),
     });
+    this.#onFrame({ kind: "unreadableSection" });
   }
 }

@@ -41,7 +41,7 @@ import { describeFailure } from "#shared/failure-message.js";
 import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
 import type { FilePathRef } from "#shared/preload-api.js";
 
-import { ConnectionShells } from "./connection-shells.js";
+import { ConnectionShells, type FlowTelling } from "./connection-shells.js";
 import type {
   ClientHelperLinkState,
   ClientHelperServiceAnswer,
@@ -217,8 +217,8 @@ class ClientHelper {
   readonly #asks = new Map<number, (answer: FilePathAnswer) => void>();
   #nextAskId = 0;
   #nextAddonCallId = 0;
-  readonly #shells = new ConnectionShells<Channel>((update) => {
-    void this.#tellFlowControl(update);
+  readonly #shells = new ConnectionShells<Channel>((update, telling) => {
+    void this.#tellFlowControl(update, telling);
   });
 
   public constructor(parentPort: ClientHelperParentPort, addon: ClientHelperAddon) {
@@ -393,9 +393,12 @@ class ClientHelper {
 
   /**
    * Sends the connection's own flow update, after the connect under way and the calls waiting on
-   * it; a failure is told to main, which logs it.
+   * it; a failure puts back what the daemon was told and is told to main, which logs it.
    */
-  async #tellFlowControl(update: TerminalFlowControlUpdateRequest): Promise<void> {
+  async #tellFlowControl(
+    update: TerminalFlowControlUpdateRequest,
+    telling: FlowTelling,
+  ): Promise<void> {
     const link = await this.#link();
     // With no link up the daemon holds nothing for this connection; the next one is told.
     if (!("client" in link)) {
@@ -416,6 +419,7 @@ class ClientHelper {
     } catch (failure) {
       message = describeFailure(failure);
     }
+    telling.putBack();
     this.#parentPort.postMessage({ kind: "flowControl.failed", message });
   }
 
@@ -514,8 +518,8 @@ class ClientHelper {
     if (method === FLOW_CONTROL_METHOD) {
       // The params passed the method's check.
       const update = params as TerminalFlowControlUpdateRequest;
-      const paused = this.#shells.declareFlow(channel, update);
-      if (paused === undefined) {
+      const telling = this.#shells.declareFlow(channel, update);
+      if (telling === undefined) {
         this.#settleCall(channel, callId, {
           kind: "call.served",
           callId,
@@ -524,7 +528,13 @@ class ClientHelper {
         });
         return;
       }
-      params = { ...update, paused };
+      const flowParams = { ...update, paused: telling.paused };
+      const answer = await this.#callOverLink(channel, request, held, flowParams, undefined);
+      // An update the daemon did not take leaves it holding what it was told before.
+      if (answer?.kind !== "call.served") {
+        telling.putBack();
+      }
+      return;
     }
     let replyAsk: number | undefined;
     if (channel.windowId !== undefined && FILE_PATH_METHODS.has(method)) {
@@ -559,30 +569,28 @@ class ClientHelper {
     }
   }
 
-  /** Sends one checked call over the link once it settles and tells its asker the answer. */
+  /** Sends one checked call once the link settles; answers what it told the asker, if anything. */
   async #callOverLink(
     channel: Channel,
     request: Extract<ClientHelperRequest, { readonly kind: "call" }>,
     held: HeldCall,
     params: unknown,
     replyAsk: number | undefined,
-  ): Promise<void> {
+  ): Promise<ClientHelperAnswer | undefined> {
     const { callId, method } = request;
     const link = await this.#link();
     if (channel.isClosed) {
-      return;
+      return undefined;
     }
     if ("isClosed" in link) {
-      this.#settleCall(channel, callId, {
-        kind: "call.failed",
-        callId,
-        message: NOT_ANSWERING_MESSAGE,
-      });
-      return;
+      const failed = { kind: "call.failed", callId, message: NOT_ANSWERING_MESSAGE } as const;
+      this.#settleCall(channel, callId, failed);
+      return failed;
     }
     if ("error" in link) {
-      this.#settleCall(channel, callId, { kind: "call.refused", callId, refusal: link.error });
-      return;
+      const refused = { kind: "call.refused", callId, refusal: link.error } as const;
+      this.#settleCall(channel, callId, refused);
+      return refused;
     }
     const addonCallId = this.#takeAddonCallId();
     let answer: ClientHelperAnswer;
@@ -611,6 +619,7 @@ class ClientHelper {
       };
     }
     this.#settleCall(channel, callId, answer);
+    return answer;
   }
 
   #takeAddonCallId(): number {

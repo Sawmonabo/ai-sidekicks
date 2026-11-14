@@ -3,7 +3,9 @@
 
 import type { TerminalGridSize } from "../emulator/xterm/adapter.js";
 
-/** Sends a shell's sizes through `send`, which settles once the daemon answers and never rejects. */
+/**
+ * Sends a shell's sizes through `send`, which settles once the daemon answers and never rejects.
+ */
 export class ShellResizeQueue {
   readonly #send: (size: TerminalGridSize) => Promise<void>;
   #newest: TerminalGridSize | undefined;

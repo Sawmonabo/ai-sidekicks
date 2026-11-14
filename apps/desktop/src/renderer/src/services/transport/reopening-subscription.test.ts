@@ -14,7 +14,11 @@ import { REOPEN_SETTLED_MS, REOPEN_WAITS_MS } from "./reopen-backoff.js";
 import { openReopeningSubscription, type ReopenableStreamOpen } from "./reopening-subscription.js";
 
 /** The refusal the scripted daemon declines a stream with. */
-const NOT_ALLOWED = { code: -32000, message: "Not allowed.", data: { type: "stream.not_allowed" } };
+const NOT_ALLOWED = {
+  code: -32000,
+  message: "Not allowed.",
+  data: { type: "connection.subscription.limitReached" },
+};
 
 /** A daemon stream played by the test: each open it took, and how many next opens throw. */
 class ScriptedStream {
@@ -165,7 +169,10 @@ describe("a stream kept open", () => {
 
     stream.refuse();
     expect(refusals).toStrictEqual([
-      expect.objectContaining({ code: "stream.not_allowed", detail: "Not allowed." }),
+      expect.objectContaining({
+        code: "connection.subscription.limitReached",
+        detail: "Not allowed.",
+      }),
     ]);
     // Never in a loop: nothing is opened again until the transport comes back.
     clock.advance(REOPEN_WAITS_MS.at(-1)!);
@@ -198,8 +205,8 @@ describe("a stream kept open", () => {
     signal.observe("unreachable");
     signal.observe("reachable");
     expect(refusals).toStrictEqual([
-      expect.objectContaining({ code: "stream.not_allowed" }),
-      expect.objectContaining({ code: "stream.not_allowed" }),
+      expect.objectContaining({ code: "connection.subscription.limitReached" }),
+      expect.objectContaining({ code: "connection.subscription.limitReached" }),
     ]);
   });
 });

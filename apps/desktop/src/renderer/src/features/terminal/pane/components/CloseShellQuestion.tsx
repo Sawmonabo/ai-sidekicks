@@ -1,6 +1,6 @@
 // The question a close asks in place, under the strip, before it ends a shell another of the
-// person's devices holds: `Close` ends it there too, `Cancel` or Escape keeps it. Its focus lands on
-// `Close` as it opens, so the answer is one key away.
+// person's devices holds: `Close` ends it there too, `Cancel` or Escape keeps it. Its focus lands
+// on `Close` as it opens, so the answer is one key away.
 
 import { useId } from "react";
 

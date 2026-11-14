@@ -1,7 +1,7 @@
 // The service's projects, read off `project.subscribe`: the whole list when the stream opens and
 // again on each change. Every delivery is checked here with the contract's generated check. A list
-// holding a project that does not match is handed on without it, each refused project's fault
-// going to the window's diagnostic capture; a delivery that is no list at all, or a re-open the
+// holding a project that does not match is handed on without it and counts it, each refused
+// project's fault going to the window's diagnostic capture; a delivery that is no list at all, or a re-open the
 // daemon refuses, is handed on as the list being lost. A stream that ends is opened again and
 // restates the list.
 
@@ -66,11 +66,11 @@ function projectListFeedOver(bridge: PlatformBridge): ProjectListFeed {
     });
 }
 
-// One delivery as a frame: the list less each project that does not match, or the list lost where
-// the delivery is no list of projects even with its projects set aside.
+// One delivery as a frame: the list less each project that does not match, counted, or the list
+// lost where the delivery is no list of projects even with its projects set aside.
 function readProjectListFrame(payload: unknown): ProjectListFrame {
   if (validateProjectList(payload)) {
-    return { kind: "list", projects: payload.projects };
+    return { kind: "list", projects: payload.projects, droppedCount: 0 };
   }
   // Set aside, the projects leave the rest of the delivery to be checked on its own.
   const rows: unknown =
@@ -91,7 +91,7 @@ function readProjectListFrame(payload: unknown): ProjectListFrame {
       })),
     );
   });
-  return { kind: "list", projects };
+  return { kind: "list", projects, droppedCount: rows.length - projects.length };
 }
 
 function recordUnreadable(issues: RefusedMemberIssues): void {

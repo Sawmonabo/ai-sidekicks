@@ -87,11 +87,9 @@ export class PayloadTableRows {
             : { kind: "ready", row: { kind: "value", place, text: valueText(value) } },
         );
       });
-      for (const file of Object.values(item.binary ?? {})) {
-        // The generated map type admits an absent member, which carries no file.
-        if (file !== undefined) {
-          this.#wait({ kind: "ready", row: { kind: "file", line: fileLine(file) } });
-        }
+      // Parsed from JSON and checked, the map holds no absent member its type admits.
+      for (const file of Object.values(item.binary ?? {}) as readonly WorkflowBinaryRef[]) {
+        this.#wait({ kind: "ready", row: { kind: "file", line: fileLine(file) } });
       }
     });
     this.#drawWhatIsReady();

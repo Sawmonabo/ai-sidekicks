@@ -71,7 +71,7 @@ describe("ProjectSwitches", () => {
       <ProjectSwitches
         entry={CONNECTOR}
         projects={{
-          state: { status: "served", projects: [ATLAS, BEACON, ARCHIVED] },
+          state: { status: "served", projects: [ATLAS, BEACON, ARCHIVED], droppedCount: 0 },
           readAgain: () => undefined,
         }}
         outcomeFor={() => IDLE_MCP_MUTATION}

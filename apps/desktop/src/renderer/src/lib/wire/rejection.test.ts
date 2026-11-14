@@ -42,11 +42,11 @@ describe("normalizeWireRejection — the refusing side's own code survives", () 
 
   it("keeps a flat envelope's code and message verbatim", () => {
     const refusal = normalizeWireRejection("repos", {
-      code: "repo.outside_trust_envelope",
+      code: "repoMount.outsideTrustEnvelope",
       message: "That path is outside the admitted root.",
     });
     expect(refusal).toStrictEqual(
-      refuse("repos", "repo.outside_trust_envelope", "That path is outside the admitted root."),
+      refuse("repos", "repoMount.outsideTrustEnvelope", "That path is outside the admitted root."),
     );
   });
 });

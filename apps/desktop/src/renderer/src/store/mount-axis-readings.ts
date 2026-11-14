@@ -25,7 +25,7 @@ type MountAxisPresentation = Omit<MountAxisReading, "label">;
 
 /** Every health verdict but a different repository, keyed off the contract's own union. */
 const HEALTH_READINGS: Readonly<
-  Record<Exclude<RepoMountHealth["status"], "identity_mismatch">, MountAxisPresentation>
+  Record<Exclude<RepoMountHealth["status"], "identityMismatch">, MountAxisPresentation>
 > = {
   healthy: {
     tone: "neutral",
@@ -66,7 +66,7 @@ export function mountHealthReading(
   mount: Pick<RepoMountReadResponse, "health" | "canonicalRoot">,
 ): MountAxisReading {
   const { status } = mount.health;
-  if (status === "identity_mismatch") {
+  if (status === "identityMismatch") {
     return {
       tone: "failure",
       label: "A different repository now",

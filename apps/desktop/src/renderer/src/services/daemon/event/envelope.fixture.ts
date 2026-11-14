@@ -1,15 +1,15 @@
 // One authored beat composed into the wire envelope the daemon would have sent, a run of them
-// into the `session.subscribe` frames that carry them, and the frame cut every stream shares. A
-// scenario is authored in `ProjectedSessionEvent`s, but `session.subscribe` carries the canonical
-// `EventEnvelope` (`@ai-sidekicks/contracts/event/envelope`), whose event type is `type` and
-// whose attribution is `actor`.
+// into the `session.event.subscribe` frames that carry them, and the frame cut every stream
+// shares. A scenario is authored in `ProjectedSessionEvent`s, but `session.event.subscribe`
+// carries the canonical `EventEnvelope` (`@ai-sidekicks/contracts/event/envelope`), whose event
+// type is `type` and whose attribution is `actor`.
 // A fixture that delivered the authoring shape would agree with the app's decode boundary and
 // with nothing the daemon sends, so this is the one place the first becomes the second.
 //
 // Composing is not judging: the result is a candidate that carries only what the beat states, so a
 // kind outside the census composes with no `category`, which `validateEventEnvelope` refuses. The
-// judges are the generated checks, run by `tests/helpers/scenario/contract-check/all-axes.ts` on every
-// beat before a scenario ships and by `session/event/payload.ts` on every delivery.
+// judges are the generated checks, run by `tests/helpers/scenario/contract-check/all-axes.ts` on
+// every beat before a scenario ships and by `session/event/payload.ts` on every delivery.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/category-by-type";
 import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc/streaming";
@@ -59,7 +59,7 @@ export interface ScenarioStreamFrame<Change> {
   readonly changes: readonly Change[];
 }
 
-/** One composed `session.subscribe` frame: its changes, never the far-behind mark. */
+/** One composed `session.event.subscribe` frame: its changes, never the far-behind mark. */
 export interface ScenarioSessionStreamFrame extends ScenarioStreamFrame<ScenarioSessionStreamChange> {
   readonly kind: "changes";
 }
@@ -88,7 +88,7 @@ export function composeScenarioEventEnvelope(
 }
 
 /**
- * Compose the `session.subscribe` frames one batch of beats is delivered in, cut as
+ * Compose the `session.event.subscribe` frames one batch of beats is delivered in, cut as
  * {@link composeScenarioStreamFrames} cuts them. Each change carries its beat's cursor and the
  * run stamp the beat was given.
  */

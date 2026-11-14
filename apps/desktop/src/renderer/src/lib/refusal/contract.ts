@@ -41,12 +41,13 @@ export class RefusalError extends Error {
 
 /**
  * A refusal for a read that can be asked again, thrown to the region's error boundary, which
- * draws its line with `Try again`. `readAgain` settles once the read has answered again.
+ * draws its line with `Try again`. `readAgain` calls `onAnswered` once the read has answered
+ * again, and its handle stops the wait.
  */
 export class RereadableRefusalError extends RefusalError {
-  public readonly readAgain: () => Promise<void>;
+  public readonly readAgain: (onAnswered: () => void) => () => void;
 
-  public constructor(refusal: Refusal, readAgain: () => Promise<void>) {
+  public constructor(refusal: Refusal, readAgain: (onAnswered: () => void) => () => void) {
     super(refusal);
     this.name = "RereadableRefusalError";
     this.readAgain = readAgain;

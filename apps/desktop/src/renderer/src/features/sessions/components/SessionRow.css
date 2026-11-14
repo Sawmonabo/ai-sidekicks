@@ -23,14 +23,18 @@
    It wraps rather than ellipsizes because sessions differ by the tail of their id. */
 .meridian-session-row__identity {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--meridian-space-1) var(--meridian-space-2);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 /* The dot leads the first line; the name and the facts share the second column, so the facts sit
-   under the title and not under the dot. */
+   under the title and not under the dot. A row with no dot keeps one column and no gap. */
+.meridian-session-row__identity:has(> .meridian-session-row__dot) {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
 .meridian-session-row__dot {
   display: flex;
   align-items: center;
@@ -38,8 +42,8 @@
   grid-row: 1;
 }
 
-.meridian-session-row__identity > .meridian-session-row__name,
-.meridian-session-row__identity > .meridian-session-row__facts {
+.meridian-session-row__identity:has(> .meridian-session-row__dot) > .meridian-session-row__name,
+.meridian-session-row__identity:has(> .meridian-session-row__dot) > .meridian-session-row__facts {
   grid-column: 2;
 }
 

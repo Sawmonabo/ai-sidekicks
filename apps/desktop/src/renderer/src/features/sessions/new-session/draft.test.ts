@@ -78,7 +78,7 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     expect(finished.outcome).toBe("sent");
     // Every leg named once; the create is named because it exists, not because this press
     // made it.
-    expect(finished.completedCalls).toStrictEqual(["session.create", "run.queueCreate"]);
+    expect(finished.completedCalls).toStrictEqual(["session.create", "agent.queueItem.create"]);
   });
 
   it("negative control: the second press re-issues nothing the first one landed", async () => {
