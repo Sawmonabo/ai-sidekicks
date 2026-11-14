@@ -252,7 +252,7 @@ impl CodexExecRelay {
             .as_ref()
             .expect("the relay's listener is open once its start reaches here");
         Ok(EnvironmentAddParams {
-            auth_bearer_token: Some(endpoint.token().text().to_owned()),
+            auth_bearer_token: Some(endpoint.token().text().as_str().to_owned()),
             connect_timeout_ms: None,
             environment_id: CODEX_RELAY_ENVIRONMENT_ID.to_owned(),
             exec_server_url: endpoint.url(),

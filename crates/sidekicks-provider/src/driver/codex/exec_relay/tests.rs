@@ -175,7 +175,7 @@ async fn listening_relay(session_id: SessionId, folder: &Path) -> ListeningRelay
     let (executor, fake) = initialized_executor().await;
     relay.take_executor(executor);
     let token = BearerToken::mint().expect("a token mints");
-    let presented = format!("Bearer {}", token.text());
+    let presented = format!("Bearer {}", token.text().as_str());
     let endpoint = RelayEndpoint::listen(Arc::downgrade(&relay), token)
         .await
         .expect("the relay listens");

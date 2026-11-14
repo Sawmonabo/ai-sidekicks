@@ -78,7 +78,7 @@ impl CodexLaunchTelemetry {
     /// The token and tag the service's record keeps for a later daemon to admit again.
     pub(crate) fn kept(&self) -> KeptLaunchTelemetry {
         KeptLaunchTelemetry {
-            token: self.bearer.token_text().to_owned(),
+            token: self.bearer.token_text(),
             resource_tag: self.tag.resource_tag(),
         }
     }

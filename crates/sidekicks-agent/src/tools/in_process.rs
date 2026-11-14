@@ -73,13 +73,9 @@ impl InProcessToolServers for InProcessAgentToolServers {
             .body(())
             .expect("a tool server's path and a hex secret make a request")
             .into_parts();
-        let entry = self.entries.insert(
-            path,
-            spawn.provider,
-            token,
-            spawn.dispatcher,
-            spawn.hook_tools,
-        );
+        let entry = self
+            .entries
+            .insert(spawn, vec![(DAEMON_TOOL_SERVER_NAME, token)]);
         Ok(Arc::new(SpawnToolServers {
             server: self.server.clone(),
             route,

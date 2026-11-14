@@ -770,7 +770,7 @@ mod tests {
         let minted = former
             .mint(codex(), TelemetryHolderId::new(3))
             .expect("the random source is readable");
-        let token = minted.token_text().to_owned();
+        let token = minted.token_text();
         let authorization = format!("Bearer {token}");
         drop(minted);
         let joining = Arc::new(TelemetryBearers::default());

@@ -56,20 +56,15 @@ impl AgentToolServerRoute {
         }
     }
 
-    // Adds `spawn`'s entry on each of `server_names`. Answers the entries, their paths and the
-    // guards that keep them admitted.
-    fn open_entries(
+    // Adds `spawn`'s entry on each of `server_names`. Answers each server's entry as the spawn's
+    // configuration carries it and the guard that keeps the spawn admitted.
+    fn open_entry(
         &self,
-        spawn: &ToolServerSpawn,
-        server_names: &[&str],
-    ) -> (
-        Vec<ToolServerRouteEntry>,
-        Vec<ToolServerPath>,
-        Vec<ToolServerEntryGuard>,
-    ) {
+        spawn: ToolServerSpawn,
+        server_names: &[&'static str],
+    ) -> (Vec<ToolServerRouteEntry>, ToolServerEntryGuard) {
         let mut entries = Vec::with_capacity(server_names.len());
-        let mut paths = Vec::with_capacity(server_names.len());
-        let mut guards = Vec::with_capacity(server_names.len());
+        let mut servers = Vec::with_capacity(server_names.len());
         for server_name in server_names {
             let path = ToolServerPath {
                 session_id: spawn.session_id,
@@ -86,33 +81,30 @@ impl AgentToolServerRoute {
                 )],
                 tool_input_schema_max_bytes: self.schema_bound_bytes,
             });
-            guards.push(self.entries.insert(
-                path.clone(),
-                spawn.provider.clone(),
-                token,
-                Arc::clone(&spawn.dispatcher),
-                spawn.hook_tools.clone(),
-            ));
-            paths.push(path);
+            servers.push((*server_name, token));
         }
-        (entries, paths, guards)
+        (entries, self.entries.insert(spawn, servers))
     }
 }
 
 impl ToolServerRoute for AgentToolServerRoute {
-    fn open(&self, spawn: ToolServerSpawn, server_names: &[&str]) -> OpenedToolServerRoute {
-        let (entries, _, guards) = self.open_entries(&spawn, server_names);
-        OpenedToolServerRoute::new(entries, Box::new(guards))
+    fn open(&self, spawn: ToolServerSpawn, server_names: &[&'static str]) -> OpenedToolServerRoute {
+        let (entries, guard) = self.open_entry(spawn, server_names);
+        OpenedToolServerRoute::new(entries, Box::new(guard))
     }
 
-    fn adopt(&self, spawn: ToolServerSpawn, server_names: &[&str]) -> OpenedToolServerRoute {
-        let (entries, paths, guards) = self.open_entries(&spawn, server_names);
-        let adoptions: Vec<_> = paths
-            .iter()
-            .filter_map(|path| self.entries.adopt(path, Arc::clone(&self.key)))
-            .collect();
-        // The adoptions go first, so none answers through an entry already let go.
-        OpenedToolServerRoute::new(entries, Box::new((adoptions, guards)))
+    fn adopt(
+        &self,
+        spawn: ToolServerSpawn,
+        server_names: &[&'static str],
+    ) -> OpenedToolServerRoute {
+        let (session_id, conversation) = (spawn.session_id, spawn.conversation);
+        let (entries, guard) = self.open_entry(spawn, server_names);
+        let adoption = self
+            .entries
+            .adopt(session_id, conversation, Arc::clone(&self.key));
+        // The adoption goes first, so it never answers through an entry already let go.
+        OpenedToolServerRoute::new(entries, Box::new((adoption, guard)))
     }
 }
 
@@ -249,7 +241,7 @@ mod tests {
 
         let issued = ToolServerSecretKey::of_bytes(1).secret_of(&earlier);
         let admitted = initialize(&served, &path, REVISION)
-            .bearer_auth(issued.text())
+            .bearer_auth(issued.text().as_str())
             .send()
             .await
             .expect("an answer");
@@ -262,7 +254,7 @@ mod tests {
             ("another key's secret", other_key.text()),
         ] {
             let refused = initialize(&served, &path, REVISION)
-                .bearer_auth(foreign)
+                .bearer_auth(foreign.as_str())
                 .send()
                 .await
                 .expect("an answer");
@@ -278,7 +270,7 @@ mod tests {
         };
         let its_own = ToolServerSecretKey::of_bytes(1).secret_of(&other_session);
         let refused = initialize(&served, &other_session.to_string(), REVISION)
-            .bearer_auth(its_own.text())
+            .bearer_auth(its_own.text().as_str())
             .send()
             .await
             .expect("an answer");

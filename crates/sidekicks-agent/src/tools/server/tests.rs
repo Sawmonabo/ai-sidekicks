@@ -32,7 +32,7 @@ use sidekicks_provider::driver::agent_tools::AgentToolCaller;
 use sidekicks_provider::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_providers};
-use sidekicks_provider::port::tool_server_route::ToolServerConversation;
+use sidekicks_provider::port::tool_server_route::{ToolServerConversation, ToolServerSpawn};
 use sidekicks_provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 use tokio::sync::Notify;
 
@@ -233,14 +233,16 @@ pub(in crate::tools) fn fixture() -> Fixture {
                 },
             );
             let token = BearerToken::mint().expect("the system's random source reads");
-            let secret = token.text().to_owned();
-            let guard = entries.insert(
-                session_path(session),
+            let secret = token.text().as_str().to_owned();
+            let path = session_path(session);
+            let spawn = ToolServerSpawn {
+                session_id: path.session_id,
+                conversation: path.conversation,
                 provider,
-                token,
-                Arc::clone(binding.dispatcher()),
-                None,
-            );
+                dispatcher: Arc::clone(binding.dispatcher()),
+                hook_tools: None,
+            };
+            let guard = entries.insert(spawn, vec![(DAEMON_TOOL_SERVER_NAME, token)]);
             (binding, Some(guard), secret)
         })
         .collect();

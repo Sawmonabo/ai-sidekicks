@@ -1,6 +1,6 @@
 //! The check in front of the tool servers on the daemon's listener: a request reaches rmcp only
 //! when the live spawn entry its path names admits its secret, and an `Mcp-Session-Id` it carries
-//! was minted on that same entry or is held by no one. The secret is checked on every request, so
+//! was minted for that same entry on the same server or is held by no one. The secret is checked on every request, so
 //! a replaced or dropped spawn is refused at once, and each MCP session is closed when the spawn it
 //! was minted for ends. Each admitted request carries word of when its answer's event stream
 //! closes, which rmcp itself does not give a call on a session.
@@ -75,12 +75,12 @@ impl ToolServerAdmission {
         )
     }
 
-    // Admits `mcp_session`, which rmcp just minted, for `entry`'s spawn alone, and closes it once
-    // that spawn ends; the wait holds no timer, and ends with nothing to close once the client
-    // closed the session or the daemon stops.
-    fn keep_for_spawn(&self, entry: Arc<ToolServerEntry>, mcp_session: String) {
+    // Admits `mcp_session`, which rmcp just minted on `server_name`, for `entry`'s spawn there
+    // alone, and closes it once that spawn ends; the wait holds no timer, and ends with nothing to
+    // close once the client closed the session or the daemon stops.
+    fn keep_for_spawn(&self, entry: Arc<ToolServerEntry>, server_name: &str, mcp_session: String) {
         let closed = self.stop.child_token();
-        entry.admit_mcp_session(mcp_session.clone(), closed.clone());
+        entry.admit_mcp_session(server_name, mcp_session.clone(), closed.clone());
         let sessions = Arc::clone(&self.sessions);
         tokio::spawn(async move {
             tokio::select! {
@@ -99,9 +99,10 @@ impl ToolServerAdmission {
 }
 
 /// Passes `request` on only when the live entry its path names admits its secret and any
-/// `Mcp-Session-Id` it carries is that entry's or held by no one, which rmcp answers 404 so the
-/// client opens a new session; a refusal is 401 with no `WWW-Authenticate`, and a path naming no
-/// tool server is 404. A session rmcp mints on the way back is admitted for that entry alone, and
+/// `Mcp-Session-Id` it carries is that entry's on the path's server or held by no one, which rmcp
+/// answers 404 so the client opens a new session; a refusal is 401 with no `WWW-Authenticate`, and
+/// a path naming no tool server is 404. A session rmcp mints on the way back is admitted for that
+/// entry on that server alone, and
 /// one its client closes is forgotten. The request carries an [`AnswerStream`] that ends once its
 /// answer's event stream is dropped.
 pub(super) async fn admit(
@@ -125,7 +126,7 @@ pub(super) async fn admit(
             let Ok(mcp_session) = value.to_str() else {
                 return refusal();
             };
-            if entry.admits_mcp_session(mcp_session) {
+            if entry.admits_mcp_session(&path.server_name, mcp_session) {
                 Some(mcp_session.to_owned())
             } else if admission.is_unheld_session(mcp_session).await {
                 None
@@ -151,7 +152,7 @@ pub(super) async fn admit(
                 .get(HEADER_SESSION_ID)
                 .and_then(|value| value.to_str().ok())
             {
-                admission.keep_for_spawn(entry, minted.to_owned());
+                admission.keep_for_spawn(entry, &path.server_name, minted.to_owned());
             }
         }
     }

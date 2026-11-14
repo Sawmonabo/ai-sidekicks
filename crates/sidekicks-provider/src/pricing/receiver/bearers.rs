@@ -111,13 +111,16 @@ impl TelemetryBearer {
     /// plain string, since the token also sits in the process's environment and the daemon's
     /// private records, so wiping this copy would shorten no copy's life.
     pub fn exporter_headers(&self) -> String {
-        format!("authorization={BEARER_PREFIX}{}", self.token.text())
+        format!(
+            "authorization={BEARER_PREFIX}{}",
+            self.token.text().as_str()
+        )
     }
 
     /// The token itself, for the daemon's private record of a process that outlives it, from
     /// which a later daemon restores it.
-    pub fn token_text(&self) -> &str {
-        self.token.text()
+    pub fn token_text(&self) -> String {
+        self.token.text().as_str().to_owned()
     }
 
     /// The process or launch the bearer was minted for.

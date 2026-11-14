@@ -96,11 +96,19 @@ impl EveryEntryRoute {
 }
 
 impl ToolServerRoute for EveryEntryRoute {
-    fn open(&self, _spawn: ToolServerSpawn, server_names: &[&str]) -> OpenedToolServerRoute {
+    fn open(
+        &self,
+        _spawn: ToolServerSpawn,
+        server_names: &[&'static str],
+    ) -> OpenedToolServerRoute {
         Self::entries(server_names)
     }
 
-    fn adopt(&self, _spawn: ToolServerSpawn, server_names: &[&str]) -> OpenedToolServerRoute {
+    fn adopt(
+        &self,
+        _spawn: ToolServerSpawn,
+        server_names: &[&'static str],
+    ) -> OpenedToolServerRoute {
         Self::entries(server_names)
     }
 }

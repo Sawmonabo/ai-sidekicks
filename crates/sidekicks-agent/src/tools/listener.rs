@@ -247,7 +247,6 @@ pub(super) mod tests {
     use rmcp::ServerHandler;
     use rmcp::transport::common::http_header::{HEADER_MCP_PROTOCOL_VERSION, HEADER_SESSION_ID};
     use serde_json::{Value, json};
-    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_provider::bearer_token::BearerToken;
     use sidekicks_provider::port::tool_server_route::ToolServerConversation;
@@ -257,7 +256,7 @@ pub(super) mod tests {
     use tokio_util::sync::{CancellationToken, DropGuard};
 
     use super::{PORT_FILE_NAME, ToolServerListener};
-    use crate::tools::entries::tests::dispatcher;
+    use crate::tools::entries::tests::spawn_at;
     use crate::tools::entries::{ToolServerEntries, ToolServerEntryGuard};
     use crate::tools::server::ToolServerPath;
 
@@ -355,21 +354,17 @@ pub(super) mod tests {
     ) -> (ToolServerEntryGuard, String, String) {
         let session_id = SessionId::new(session).expect("the text is a UUID");
         let token = BearerToken::mint().expect("the system's random source reads");
-        let secret = token.text().to_owned();
+        let secret = token.text().as_str().to_owned();
         let path = ToolServerPath {
             session_id,
             conversation: ToolServerConversation::of_session(session_id),
             server_name: DAEMON_TOOL_SERVER_NAME.to_owned(),
         };
-        let printed = path.to_string();
         let guard = entries.insert(
-            path,
-            ProviderId::new("codex".to_owned()).expect("the id is well formed"),
-            token,
-            dispatcher(),
-            None,
+            spawn_at(&path, "codex"),
+            vec![(DAEMON_TOOL_SERVER_NAME, token)],
         );
-        (guard, printed, secret)
+        (guard, path.to_string(), secret)
     }
 
     /// The handshake at `revision` on `path`, with no secret yet.
