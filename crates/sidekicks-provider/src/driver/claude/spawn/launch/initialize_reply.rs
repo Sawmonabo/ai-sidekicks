@@ -1,14 +1,12 @@
 //! What an `initialize` reply declares about the process: the models it offers, their effort levels
 //! and which run in auto mode, its output styles and the one it runs with, its fast mode, the
-//! commands it lists, the agents it offers, and the memory stores it keeps. The reply is untrusted,
-//! so each member is read leniently and a row naming no value is skipped.
+//! commands it lists and the agents it offers. The reply is untrusted, so each member is read
+//! leniently and a row naming no value is skipped.
 
 use std::collections::HashSet;
-use std::path::Path;
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use sidekicks_contracts::free_form_string::FilesystemPath;
 
 use crate::driver::claude::session::transport::declarations::{
     ClaudeFastModeDeclaration, ClaudeInitializeDeclaration, ClaudeOfferedModel,
@@ -33,8 +31,6 @@ struct InitializeReply {
     commands: Option<LenientList<CommandRow>>,
     #[serde(default, deserialize_with = "read_lenient")]
     agents: Option<LenientList<AgentRow>>,
-    #[serde(default, deserialize_with = "read_lenient")]
-    memory_paths: Option<MemoryPaths>,
 }
 
 #[derive(Deserialize)]
@@ -80,14 +76,6 @@ impl ClaudeModelEffort {
 }
 
 #[derive(Deserialize)]
-struct MemoryPaths {
-    #[serde(default, deserialize_with = "read_lenient")]
-    auto: Option<String>,
-    #[serde(default, deserialize_with = "read_lenient")]
-    team: Option<String>,
-}
-
-#[derive(Deserialize)]
 struct CommandRow {
     #[serde(default, deserialize_with = "read_lenient")]
     name: Option<String>,
@@ -117,7 +105,7 @@ pub(crate) struct ClaudeListedCommand {
     pub(crate) argument_hint: Option<String>,
 }
 
-lenient_object!(ModelRow, MemoryPaths, CommandRow, AgentRow);
+lenient_object!(ModelRow, CommandRow, AgentRow);
 
 fn read_reply(reply: Option<&RawValue>) -> InitializeReply {
     reply
@@ -125,8 +113,7 @@ fn read_reply(reply: Option<&RawValue>) -> InitializeReply {
         .unwrap_or_default()
 }
 
-/// What `reply` declares about the process's models, styles, fast mode, commands, agents and memory
-/// stores.
+/// What `reply` declares about the process's models, styles, fast mode, commands and agents.
 pub(crate) fn read_claude_initialize_declaration(
     reply: Option<&RawValue>,
 ) -> ClaudeInitializeDeclaration {
@@ -166,7 +153,6 @@ pub(crate) fn read_claude_initialize_declaration(
             .map(|command| command.name)
             .collect(),
         agents: read_listed_agents(reply.agents),
-        memory_stores: read_memory_stores(reply.memory_paths),
     }
 }
 
@@ -183,18 +169,6 @@ fn read_listed_agents(agents: Option<LenientList<AgentRow>>) -> Vec<ProviderAgen
                 description: filter_non_empty(agent.description),
             })
         })
-        .collect()
-}
-
-// The auto-memory folder, then the team-memory folder, each kept only where it is an absolute path
-// a filesystem path carries.
-fn read_memory_stores(memory_paths: Option<MemoryPaths>) -> Vec<FilesystemPath> {
-    memory_paths
-        .into_iter()
-        .flat_map(|paths| [paths.auto, paths.team])
-        .flatten()
-        .filter(|path| Path::new(path).is_absolute())
-        .filter_map(|path| FilesystemPath::new(path).ok())
         .collect()
 }
 

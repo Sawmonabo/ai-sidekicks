@@ -1,6 +1,7 @@
 //! The `--settings` document every Claude Code process starts with: how long Claude Code keeps a
 //! conversation, its agent view held off, a session's whole permission rules, its advisor and
-//! output style, the command sandbox at Sandboxed, and the telemetry switches in its `env`.
+//! output style, the command sandbox at Sandboxed, and in its `env` Claude Code's own helper caps
+//! lifted and the telemetry switches.
 
 pub(crate) mod private_file;
 pub(crate) mod telemetry_switches;
@@ -53,6 +54,20 @@ impl Serialize for AgentViewOff {
         serializer.serialize_bool(true)
     }
 }
+
+/// Claude Code's own helper caps, each at its largest value: the daemon applies the person's
+/// limit itself, and nothing bounds how deep helpers nest. A session's document carries them in
+/// its `env`, which an `env` in the person's own settings files would otherwise overwrite.
+pub(crate) const CLAUDE_LIFTED_HELPER_CAPS: [(&str, &str); 2] = [
+    (
+        "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+        "9223372036854775807",
+    ),
+    (
+        "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+        "9223372036854775807",
+    ),
+];
 
 /// The `--settings` document. `advisor_model` is `""` when the session's advisor is off, which
 /// outranks the person's own advisor, and absent where no advisor was picked, so Claude Code's own
@@ -306,7 +321,10 @@ pub(crate) fn compose_claude_spawn_settings(
         sandbox: (level == Some(PermissionLevel::Sandboxed))
             .then(|| compose_claude_sandbox_settings(writable_roots, command_channel)),
         disable_all_hooks: false,
-        env: BTreeMap::new(),
+        env: CLAUDE_LIFTED_HELPER_CAPS
+            .into_iter()
+            .map(|(name, value)| (name, value.to_owned()))
+            .collect(),
         otel_headers_helper: None,
     })
 }
@@ -494,6 +512,31 @@ mod tests {
         assert_eq!(
             advisor_setting(ClaudeSessionAdvisor::Model("opus".to_owned())),
             json!("opus")
+        );
+    }
+
+    // Killed by a document whose `env` drops a lifted cap or lowers it, which lets an `env` in the
+    // person's own settings files cap the session's helpers below the person's limit.
+    #[test]
+    fn the_settings_document_lifts_claude_codes_helper_caps() {
+        let request = ClaudePermissionsRequest {
+            credential_deny_paths: &[],
+            memory_folders: &[],
+            session_rules: &[],
+            path_rules: PathRules::Posix,
+            background_work: &BackgroundWorkForms::of_providers(PROVIDERS),
+        };
+
+        let settings =
+            compose_claude_spawn_settings(&request, None, &ClaudeSessionAdvisor::Off, None, None)
+                .expect("the settings compose");
+
+        assert_eq!(
+            serde_json::to_value(settings).expect("the settings serialize")["env"],
+            json!({
+                "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "9223372036854775807",
+                "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "9223372036854775807",
+            })
         );
     }
 }

@@ -29,13 +29,11 @@ use sidekicks_contracts::mcp::server::{
 };
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use tokio::sync::mpsc;
 use tokio::time::Instant;
 
-use self::plugin_load::{PluginLoad, PluginLoadReport};
+use self::plugin_load::PluginLoadReport;
 use self::sent_entry::{SentEntry, compose_sent_entry, compose_tool_server_entry};
 use self::variables::expand_entry_variables;
-use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::config::{
     ClaudeMcpRootConfig, ClaudePersonConfigFiles, ClaudePluginRoot, ClaudeServerEntryReader,
     is_kept_out_server,
@@ -43,22 +41,18 @@ use crate::driver::claude::mcp::config::{
 use crate::driver::claude::mcp::organization::read_managed_entry;
 use crate::driver::claude::mcp::precedence::claude_reported_server_name;
 use crate::driver::claude::session::errors::ClaudeSessionError;
-use crate::driver::claude::session::process::ClaudeStreamFrame;
+use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeMcpSetServersReply, ClaudeToolServerEntry,
 };
 use crate::driver::claude::session::transport::mcp_status::ClaudeMcpStatusReply;
 use crate::driver::claude::spawn::arguments::CLAUDE_NO_MCP_SERVERS;
-use crate::driver::claude::spawn::launch::control_only::{
-    ClaudeShortProcessArrival, compose_claude_control_only_arguments,
-};
+use crate::driver::claude::spawn::launch::control_only::compose_claude_control_only_arguments;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::claude::tools::normalize_claude_mcp_status_reply;
 use crate::driver::contract::error::DriverError;
 use crate::driver::mcp_server::read::{McpProbeReading, McpProbeStart, McpProbeTarget};
-use crate::driver::mcp_server::status::{
-    McpServerReading, McpServerStatusIngestResult, bound_mcp_server_status_emission,
-};
+use crate::driver::mcp_server::status::{McpServerReading, bound_mcp_server_status_emission};
 
 // The environment variable naming Claude Code's startup timeout for every MCP server, in
 // milliseconds, and the timeout where it is unset.
@@ -69,8 +63,8 @@ const DEFAULT_MCP_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const PROBE_CEILING_MARGIN: Duration = Duration::from_secs(5);
 // How long the probe waits before asking `mcp_status` again while a server is pending.
 const PROBE_STATUS_INTERVAL: Duration = Duration::from_secs(1);
-// The failure text of a plugin's server whose plugin Claude Code did not load, where no load
-// error names it or no `system/init` frame came.
+// The failure text of a plugin's server whose plugin Claude Code did not load: its answer gives
+// no words for a plugin that failed to load.
 const PLUGIN_NOT_LOADED_TEXT: &str = "Claude Code did not load the plugin.";
 // The failure text of a server the probe sent that no status answer named by the ceiling.
 const SERVER_NOT_REPORTED_TEXT: &str = "Claude Code did not report the server.";
@@ -207,12 +201,12 @@ pub(crate) fn plan_claude_probe(
 /// Claude Code loads under one name in processes of their own. An organization's server is sent as
 /// the administrator's MCP file declares it, else as its managed settings do, and every other
 /// declaration is re-read from the person's config or its plugin's files, each file once. A
-/// plugin's server is sent only where Claude Code loaded its plugin, and reads `failed` with
-/// Claude Code's own words otherwise, or with Claude Code's notice, unsent, where a deployed
-/// managed MCP file connects no plugin's server. A target whose entry or plugin is gone gets no
-/// reading; one whose entry the set cannot carry whole, an organization's server with no sendable
-/// entry among them, reads `unknown` unsent; a sent one no status answer names by the ceiling reads `failed`. Fails as the
-/// config read, a start or a request does, the process then closed.
+/// plugin's server is sent only where Claude Code loaded its plugin, and reads `failed` with a
+/// plain line otherwise, or with Claude Code's notice, unsent, where a deployed managed MCP file
+/// connects no plugin's server. A target whose entry or plugin is gone gets no reading; one whose
+/// entry the set cannot carry whole, an organization's server with no sendable entry among them,
+/// reads `unknown` unsent; a sent one no status answer names by the ceiling reads `failed`.
+/// Fails as the config read, a start or a request does, the process then closed.
 pub(crate) async fn probe_claude_mcp_servers(
     sources: &ClaudeMcpProbeSources<'_>,
     targets: &[McpProbeTarget],
@@ -379,7 +373,7 @@ async fn run_probe_process(
     names: &[&str],
     ceiling: Duration,
 ) -> Result<BTreeMap<String, ProbeStatus>, DriverError> {
-    let mut probe = sources
+    let probe = sources
         .starts
         .start_mcp_probe(ClaudeMcpProbeProcessRequest {
             environment: sources.environment.clone(),
@@ -389,14 +383,14 @@ async fn run_probe_process(
         })
         .await?;
     let read = read_probe_statuses(
-        &mut probe,
+        &*probe,
         process.servers,
         process.plugin_servers,
         names,
         ceiling,
     )
     .await;
-    probe.channel.close().await;
+    probe.close().await;
     Ok(read?)
 }
 
@@ -504,16 +498,14 @@ fn target_root(binding: &McpServerBindingRef) -> Option<PlacedPath> {
     }
 }
 
-// Reads what becomes of each of `names` on `probe`. Where it probes plugins' servers it first
-// waits, within `ceiling`, for the process's `system/init` frame: a server whose plugin the frame
-// lists as loaded joins `servers`, and the rest read `failed` with their plugin's load error, else
-// the plain line. Then `servers` are sent: one the set's reply names in its errors reads `failed`
-// with that text, and the rest are asked `mcp_status` until each is past `pending` or `ceiling`
-// passes from the send, a row of a `system/init` frame written after the send standing for a
-// server no answer has named yet. A sent server no answer names by then reads `failed`. Fails as a
-// request does.
+// Reads what becomes of each of `names` on `probe`. Where it probes plugins' servers it first asks
+// `reload_plugins`, since a process sent no message writes no `system/init` frame: a server whose
+// plugin the answer lists as loaded joins `servers`, and the rest read `failed` with the plain
+// line. Then `servers` are sent: one the set's reply names in its errors reads `failed` with that
+// text, and the rest are asked `mcp_status` until each is past `pending` or `ceiling` passes from
+// the send. A sent server no answer names by then reads `failed`. Fails as a request does.
 async fn read_probe_statuses(
-    probe: &mut ClaudeMcpProcess,
+    probe: &dyn ClaudeProcessChannel,
     mut servers: BTreeMap<String, ClaudeToolServerEntry>,
     plugin_servers: Vec<ProbePluginServer<'_>>,
     names: &[&str],
@@ -521,31 +513,25 @@ async fn read_probe_statuses(
 ) -> Result<BTreeMap<String, ProbeStatus>, ClaudeSessionError> {
     let mut statuses: BTreeMap<String, ProbeStatus> = BTreeMap::new();
     if !plugin_servers.is_empty() {
-        let report = wait_for_init_frame(&mut probe.arrivals, Instant::now() + ceiling)
-            .await
-            .map(|frame| PluginLoadReport::read(&frame.text));
+        let answer = probe
+            .send_control_request(ClaudeControlRequest::ReloadPlugins {})
+            .await?;
+        let report = PluginLoadReport::read(answer.response.as_deref());
         for server in plugin_servers {
-            let message = match report.as_ref().map(|report| report.load_of(server.plugin)) {
-                Some(PluginLoad::Accepted) => {
-                    servers.insert(server.name, server.entry);
-                    continue;
-                }
-                Some(PluginLoad::Refused(message)) => message,
-                None => None,
-            };
-            let failure_text = message
-                .and_then(|message| {
-                    bound_failure_text(&server.name, &Value::String(message.to_owned()))
-                })
-                .unwrap_or_else(|| PLUGIN_NOT_LOADED_TEXT.to_owned());
-            statuses.insert(server.name, failed_status(failure_text));
+            if report.is_loaded(server.plugin) {
+                servers.insert(server.name, server.entry);
+            } else {
+                statuses.insert(
+                    server.name,
+                    failed_status(PLUGIN_NOT_LOADED_TEXT.to_owned()),
+                );
+            }
         }
     }
     let sent_names: Vec<String> = servers.keys().cloned().collect();
     let deadline = Instant::now() + ceiling;
     if !servers.is_empty() {
         let answer = probe
-            .channel
             .send_control_request(ClaudeControlRequest::McpSetServers { servers })
             .await?;
         let reply = ClaudeMcpSetServersReply::read(answer.response.as_deref());
@@ -575,19 +561,9 @@ async fn read_probe_statuses(
     let mut has_listed = false;
     while !is_settled(&statuses) {
         let answer = probe
-            .channel
             .send_control_request(ClaudeControlRequest::McpStatus {})
             .await?;
         let reply = ClaudeMcpStatusReply::read(answer.response.as_deref());
-        // Every frame the process wrote before this answer has arrived by now.
-        while let Ok(arrival) = probe.arrivals.try_recv() {
-            if let ClaudeShortProcessArrival::Frame(frame) = arrival
-                && let Some(handshake) = &frame.observation.handshake
-                && let Some(rows) = &handshake.mcp_servers
-            {
-                record_init_rows(rows, names, &mut statuses);
-            }
-        }
         has_listed |= record_status_reply(&reply, names, &mut statuses);
         let now = Instant::now();
         if is_settled(&statuses) || now >= deadline {
@@ -603,25 +579,6 @@ async fn read_probe_statuses(
         }
     }
     Ok(statuses)
-}
-
-// The first `system/init` frame `arrivals` carries before `deadline`; `None` where the process
-// ends or the deadline passes first.
-async fn wait_for_init_frame(
-    arrivals: &mut mpsc::UnboundedReceiver<ClaudeShortProcessArrival>,
-    deadline: Instant,
-) -> Option<Box<ClaudeStreamFrame>> {
-    loop {
-        match tokio::time::timeout_at(deadline, arrivals.recv()).await {
-            Ok(Some(ClaudeShortProcessArrival::Frame(frame)))
-                if frame.observation.handshake.is_some() =>
-            {
-                return Some(frame);
-            }
-            Ok(Some(_other)) => {}
-            Ok(None) | Err(_) => return None,
-        }
-    }
 }
 
 // A server read `failed` before the status answers, with `failure_text`, which no later answer
@@ -669,30 +626,6 @@ fn record_status_reply(
         );
     }
     true
-}
-
-// Records each row of the `system/init` frame's server list for one of `names` that nothing has
-// read yet; the list names no tools, so a status answer's row always stands over it.
-fn record_init_rows(
-    rows: &McpServerStatusIngestResult,
-    names: &[&str],
-    statuses: &mut BTreeMap<String, ProbeStatus>,
-) {
-    for emission in &rows.emissions {
-        let name = emission.server_name.as_str();
-        if !names.contains(&name) || statuses.contains_key(name) {
-            continue;
-        }
-        statuses.insert(
-            name.to_owned(),
-            ProbeStatus {
-                reading: emission.reading,
-                failure_text: emission.failure_text.clone(),
-                tool_names: Vec::new(),
-                is_final: false,
-            },
-        );
-    }
 }
 
 // Claude Code's `error` for the server `name`, scrubbed and bounded as a status row's is; `None`

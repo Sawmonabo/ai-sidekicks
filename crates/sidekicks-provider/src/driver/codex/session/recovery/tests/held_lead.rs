@@ -78,6 +78,7 @@ async fn a_persons_restart_carries_the_held_leads_answers_in_place() {
         writer_left: never_left(),
         held_lead_continue: Some(held_lead_continue),
         answer_steers: session.answer_steers(),
+        released: None,
     };
     let settings = session.task.record.thread_settings.clone();
     let mut turn_starts: Vec<Value> = Vec::new();

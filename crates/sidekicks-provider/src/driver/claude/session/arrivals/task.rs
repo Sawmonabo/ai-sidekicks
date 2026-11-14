@@ -53,6 +53,7 @@ use crate::driver::claude::run::settlement::ClaudeTurnSettlement;
 use crate::driver::claude::session::context_reading::ClaudeContextReadings;
 use crate::driver::claude::session::controls::ClaudeSessionControls;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
+use crate::driver::claude::session::inspector_reads::ClaudeInspectorReads;
 use crate::driver::claude::session::process::ClaudeProcessEnd;
 use crate::driver::claude::session::restart::ClaudeSessionRestarts;
 use crate::driver::claude::session::restart::ended_process::claude_process_exit_of;
@@ -128,6 +129,9 @@ pub(crate) struct ClaudeSessionTaskServices {
     pub(crate) inboxes: Arc<ClaudeSessionInboxes>,
     /// Each session's context reads, asked after the frames that call for one.
     pub(crate) context_readings: Arc<ClaudeContextReadings>,
+    /// What each session's processes showed the inspector, which keeps each `system/init`'s
+    /// memory stores.
+    pub(crate) inspector_reads: Arc<ClaudeInspectorReads>,
 }
 
 /// One live process's task: its session, its stream and its in-process tool-server calls.
@@ -191,12 +195,13 @@ impl ClaudeSessionTask {
                 .controls
                 .observe_lead_frame(session_id, frame_kind)
                 .await;
-            if let Some(servers) = observation
-                .handshake
-                .as_ref()
-                .and_then(|handshake| handshake.mcp_servers.as_ref())
-            {
-                live.report_mcp_servers(servers, frame_kind);
+            if let Some(handshake) = &observation.handshake {
+                if let Some(servers) = &handshake.mcp_servers {
+                    live.report_mcp_servers(servers, frame_kind);
+                }
+                services
+                    .inspector_reads
+                    .keep_memory_stores(session_id, handshake.memory_stores.clone());
             }
         }
         // A helper's end, or a counted call answered with no helper started, frees the starts the

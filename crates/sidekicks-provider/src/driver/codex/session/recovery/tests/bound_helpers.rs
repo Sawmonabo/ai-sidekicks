@@ -31,7 +31,7 @@ const HELPER_TURN: &str = "turn-helper";
 // Starts the helper on its conversation `thread_id` beneath a run of the lead's, by that run's
 // spawn call and Codex's completed spawn item, answering the helper's `thread/read`, and answers
 // its child run.
-async fn start_helper(session: &mut TestCodexSession, thread_id: &str) -> RunId {
+pub(super) async fn start_helper(session: &mut TestCodexSession, thread_id: &str) -> RunId {
     let mut lead = test_row_run();
     lead.session_id = session.task.record.session_id;
     let spawn_call = format!("spawn-{thread_id}");
@@ -84,6 +84,7 @@ async fn a_reconnect_reopens_bound_helpers_and_ends_the_finished_one() {
         writer_left: never_left(),
         held_lead_continue: None,
         answer_steers: session.answer_steers(),
+        released: None,
     };
     let settings = session.task.record.thread_settings.clone();
     let mut helper_resumes: Vec<Value> = Vec::new();

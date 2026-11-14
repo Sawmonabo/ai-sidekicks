@@ -223,3 +223,38 @@ async fn ending_a_session_terminates_every_listed_command_then_cleans_then_unsub
         "the conversation was let go while a command ran"
     );
 }
+
+// Fails when the release forgets a helper without unsubscribing from it, which keeps it loaded on
+// its service so Codex refuses to reopen it anywhere else, or lets go of a conversation
+// `is_released` does not name.
+#[tokio::test]
+async fn releasing_a_sessions_helpers_unsubscribes_each_and_keeps_the_rest() {
+    const HELPER: &str = "thread-helper";
+    let mut scripted = start_scripted_codex_service();
+    let session_id = new_session_id();
+    scripted
+        .service
+        .register_thread(THREAD.to_owned(), session_id);
+    scripted
+        .service
+        .register_thread(HELPER.to_owned(), session_id);
+    let release = Arc::clone(&scripted.dependencies.release);
+    let service = Arc::clone(&scripted.service);
+    let released = tokio::spawn(async move {
+        release
+            .release_session_threads(&service, &session_id, |thread_id| thread_id == HELPER)
+            .await
+    });
+    let unsubscribe = scripted.next_request("thread/unsubscribe").await;
+    assert_eq!(unsubscribe["params"]["threadId"], HELPER, "{unsubscribe}");
+    scripted
+        .script
+        .answer(&unsubscribe, &json!({"status": "unsubscribed"}));
+
+    assert_eq!(released.await.expect("the release ends"), [HELPER]);
+    assert_eq!(scripted.service.threads_of(&session_id), [THREAD]);
+    assert!(
+        scripted.script.sent.try_recv().is_err(),
+        "a conversation the release does not name was let go"
+    );
+}

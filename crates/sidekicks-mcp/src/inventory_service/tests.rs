@@ -200,6 +200,7 @@ fn reading_of(provider: &ProviderId, request: &McpServersReadRequest) -> Provide
         server_policy: McpServerPolicy::default(),
         account_servers: Vec::new(),
         probe_readings,
+        failed_roots: Vec::new(),
     }
 }
 

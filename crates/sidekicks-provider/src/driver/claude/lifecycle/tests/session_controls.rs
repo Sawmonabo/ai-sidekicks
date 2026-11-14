@@ -27,6 +27,7 @@ use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{
     ScriptedDriver, create_params, end_turn_of, resume_params,
 };
+use crate::driver::claude::session::scripted::held_calls::init;
 use crate::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, register_claude_price_list,
@@ -436,7 +437,7 @@ async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
         .start_run(start_params(session_id, run_id))
         .await
         .expect("the run starts");
-    end_turn_of(&claude, &start, session_id);
+    end_turn_of(&claude, &start, session_id, init());
     poll_until(|| run_ends(&fixture, run_id), |ends| !ends.is_empty()).await;
 
     assert!(matches!(

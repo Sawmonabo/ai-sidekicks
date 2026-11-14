@@ -5,16 +5,18 @@ use sidekicks_contracts::session::inspector::{SessionAutoMemory, SessionAutoMemo
 
 use crate::driver::claude::session::settings_file::ClaudeSettingsSource;
 use crate::driver::claude::spawn::environment::claude_text_variable;
+use crate::driver::claude::switch_variable::{is_switched_off, is_switched_on};
 use crate::driver::contract::params_and_results::SessionProcessState;
 
 /// The settings key that turns Claude Code's auto memory on or off.
 pub(crate) const CLAUDE_AUTO_MEMORY_SETTING: &str = "autoMemoryEnabled";
 
-/// The variable that turns auto memory off at `1` and on at `0`, over every settings file.
+/// The variable that turns auto memory off where it switches on (`1`, `true`, `yes`, `on`) and on
+/// where it switches off (`0`, `false`, `no`, `off`), over every settings file.
 pub(crate) const CLAUDE_AUTO_MEMORY_VARIABLE: &str = "CLAUDE_CODE_DISABLE_AUTO_MEMORY";
 
-/// The value one process runs with: the variable it was spawned with where that is `1` (off) or
-/// `0` (on), since it wins over every file, else `effective`, the value its settings resolve to.
+/// The value one process runs with: the variable it was spawned with where it turns auto memory
+/// off or on, since it wins over every file, else `effective`, the value its settings resolve to.
 pub(crate) fn read_claude_process_auto_memory(
     spawn_environment: &[(String, String)],
     effective: Option<bool>,
@@ -100,12 +102,15 @@ pub(crate) fn claude_auto_memory_applies_at(
     }
 }
 
-// `1` turns auto memory off and `0` on; any other text leaves the value to the settings.
+// A value that switches the variable on turns auto memory off, one that switches it off turns auto
+// memory on, and any other text leaves the value to the settings.
 fn read_auto_memory_variable(text: &str) -> Option<bool> {
-    match text {
-        "1" => Some(false),
-        "0" => Some(true),
-        _ => None,
+    if is_switched_on(text) {
+        Some(false)
+    } else if is_switched_off(text) {
+        Some(true)
+    } else {
+        None
     }
 }
 
@@ -134,7 +139,8 @@ mod tests {
 
     // Killed by a fallback other than on, by the settings files read before the variable, by a
     // process's effective value read before the variable it was spawned with, by any set variable
-    // read as off, by the stored switch read over the managed file, by the kept value read before
+    // read as off, by a variable read only at `1` and `0` or untrimmed or case-bound, by the stored
+    // switch read over the managed file, by the kept value read before
     // a stored switch, by the kept value dropped or read after the variable, by the settings files
     // dropped, and by the managed file read before the variable where no switch is stored.
     #[rstest]
@@ -151,8 +157,20 @@ mod tests {
         ClaudeAutoMemorySources { running: spawned_with("1", Some(true)), ..no_sources() },
         false
     )]
+    #[case::switch_word_variable_over_effective(
+        ClaudeAutoMemorySources { running: spawned_with(" YES ", Some(true)), ..no_sources() },
+        false
+    )]
     #[case::other_variable_takes_effective(
-        ClaudeAutoMemorySources { running: spawned_with("yes", Some(true)), ..no_sources() },
+        ClaudeAutoMemorySources { running: spawned_with("2", Some(false)), ..no_sources() },
+        false
+    )]
+    #[case::off_word_variable_over_files(
+        ClaudeAutoMemorySources {
+            variable: Some("off"),
+            setting: Some((ClaudeSettingsSource::Person, false)),
+            ..no_sources()
+        },
         true
     )]
     #[case::managed_over_switch(
