@@ -14,7 +14,7 @@ use sidekicks_std::error_description::describe_error;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
 use crate::driver::claude::live_sessions::{
-    ClaudeLiveSession, by_name, by_socket, names_socket, read_live_sessions,
+    ClaudeLiveSession, HOST_SESSION_ID, by_name, by_socket, names_socket, read_live_sessions,
 };
 use crate::driver::session_messages::{no_session_named, target_unread_reason};
 use crate::port::agent_tree_lookup::AgentTreeLookup;
@@ -34,10 +34,6 @@ static SOCKET_PATH: LazyLock<Regex> =
 /// A Windows named pipe, which Claude Code's resolver reads as a `uds:` address.
 static PIPE_NAME: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^[\\/]{2}[.?][\\/]pipe[\\/]").expect("the pattern is valid"));
-
-/// A local session's id, which Claude Code reads as another session rather than a name.
-static LOCAL_SESSION_ID: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^local_[0-9a-f-]{8,72}$").expect("the pattern is valid"));
 
 /// The words for a send to another session, naming it by `name` and telling the model to send to
 /// `target`, the session's name or, where that name is shared, its id.
@@ -135,9 +131,10 @@ pub(crate) struct ClaudePeerSendCheck<'a> {
 /// The send hook's answer to `check`, the first matching rule deciding: one of the session's own
 /// helpers by id or name, or `main`, passes; the daemon's inbox is denied with the words for the
 /// turn's starting sender, else its latest absorbed one, else as no session; the calling session's
-/// own socket is denied as its own address; any other address is denied as the session the
-/// directory or the registry finds there, else as no session; a name a session has is denied as
-/// that session; any other name passes. A failed read is denied with its cause.
+/// own socket or host app's id is denied as its own address; any other address is denied as the
+/// session the directory finds there, or the registry finds at that socket or holding that host
+/// app's id, else as no session; a name a session has is denied as that session; any other name
+/// passes. A failed read is denied with its cause.
 pub(crate) async fn answer_peer_send(check: ClaudePeerSendCheck<'_>) -> ClaudeHookAnswer {
     match judge(check).await {
         Ok(Some(reason)) => ClaudeHookAnswer::Deny { reason },
@@ -190,6 +187,18 @@ async fn judge(
             .next()
             .map(|session| registry_refusal(&running, session, to)));
     }
+    if HOST_SESSION_ID.is_match(to) {
+        let holds_host_id =
+            |session: &ClaudeLiveSession| session.host_session_id.as_deref() == Some(to);
+        if own.iter().any(holds_host_id) {
+            return Ok(Some(own_address(to)));
+        }
+        let host = running.iter().find(|&session| holds_host_id(session));
+        return Ok(Some(host.map_or_else(
+            || no_session_named(to),
+            |session| registry_refusal(&running, session, to),
+        )));
+    }
     if !is_socket_address(to) {
         return Ok(Some(no_session_named(to)));
     }
@@ -231,7 +240,7 @@ fn is_address(to: &str) -> bool {
     ADDRESS_SCHEMES.iter().any(|scheme| to.starts_with(scheme))
         || SOCKET_PATH.is_match(to)
         || PIPE_NAME.is_match(to)
-        || LOCAL_SESSION_ID.is_match(to)
+        || HOST_SESSION_ID.is_match(to)
 }
 
 // Whether `to` is an address of a socket or a pipe, which a registry entry's inbox can be.

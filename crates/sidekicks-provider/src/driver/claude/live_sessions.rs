@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
+use regex::Regex;
 use serde::Deserialize;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::file::real_location::resolve_real_location;
@@ -30,6 +32,11 @@ const REGISTRY_FOLDER: &str = "sessions";
 /// The extension of a session's registry file, `<pid>.json`.
 const REGISTRY_FILE_EXTENSION: &str = "json";
 
+/// A host app's session id in the one form Claude Code takes, `local_` then 8 to 72 lowercase hex
+/// digits or dashes; Claude Code reads a recipient in this form as a session rather than a name.
+pub(crate) static HOST_SESSION_ID: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^local_[0-9a-f-]{8,72}$").expect("the pattern is valid"));
+
 /// One running Claude Code session as its registry file names it; each field is `None` where the
 /// file left it out, gave it another type, or could not be read at all.
 #[derive(Debug)]
@@ -44,6 +51,9 @@ pub(crate) struct ClaudeLiveSession {
     pub(crate) socket: Option<PathBuf>,
     /// The folder the session runs in, `cwd`.
     pub(crate) working_folder: Option<PathBuf>,
+    /// The id a host app gave the session, `hostSessionId`, kept only in [`HOST_SESSION_ID`]'s
+    /// form, as Claude Code keeps it.
+    pub(crate) host_session_id: Option<String>,
     /// The registry file the entry was read from.
     pub(crate) registry_file: PathBuf,
     /// The session's process id, from the file's name.
@@ -64,6 +74,8 @@ struct RegistryFile {
     messaging_socket_path: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     cwd: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    host_session_id: Option<String>,
 }
 
 /// The config folders whose registries name the Claude Code sessions on this machine: the
@@ -266,6 +278,7 @@ async fn read_registry_file(process_id: u32, registry_file: PathBuf) -> ClaudeLi
             status: None,
             socket: None,
             working_folder: None,
+            host_session_id: None,
             registry_file,
             process_id,
         };
@@ -276,6 +289,9 @@ async fn read_registry_file(process_id: u32, registry_file: PathBuf) -> ClaudeLi
         status: fields.status,
         socket: fields.messaging_socket_path.map(PathBuf::from),
         working_folder: fields.cwd.map(PathBuf::from),
+        host_session_id: fields
+            .host_session_id
+            .filter(|id| HOST_SESSION_ID.is_match(id)),
         registry_file,
         process_id,
     }

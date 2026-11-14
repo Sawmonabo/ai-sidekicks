@@ -452,8 +452,9 @@ pub(crate) struct StreamingBlockCut {
     /// Whether the row's first start went out.
     has_started: bool,
     /// The tail's length when a parse of it past one window last froze nothing; the tail is parsed
-    /// again only once another window has arrived after that, so one block streamed in many frames
-    /// is parsed once a window, never once a frame. Zero while no such parse stands.
+    /// again only once a window or an eighth of that length, whichever is more, has arrived after
+    /// it, so one block streamed in many frames costs parsed bytes in proportion to its length and
+    /// a start is frozen within an eighth of the tail. Zero while no such parse stands.
     unsplit_length: usize,
 }
 
@@ -511,7 +512,8 @@ impl StreamingBlockCut {
             starts.push(self.start_at(0, 0));
             self.has_started = true;
         }
-        if self.unsplit_length != 0 && self.tail.len() < self.unsplit_length + CUT_WINDOW_BYTES {
+        let parse_again_after = CUT_WINDOW_BYTES.max(self.unsplit_length / 8);
+        if self.unsplit_length != 0 && self.tail.len() < self.unsplit_length + parse_again_after {
             return Ok(starts);
         }
         let ends = block_ends_of(

@@ -183,7 +183,8 @@ enum Expected {
 // its id kills the answer-goes-back words for an absorbed sender; a pipe written with `?` denied
 // kills a pipe read by its `.` form alone; the shared name sent to by id kills the name kept; the
 // caller's own name passing kills a registry walk that lists the caller, and its own socket
-// reading as its own address kills that address read as no session.
+// reading as its own address kills that address read as no session; a host app's id denied as the
+// session whose entry holds it, or as the caller's own address, kills that id read as no session.
 #[rstest]
 #[case::a_helper_by_id("c4d8b8d7a99274f48", TurnMessages::None, false, Expected::Pass)]
 #[case::a_helper_named_like_a_session("tester", TurnMessages::None, false, Expected::Pass)]
@@ -256,6 +257,18 @@ enum Expected {
     false,
     Expected::OwnAddress
 )]
+#[case::the_host_id_of_a_running_session(
+    "local_00004101-aaaa",
+    TurnMessages::None,
+    false,
+    Expected::AnotherSession("builder", "builder")
+)]
+#[case::the_callers_own_host_id(
+    "local_00004100-aaaa",
+    TurnMessages::None,
+    false,
+    Expected::OwnAddress
+)]
 #[case::an_unread_tree("courier", TurnMessages::None, true, Expected::Unread)]
 #[tokio::test]
 async fn a_message_call_passes_to_a_helper_and_is_denied_to_another_session(
@@ -283,6 +296,7 @@ async fn a_message_call_passes_to_a_helper_and_is_denied_to_another_session(
                 "sessionId": session_id,
                 "name": name,
                 "messagingSocketPath": socks.join(format!("{process_id}.sock")),
+                "hostSessionId": format!("local_0000{process_id}-aaaa"),
             })
             .to_string(),
         );

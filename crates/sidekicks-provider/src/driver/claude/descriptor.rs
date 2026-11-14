@@ -147,6 +147,9 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         "CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT",
         // Joins the per-session memories the daemon keeps apart.
         "CLAUDE_CODE_REMOTE_MEMORY_DIR",
+        // A host app's own session id, which only that app sets; Claude Code writes it into its
+        // registry entry, where other sessions send to it.
+        "CLAUDE_CODE_HOST_SESSION_ID",
         // A shell's own sign-in token, which would beat the account's.
         OAUTH_TOKEN_VARIABLE,
         // Names the pipe a pasted token is handed on, which only the daemon's start sets.

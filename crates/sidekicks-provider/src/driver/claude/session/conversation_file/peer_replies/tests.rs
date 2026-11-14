@@ -60,6 +60,7 @@ fn terminal_session(
         status: None,
         socket: None,
         working_folder: Some(PathBuf::from(working_folder)),
+        host_session_id: None,
         registry_file: config_folder.join("sessions").join("4101.json"),
         process_id: 4101,
     }

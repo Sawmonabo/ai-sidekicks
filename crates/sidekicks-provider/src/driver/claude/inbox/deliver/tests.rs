@@ -74,6 +74,7 @@ fn terminal_session(
         status: None,
         socket: Some(socket.to_path_buf()),
         working_folder: Some(PathBuf::from("/work/app")),
+        host_session_id: None,
         registry_file: config_folder.join("sessions").join("4101.json"),
         process_id: 4101,
     }
