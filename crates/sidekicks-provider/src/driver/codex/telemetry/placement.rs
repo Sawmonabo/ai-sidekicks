@@ -199,6 +199,20 @@ impl Drop for CodexLaunchPlacement {
 /// The responses of one thread a launch places together, oldest first, never empty.
 pub(crate) struct CodexKeptBucket(Vec<CodexKeptResponse>);
 
+/// A thread no session streams that a bucket was placed on off the stream: the session it went
+/// to, where, and when its newest response was observed, in Unix milliseconds, zero where none
+/// carries a time.
+pub(crate) struct CodexOffStreamThread {
+    /// The session the bucket went to.
+    pub(crate) session_id: SessionId,
+    /// The thread's id.
+    pub(crate) thread_id: String,
+    /// Where it was placed.
+    pub(crate) placed: CodexOffStreamPlacement,
+    /// When its newest response was observed.
+    pub(crate) observed_at_ms: u64,
+}
+
 /// What refuses a bucket whose placement was abandoned: its thread and the account it ran on.
 pub(crate) struct CodexBucketRefusal {
     thread_id: String,
@@ -263,22 +277,19 @@ pub(crate) fn take_kept_buckets(
 /// cache while what it names still holds, else by walking its parents once; a thread whose walk
 /// failed in the last two export intervals is kept unwalked, a thread not listed after an
 /// earlier walk found it so goes to the join, and one whose walk fails is kept again. A thread
-/// with no held ancestor is refused once, naming its thread.
+/// with no held ancestor is refused once, naming its thread. Answers the thread where it was
+/// placed off the stream.
 pub(crate) async fn place_bucket(
     service: &Arc<CodexService>,
     launch: &Mutex<CodexLaunchPlacement>,
     bucket: CodexKeptBucket,
-) {
+) -> Option<CodexOffStreamThread> {
     let bucket = bucket.0;
-    let Some(thread_id) = bucket
+    let thread_id = bucket
         .first()
-        .map(|kept| kept.response.conversation_id.clone())
-    else {
-        return;
-    };
+        .map(|kept| kept.response.conversation_id.clone())?;
     if let Some(session_id) = service.session_of_thread(&thread_id) {
-        push_bucket(service, session_id, bucket, None);
-        return;
+        return push_bucket(service, session_id, bucket, None);
     }
     let cached = lock(launch).cached(&thread_id);
     match cached {
@@ -291,8 +302,7 @@ pub(crate) async fn place_bucket(
                     session_thread,
                     child_thread,
                 };
-                push_bucket(service, session_id, bucket, Some(&placed));
-                return;
+                return push_bucket(service, session_id, bucket, Some(&placed));
             }
             lock(launch).forget(&thread_id);
         }
@@ -301,14 +311,13 @@ pub(crate) async fn place_bucket(
             turn_id,
         }) => {
             let placed = CodexOffStreamPlacement::OnTurn { turn_id };
-            push_bucket(service, session_id, bucket, Some(&placed));
-            return;
+            return push_bucket(service, session_id, bucket, Some(&placed));
         }
         None => {}
     }
     if lock(launch).is_walk_failing(&thread_id, Instant::now()) {
         lock(launch).keep(bucket);
-        return;
+        return None;
     }
     let walked = match service.connection() {
         Ok(connection) => {
@@ -325,11 +334,11 @@ pub(crate) async fn place_bucket(
     match walked {
         Ok(CodexThreadPlacement::Streamed) => {
             if let Some(session_id) = service.session_of_thread(&thread_id) {
-                push_bucket(service, session_id, bucket, None);
-            } else {
-                // Left its session between the walk's look and this one: walked again later.
-                lock(launch).keep(bucket);
+                return push_bucket(service, session_id, bucket, None);
             }
+            // Left its session between the walk's look and this one: walked again later.
+            lock(launch).keep(bucket);
+            None
         }
         Ok(CodexThreadPlacement::BelowSession {
             session_id,
@@ -347,25 +356,28 @@ pub(crate) async fn place_bucket(
                 session_thread,
                 child_thread,
             };
-            push_bucket(service, session_id, bucket, Some(&placed));
+            push_bucket(service, session_id, bucket, Some(&placed))
         }
         Ok(CodexThreadPlacement::Unplaced(
             CodexUnplacedThread::NoHeldAncestor | CodexUnplacedThread::Loop,
-        )) => refuse_unplaced(
-            &thread_id,
-            provider_account_id,
-            "no thread a session holds is above its thread",
-        ),
+        )) => {
+            refuse_unplaced(
+                &thread_id,
+                provider_account_id,
+                "no thread a session holds is above its thread",
+            );
+            None
+        }
         Ok(CodexThreadPlacement::Unplaced(CodexUnplacedThread::NotListed)) => {
             if bucket.iter().any(|kept| kept.is_unlisted) {
-                join_unlisted(service, launch, &thread_id, bucket);
-            } else {
-                let unlisted = bucket.into_iter().map(|kept| CodexKeptResponse {
-                    is_unlisted: true,
-                    ..kept
-                });
-                lock(launch).keep(unlisted);
+                return join_unlisted(service, launch, &thread_id, bucket);
             }
+            let unlisted = bucket.into_iter().map(|kept| CodexKeptResponse {
+                is_unlisted: true,
+                ..kept
+            });
+            lock(launch).keep(unlisted);
+            None
         }
         Err(error) => {
             tracing::warn!(
@@ -376,6 +388,7 @@ pub(crate) async fn place_bucket(
             let mut placement = lock(launch);
             placement.mark_failed_walk(&thread_id, Instant::now());
             placement.keep(bucket);
+            None
         }
     }
 }
@@ -384,13 +397,13 @@ pub(crate) async fn place_bucket(
 // review window or turn live when its first record was observed, filed on that turn of its
 // session, and remembers the join for the thread's later responses; a review runs only for a
 // turn that asked an approval, so this keeps it on the account that ran it. A bucket nothing
-// covers, and a record with no observed time, is refused.
+// covers, and a record with no observed time, is refused. Answers the thread where it was joined.
 fn join_unlisted(
     service: &CodexService,
     launch: &Mutex<CodexLaunchPlacement>,
     thread_id: &str,
     bucket: Vec<CodexKeptResponse>,
-) {
+) -> Option<CodexOffStreamThread> {
     let (timed, untimed): (Vec<_>, Vec<_>) = bucket
         .into_iter()
         .partition(|kept| kept.response.observed_at_ms > 0);
@@ -400,9 +413,7 @@ fn join_unlisted(
             "its record carries no time it was observed",
         );
     }
-    let Some(first) = timed.first() else {
-        return;
-    };
+    let first = timed.first()?;
     let mut placement = lock(launch);
     let Some((session_id, turn_id)) = placement.joins().target(first.response.observed_at_ms)
     else {
@@ -411,7 +422,7 @@ fn join_unlisted(
             &first.response,
             "no review window or turn covers its thread",
         );
-        return;
+        return None;
     };
     placement.cache(
         thread_id,
@@ -422,16 +433,30 @@ fn join_unlisted(
     );
     drop(placement);
     let placed = CodexOffStreamPlacement::OnTurn { turn_id };
-    push_bucket(service, session_id, timed, Some(&placed));
+    push_bucket(service, session_id, timed, Some(&placed))
 }
 
-// Pushes `bucket` onto `session_id`'s queue as one hand-over, each placed at `placed`.
+// Pushes `bucket` onto `session_id`'s queue as one hand-over, each placed at `placed`; answers
+// its thread where it was placed off the stream.
 fn push_bucket(
     service: &CodexService,
     session_id: SessionId,
     bucket: Vec<CodexKeptResponse>,
     placed: Option<&CodexOffStreamPlacement>,
-) {
+) -> Option<CodexOffStreamThread> {
+    let off_stream = placed.and_then(|placed| {
+        let first = bucket.first()?;
+        Some(CodexOffStreamThread {
+            session_id,
+            thread_id: first.response.conversation_id.clone(),
+            placed: placed.clone(),
+            observed_at_ms: bucket
+                .iter()
+                .map(|kept| kept.response.observed_at_ms)
+                .max()
+                .unwrap_or_default(),
+        })
+    });
     let exported = bucket
         .into_iter()
         .map(|kept| CodexExportedResponse {
@@ -441,6 +466,7 @@ fn push_bucket(
         })
         .collect();
     push_exported_responses(service, session_id, exported);
+    off_stream
 }
 
 /// Reports `response` refused under the account it ran on, naming its thread and `reason`.

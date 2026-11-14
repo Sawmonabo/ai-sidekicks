@@ -255,7 +255,14 @@ impl SessionUsageFiling {
             .report();
         };
         self.pricing
-            .record(&**sink, vec![metered], service, folder, &report)
+            .record(
+                &**sink,
+                vec![metered],
+                provider_account_id,
+                service,
+                folder,
+                &report,
+            )
             .await;
     }
 }

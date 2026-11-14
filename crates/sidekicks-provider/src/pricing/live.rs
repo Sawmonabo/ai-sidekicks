@@ -252,7 +252,9 @@ impl LivePricing {
         }
     }
 
-    async fn read_sign_in_kind(
+    /// The sign-in kind the accounts' reads observed for `account_id`, `None` where none is read
+    /// yet. Fails as no accounts' reads are registered or the read fails.
+    pub(crate) async fn read_sign_in_kind(
         &self,
         account_id: &ProviderAccountId,
     ) -> Result<Option<ProviderAuthMode>, BoxedError> {

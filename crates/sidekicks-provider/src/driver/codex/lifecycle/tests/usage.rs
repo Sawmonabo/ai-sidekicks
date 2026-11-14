@@ -432,17 +432,18 @@ fn rollout_search_line(at: &str, search_id: &str, action: &str) -> Value {
 // A turn's two billed searches, a page it opened and the first search stated again on the stream,
 // then its rollout file naming the second search again, a search only the file names and a page
 // it opened: on an API key each billed search is charged once at OpenAI's published $0.01, since
-// the model's row carries no per-search rate, and on a plan each is part of the plan. Killed by no
-// charge (no cost), by an opened page or a repeat charged (more than three), by the file's search
-// left uncharged (two), by holding a row with no search rate (nothing priced) and by charging a
-// plan's searches.
+// the model's row carries no per-search rate, and on a plan each is part of the plan, leaving no
+// event, row or sighting, though a token row after them and a search once the account reads as a
+// key both land. Killed by no charge (no cost), by an opened page or a repeat charged (more than
+// three), by the file's search left uncharged (two), by holding a row with no search rate
+// (nothing priced), by charging a plan's searches and by recording them at no charge (a plan's
+// searches handed to the record).
 #[rstest]
-#[case::api_key(ProviderAuthMode::ApiKey, [10_000, 10_000, 10_000])]
-#[case::plan(ProviderAuthMode::OauthSubscription, [0, 0, 0])]
+#[case::api_key(ProviderAuthMode::ApiKey)]
+#[case::plan(ProviderAuthMode::OauthSubscription)]
 #[tokio::test]
 async fn each_billed_search_is_charged_once_on_a_key_and_never_on_a_plan(
     #[case] sign_in_kind: ProviderAuthMode,
-    #[case] expected: [u64; 3],
 ) {
     let mut live = LiveCodexSession::start(&[]).await;
     let usage = Arc::new(GatedUsage::new(watch::channel(true).1));
@@ -468,7 +469,7 @@ async fn each_billed_search_is_charged_once_on_a_key_and_never_on_a_plan(
     assert!(
         ports
             .provider_accounts
-            .register(accounts as Arc<dyn ProviderAccountReader>)
+            .register(Arc::clone(&accounts) as Arc<dyn ProviderAccountReader>)
             .is_ok()
     );
 
@@ -482,7 +483,11 @@ async fn each_billed_search_is_charged_once_on_a_key_and_never_on_a_plan(
             .script
             .send(&web_search_frame(search_id, action));
     }
-    answer_region_read(&mut live.scripted).await;
+    let is_plan = sign_in_kind == ProviderAuthMode::OauthSubscription;
+    // A plan's searches record nothing, so no region is read for them.
+    if !is_plan {
+        answer_region_read(&mut live.scripted).await;
+    }
     let at = "2026-11-14T10:00:00.000Z";
     let mut file = CodexRolloutFile::default();
     let hand_over: Vec<CodexExportedResponse> = [
@@ -505,8 +510,26 @@ async fn each_billed_search_is_charged_once_on_a_key_and_never_on_a_plan(
         CodexSessionInbound::ExportedResponses(hand_over)
     ));
 
-    // The opened pages are no row; each repeat is decided and passed over.
-    assert_eq!(usage.rows_once_decided(5).await.len(), 3);
+    let (charged, expected) = if is_plan {
+        // The recorder takes the session's spend in order, so a token row after the searches lands
+        // only once each was decided; then a search on the account, now a key's, lands.
+        let counts = json!({"inputTokens": 1_000, "outputTokens": 100, "totalTokens": 1_100});
+        live.scripted
+            .script
+            .send(&token_usage_frame(TEST_THREAD, &counts, &counts));
+        answer_region_read(&mut live.scripted).await;
+        assert_eq!(usage.rows_once_decided(1).await.len(), 1);
+        accounts.set_sign_in_kind(Some(ProviderAuthMode::ApiKey));
+        live.scripted
+            .script
+            .send(&web_search_frame("ws_6", "search"));
+        assert_eq!(usage.rows_once_decided(2).await.len(), 2);
+        (vec![None, Some(1)], vec![2_250, 10_000])
+    } else {
+        // The opened pages are no row; each repeat is decided and passed over.
+        assert_eq!(usage.rows_once_decided(5).await.len(), 3);
+        (vec![Some(1); 3], vec![10_000; 3])
+    };
     poll_until(
         || {
             lock(&usage.costs)
@@ -514,15 +537,19 @@ async fn each_billed_search_is_charged_once_on_a_key_and_never_on_a_plan(
                 .map(|request| request.rows.len())
                 .sum::<usize>()
         },
-        |priced| *priced >= 3,
+        |priced| *priced >= expected.len(),
     )
     .await;
     stop.cancel();
-    let charged: Vec<Option<u64>> = lock(&usage.metered)
+    if is_plan {
+        // No search of the plan's reached the record: no event, row or sighting was written.
+        assert_eq!(usage.handed.load(Ordering::Relaxed), 2);
+    }
+    let rows: Vec<Option<u64>> = lock(&usage.metered)
         .iter()
         .map(|metered| metered.delta.request.web_search_requests)
         .collect();
-    assert_eq!(charged, [Some(1), Some(1), Some(1)]);
+    assert_eq!(rows, charged);
     let shares: Vec<u64> = lock(&usage.costs)
         .iter()
         .flat_map(|request| request.rows.iter().map(|row| row.cost_usd_micros.0.get()))

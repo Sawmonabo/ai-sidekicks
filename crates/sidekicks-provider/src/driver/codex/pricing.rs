@@ -23,7 +23,7 @@ use std::sync::{Arc, LazyLock};
 
 use sidekicks_contracts::event::usage::UsageCostSource;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
-use sidekicks_contracts::provider::account::record::ProviderAuthMode;
+use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
 use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::session::id::SessionId;
@@ -113,13 +113,8 @@ impl RequestPricer for CodexRequestPricer {
         request: &UnpricedRequest,
         sign_in_kind: Option<ProviderAuthMode>,
     ) -> RequestPricing {
-        let is_plan = match sign_in_kind {
-            Some(ProviderAuthMode::OauthSubscription | ProviderAuthMode::OauthToken) => true,
-            Some(ProviderAuthMode::ApiKey) => false,
-            Some(
-                ProviderAuthMode::External | ProviderAuthMode::None | ProviderAuthMode::Unknown,
-            )
-            | None => return RequestPricing::HeldForSignInKind,
+        let Some(is_plan) = is_plan_sign_in(sign_in_kind) else {
+            return RequestPricing::HeldForSignInKind;
         };
         let Some(model_id) = &key.model_id else {
             return RequestPricing::HeldForPrice;
@@ -139,6 +134,17 @@ impl RequestPricer for CodexRequestPricer {
             },
             Err(_refusal) => RequestPricing::HeldForPrice,
         }
+    }
+}
+
+// Whether `sign_in_kind` is a plan's, `false` for an API key; `None` for a kind the rule holds a
+// request for.
+fn is_plan_sign_in(sign_in_kind: Option<ProviderAuthMode>) -> Option<bool> {
+    match sign_in_kind {
+        Some(ProviderAuthMode::OauthSubscription | ProviderAuthMode::OauthToken) => Some(true),
+        Some(ProviderAuthMode::ApiKey) => Some(false),
+        Some(ProviderAuthMode::External | ProviderAuthMode::None | ProviderAuthMode::Unknown)
+        | None => None,
     }
 }
 
@@ -238,16 +244,23 @@ impl CodexRecorderPricing {
 
     /// Records `batch`, metered on `service` for `folder`, through `sink` together, so the store
     /// commits it as one, each delta stamped with the service's region, then prices what was
-    /// recorded once per model. A region that could not be read, which leaves the batch on the
-    /// unknown host's region, and a delta that was not recorded are each handed to `report`.
+    /// recorded once per model; a hosted search on an account a plan signs in, a delta naming no
+    /// account being `binding_account`'s, is part of the plan and records nothing. A region that
+    /// could not be read, which leaves the batch on the unknown host's region, and a delta that was
+    /// not recorded are each handed to `report`.
     pub(crate) async fn record(
         &mut self,
         sink: &dyn UsageSink,
         batch: Vec<MeteredUsage>,
+        binding_account: &ProviderAccountId,
         service: &CodexService,
         folder: &Path,
         report: &impl Fn(BoxedError),
     ) {
+        let batch = self.drop_plan_searches(batch, binding_account).await;
+        if batch.is_empty() {
+            return;
+        }
         let region = self.read_region(service, folder, report).await;
         let mut rows_by_model: Vec<(
             SessionId,
@@ -292,6 +305,47 @@ impl CodexRecorderPricing {
         for (session_id, model_id, rows) in rows_by_model {
             self.live.price(session_id, &model_id, rows, None).await;
         }
+    }
+
+    // `batch` less each hosted search charged to an account a plan signs in, read once per account
+    // per batch, so a plan's search writes no row, event or sighting. A search whose kind reads as
+    // none yet, or cannot be read, is kept: its pricing reads the kind again, logging a failure,
+    // and holds it.
+    async fn drop_plan_searches(
+        &self,
+        batch: Vec<MeteredUsage>,
+        binding_account: &ProviderAccountId,
+    ) -> Vec<MeteredUsage> {
+        let mut read: Vec<(ProviderAccountId, bool)> = Vec::new();
+        let mut kept = Vec::with_capacity(batch.len());
+        for metered in batch {
+            if metered.delta.request.web_search_requests.is_none() {
+                kept.push(metered);
+                continue;
+            }
+            let account = metered
+                .provider_account_id
+                .as_ref()
+                .unwrap_or(binding_account);
+            let is_read = read
+                .iter()
+                .find(|(read_account, _)| read_account == account)
+                .map(|(_, is_plan)| *is_plan);
+            let is_plan = if let Some(is_plan) = is_read {
+                is_plan
+            } else {
+                let is_plan = match self.live.read_sign_in_kind(account).await {
+                    Ok(sign_in_kind) => is_plan_sign_in(sign_in_kind) == Some(true),
+                    Err(_unread) => false,
+                };
+                read.push((account.clone(), is_plan));
+                is_plan
+            };
+            if !is_plan {
+                kept.push(metered);
+            }
+        }
+        kept
     }
 
     // The region of `service`'s model provider, read once per service; a failed read is reported

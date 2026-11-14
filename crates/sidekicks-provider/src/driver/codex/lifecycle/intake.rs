@@ -23,6 +23,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::unix_time::read_unix_time_ms;
@@ -107,11 +108,16 @@ pub(crate) struct CodexSessionIntake {
     usage_recorder: Option<mpsc::Sender<UsageRecorderItem>>,
 }
 
-// What the session's usage recorder takes, in metering order: spend, with the service and folder
-// whose region prices it, or a move of the session's bindings onto another account, made once the
-// spend before it is recorded.
+// What the session's usage recorder takes, in metering order: spend, with the account its bindings
+// charge then and the service and folder whose region prices it, or a move of the session's
+// bindings onto another account, made once the spend before it is recorded.
 enum UsageRecorderItem {
-    Usage(Vec<MeteredUsage>, Arc<CodexService>, PathBuf),
+    Usage(
+        Vec<MeteredUsage>,
+        ProviderAccountId,
+        Arc<CodexService>,
+        PathBuf,
+    ),
     AccountMove(CodexBindingMove),
 }
 
@@ -221,9 +227,9 @@ impl CodexSessionIntake {
             self.parts.tasks.spawn(async move {
                 while let Some(item) = items.recv().await {
                     match item {
-                        UsageRecorderItem::Usage(batch, service, folder) => {
+                        UsageRecorderItem::Usage(batch, account, service, folder) => {
                             pricing
-                                .record(&*sink, batch, &service, &folder, &report)
+                                .record(&*sink, batch, &account, &service, &folder, &report)
                                 .await;
                         }
                         UsageRecorderItem::AccountMove(binding_move) => {
@@ -238,7 +244,12 @@ impl CodexSessionIntake {
             return;
         };
         let folder = record.thread_settings.working_directory.clone();
-        let item = UsageRecorderItem::Usage(usage, Arc::clone(&record.service), folder);
+        let item = UsageRecorderItem::Usage(
+            usage,
+            record.provider_account_id.clone(),
+            Arc::clone(&record.service),
+            folder,
+        );
         if let Err(refused) = recorder.send(item).await {
             let lost = match refused.0 {
                 UsageRecorderItem::Usage(batch, ..) => batch.len(),

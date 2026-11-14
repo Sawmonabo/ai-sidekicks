@@ -26,7 +26,8 @@ use crate::driver::codex::telemetry::exported_response::{
 };
 use crate::driver::codex::telemetry::exports::{CODEX_EXPORT_HAND_OFF_DEPTH, CodexExports};
 use crate::driver::codex::telemetry::placement::{
-    CodexLaunchPlacement, bucket_off_stream, place_bucket, refuse_response, take_kept_buckets,
+    CodexKeptBucket, CodexLaunchPlacement, bucket_off_stream, place_bucket, refuse_response,
+    take_kept_buckets,
 };
 use crate::driver::codex::telemetry::rollouts::fallback::{
     CodexFallbackDue, CodexLaunchRollouts, CodexRolloutFallback,
@@ -38,9 +39,9 @@ const STOPPED: &str = "the daemon stopped before its thread could be placed";
 
 // What the reader hands the drain, each with the service that ran it and its launch's placement
 // state: the completed responses of the export numbered `export_number`, handed over together, or,
-// after that export's responses, a retry of the responses the launch kept before it; or, as the launch registers and
-// as it settles a request turn while its export status reads stopped, a read of its rollout
-// files, with its fallback's handles.
+// after that export's responses, a retry of the responses the launch kept before it; or, as the
+// launch registers and as it settles a request turn while its export status reads stopped, a read
+// of its rollout files, with its fallback's handles.
 pub(super) enum CodexExportItem {
     Responses {
         service: Weak<CodexService>,
@@ -275,8 +276,9 @@ enum CodexLaunchEvent {
 // naming its thread. Work whose service or launch is gone is refused. From the launch's first
 // read of its rollout files on, the task also owns its rollout fallback, which reads each stop
 // the export status counts: once as it is found, at each settled request turn and at each export
-// read until its files are let go, and ends with the launch's export status. A pass due is taken
-// before queued work, so no queued read runs past an export's read.
+// read until its files are let go, and ends with the launch's export status; through it, each
+// bucket placed off the stream reads on its thread's file. A pass due is taken before queued work,
+// so no queued read runs past an export's read.
 async fn run_launch_work(
     service: Weak<CodexService>,
     launch: Weak<Mutex<CodexLaunchPlacement>>,
@@ -353,32 +355,20 @@ async fn run_launch_work(
                 response,
                 export_number,
             } => {
-                if let Some(bucket) = bucket_off_stream(&launch, *response, export_number) {
-                    let refusal = bucket.refusal();
-                    tokio::select! {
-                        biased;
-                        () = stop.cancelled() => {
-                            refusal.refuse(STOPPED);
-                            break;
-                        }
-                        () = place_bucket(&service, &launch, bucket) => {}
-                    }
+                if let Some(bucket) = bucket_off_stream(&launch, *response, export_number)
+                    && !place_and_read(&service, &launch, bucket, fallback.as_mut(), &stop).await
+                {
+                    break;
                 }
             }
             CodexLaunchWork::Retry { export_number } => {
                 let mut buckets = take_kept_buckets(&launch, export_number).into_iter();
                 while let Some(bucket) = buckets.next() {
-                    let refusal = bucket.refusal();
-                    tokio::select! {
-                        biased;
-                        () = stop.cancelled() => {
-                            refusal.refuse(STOPPED);
-                            for bucket in buckets {
-                                bucket.refusal().refuse(STOPPED);
-                            }
-                            break;
+                    if !place_and_read(&service, &launch, bucket, fallback.as_mut(), &stop).await {
+                        for bucket in buckets {
+                            bucket.refusal().refuse(STOPPED);
                         }
-                        () = place_bucket(&service, &launch, bucket) => {}
+                        break;
                     }
                 }
             }
@@ -397,6 +387,35 @@ async fn run_launch_work(
     work.close();
     while let Ok(left) = work.try_recv() {
         left.refuse(STOPPED);
+    }
+}
+
+// Places `bucket` for `launch`, then, where it went off the stream, reads on its thread's rollout
+// file through `fallback`, since a search inside its request reaches no export; answers `false`
+// where the daemon's stop came first, the bucket refused where it was not placed yet.
+async fn place_and_read(
+    service: &Arc<CodexService>,
+    launch: &Mutex<CodexLaunchPlacement>,
+    bucket: CodexKeptBucket,
+    fallback: Option<&mut CodexRolloutFallback>,
+    stop: &CancellationToken,
+) -> bool {
+    let refusal = bucket.refusal();
+    let off_stream = tokio::select! {
+        biased;
+        () = stop.cancelled() => {
+            refusal.refuse(STOPPED);
+            return false;
+        }
+        off_stream = place_bucket(service, launch, bucket) => off_stream,
+    };
+    let (Some(off_stream), Some(fallback)) = (off_stream, fallback) else {
+        return true;
+    };
+    tokio::select! {
+        biased;
+        () = stop.cancelled() => false,
+        () = fallback.read_placed(service, off_stream) => true,
     }
 }
 

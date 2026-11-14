@@ -6,8 +6,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sidekicks_std::missing_entry::is_missing_entry;
 
-use crate::driver::codex::thread::ancestry::CodexListedThread;
-
 /// The folder of a Codex home its rollout files are written under, by day.
 pub(super) const SESSIONS_FOLDER: &str = "sessions";
 
@@ -91,27 +89,31 @@ pub(super) fn is_rollout_of(path: &Path, thread_id: &str) -> bool {
         })
 }
 
-// The rollout file of `helper` under `sessions`, in the day folder of its thread's making by this
-// system's clock, as Codex names it, with its size; `None` where none is there. Blocking.
-pub(super) fn find_helper_rollout(
+// The rollout file of `thread_id` under `sessions`, in the day folder, by this system's clock, of
+// the first of `made_at_s`, Unix seconds its thread may have been made at, that holds it, as Codex
+// names it, with its size; `None` where none is there. Blocking.
+pub(super) fn find_thread_rollout(
     sessions: &Path,
-    helper: &CodexListedThread,
+    thread_id: &str,
+    made_at_s: &[i64],
 ) -> Option<(PathBuf, u64)> {
-    let made_on = jiff::Timestamp::from_second(helper.created_at)
-        .ok()?
-        .to_zoned(jiff::tz::TimeZone::system())
-        .date();
-    let folder = sessions
-        .join(format!("{:04}", made_on.year()))
-        .join(format!("{:02}", made_on.month()))
-        .join(format!("{:02}", made_on.day()));
-    read_entries(&folder)
-        .into_iter()
-        .find(|(_name, path)| is_rollout_of(path, &helper.id))
-        .and_then(|(_name, path)| {
-            let size = std::fs::metadata(&path).ok()?.len();
-            Some((path, size))
-        })
+    made_at_s.iter().find_map(|made_at_s| {
+        let made_on = jiff::Timestamp::from_second(*made_at_s)
+            .ok()?
+            .to_zoned(jiff::tz::TimeZone::system())
+            .date();
+        let folder = sessions
+            .join(format!("{:04}", made_on.year()))
+            .join(format!("{:02}", made_on.month()))
+            .join(format!("{:02}", made_on.day()));
+        read_entries(&folder)
+            .into_iter()
+            .find(|(_name, path)| is_rollout_of(path, thread_id))
+            .and_then(|(_name, path)| {
+                let size = std::fs::metadata(&path).ok()?.len();
+                Some((path, size))
+            })
+    })
 }
 
 // Each entry of `folder` by its name; a folder that is absent reads empty, and one that cannot be

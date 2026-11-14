@@ -13,7 +13,9 @@
 //! each turn of its session's thread that settles, until the turn it showed live at that export's
 //! newest record has ended, and let go, its offset kept, so no later stop reads it from its start.
 //! A file no export and no settled turn names costs a pass nothing. A stop an export ended before
-//! the fallback looked is read the same way.
+//! the fallback looked is read the same way. While the export arrives, the file of an off-stream
+//! thread an export's response was placed on is read on as the response is placed, so a search
+//! inside that request, which no export carries, is charged; it is kept beside the files let go.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
@@ -39,7 +41,7 @@ use crate::driver::codex::thread::ancestry::{
 use crate::pricing::export_status::{ExportStatusTracker, PublishedExportStatus};
 use crate::pricing::usage_files::read_usage_file_lines;
 use named_threads::CodexNamedThreads;
-use sessions_folder::{SESSIONS_FOLDER, find_helper_rollout, find_rollouts, is_rollout_of};
+use sessions_folder::{SESSIONS_FOLDER, find_rollouts, find_thread_rollout, is_rollout_of};
 
 /// How many rollout files one launch's fallback follows, and how many it keeps the offset of once
 /// let go; past the first a new file is passed over, logged, and past the second the oldest let go
@@ -210,6 +212,7 @@ impl CodexFollowedRollout {
 
 // Where a file's requests are filed: the session, and the placement off its stream, `None` on the
 // thread the session streams.
+#[derive(Clone)]
 struct CodexRolloutTarget {
     session_id: SessionId,
     placed: Option<CodexOffStreamPlacement>,
@@ -248,6 +251,8 @@ pub(crate) struct CodexRolloutFallback {
     unended_settled: HashSet<SessionId>,
     files: HashMap<PathBuf, CodexFollowedRollout>,
     let_go: VecDeque<(PathBuf, CodexFollowedRollout)>,
+    // The placed off-stream threads found with no rollout file, oldest first.
+    fileless: VecDeque<String>,
 }
 
 impl CodexRolloutFallback {
@@ -262,6 +267,7 @@ impl CodexRolloutFallback {
             unended_settled: HashSet::new(),
             files: HashMap::new(),
             let_go: VecDeque::new(),
+            fileless: VecDeque::new(),
         }
     }
 
@@ -396,7 +402,11 @@ impl CodexRolloutFallback {
             tokio::task::spawn_blocking(move || {
                 let mut found = find_rollouts(&sessions, since_ms);
                 for helper in helpers {
-                    found.extend(find_helper_rollout(&sessions, &helper));
+                    found.extend(find_thread_rollout(
+                        &sessions,
+                        &helper.id,
+                        &[helper.created_at],
+                    ));
                 }
                 found
             })
@@ -465,21 +475,26 @@ impl CodexRolloutFallback {
                 .extract_if(|_path, followed| !followed.is_followed_past(ended_ms))
                 .collect();
             for (path, followed) in ended {
-                if let Some((forgotten, _followed)) =
-                    remember(&mut self.let_go, (path, followed), ROLLOUTS_KEPT)
-                {
-                    tracing::debug!(
-                        path = %forgotten.display(),
-                        "a codex launch keeps too many rollout files let go; \
-                         the oldest is forgotten"
-                    );
-                }
+                self.let_go_of(path, followed);
             }
             if self.files.is_empty() {
                 self.stop_reading();
             }
         }
         self.publish_unreadable();
+    }
+
+    // Keeps `followed`, at `path`, as its last read left it among the files let go, the oldest
+    // forgotten past `ROLLOUTS_KEPT`.
+    fn let_go_of(&mut self, path: PathBuf, followed: CodexFollowedRollout) {
+        if let Some((forgotten, _followed)) =
+            remember(&mut self.let_go, (path, followed), ROLLOUTS_KEPT)
+        {
+            tracing::debug!(
+                path = %forgotten.display(),
+                "a codex launch keeps too many rollout files let go; the oldest is forgotten"
+            );
+        }
     }
 
     // The helper threads `service` updated from `since_ms` on whose rollout file the fallback does
@@ -574,9 +589,6 @@ async fn follow(
             return;
         }
         let is_thread_unknown = followed.file.thread().is_none();
-        let file = std::mem::take(&mut followed.file);
-        let read_path = path.to_owned();
-        let offset = followed.offset;
         let target = match &followed.placement {
             CodexRolloutPlacement::Below {
                 session_id,
@@ -595,44 +607,67 @@ async fn follow(
             }),
             CodexRolloutPlacement::Unplaced { .. } | CodexRolloutPlacement::Passed => None,
         };
-        let read_service = Arc::clone(service);
-        let read = tokio::task::spawn_blocking(move || {
-            read_on(
-                &read_path,
-                offset,
-                file,
-                since_ms,
-                target.as_ref().map(|target| (target, &*read_service)),
-            )
-        })
-        .await;
-        let (file, read) = match read {
-            Ok(read) => read,
-            Err(error) => {
-                tracing::warn!(%error, path = %path.display(), "a codex rollout read did not end");
-                followed.is_read_failed = true;
-                return;
-            }
-        };
-        followed.file = file;
-        match read {
-            Ok(offset) => {
-                followed.offset = offset;
-                followed.is_read_failed = false;
-            }
-            Err(error) => {
-                tracing::warn!(
-                    error = &error as &(dyn std::error::Error + 'static),
-                    path = %path.display(),
-                    "a codex rollout file could not be read"
-                );
-                followed.is_read_failed = true;
-                return;
-            }
+        if !read_followed(service, path, followed, since_ms, target).await {
+            return;
         }
         // A read that stopped at the file's first line places its thread next.
         if !(is_thread_unknown && followed.file.thread().is_some()) {
             return;
+        }
+    }
+}
+
+// Reads `followed`, at `path`, on from its offset as `read_on` does, handing what it charges to
+// `target`'s session, and keeps where the read stopped; answers whether it read, a failed read
+// logged and the file marked as one whose read failed.
+async fn read_followed(
+    service: &Arc<CodexService>,
+    path: &Path,
+    followed: &mut CodexFollowedRollout,
+    since_ms: u64,
+    target: Option<CodexRolloutTarget>,
+) -> bool {
+    let file = std::mem::take(&mut followed.file);
+    let read_path = path.to_owned();
+    let offset = followed.offset;
+    let read_service = Arc::clone(service);
+    let read = tokio::task::spawn_blocking(move || {
+        read_on(
+            &read_path,
+            offset,
+            file,
+            since_ms,
+            target.as_ref().map(|target| (target, &*read_service)),
+        )
+    })
+    .await;
+    let (file, read) = match read {
+        Ok(read) => read,
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                path = %path.display(),
+                "a codex rollout read did not end"
+            );
+            followed.is_read_failed = true;
+            return false;
+        }
+    };
+    followed.file = file;
+    match read {
+        Ok(offset) => {
+            followed.offset = offset;
+            followed.is_read_failed = false;
+            true
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                path = %path.display(),
+                "a codex rollout file could not be read"
+            );
+            followed.is_read_failed = true;
+            false
         }
     }
 }
@@ -753,6 +788,7 @@ async fn place(
 }
 
 mod named_threads;
+mod placed_threads;
 mod sessions_folder;
 #[cfg(test)]
 mod tests;
