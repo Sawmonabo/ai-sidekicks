@@ -2,15 +2,16 @@
 // process. Main's requests come over the parentPort and each window's over the port main hands the
 // helper for it; each passes its channel's method allowlist before the addon, which checks its
 // params. A call the addon's check or a refused file-path swap kept from leaving is answered as
-// unsendable, never as a reply, and why goes to main's log. A window's call to a method that
-// carries file paths has its tokens swapped for their paths by asking main, which keeps them, and
-// main mints tokens for the paths a reply offers, and for those a window's stream frame offers,
-// the frame held back until they come so frames keep their order. A window port that closes
-// cancels every call and stream it left open. Main connects the link and closes it; a request
-// waits for the connect under way, and one made once the link is closed fails. A connect main
-// closed before it settled is dropped, its link closed unused. The link's state, and a starting
-// daemon's answers that it is repairing, go to main as the addon reports them; the addon pings,
-// times and retries the link itself, so the helper keeps no timer.
+// unsendable, never as a reply, a subscribe the check kept ends unsendable, and why goes to
+// main's log. A window's call to a method that carries file paths has its tokens swapped for their
+// paths by asking main, which keeps them, and main mints tokens for the paths a reply offers, and
+// for those a window's stream frame offers, the frame held back until they come so frames keep
+// their order. A window port that closes cancels every call and stream it left open. Main
+// connects the link and closes it; a request waits for the connect under way, and one made once
+// the link is closed fails. A connect main closed before it settled is dropped, its link closed
+// unused. The link's state, and a starting daemon's answers that it is repairing, go to main as
+// the addon reports them; the addon pings, times and retries the link itself, so the helper keeps
+// no timer.
 // A shell's flow state is counted over every window on the connection (`connection-shells.ts`), as
 // the daemon counts it per connection, and a window's typing goes into the addon's one queue for
 // its shell, which keeps every rule for its writes (`shell-inputs.ts`); a stream's end is told at
@@ -479,7 +480,8 @@ class ClientHelper {
       });
       if (swap.kind === "filePaths.swapRefused") {
         const reason = `The file paths of ${method} were refused${describeIssues(swap.issues)}`;
-        this.#settleCall(channel, callId, this.#unsendable(callId, reason));
+        this.#logUnsent(method, reason);
+        this.#settleCall(channel, callId, { kind: "call.unsendable", callId });
         return;
       }
       params = swap.params;
@@ -526,12 +528,15 @@ class ClientHelper {
         link.client.cancelCall(addonCallId);
       }
       const { reply, error, unsentRefusal } = await outcome;
-      answer =
-        unsentRefusal !== undefined
-          ? this.#unsendable(callId, describeRefusal(wireErrorOf(unsentRefusal)))
-          : reply === undefined
+      if (unsentRefusal !== undefined) {
+        this.#logUnsent(method, describeRefusal(wireErrorOf(unsentRefusal)));
+        answer = { kind: "call.unsendable", callId };
+      } else {
+        answer =
+          reply === undefined
             ? { kind: "call.refused", callId, refusal: wireErrorOf(error) }
             : await this.#served(channel, callId, method, params, reply, replyAsk);
+      }
     } catch (failure) {
       answer = {
         kind: "call.failed",
@@ -543,10 +548,9 @@ class ClientHelper {
     return answer;
   }
 
-  /** A call that was not sent, `reason` going to main's log and never to the asker. */
-  #unsendable(callId: number, reason: string): ClientHelperAnswer {
-    this.#parentPort.postMessage({ kind: "call.unsendableReason", message: reason });
-    return { kind: "call.unsendable", callId };
+  /** Tells main's log why a request to `method` was not sent; the asker never hears it. */
+  #logUnsent(method: string, reason: string): void {
+    this.#parentPort.postMessage({ kind: "request.unsendableReason", method, message: reason });
   }
 
   #takeAddonCallId(): number {
@@ -644,6 +648,11 @@ class ClientHelper {
           }
         },
       );
+      if (opened.unsentRefusal !== undefined) {
+        this.#logUnsent(method, describeRefusal(wireErrorOf(opened.unsentRefusal)));
+        this.#endStream(channel, streamId, held, { reason: "unsendable" });
+        return;
+      }
       if (opened.streamId === undefined || opened.acknowledgment === undefined) {
         this.#endStream(channel, streamId, held, {
           reason: "refused",

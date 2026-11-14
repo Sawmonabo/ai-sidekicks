@@ -62,11 +62,11 @@ export function refusalWords(code: string, reason?: string): string | undefined 
 
 /**
  * A refusal card or banner read out as it is drawn: the words line, then the message, or the
- * message alone where the app wrote the refusal.
+ * message alone where the app wrote the refusal or the message is those words.
  */
 export function refusalSentence(code: string, reason: string | undefined, message: string): string {
   const words = refusalWords(code, reason);
-  return words === undefined ? message : `${words}. ${message}`;
+  return words === undefined || words === message ? message : `${words}. ${message}`;
 }
 
 // Its label, or its words split at `.`, `_` and `-`, where a lowercase letter or digit meets a

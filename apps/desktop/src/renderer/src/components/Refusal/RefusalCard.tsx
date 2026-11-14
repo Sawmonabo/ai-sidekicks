@@ -37,7 +37,7 @@ export function RefusalCard(props: RefusalCardProps): React.JSX.Element {
       <div className="meridian-refusal__head">
         <Glyph name="alert" size={GLYPH_SIZE_CHROME} />
         <div className="meridian-refusal__body">
-          <RefusalWords code={props.code} reason={props.reason} />
+          <RefusalWords code={props.code} reason={props.reason} detail={detail} />
           <p className="meridian-refusal__message">{detail}</p>
         </div>
       </div>

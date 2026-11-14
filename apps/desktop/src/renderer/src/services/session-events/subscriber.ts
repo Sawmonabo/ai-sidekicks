@@ -426,7 +426,9 @@ export class SessionEventSubscriber {
       return;
     }
     this.#retry.retain(sessionId);
-    if (end.reason !== "failed") {
+    // A subscribe the client did not send would not be sent again, so it waits, as a failed link
+    // does, for the returning edge.
+    if (end.reason === "refused" || end.reason === "completed") {
       const backoff = this.#backoffFor(sessionId);
       backoff.skipImmediateReopen();
       backoff.schedule(() => {

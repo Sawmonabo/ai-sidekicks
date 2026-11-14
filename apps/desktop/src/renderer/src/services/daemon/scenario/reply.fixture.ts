@@ -113,6 +113,9 @@ export type ScenarioReply = {
     | ScenarioComputedReply<Call>;
 }[RegisteredDaemonMethod];
 
+/** The canned reply's arms for `Call`: one method's own, or every arm for a call named by text. */
+export type ScenarioReplyFor<Call extends string> = Extract<ScenarioReply, { readonly call: Call }>;
+
 /**
  * One live notice a settled reply pushes on a machine stream, as the daemon pushes one after an
  * edit or when a sign-in it brokered finishes. The payload is composed when the notice comes due,

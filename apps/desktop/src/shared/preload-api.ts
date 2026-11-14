@@ -418,8 +418,9 @@ export interface DaemonWire {
   /**
    * Open one subscription. `daemon.status` is main's own topic: it opens while no service
    * answers, its first delivery is the current state, and it never ends. A daemon subscription
-   * that ends, because the daemon completed or refused it or the link or the helper under it
-   * failed, calls `onEnded` once and delivers nothing more; closing it before then never does.
+   * that ends, because the daemon completed or refused it, the helper did not send it, or the link
+   * or the helper under it failed, calls `onEnded` once and delivers nothing more; closing it
+   * before then never does.
    * Each value comes with the bytes its `{"$bytes": n}` members name, and the token main minted
    * for each path it offers to open, keyed by the path, where it offers one. `onOpened` is told
    * the subscription's id once the daemon acknowledges a subscribe answered with the id alone.

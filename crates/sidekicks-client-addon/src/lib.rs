@@ -93,15 +93,19 @@ pub struct ConnectOutcome {
     pub cannot_start: Option<Value>,
 }
 
-/// A subscribe's outcome: the stream's id and its acknowledgment, or its error in the wire's shape.
+/// A subscribe's outcome: the stream's id and its acknowledgment, its error in the wire's shape, or
+/// the refusal of the client's own check, which sent nothing.
 #[napi(object)]
 pub struct SubscribeOutcome {
     /// The id `cancel_stream` takes, when the subscribe succeeded.
     pub stream_id: Option<u32>,
     /// The acknowledgment, when the subscribe succeeded.
     pub acknowledgment: Option<WireReply>,
-    /// The error, when it failed.
+    /// The error, when the subscribe was sent and failed.
     pub error: Option<Value>,
+    /// Why the client's check of the request against its method's contract refused it, in the
+    /// wire's shape, when it did: nothing was sent.
+    pub unsent_refusal: Option<Value>,
 }
 
 /// One event of a stream: a value, or its end, with the error it ended for when it failed.
@@ -376,7 +380,8 @@ impl DaemonClient {
     }
 
     /// Opens a subscription to `method` after checking its params; each value and the end go to
-    /// `on_event`, the next value taken only once the page's callback returned.
+    /// `on_event`, the next value taken only once the page's callback returned. A refused check
+    /// answers as the outcome's `unsent_refusal`, sending nothing.
     #[napi]
     pub async fn subscribe(
         &self,
@@ -385,18 +390,27 @@ impl DaemonClient {
         attachments: Vec<Buffer>,
         on_event: ThreadsafeFunction<StreamEvent, (), StreamEvent, napi::Status, false>,
     ) -> SubscribeOutcome {
-        let refused = |error| SubscribeOutcome {
-            stream_id: None,
-            acknowledgment: None,
-            error: Some(error),
-        };
         let request = match checked_request(&method, params_json, attachments, true) {
             Ok(request) => request,
-            Err(error) => return refused(error),
+            Err(refusal) => {
+                return SubscribeOutcome {
+                    stream_id: None,
+                    acknowledgment: None,
+                    error: None,
+                    unsent_refusal: Some(refusal),
+                };
+            }
         };
         let (acknowledgment, subscription) = match self.client.subscribe_raw(request).await {
             Ok(opened) => opened,
-            Err(error) => return refused(wire_error(&error)),
+            Err(error) => {
+                return SubscribeOutcome {
+                    stream_id: None,
+                    acknowledgment: None,
+                    error: Some(wire_error(&error)),
+                    unsent_refusal: None,
+                };
+            }
         };
         let stream_id = self.next_stream_id.fetch_add(1, Ordering::Relaxed);
         let cancel = CancellationToken::new();
@@ -410,6 +424,7 @@ impl DaemonClient {
             stream_id: Some(stream_id),
             acknowledgment: Some(wire_reply(acknowledgment)),
             error: None,
+            unsent_refusal: None,
         }
     }
 

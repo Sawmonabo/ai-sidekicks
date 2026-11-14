@@ -4,8 +4,10 @@
 // and says the input is closed once its writes are answered, its shell ends or its connection
 // does. While no subscription is bound, and while a closed input has not said so, what is typed
 // waits here, so what comes back, even after the next subscription is bound, goes first, in the
-// order it came, then what was typed since. A shell found gone lets go of what waits and of what
-// is still to come.
+// order it came, then what was typed since. A pane closed while something waits keeps its binding,
+// and its output stream open, until it can send all of it on a bound subscription; then it closes
+// that stream, which sends what the input queued. A shell found gone lets go of what waits and of
+// what is still to come.
 
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
@@ -26,6 +28,8 @@ export class ShellInputBinding {
   #held: UnsentShellInput[] = [];
   /** How many of `#held`, at its head, were handed back. */
   #handedBackCount = 0;
+  /** Closes the pane's output stream, once a closed pane has sent everything that waited. */
+  #finish: (() => void) | undefined;
 
   public constructor(
     open: (outputSubscriptionId: SubscriptionId, handBack: ShellInputHandBack) => ShellInput,
@@ -55,6 +59,10 @@ export class ShellInputBinding {
       onClosed: () => {
         if (this.#closing.delete(token)) {
           this.#flushHeld();
+        } else if (this.#bound?.token === token) {
+          // Told closed while bound, as a port that closes tells each input: it takes nothing more.
+          this.#bound = undefined;
+          this.#finishOnceSent();
         }
       },
     });
@@ -74,22 +82,39 @@ export class ShellInputBinding {
 
   /**
    * Let go of everything held, and of what closed inputs may still hand back, for a shell that is
-   * gone; answers whether anything was held.
+   * gone, finishing a closed pane; answers whether anything was held.
    */
   public dropHeld(): boolean {
     const hadHeld = this.#held.length > 0;
     this.#held = [];
     this.#handedBackCount = 0;
     this.#closing.clear();
+    this.#finishOnceSent();
     return hadHeld;
   }
 
-  /** The pane closed: its input closes and nothing held, or handed back later, goes. */
-  public close(): void {
-    const bound = this.#bound;
-    this.#bound = undefined;
-    this.dropHeld();
-    bound?.input.close();
+  /**
+   * The pane closed: `finish` closes its output stream, and the bound input closes after it, once
+   * nothing waits; until then the binding goes on taking what comes back and the next bound
+   * subscription, and sends what waits on that subscription before it finishes.
+   */
+  public close(finish: () => void): void {
+    this.#finish = finish;
+    this.#finishOnceSent();
+  }
+
+  /**
+   * The pane opens its output again: a closed pane still waiting lets go of its stream now, its
+   * bound input closing as a stream's end closes it, and what waits goes on the new stream.
+   */
+  public reopen(): void {
+    const finish = this.#finish;
+    if (finish === undefined) {
+      return;
+    }
+    this.#finish = undefined;
+    this.bind(undefined);
+    finish();
   }
 
   #send(typed: UnsentShellInput): void {
@@ -113,16 +138,32 @@ export class ShellInputBinding {
     this.#handedBackCount += 1;
   }
 
-  /** Sends what is held, in order, once a subscription is bound and no closed input is pending. */
+  /**
+   * Sends what is held, in order, once a subscription is bound and no closed input is pending;
+   * a closed pane with nothing left waiting then finishes.
+   */
   #flushHeld(): void {
     const bound = this.#bound;
-    if (bound === undefined || this.#closing.size > 0) {
+    if (bound !== undefined && this.#closing.size === 0) {
+      this.#handedBackCount = 0;
+      for (const held of this.#held.splice(0)) {
+        sendHeld(bound.input, held);
+      }
+    }
+    this.#finishOnceSent();
+  }
+
+  /** A closed pane with nothing left waiting closes its stream, then its bound input. */
+  #finishOnceSent(): void {
+    const finish = this.#finish;
+    if (finish === undefined || this.#closing.size > 0 || this.#held.length > 0) {
       return;
     }
-    this.#handedBackCount = 0;
-    for (const held of this.#held.splice(0)) {
-      sendHeld(bound.input, held);
-    }
+    this.#finish = undefined;
+    const bound = this.#bound;
+    this.#bound = undefined;
+    finish();
+    bound?.input.close();
   }
 }
 

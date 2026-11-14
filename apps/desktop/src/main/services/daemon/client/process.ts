@@ -15,6 +15,7 @@ import type { ConnectionInitializeResponse } from "@ai-sidekicks/contracts/jsonr
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 
 import type { FilePathRefOwner } from "#main/bridge/file-path/refs.js";
+import { DiagnosticRateLimit } from "#shared/app-diagnostic/rate-limit.js";
 import {
   REQUEST_UNSENDABLE_MESSAGE,
   type DaemonSubscriptionEnd,
@@ -137,8 +138,9 @@ export interface ClientHelperProcessOptions {
   /** Answers a file-path ask for `window`; throws for one main cannot answer. */
   readonly answerFilePathAsk: (window: FilePathRefOwner, ask: FilePathAsk) => FilePathAnswer;
   /**
-   * Records a window port the helper dropped, a file-path ask main could not answer and a flow
-   * update of the helper's own the daemon did not take.
+   * Records a window port the helper dropped, a file-path ask main could not answer, a flow update
+   * of the helper's own the daemon did not take, writes no pane hears, and why a request was not
+   * sent, at most a few times a minute per method.
    */
   readonly logWarning: (message: string) => void;
 }
@@ -176,9 +178,20 @@ export class ClientHelperProcess implements MainDaemonClient {
   #nextRequestId = 0;
   #nextAskId = 0;
   #isDisposed = false;
+  /** How often the log hears why a request was not sent, counted per method. */
+  readonly #unsentLogLimit: DiagnosticRateLimit;
 
   public constructor(options: ClientHelperProcessOptions) {
     this.#options = options;
+    this.#unsentLogLimit = new DiagnosticRateLimit(
+      (count) => {
+        options.logWarning(`The client helper did not send ${String(count)} more requests.`);
+      },
+      // Unreferenced, so a count still waiting never keeps main from quitting.
+      (end, ms) => {
+        setTimeout(end, ms).unref();
+      },
+    );
   }
 
   /**
@@ -472,8 +485,10 @@ export class ClientHelperProcess implements MainDaemonClient {
       case "shellWrite.failed":
         this.#options.logWarning(`The client helper's writes to a shell: ${message.message}`);
         return;
-      case "call.unsendableReason":
-        this.#options.logWarning(`The client helper did not send a call: ${message.message}`);
+      case "request.unsendableReason":
+        if (this.#unsentLogLimit.admit(message.method)) {
+          this.#options.logWarning(`The client helper did not send a request: ${message.message}`);
+        }
         return;
     }
   }

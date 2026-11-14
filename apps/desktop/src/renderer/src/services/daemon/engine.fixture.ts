@@ -20,7 +20,7 @@ import {
   type ScenarioSink,
   type ScenarioSubscribeOptions,
 } from "./event/delivery.fixture.js";
-import type { ScenarioReply } from "./scenario/reply.fixture.js";
+import type { ScenarioReplyFor } from "./scenario/reply.fixture.js";
 import type { Scenario } from "#fixtures/scenario.js";
 
 /**
@@ -207,9 +207,14 @@ export class ScenarioEngine {
     return this.#heldReplies.heldCount;
   }
 
-  /** The canned reply for one call, or `undefined` if the scenario scripts none. */
-  public replyFor(call: string): ScenarioReply | undefined {
-    return this.#scenario.replies.find((reply) => reply.call === call);
+  /**
+   * The canned reply for one call, typed as that call's arm where the call is a known method, or
+   * `undefined` if the scenario scripts none.
+   */
+  public replyFor<Call extends string>(call: Call): ScenarioReplyFor<Call> | undefined {
+    return this.#scenario.replies.find(
+      (reply): reply is ScenarioReplyFor<Call> => reply.call === call,
+    );
   }
 
   /**

@@ -1,15 +1,20 @@
 // A daemon stream with no cursor to resume from, kept open for its owner. A stream that ends after
 // it delivered is opened again through the re-open waits (`reopen-backoff.ts`). A stream that ends
 // before delivering anything waits for the transport's returning edge, so a daemon declining the
-// stream is not asked again in a loop; one the daemon refused reaches the owner as that refusal. A
-// re-open that throws is reported to the owner as a refusal it can draw, and tried again at the
-// next wait or at the returning edge, whichever comes first; the next re-open that works clears
-// either refusal. Each re-open tells the owner, which reads afresh what the gap may have hidden. A
+// stream is not asked again in a loop; one the daemon refused reaches the owner as that refusal,
+// and one the client did not send as the app's own `request-unsendable` refusal. A re-open that
+// throws is reported to the owner as a refusal it can draw, and tried again at the next wait or at
+// the returning edge, whichever comes first; the next re-open that works clears either refusal.
+// Each re-open tells the owner, which reads afresh what the gap may have hidden. A
 // first open that throws is re-raised unchanged, as `openObservedSubscription` does, since most
 // owners already have an arm for a stream that could not open; an owner without one has it wait
 // for the returning edge, or has it reported and tried again as a re-open that throws is.
 
-import { describeSubscriptionEnd, type DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
+import {
+  describeSubscriptionEnd,
+  requestUnsendable,
+  type DaemonSubscriptionEnd,
+} from "#shared/daemon/forwarding.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { RealClock, type Clock } from "#renderer/lib/clock.js";
 import {
@@ -144,6 +149,9 @@ class ReopeningSubscription<Payload> {
           }
           if (end.reason === "refused") {
             this.#refuse(normalizeWireRejection(REOPEN_REFUSAL_ORIGIN, end.refusal));
+          } else if (end.reason === "unsendable") {
+            // The app's own refusal of a subscribe that never left, as a call reads it.
+            this.#refuse(normalizeWireRejection(REOPEN_REFUSAL_ORIGIN, requestUnsendable()));
           }
           this.#reopenOnReconnect();
         },

@@ -1,6 +1,6 @@
 // The reply chokepoint: a request that never left reads as unsendable and the service's refusal of
-// its params as that refusal, a rejection becomes a refusal and never an exception, and a read
-// whose owner has gone reads nothing from its reply.
+// its params as that refusal, in its code's words, a rejection becomes a refusal and never an
+// exception, and a read whose owner has gone reads nothing from its reply.
 // Every case drives the real `callDaemon` over the shipped fixture bridge. The helpers are
 // `reply.test-support.ts` beside this file and the shared `tests/helpers/fixture/bridge.ts`.
 
@@ -88,9 +88,15 @@ describe("callDaemon — a request that never left, and params the service refus
         },
       });
     });
-    const serviceRefusal = refusalOf(await callDaemon(service.bridge, "presence.read", {}));
+    let serviceReply: Awaited<ReturnType<typeof callDaemon>> | undefined;
+    const serviceDiagnostics = await diagnosticsDuring(async () => {
+      serviceReply = await callDaemon(service.bridge, "presence.read", {});
+    });
+    const serviceRefusal = refusalOf(serviceReply ?? { status: "served", value: undefined });
     expect(serviceRefusal.code).toBe("request.paramsInvalid");
-    expect(serviceRefusal.detail).toBe("The params of presence.read break its contract");
+    // Its message names the method, so it reads as its code's words and goes to the capture.
+    expect(serviceRefusal.detail).toBe("Request params invalid");
+    expect(serviceDiagnostics).toContain("The params of presence.read break its contract");
   });
 });
 

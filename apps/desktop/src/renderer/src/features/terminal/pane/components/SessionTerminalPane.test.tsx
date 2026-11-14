@@ -4,7 +4,7 @@
 // exited shell reads its exit line and one that did not start reads its cause with `Try again`; the
 // holding pane tells the shell its grid's size; a paste goes into the shell's input as one paste;
 // and on a re-opened output stream what the ended one handed back goes first, even when it comes
-// after the re-open, then the keys typed since the end.
+// after the re-open, then the keys typed since the end, a pane closed meanwhile included.
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -181,33 +181,10 @@ describe("the shell's input and size", () => {
       expect(writtenKeys(wire)).toStrictEqual([["a", FIRST_SUBSCRIPTION_ID]]);
     });
 
-    // The stream's end is told at once, and a stream that delivered is opened again after a wait
-    // once it ends; its input's hand-back comes later.
-    act(() => {
-      const firstOpen = wire.newestOpenOf(TERMINAL_OUTPUT_STREAM);
-      firstOpen.deliver(
-        {
-          changes: [
-            {
-              kind: "output",
-              sessionId: SESSION_ID,
-              terminalId: "terminal-1",
-              data: { $bytes: 0 },
-              cursor: 1,
-            },
-          ],
-        },
-        [new TextEncoder().encode("$")],
-      );
-      firstOpen.end({ reason: "failed", message: "the link went away" });
-    });
+    // The stream's end is told at once; its input's hand-back comes later.
+    endFirstStream(wire);
     typeOneCharacter(mountElement);
-    await vi.waitFor(() => {
-      expect(wire.opensOf(TERMINAL_OUTPUT_STREAM)).toHaveLength(2);
-    });
-    act(() => {
-      wire.newestOpenOf(TERMINAL_OUTPUT_STREAM).opened(SECOND_SUBSCRIPTION_ID);
-    });
+    await reopenOutputAs(wire, SECOND_SUBSCRIPTION_ID);
     typeOneCharacter(mountElement);
     // Nothing goes on the new subscription while the ended one's input may still hand back.
     expect(wire.shellInputs).toHaveLength(1);
@@ -229,7 +206,79 @@ describe("the shell's input and size", () => {
       ]);
     });
   });
+
+  it("sends a closed pane's hand-back, then later keys, on its open stream", async () => {
+    const wire = new RecordedShellWire();
+    const { container, unmount } = mountPane(wire);
+    listShells(wire, [shellEntry("terminal-1")]);
+    await openOutputAs(wire, FIRST_SUBSCRIPTION_ID);
+    const mountElement = emulatorElementOf(container);
+    typeOneCharacter(mountElement);
+    await waitFor(() => {
+      expect(writtenKeys(wire)).toStrictEqual([["a", FIRST_SUBSCRIPTION_ID]]);
+    });
+    endFirstStream(wire);
+    await reopenOutputAs(wire, SECOND_SUBSCRIPTION_ID);
+    typeOneCharacter(mountElement);
+
+    // The pane closes while the ended input may still hand back: its open stream stays open and
+    // nothing goes on it yet.
+    unmount();
+    const secondOpen = wire.newestOpenOf(TERMINAL_OUTPUT_STREAM);
+    expect(secondOpen.isClosed).toBe(false);
+    expect(wire.shellInputs).toHaveLength(1);
+
+    act(() => {
+      wire.handBack(FIRST_SUBSCRIPTION_ID, { kind: "queued", writes: QUEUED_WRITES });
+      wire.handBack(FIRST_SUBSCRIPTION_ID, { kind: "keys", data: "b" });
+      wire.tellClosed(FIRST_SUBSCRIPTION_ID);
+    });
+    expect(wire.shellInputs).toStrictEqual([
+      { outputSubscriptionId: FIRST_SUBSCRIPTION_ID, kind: "keys", data: "a" },
+      { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "resubmit", writes: QUEUED_WRITES },
+      { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "keys", data: "b" },
+      { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "keys", data: "a" },
+    ]);
+    // The stream closes only after what was held went on it, so its close sends all of it.
+    expect(secondOpen.isClosed).toBe(true);
+  });
 });
+
+/** Ends the first output stream after a frame; the ended input's hand-back is left to the case. */
+function endFirstStream(wire: RecordedShellWire): void {
+  act(() => {
+    const firstOpen = wire.newestOpenOf(TERMINAL_OUTPUT_STREAM);
+    firstOpen.deliver(
+      {
+        changes: [
+          {
+            kind: "output",
+            sessionId: SESSION_ID,
+            terminalId: "terminal-1",
+            data: { $bytes: 0 },
+            cursor: 1,
+          },
+        ],
+      },
+      [new TextEncoder().encode("$")],
+    );
+    firstOpen.end({ reason: "failed", message: "the link went away" });
+  });
+}
+
+// A stream that delivered is opened again after a wait once it ends; the daemon acknowledges the
+// second open here.
+async function reopenOutputAs(
+  wire: RecordedShellWire,
+  subscriptionId: SubscriptionId,
+): Promise<void> {
+  await vi.waitFor(() => {
+    expect(wire.opensOf(TERMINAL_OUTPUT_STREAM)).toHaveLength(2);
+  });
+  act(() => {
+    wire.newestOpenOf(TERMINAL_OUTPUT_STREAM).opened(subscriptionId);
+  });
+}
 
 /** The pane for the session, on this device, over the fake wire. */
 function mountPane(wire: RecordedShellWire): ReturnType<typeof render> {

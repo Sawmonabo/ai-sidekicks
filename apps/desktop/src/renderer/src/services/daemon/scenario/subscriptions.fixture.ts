@@ -7,6 +7,7 @@
 // run stamp `turn-attribution.fixture.ts` folds. `wire.fixture.ts` composes this function.
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { HeldSessionDraft } from "@ai-sidekicks/contracts/session/draft";
+import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import {
   SESSION_EVENT_CURSOR_UNRESOLVABLE_CODE,
@@ -145,7 +146,7 @@ export function subscribeToScenario(
       // The queue payload projects the queue row, whose stand-in is the reply the scenario
       // scripts for that read. Resolved per beat, so a replaced scenario is read afresh.
       const projection = projectRunStreamChange(subscriptionName, event, (queueItemId) =>
-        scriptedQueueRowFor(engine, queueItemId),
+        scriptedQueueRowFor(engine, event.sessionId, queueItemId),
       );
       if (projection === undefined) {
         deliver(composeScenarioEventEnvelope(event));
@@ -166,22 +167,28 @@ export function subscribeToScenario(
 const RUN_QUEUE_ROW_READ = "agent.queueItem.list";
 
 /**
- * The row for one queue item in the scenario's scripted queue read, or `undefined`
- * when the scenario scripts no such read or its rows do not include this item.
+ * The row for one queue item in the scenario's scripted queue read of the session, or `undefined`
+ * when the scenario scripts no such read, refuses it, or its rows do not include this item. A
+ * computed read is asked as a call to it is, with the session's request.
  */
 function scriptedQueueRowFor(
   engine: ScenarioEngine,
+  sessionId: string,
   queueItemId: string,
-): Readonly<Record<string, unknown>> | undefined {
-  // The projection checks the row against its registered shape, so the scripted read's result,
-  // typed as any reply's, is read here as an open record.
-  const scriptedReadResult: unknown = engine.replyFor(RUN_QUEUE_ROW_READ)?.result;
-  if (!isWireRecord(scriptedReadResult)) {
+): QueueItemSummary | undefined {
+  const reply = engine.replyFor(RUN_QUEUE_ROW_READ);
+  if (reply === undefined || reply.refusal !== undefined) {
     return undefined;
   }
-  const items = scriptedReadResult["items"];
-  if (!Array.isArray(items)) {
-    return undefined;
-  }
-  return items.filter(isWireRecord).find((row) => row["id"] === queueItemId);
+  const read =
+    reply.resultFor === undefined
+      ? reply.result
+      : reply.resultFor(
+          { sessionId },
+          engine.clock.now(),
+          engine.nextComputedReplyOrdinal(RUN_QUEUE_ROW_READ),
+          (...answeredCalls) => engine.answeredRequests(...answeredCalls),
+          requestStampReaderFor(RUN_QUEUE_ROW_READ),
+        );
+  return read?.items.find((row) => row.id === queueItemId);
 }

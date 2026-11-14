@@ -532,15 +532,15 @@ impl QueuedText {
                 sent,
                 paste_id,
                 is_end,
-            } => PaneWrite::PastePart {
-                data: if sent == 0 {
-                    text
-                } else {
-                    text.split_off(sent)
-                },
-                paste_id,
-                is_last_part: is_end,
-            },
+            } => {
+                // In place, so a paste cut late is never held twice.
+                text.replace_range(..sent, "");
+                PaneWrite::PastePart {
+                    data: text,
+                    paste_id,
+                    is_last_part: is_end,
+                }
+            }
         }
     }
 }

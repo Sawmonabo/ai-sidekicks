@@ -8,9 +8,11 @@
 // per shell. Each open of the stream names the subscription a write or a take is bound to; what
 // is typed goes into the client helper's one queue for the shell through an input bound to it.
 // From a stream's end until its re-open, and until the ended one's input has handed back all it
-// held, the input binding holds what is typed, behind what came back unsent. A re-open refused
-// because the shell or its session is gone lets the held input go, drawn once as the refusal of a
-// write to that shell. Sizes go to `terminal.resize`, the newest only while one is out.
+// held, the input binding holds what is typed, behind what came back unsent. A pane closed while
+// the binding holds anything keeps following the stream, drawing nothing, until the binding has
+// sent it all and closes the stream. A re-open refused because the shell or its session is gone
+// lets the held input go, drawn once as the refusal of a write to that shell. Sizes go to
+// `terminal.resize`, the newest only while one is out.
 
 import { useCallback, useMemo } from "react";
 
@@ -120,45 +122,58 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
           declareFlow(paused);
         }
       });
+      // A closed pane's stream, still followed while its input sends what it held, drives only the
+      // input binding.
+      let isClosed = false;
+      // A close the pane is still waiting on lets go of its stream before this one opens.
+      inputBinding.reopen();
       const stopFollowing = followShellOutput(bridge, shell, (delivery) => {
         switch (delivery.kind) {
           case "opened":
             // The helper the stream now runs through may be a new one, which holds no pause.
-            if (writer.isBehind) {
+            if (!isClosed && writer.isBehind) {
               declareFlow(true);
             }
             inputBinding.bind(delivery.subscriptionId);
-            publish((current) => ({
-              ...current,
-              outputSubscriptionId: delivery.subscriptionId,
-              isFollowing: true,
-            }));
+            if (!isClosed) {
+              publish((current) => ({
+                ...current,
+                outputSubscriptionId: delivery.subscriptionId,
+                isFollowing: true,
+              }));
+            }
             return;
           case "ended":
             inputBinding.bind(undefined);
-            publish((current) => ({ ...current, outputSubscriptionId: undefined }));
+            if (!isClosed) {
+              publish((current) => ({ ...current, outputSubscriptionId: undefined }));
+            }
             return;
           case "frame":
-            writer.apply(delivery.frame);
+            if (!isClosed) {
+              writer.apply(delivery.frame);
+            }
             return;
           case "reopenRefusal": {
             // A gone shell takes nothing held for it, refused as a write to it is, once.
             const isShellGone =
               delivery.refusal !== undefined && SHELL_GONE_CODES.has(delivery.refusal.code);
             const hadHeldInput = isShellGone && inputBinding.dropHeld();
-            publish((current) => ({
-              ...current,
-              refusal: delivery.refusal,
-              refusedCall: hadHeldInput ? "write" : "reopen",
-            }));
+            if (!isClosed) {
+              publish((current) => ({
+                ...current,
+                refusal: delivery.refusal,
+                refusedCall: hadHeldInput ? "write" : "reopen",
+              }));
+            }
             return;
           }
         }
       });
       return () => {
-        stopFollowing();
+        isClosed = true;
         writer.close();
-        inputBinding.close();
+        inputBinding.close(stopFollowing);
         publish((current) => ({
           ...current,
           outputSubscriptionId: undefined,

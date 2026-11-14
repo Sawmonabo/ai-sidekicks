@@ -9,8 +9,8 @@
 // carried a file token main would not swap, fails with the app's own `request-unsendable` error.
 // A pane's typing into a shell rides the same port, and what it is told of its writes, the input
 // handed back unsent among them, comes back by its output subscription until its input is told
-// `closed`; a port that closes tells each input still open `closed` once the streams have ended,
-// since nothing more comes from that helper.
+// `closed`; a port that closes tells each input still open `closed`, newest first, before the
+// streams end, since nothing more comes from that helper.
 
 import type {
   SubscribeAcknowledgmentResponse,
@@ -250,8 +250,9 @@ export class DaemonPortClient {
   }
 
   /**
-   * The port closed: what waited on it fails once, each shell input is told `closed` after the
-   * streams' ends, which close the inputs bound to them, and a new port is asked for.
+   * The port closed: what waited on it fails once, each shell input is told `closed` before the
+   * streams end, so a stream's end closes no input that would wait for the next helper, and a new
+   * port is asked for.
    */
   #closed(port: DaemonPort): void {
     if (this.#port !== port) {
@@ -262,16 +263,18 @@ export class DaemonPortClient {
     this.#calls.clear();
     const streams = [...this.#streams.values()];
     this.#streams.clear();
+    // Newest first: a pane's bound input, opened after its inputs still closing, is told before
+    // their close lets what the pane holds go, so nothing is sent on an input already closed.
+    const shellAnswers = [...this.#shellAnswers.values()].reverse();
+    this.#shellAnswers.clear();
     for (const call of calls) {
       call.reject(new Error(NOT_ANSWERING_MESSAGE));
     }
-    for (const stream of streams) {
-      stream.onEnded?.({ reason: "failed", message: NOT_ANSWERING_MESSAGE });
-    }
-    const shellAnswers = [...this.#shellAnswers.values()];
-    this.#shellAnswers.clear();
     for (const onAnswer of shellAnswers) {
       onAnswer({ kind: "closed" });
+    }
+    for (const stream of streams) {
+      stream.onEnded?.({ reason: "failed", message: NOT_ANSWERING_MESSAGE });
     }
     this.#askForPort();
   }

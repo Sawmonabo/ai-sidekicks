@@ -62,13 +62,15 @@ export interface DaemonRequestUnsendable {
 }
 
 /**
- * How a subscription that opened ended without the page closing it: the daemon completed it, the
- * daemon refused it, carrying only the wire error's code, message and data, or the link under it
+ * How a subscription ended without the page closing it: the daemon completed it, the daemon
+ * refused it, carrying only the wire error's code, message and data, the client did not send it
+ * because it broke its method's contract, which only main's log says why, or the link under it
  * failed, by its message alone. Main sends it once, and nothing follows it on that subscription.
  */
 export type DaemonSubscriptionEnd =
   | { readonly reason: "completed" }
   | { readonly reason: "refused"; readonly refusal: JsonRpcError }
+  | { readonly reason: "unsendable" }
   | { readonly reason: "failed"; readonly message: string };
 
 /** One line saying how a subscription ended, for a diagnostic record. */
@@ -78,6 +80,8 @@ export function describeSubscriptionEnd(end: DaemonSubscriptionEnd): string {
       return "completed";
     case "refused":
       return `refused: ${end.refusal.message}`;
+    case "unsendable":
+      return `unsendable: ${REQUEST_UNSENDABLE_MESSAGE}`;
     case "failed":
       return `failed: ${end.message}`;
   }

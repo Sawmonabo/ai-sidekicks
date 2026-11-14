@@ -38,7 +38,7 @@ export function RefusalBanner(props: RefusalBannerProps): React.JSX.Element {
     >
       <Glyph name="alert" size={GLYPH_SIZE_CHROME} />
       <div className="meridian-refusal__body">
-        <RefusalWords code={props.code} reason={props.reason} />
+        <RefusalWords code={props.code} reason={props.reason} detail={props.detail} />
         <span className="meridian-refusal__message">
           {typeof props.detail === "string" ? formatWireString(props.detail) : props.detail}
         </span>
