@@ -124,9 +124,8 @@ pub(crate) enum WorkflowRunStartError {
         expect(dead_code, reason = "the engine's run start handlers")
     )]
     Payload(#[source] PortError),
-    /// A payload the start stored as an artifact could not be recorded under its run; the start's
-    /// cleanup deletes it.
-    #[error("a payload the start stored could not be recorded under its run")]
+    /// A payload of the start could not be recorded under its run, so nothing was stored.
+    #[error("a payload of the start could not be recorded under its run")]
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")

@@ -245,8 +245,9 @@ impl PersonWaitPorts {
 
 /// Withdraws through `cards` the card of each of `withdrawn`, an approval wait of the run `record`
 /// records in `session_id` that ended unanswered, with its step: every intent is recorded, the
-/// cards go in one call, whose cancels the writer commits together, then every outcome; a failed
-/// withdraw also records its error as a fault, and the restart's settle closes its card.
+/// cards go in one call, whose cancels are queued together so the writer groups them into as few
+/// commits as it forms, then every outcome; a failed withdraw also records its error as a fault,
+/// and the restart's settle closes its card.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) async fn withdraw_cards(
     cards: &dyn ApprovalCardRaiser,

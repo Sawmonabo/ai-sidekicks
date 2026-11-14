@@ -86,12 +86,22 @@ pub(crate) fn prepare_step_payload(
             bytes: None,
         });
     }
+    prepare_artifact_payload(mint_payload_artifact_id(), items)
+}
+
+/// `items`, a payload over [`WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP`] JSON bytes, made ready to keep
+/// as the bytes of one artifact under `artifact_id`, an id the caller minted and may have recorded.
+/// Fails with [`StepPayloadWriteError::Json`].
+pub(crate) fn prepare_artifact_payload(
+    artifact_id: ArtifactId,
+    items: &[WorkflowItem],
+) -> Result<PreparedStepPayload, StepPayloadWriteError> {
     let bytes = serde_json::to_vec(items).map_err(StepPayloadWriteError::Json)?;
     let size_bytes = SafeInt::new(SafeInt::from_usize(bytes.len()).get())
         .expect("a payload above the inline cap holds bytes");
     Ok(PreparedStepPayload {
         reference: WorkflowPayloadRef::Artifact {
-            artifact_id: mint_payload_artifact_id(),
+            artifact_id,
             size_bytes,
             item_count: SafeInt::from_usize(items.len()),
         },

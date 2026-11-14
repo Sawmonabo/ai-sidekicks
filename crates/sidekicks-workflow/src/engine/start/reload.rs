@@ -401,13 +401,15 @@ impl RunReloader {
         let still_left = self.read_stop_leftovers(session_id).await?;
         let still_stranded = still_left.stranded_runs.into_iter().collect::<HashSet<_>>();
         let still_recorded = still_left.left_payloads.into_iter().collect::<HashSet<_>>();
+        // A run's workspace and payloads that will not delete share the run's one sequence.
+        let mut faults = self.recorder.rowless_run_faults();
         for workflow_run_id in leftovers.stranded_runs {
             if !still_stranded.contains(&workflow_run_id) {
                 continue;
             }
             if let Err(error) = self.binder.discard_project_run(workflow_run_id).await {
-                self.recorder
-                    .fault_rowless_run(workflow_run_id, EngineFault::StopLeftoverKept, &error)
+                faults
+                    .fault(workflow_run_id, EngineFault::StopLeftoverKept, &error)
                     .await;
             }
         }
@@ -423,8 +425,8 @@ impl RunReloader {
                 Err(error) => Err(error),
             };
             if let Err(error) = deleted {
-                self.recorder
-                    .fault_rowless_run(workflow_run_id, EngineFault::StopLeftoverKept, &*error)
+                faults
+                    .fault(workflow_run_id, EngineFault::StopLeftoverKept, &*error)
                     .await;
             }
         }

@@ -16,6 +16,7 @@ use crate::engine::start::ReloadedStep;
 use crate::engine::tick::commit::{RunEnding, RunLiveStep, RunTurnCommit};
 use crate::engine::tick::run_status::{RunPersonWait, RunStepCounts};
 use crate::engine::tick::turns::EngineTick;
+use crate::engine::waits::withdraw_cards;
 use crate::runs::gate_resolution::RunEventKeys;
 use crate::secrets::redaction::RunRedaction;
 
@@ -110,7 +111,7 @@ impl EngineTick {
                 for row in unsettled.iter().filter(|row| has_agent_run(row)) {
                     self.dispatch.stop_stored_run(&record, &row.step).await;
                 }
-                self.withdraw_cards(&record, session_id, cards).await;
+                withdraw_cards(self.person_waits.cards.as_ref(), &record, session_id, cards).await;
             }
             Err(failure) => {
                 self.deadlines.skip_run(run_id);

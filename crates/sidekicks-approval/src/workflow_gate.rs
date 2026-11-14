@@ -339,10 +339,11 @@ impl ApprovalService {
 
     /// Withdraws the cards the waits `wait_ids` hold open in `session_id`, once their waits ended
     /// unanswered: the open cards are read in one read, then each card's `approval.canceled` is
-    /// queued with none awaited before the next, so the writer commits them together while each
-    /// keeps its own guard. An answer that landed first keeps its card and refuses no other
-    /// card's cancel, and a wait with no open card writes nothing. Answers one result per wait, in
-    /// order, a cancel not kept failing its own; fails, with nothing written, when the read fails.
+    /// queued with none awaited before the next, so the writer groups them into as few commits as
+    /// it forms while each keeps its own guard. An answer that landed first keeps its card and
+    /// refuses no other card's cancel, and a wait with no open card writes nothing. Answers one
+    /// result per wait, in order, a cancel not kept failing its own; fails, with nothing written,
+    /// when the read fails.
     pub async fn withdraw_workflow_gates(
         &self,
         session_id: SessionId,

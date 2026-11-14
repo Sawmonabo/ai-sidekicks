@@ -9,7 +9,6 @@ use std::sync::Arc;
 use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::question::QuestionWaitOutcome;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -24,7 +23,7 @@ use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, Workf
 
 use super::{EngineTick, PausePoint, ReadiedNext, RunTurn, TurnReadied, step_failure};
 use crate::definitions::kept_values::remove_dropped;
-use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome, RunEngineRecord};
+use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome};
 use crate::engine::ports::WorkflowRunSnapshotPointRequest;
 use crate::engine::tick::branch_cancellation::WaveSettle;
 use crate::engine::tick::commit::{
@@ -401,8 +400,13 @@ impl EngineTick {
     /// setting.
     pub(super) async fn ask_people(&mut self, live: &mut LiveRun, asks: Vec<TurnAsk>) {
         let cards = std::mem::take(&mut live.withdrawn_cards);
-        self.withdraw_cards(&live.record, live.scope.session_id, cards)
-            .await;
+        withdraw_cards(
+            self.person_waits.cards.as_ref(),
+            &live.record,
+            live.scope.session_id,
+            cards,
+        )
+        .await;
         for turn_ask in asks {
             let is_waiting = live
                 .steps
@@ -456,17 +460,6 @@ impl EngineTick {
                 }),
             });
         }
-    }
-
-    /// Withdraws through the tick's card port each of `cards`, an approval wait with its step, of
-    /// the run `record` records in `session_id`, as the waits' shared withdraw does.
-    pub(super) async fn withdraw_cards(
-        &self,
-        record: &RunEngineRecord,
-        session_id: SessionId,
-        cards: Vec<(WorkflowStepKey, UuidTextForm)>,
-    ) {
-        withdraw_cards(self.person_waits.cards.as_ref(), record, session_id, cards).await;
     }
 
     /// Starts the pause point of `turn_ask`, an approval of the run of `live`, on its own task as

@@ -7,7 +7,6 @@ use std::sync::Arc;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
-use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::events::{WorkflowNodeRun, WorkflowStartedReusedStep};
 use sidekicks_contracts::workflow::run::step::record::WorkflowPayloadRef;
 use sidekicks_store::database::connection::read_pool::ReadLength;
@@ -25,7 +24,7 @@ use crate::engine::partial_run::{
 use crate::engine::ports::StepPayloadArtifacts;
 use crate::engine::tick::{ReusedSeedStep, ReusedStepRecord, RunGraph};
 use crate::runs::step_payload::{
-    PreparedStepPayload, StepPayloadReadError, join_step_outputs, prepare_step_payload,
+    StepPayloadReadError, join_step_outputs, mint_payload_artifact_id, prepare_artifact_payload,
     read_step_payload, split_step_outputs,
 };
 
@@ -260,11 +259,14 @@ impl StartedNodeRun {
 
     /// Stores again in `session_id`, the run's session, through `stored`, each replayed input and
     /// output kept as an artifact of another session, since a session's purge erases only its own
-    /// payloads: under the step that computed it, its copy then replayed in its place, every copy
-    /// recorded under the run in one write before any is stored. Fails with
-    /// [`WorkflowRunStartError::ReusedOutput`] for an input that does not read back,
-    /// [`WorkflowRunStartError::PayloadRecord`] when the copies' records cannot be written and
-    /// [`WorkflowRunStartError::ReusedOutputStore`] for the first copy that cannot be stored.
+    /// payloads: under the step that computed it, its copy then replayed in its place. Every copy's
+    /// id is minted and recorded under the run in one write before any is stored, a copy holding
+    /// the items of a payload over the inline cap being one too; then each copy is read, written
+    /// and dropped in turn, so one copy's bytes are held at a time. Fails with
+    /// [`WorkflowRunStartError::PayloadRecord`] when the copies' records cannot be written,
+    /// [`WorkflowRunStartError::ReusedOutput`] for an input that does not read back and
+    /// [`WorkflowRunStartError::ReusedOutputStore`] for the first copy that cannot be stored, the
+    /// recorded copies left for the start's cleanup.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the workflow.node.execute handler")
@@ -274,7 +276,7 @@ impl StartedNodeRun {
         session_id: SessionId,
         stored: &mut StartPayloads<'_>,
     ) -> Result<(), WorkflowRunStartError> {
-        // Each copy: the reused step's place, whether it is the step's output, and the copy.
+        // Each copy: the reused step's place, whether it is the step's output, and its artifact.
         let mut copies = Vec::new();
         for (place, step) in self.reused.iter().enumerate() {
             if step.session_id == session_id {
@@ -282,22 +284,28 @@ impl StartedNodeRun {
             }
             let record = &step.seed.record;
             if matches!(record.output_ref, WorkflowPayloadRef::Artifact { .. }) {
-                let joined = join_step_outputs(&record.outputs);
-                copies.push((place, true, prepare_copy(&joined)?));
+                copies.push((place, true, mint_payload_artifact_id()));
             }
             if matches!(record.input_ref, WorkflowPayloadRef::Artifact { .. }) {
-                let items = read_step_payload(stored.payloads(), &record.input_ref)
-                    .await
-                    .map_err(WorkflowRunStartError::ReusedOutput)?;
-                copies.push((place, false, prepare_copy(&items)?));
+                copies.push((place, false, mint_payload_artifact_id()));
             }
         }
         stored
-            .record(copies.iter().filter_map(|(_, _, copy)| copy.artifact_id()))
+            .record(copies.iter().map(|(_, _, artifact_id)| *artifact_id))
             .await
             .map_err(start_payload_error)?;
-        for (place, is_output, copy) in copies {
+        for (place, is_output, artifact_id) in copies {
             let record = &mut self.reused[place].seed.record;
+            // An input's items are dropped once serialized, before its copy is written.
+            let prepared = if is_output {
+                prepare_artifact_payload(artifact_id, &join_step_outputs(&record.outputs))
+            } else {
+                let items = read_step_payload(stored.payloads(), &record.input_ref)
+                    .await
+                    .map_err(WorkflowRunStartError::ReusedOutput)?;
+                prepare_artifact_payload(artifact_id, &items)
+            };
+            let copy = prepared.map_err(WorkflowRunStartError::ReusedOutputStore)?;
             let reference = stored
                 .write(copy, &record.from.step)
                 .await
@@ -313,11 +321,6 @@ impl StartedNodeRun {
         }
         Ok(())
     }
-}
-
-// `items`, a payload of an earlier step, made ready to store in the run's session.
-fn prepare_copy(items: &[WorkflowItem]) -> Result<PreparedStepPayload, WorkflowRunStartError> {
-    prepare_step_payload(items).map_err(WorkflowRunStartError::ReusedOutputStore)
 }
 
 // The start's error for a copy that could not be recorded or stored.

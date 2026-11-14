@@ -397,6 +397,92 @@ async fn a_reused_artifact_output_is_read_back_and_split(#[case] is_same_session
     }
 }
 
+/// A node run reusing several steps of another session, each input kept as an artifact, records
+/// every copy in one write before any is stored, then reads, stores and drops each copy in turn,
+/// replaying each from its copy: no input is read back before the copy ahead of it is stored.
+/// Mutations: prepare every copy before the first is stored (both inputs are read at two writes);
+/// record each copy in a write of its own (three commits, not two).
+#[tokio::test]
+async fn reused_copies_are_stored_one_at_a_time_after_one_record_write() {
+    let fixture = Fixture::new(&chain_body(), TestSession::WithoutFolder, None).await;
+    store_earlier_run(
+        &fixture.rows,
+        VERSION_ID,
+        &chain_steps(vec![named("given")]),
+    );
+    let other_session = SessionId::new(OTHER_SESSION_ID).expect("the other session's id");
+    fixture
+        .rows
+        .execute(
+            "UPDATE workflow_runs SET session_id = ?1 WHERE id = ?2",
+            params![other_session.text().as_str(), EARLIER_RUN_ID],
+        )
+        .expect("the test moves the earlier run to its session");
+    let mut earlier_inputs = Vec::new();
+    for (node_id, execution_index) in [("start", 0), ("A", 1)] {
+        let input = write_step_payload(
+            fixture.payloads.as_ref(),
+            other_session,
+            &earlier_key(node_id, u64::from(execution_index)),
+            &[large(node_id), large("input")],
+        )
+        .await
+        .expect("the earlier input is stored");
+        set_payload_ref(&fixture.rows, node_id, execution_index, "input_ref", &input);
+        let WorkflowPayloadRef::Artifact { artifact_id, .. } = input else {
+            panic!("two large items are kept as an artifact");
+        };
+        earlier_inputs.push(artifact_id);
+    }
+    let commits = fixture.starter.writer.follow_commits();
+    let commits_before = *commits.borrow();
+
+    let (run, ..) = started_node_run(
+        fixture
+            .starter
+            .start_node_run(
+                node_start(None),
+                node_run("B", WorkflowNodeExecuteScope::FromHere),
+            )
+            .await,
+    );
+
+    assert_eq!(
+        *commits.borrow() - commits_before,
+        2,
+        "the copies' records and the run's write"
+    );
+    let writes_at_input_reads: Vec<usize> = fixture
+        .payloads
+        .reads()
+        .into_iter()
+        .filter(|(artifact_id, _)| earlier_inputs.contains(artifact_id))
+        .map(|(_, writes)| writes)
+        .collect();
+    assert_eq!(
+        writes_at_input_reads,
+        [2, 3],
+        "each input is read once the copy ahead of it is stored"
+    );
+    let copies: Vec<_> = fixture.payloads.writes()[2..]
+        .iter()
+        .map(|kept| (kept.session_id, kept.artifact_id))
+        .collect();
+    let replayed = run.node_run.expect("a node run hands its seed on");
+    let replayed_inputs: Vec<_> = replayed
+        .reused
+        .iter()
+        .filter_map(|step| match &step.seed.record.input_ref {
+            WorkflowPayloadRef::Artifact { artifact_id, .. } => {
+                Some((step.session_id, *artifact_id))
+            }
+            WorkflowPayloadRef::Inline { .. } => None,
+        })
+        .collect();
+    assert_eq!(replayed_inputs, copies);
+    assert_eq!(copies.len(), 2);
+}
+
 /// A reused output of another session that cannot be stored in the run's session fails the
 /// start, which writes no run, no event and no folder. Mutation: in `store_in_session`, keep the
 /// other session's ref when the copy fails (the run starts).

@@ -282,8 +282,7 @@ impl EngineRecorder {
         lock(&self.sequences).remove(&run_id);
     }
 
-    /// Records `fault` and its `error` under `run_id`, a run that has no row and records nothing
-    /// more, then forgets its sequence.
+    /// The faults of runs that have no row, none recorded yet.
     #[cfg_attr(
         not(test),
         expect(
@@ -291,22 +290,65 @@ impl EngineRecorder {
             reason = "the run start's held start and the restart's leftover sweep"
         )
     )]
-    pub(crate) async fn fault_rowless_run(
-        &self,
-        run_id: WorkflowRunId,
-        fault: EngineFault,
-        error: &(dyn Error + Send + Sync + 'static),
-    ) {
-        self.for_run(run_id, Arc::new(RunRedaction::new(&[])))
-            .fault(None, fault, error)
-            .await;
-        self.end_run(run_id);
+    pub(crate) fn rowless_run_faults(&self) -> RowlessRunFaults<'_> {
+        RowlessRunFaults {
+            recorder: self,
+            records: HashMap::new(),
+        }
     }
 
     /// Whether the life still keeps a sequence for `run_id`, which a run's end forgets.
     #[cfg(test)]
     pub(crate) fn has_sequence(&self, run_id: WorkflowRunId) -> bool {
         lock(&self.sequences).contains_key(&run_id)
+    }
+}
+
+/// The faults of runs that have no row and record nothing more: each run's go through one record,
+/// so they carry one sequence, and each run's sequence is forgotten once, when this is dropped.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the run start's held start and the restart's leftover sweep"
+    )
+)]
+pub(crate) struct RowlessRunFaults<'recorder> {
+    /// The recorder the records come from and whose sequences are forgotten.
+    recorder: &'recorder EngineRecorder,
+    /// The record of each run a fault was recorded under.
+    records: HashMap<WorkflowRunId, RunEngineRecord>,
+}
+
+impl RowlessRunFaults<'_> {
+    /// Records `fault` and its `error` under `run_id`, after the run's earlier faults here.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the run start's held start and the restart's leftover sweep"
+        )
+    )]
+    pub(crate) async fn fault(
+        &mut self,
+        run_id: WorkflowRunId,
+        fault: EngineFault,
+        error: &(dyn Error + Send + Sync + 'static),
+    ) {
+        let recorder = self.recorder;
+        self.records
+            .entry(run_id)
+            .or_insert_with(|| recorder.for_run(run_id, Arc::new(RunRedaction::new(&[]))))
+            .fault(None, fault, error)
+            .await;
+    }
+}
+
+impl Drop for RowlessRunFaults<'_> {
+    fn drop(&mut self) {
+        for run_id in self.records.keys() {
+            self.recorder.end_run(*run_id);
+        }
     }
 }
 

@@ -26,11 +26,13 @@ pub(crate) struct KeptPayload {
 }
 
 /// A payload store that keeps what each write was given, or refuses every write past a count once
-/// told to, reads each kept artifact's bytes back, and keeps each artifact deleted, one never
-/// written among them, or refuses every delete once told to.
+/// told to, reads each kept artifact's bytes back, noting each read, and keeps each artifact
+/// deleted, one never written among them, or refuses every delete once told to.
 #[derive(Default)]
 pub(crate) struct KeptPayloads {
     writes: Mutex<Vec<KeptPayload>>,
+    /// Each artifact read, in order, with how many writes were kept when it was read.
+    reads: Mutex<Vec<(ArtifactId, usize)>>,
     deletes: Mutex<Vec<ArtifactId>>,
     is_refusing_deletes: AtomicBool,
     /// How many writes it keeps in all before refusing the rest; `None` keeps every one.
@@ -44,6 +46,11 @@ impl KeptPayloads {
             .lock()
             .expect("the test's payloads lock")
             .clone()
+    }
+
+    /// Every artifact read, in order, each with how many writes were kept when it was read.
+    pub(crate) fn reads(&self) -> Vec<(ArtifactId, usize)> {
+        self.reads.lock().expect("the test's payloads lock").clone()
     }
 
     /// Every artifact deleted, in order.
@@ -93,10 +100,12 @@ impl StepPayloadArtifacts for KeptPayloads {
         &'call self,
         artifact_id: &'call ArtifactId,
     ) -> BoxFuture<'call, Result<Vec<u8>, PortError>> {
-        let bytes = self
-            .writes
+        let writes = self.writes.lock().expect("the test's payloads lock");
+        self.reads
             .lock()
             .expect("the test's payloads lock")
+            .push((*artifact_id, writes.len()));
+        let bytes = writes
             .iter()
             .find(|kept| kept.artifact_id == *artifact_id)
             .map(|kept| kept.bytes.clone());

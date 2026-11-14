@@ -34,15 +34,15 @@ const FORGET_PAYLOAD_SQL: &str =
 pub(crate) const LEFT_PAYLOADS_SQL: &str =
     "SELECT artifact_id, workflow_run_id FROM workflow_start_payloads WHERE session_id = ?1";
 
-/// Why a start's payload was not kept: its write, or the record of the artifact it was kept as,
-/// which the start's cleanup still deletes.
+/// Why a start's payload was not kept: its record under the run, written first, or its write
+/// after it, whose record the start's cleanup deletes.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum StartPayloadError {
     /// The payload did not write.
     #[error(transparent)]
     Write(StepPayloadWriteError),
-    /// The artifact was kept, and its record under the run was not written.
-    #[error("a payload the start stored could not be recorded under its run")]
+    /// The record under the run was not written, so nothing was stored.
+    #[error("a payload of the start could not be recorded under its run")]
     Record(#[source] WriteError),
 }
 

@@ -62,6 +62,8 @@ enum Cut {
     HeldAgentCanceled,
     /// An agent step the memory gate holds, its run made, its params failing after the restart.
     HeldAgentParamsFailing,
+    /// An agent step the memory gate holds, its run made, the restart's first write refused.
+    HeldAgentWriteRefused,
     /// An agent step running.
     RunningAgent,
     /// A retry attempt waiting out its wait, nothing else alive.
@@ -79,16 +81,18 @@ enum Cut {
 /// no `branchesCanceled`); the sweep's crashed failure dropped (`A` stays `running`); the held
 /// sibling left out of the park's cancels; a held agent step making a second run; a taken-back
 /// held step left out of a cancel (`A` is dispatched and the run never ends); a taken-back step
-/// that settles before its run is handed over leaving that run working; a crashed step's agent
-/// run left running; a pending retry crashing its run; a failed ask again kept as a fault (`A`
-/// waits forever); the pause count reset at a run leaving its wait (pause 1 taken twice); the card
-/// raised without its point; a lost ask panicking.
+/// that settles before its run is handed over leaving that run working; a run dropped on a refused
+/// write leaving its taken-back step's run working; a crashed step's agent run left running; a
+/// pending retry crashing its run; a failed ask again kept as a fault (`A` waits forever); the
+/// pause count reset at a run leaving its wait (pause 1 taken twice); the card raised without its
+/// point; a lost ask panicking.
 #[rstest]
 #[case::canceled_winding_down(Cut::CanceledWindingDown)]
 #[case::running_beside_held(Cut::RunningBesideHeld)]
 #[case::held_agent(Cut::HeldAgent)]
 #[case::held_agent_canceled(Cut::HeldAgentCanceled)]
 #[case::held_agent_params_failing(Cut::HeldAgentParamsFailing)]
+#[case::held_agent_write_refused(Cut::HeldAgentWriteRefused)]
 #[case::running_agent(Cut::RunningAgent)]
 #[case::retry_waiting(Cut::RetryWaiting)]
 #[case::reply_ask_failing(Cut::ReplyAskFailing)]
@@ -198,6 +202,16 @@ async fn a_restart_finishes_what_the_stop_cut(#[case] cut: Cut) {
                 "the step makes no second run"
             );
         }
+        Cut::HeldAgentWriteRefused => {
+            timeout(WAIT, harness.agents.wait_for_cancel())
+                .await
+                .expect("the dropped run's taken-back agent run is stopped");
+            assert!(
+                harness.agents.requests().is_empty(),
+                "the dropped run's held step is never dispatched"
+            );
+            return;
+        }
         Cut::RunningAgent => {
             timeout(WAIT, harness.agents.wait_for_cancel())
                 .await
@@ -304,7 +318,10 @@ async fn cut_run(harness: &mut Harness, cut: Cut) {
                 json!({ "hang": true }),
             )
         }
-        Cut::HeldAgent | Cut::HeldAgentCanceled | Cut::HeldAgentParamsFailing => {
+        Cut::HeldAgent
+        | Cut::HeldAgentCanceled
+        | Cut::HeldAgentParamsFailing
+        | Cut::HeldAgentWriteRefused => {
             harness.agents.hold();
             (only("test.agent"), vec![edge("T", "A", 0)], json!({}))
         }
@@ -354,7 +371,10 @@ async fn cut_run(harness: &mut Harness, cut: Cut) {
                 })
                 .await;
         }
-        Cut::HeldAgent | Cut::HeldAgentCanceled | Cut::HeldAgentParamsFailing => {
+        Cut::HeldAgent
+        | Cut::HeldAgentCanceled
+        | Cut::HeldAgentParamsFailing
+        | Cut::HeldAgentWriteRefused => {
             harness
                 .wait_until(|rows| {
                     step_column(rows, "A", "status").as_deref() == Some("waitingMemory")
@@ -365,6 +385,16 @@ async fn cut_run(harness: &mut Harness, cut: Cut) {
                     .signal
                     .is_agent_failing
                     .store(true, Ordering::SeqCst);
+            }
+            if matches!(cut, Cut::HeldAgentWriteRefused) {
+                harness.wait_for_earlier_turns().await;
+                harness
+                    .rows
+                    .execute_batch(
+                        "CREATE TRIGGER refuse_event_writes BEFORE INSERT ON session_events
+                         BEGIN SELECT RAISE(ABORT, 'the test refuses the write'); END;",
+                    )
+                    .expect("the test refuses every later event write");
             }
         }
         Cut::RunningAgent => {
@@ -489,9 +519,10 @@ async fn the_restart_sweep_deletes_what_a_cut_start_owns_and_keeps_kept_values()
     );
 }
 
-/// A leftover a stop left that will not delete is kept with its record and recorded as a fault,
-/// and the session's runs are still taken back: the waiting run takes its reply and ends.
-/// Mutation: a failed leftover delete failing the reload (the restart panics).
+/// Leftovers a stop left that will not delete are kept with their records and recorded as faults
+/// on their run's one sequence, and the session's runs are still taken back: the waiting run
+/// takes its reply and ends. Mutations: a failed leftover delete failing the reload (the restart
+/// panics); the run's sequence ended after each fault (both faults carry sequence 1).
 #[tokio::test]
 async fn a_leftover_that_will_not_delete_keeps_its_record_and_the_runs_come_back() {
     let mut harness = Harness::new(None).await;
@@ -514,11 +545,14 @@ async fn a_leftover_that_will_not_delete_keeps_its_record_and_the_runs_come_back
         "nodeId": "T", "attempt": 1, "executionIndex": 0,
     }))
     .expect("the cut start's step key reads");
-    harness
-        .start_payloads(cut_step.workflow_run_id)
-        .store_bytes(&cut_step, b"[]".to_vec(), 0)
-        .await
-        .expect("the cut start's payload is stored and recorded");
+    let mut cut_payloads = harness.start_payloads(cut_step.workflow_run_id);
+    for _ in 0..2 {
+        cut_payloads
+            .store_bytes(&cut_step, b"[]".to_vec(), 0)
+            .await
+            .expect("the cut start's payload is stored and recorded");
+    }
+    drop(cut_payloads);
     harness.payloads.refuse_deletes();
 
     harness.restart(Vec::new()).await;
@@ -535,15 +569,14 @@ async fn a_leftover_that_will_not_delete_keeps_its_record_and_the_runs_come_back
         })
         .expect("the start records count");
     assert_eq!(
-        records, 1,
-        "the leftover's record is kept for the next restart"
+        records, 2,
+        "the leftovers' records are kept for the next restart"
     );
     let kept = harness.record_lines("stopLeftoverKept");
-    assert_eq!(kept.len(), 1);
-    assert_eq!(
-        kept[0]["workflowRunId"],
-        json!(cut_step.workflow_run_id.text().as_str())
-    );
+    let cut_run = json!(cut_step.workflow_run_id.text().as_str());
+    assert!(kept.iter().all(|line| line["workflowRunId"] == cut_run));
+    let sequences: Vec<&Value> = kept.iter().map(|line| &line["sequence"]).collect();
+    assert_eq!(sequences, [&json!(1), &json!(2)]);
 }
 
 /// A form whose question cannot be read at the restart is asked again under its wait, and the

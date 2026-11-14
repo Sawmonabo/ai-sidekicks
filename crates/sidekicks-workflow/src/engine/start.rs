@@ -68,7 +68,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::definitions::kept_values::{WorkflowKeptValue, WorkflowKeptValueStore};
 use crate::engine::chain::read_chain_question;
-use crate::engine::event_record::{EngineFault, EngineRecorder};
+use crate::engine::event_record::{EngineFault, EngineRecorder, RowlessRunFaults};
 use crate::engine::partial_run::PARTIAL_RUN_PLAN_STATEMENT_CAPACITY;
 use crate::engine::ports::{StepPayloadArtifacts, WorkflowRunLimits};
 use crate::engine::tick::{RunGraph, RunPin, RunScope};
@@ -436,6 +436,8 @@ impl WorkflowRunStarter {
                 return Ok(WorkflowStartOutcome::HeldOnChain { chain_root_run_id });
             }
         }
+        // What a start that makes no run cannot clean up, each on the one sequence of its run.
+        let mut faults = self.recorder.rowless_run_faults();
         let prepared = match self
             .prepare(start.session_id, workflow_run_id, &checked)
             .await
@@ -443,7 +445,7 @@ impl WorkflowRunStarter {
             Ok(prepared) => prepared,
             Err(error) if is_run_owned => {
                 return self
-                    .discard_run_workspace(workflow_run_id, Err(error))
+                    .discard_run_workspace(workflow_run_id, Err(error), &mut faults)
                     .await;
             }
             Err(error) => return Err(error),
@@ -464,8 +466,8 @@ impl WorkflowRunStarter {
         for (artifact_id, removal) in stored.discard().await {
             ended = match ended {
                 Ok(held) => {
-                    self.recorder
-                        .fault_rowless_run(run_id, EngineFault::HeldStartLeftBehind, &*removal)
+                    faults
+                        .fault(run_id, EngineFault::HeldStartLeftBehind, &*removal)
                         .await;
                     Ok(held)
                 }
@@ -481,8 +483,8 @@ impl WorkflowRunStarter {
         {
             ended = match ended {
                 Ok(held) => {
-                    self.recorder
-                        .fault_rowless_run(run_id, EngineFault::HeldStartLeftBehind, &removal)
+                    faults
+                        .fault(run_id, EngineFault::HeldStartLeftBehind, &removal)
                         .await;
                     Ok(held)
                 }
@@ -494,14 +496,14 @@ impl WorkflowRunStarter {
             };
         }
         if is_run_owned {
-            return self.discard_run_workspace(run_id, ended).await;
+            return self.discard_run_workspace(run_id, ended, &mut faults).await;
         }
         ended
     }
 
     // Deletes the workspace a named project's binding made for run `workflow_run_id`, which no
     // start made; a held start whose workspace cannot be deleted is still answered held, the
-    // failure going to the engine's record.
+    // failure going to `faults`.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -510,14 +512,15 @@ impl WorkflowRunStarter {
         &self,
         workflow_run_id: WorkflowRunId,
         ended: Result<WorkflowStartOutcome, WorkflowRunStartError>,
+        faults: &mut RowlessRunFaults<'_>,
     ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
         let Err(removal) = self.binder.discard_project_run(workflow_run_id).await else {
             return ended;
         };
         match ended {
             Ok(held) => {
-                self.recorder
-                    .fault_rowless_run(workflow_run_id, EngineFault::HeldStartLeftBehind, &removal)
+                faults
+                    .fault(workflow_run_id, EngineFault::HeldStartLeftBehind, &removal)
                     .await;
                 Ok(held)
             }

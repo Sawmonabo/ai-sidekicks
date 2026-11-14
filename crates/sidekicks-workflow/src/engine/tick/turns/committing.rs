@@ -254,10 +254,10 @@ impl EngineTick {
     }
 
     /// Ends the run of `live`, whose turn's write was refused: cancels its steps, stops each agent
-    /// run a spent account parked and each of the turn's `resumes`, which no cancel reaches,
-    /// deletes every artifact the write would have named and records the failure; the restart
-    /// settles what the log holds. Its stored waits stay off the deadline clock, and an answer to
-    /// one is not taken.
+    /// run a spent account parked, each of the turn's `resumes` and the stored run of each step
+    /// the restart took back and has not dispatched, which no cancel reaches, deletes every
+    /// artifact the write would have named and records the failure; the restart settles what the
+    /// log holds. Its stored waits stay off the deadline clock, and an answer to one is not taken.
     async fn drop_failed_run(
         &mut self,
         mut live: LiveRun,
@@ -279,6 +279,14 @@ impl EngineTick {
             .collect();
         for (step, parked) in parked.into_iter().chain(resumes) {
             stop_agent_run(&live.record, &step, Ok(Some(parked.run))).await;
+        }
+        let taken_back: Vec<WorkflowStepKey> = live
+            .taken_back
+            .iter()
+            .map(|index| live.steps[index].step.clone())
+            .collect();
+        for step in taken_back {
+            live.stop_taken_back(&self.dispatch, &step).await;
         }
         self.dropped_waits.extend(
             live.steps
