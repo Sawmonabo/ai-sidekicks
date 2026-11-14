@@ -32,6 +32,7 @@ use crate::client::tasks::{
     McpServerEndpoint, McpTaskContact, McpTaskDispatchIdentity, McpTaskGeneration,
     McpTaskHandleObservation, McpTaskHandleSink, McpToolCall, McpToolCallEnd, McpToolCallError,
 };
+use crate::sign_in::address_digest::{ServerAddressDigest, ServerAddressKey};
 
 /// What the server does with one request.
 pub(super) enum Reply {
@@ -193,10 +194,11 @@ pub(super) fn test_scope(client: &McpClient) -> McpConnectionScope {
     )
 }
 
-/// The address of the server `tracker` when it is reached at an address, which a connection
+/// The keyed digest of the server `tracker` when it is reached at an address, which a connection
 /// over the test's pipe declares through [`McpConnectionStart::http`].
-pub(super) fn tracker_address() -> McpServerAddress {
-    McpServerAddress::new("https://tracker.example.com/mcp").expect("an address")
+pub(super) fn tracker_digest() -> ServerAddressDigest {
+    ServerAddressKey::of_test_fill(1)
+        .digest(&McpServerAddress::new("https://tracker.example.com/mcp").expect("an address"))
 }
 
 /// Starts a server answering through `responder` and opens a connection to it in `scope`, over

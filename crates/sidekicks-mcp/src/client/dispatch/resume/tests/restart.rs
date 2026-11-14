@@ -20,14 +20,14 @@ use crate::client::tasks::McpTaskContact::{CancelRefused, NotConfigured, Reached
 use crate::client::tasks::{McpServerEndpoint, McpTaskContact, McpTaskGeneration, McpToolCallEnd};
 use crate::client::test_server::{
     Reply, Responder, board_accepted, board_answer, completed, contact, input_required,
-    method_not_found, text_result, tracked_end, tracker_address, v1_initialize_result,
+    method_not_found, text_result, tracked_end, tracker_digest, v1_initialize_result,
     v1_status_reply, v2_task_server, wait_for_contact,
 };
 use crate::command_receipts::InFlightReceipt;
 
 /// The receipt of a 2025-11-25 task on the tracker at its address, left in flight.
 async fn v1_left_in_flight(fixture: &Fixture) -> InFlightReceipt {
-    let endpoint = McpServerEndpoint::at_address(&tracker_address());
+    let endpoint = McpServerEndpoint::at_address(&tracker_digest());
     left_in_flight(fixture, Some((McpTaskGeneration::V1, endpoint))).await
 }
 
@@ -144,7 +144,7 @@ async fn a_task_resumed_with_no_connection_of_its_server_reads_so_and_waits_for_
                         "tasks/result" => tracked_result(),
                         _ => method_not_found(),
                     }),
-                    fixture.address.as_ref(),
+                    fixture.address_digest.as_ref(),
                 )
                 .await;
             feed.publish(Some(Arc::new(opened)));
@@ -177,7 +177,7 @@ async fn a_2026_07_28_task_resumed_waiting_on_input_asks_it_anew() {
         }))
         .await;
     let contact = contact();
-    let endpoint = McpServerEndpoint::at_address(&tracker_address());
+    let endpoint = McpServerEndpoint::at_address(&tracker_digest());
     let receipt = left_in_flight(&fixture, Some((McpTaskGeneration::V2, endpoint))).await;
 
     let uncanceled = CancellationToken::new();

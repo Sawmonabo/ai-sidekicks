@@ -264,6 +264,7 @@ mod tests {
         extract_mcp_task_id,
     };
     use crate::schema::schema_parts;
+    use crate::sign_in::address_digest::ServerAddressKey;
 
     /// The four task columns of `command-1`'s receipt, `None` each while unset.
     type StoredTask = [Option<String>; 4];
@@ -315,7 +316,10 @@ mod tests {
     }
 
     fn at(address: &str) -> McpServerEndpoint {
-        McpServerEndpoint::at_address(&McpServerAddress::new(address).expect("a web address"))
+        McpServerEndpoint::at_address(
+            &ServerAddressKey::of_test_fill(1)
+                .digest(&McpServerAddress::new(address).expect("a web address")),
+        )
     }
 
     fn stored_of(observation: &McpTaskHandleObservation) -> StoredTask {

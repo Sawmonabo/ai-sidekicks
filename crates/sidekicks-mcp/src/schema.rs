@@ -81,7 +81,8 @@ CREATE TABLE command_receipts (
   mcp_task_generation  TEXT CHECK(mcp_task_generation IN ({task_generations})),
   -- The name of the server the task was accepted on; a resume reaches only that server.
   mcp_server_name      TEXT,
-  -- Which server the task was accepted on, by its endpoint; a resume reaches only that server.
+  -- Which server the task was accepted on, by its endpoint, 'address:' then the server address
+  -- digest for a server at an address; a resume reaches only that server.
   mcp_server_endpoint  TEXT CHECK(mcp_server_endpoint IS NULL
                          OR mcp_server_endpoint = '{stdio_endpoint}'
                          OR mcp_server_endpoint GLOB '{address_endpoint_glob}'),

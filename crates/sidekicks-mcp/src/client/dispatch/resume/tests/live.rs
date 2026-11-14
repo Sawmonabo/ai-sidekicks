@@ -63,7 +63,9 @@ async fn connect_by_hand(
     TestServer,
 ) {
     let (standing, feed) = McpStandingConnection::new(CancellationToken::new());
-    let (opened, server) = fixture.open(responder, fixture.address.as_ref()).await;
+    let (opened, server) = fixture
+        .open(responder, fixture.address_digest.as_ref())
+        .await;
     let connection = Arc::new(opened);
     feed.publish(Some(Arc::clone(&connection)));
     (standing, feed, connection, server)
@@ -119,7 +121,9 @@ async fn replace(
     feed: &McpStandingConnectionFeed,
     responder: Responder,
 ) -> TestServer {
-    let (opened, server) = fixture.open(responder, fixture.address.as_ref()).await;
+    let (opened, server) = fixture
+        .open(responder, fixture.address_digest.as_ref())
+        .await;
     feed.publish(Some(Arc::new(opened)));
     server
 }

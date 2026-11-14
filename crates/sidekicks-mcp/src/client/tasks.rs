@@ -26,11 +26,8 @@ use futures::future::BoxFuture;
 use rmcp::model::ErrorCode;
 use rmcp::service::ServiceError;
 use serde_json::{Map, Value};
-use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::mcp::server::McpServerName;
-use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_provider::driver::mcp_server::address::fold_server_address;
 use sidekicks_provider::record_readers::read_non_empty_string;
 use strum::{EnumString, IntoStaticStr, VariantArray};
 use tokio::sync::watch;
@@ -39,6 +36,7 @@ use crate::client::connection::McpServerConnection;
 use crate::client::connection::standing::McpStandingConnection;
 use crate::client::poll::{PollError, PollFailure};
 use crate::client::requests::{McpRequestError, RequestWait};
+use crate::sign_in::address_digest::ServerAddressDigest;
 
 /// The identity of one MCP tool dispatch. `command_id` is the client-supplied idempotency key on
 /// the dispatch's command receipt row; `tool_name` names no stored row.
@@ -62,8 +60,9 @@ pub(crate) enum McpTaskGeneration {
 }
 
 /// Which server a task was accepted on, so a task is resumed only on that server: a stdio
-/// server, or a server at an address by the SHA-256 of its canonical form. One server spelled two
-/// ways is one endpoint, and a changed header or token does not change it.
+/// server, or a server at an address by its keyed digest, the one its sign-in is kept under, so
+/// no row lets a guessed address be confirmed without the key. One server spelled two ways is one
+/// endpoint, and a changed header or token does not change it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct McpServerEndpoint(String);
 
@@ -80,15 +79,9 @@ impl McpServerEndpoint {
         Self(Self::STDIO.to_owned())
     }
 
-    /// The endpoint of the server at `address`: the prefix, then the lowercase hex SHA-256 of the
-    /// address's canonical form.
-    pub(crate) fn at_address(address: &McpServerAddress) -> Self {
-        let digest = Sha256::digest(fold_server_address(address));
-        Self(format!(
-            "{}{}",
-            Self::ADDRESS_PREFIX,
-            base16ct::lower::encode_string(&digest)
-        ))
+    /// The endpoint of the server whose address has `digest`: the prefix, then the digest.
+    pub(crate) fn at_address(digest: &ServerAddressDigest) -> Self {
+        Self(format!("{}{}", Self::ADDRESS_PREFIX, digest.as_str()))
     }
 
     /// The endpoint as a receipt row stores it, whose form the table's check holds, so it is not

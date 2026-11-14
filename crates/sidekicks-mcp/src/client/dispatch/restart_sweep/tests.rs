@@ -10,7 +10,7 @@ use super::{MCP_RESTART_SWEEP_STATEMENT_CAPACITY, McpReceiptSession, McpRestartS
 use crate::client::dispatch::tests::{Fixture, StoredReceipt, left_in_flight, task_server};
 use crate::client::tasks::{McpServerEndpoint, McpTaskGeneration};
 use crate::client::test_server::{
-    Reply, method_not_found, text_result, tracker_address, v1_status_reply,
+    Reply, method_not_found, text_result, tracker_digest, v1_status_reply,
 };
 
 /// The sweep over `fixture`'s client, dispatch and database.
@@ -47,7 +47,7 @@ async fn ended_receipt(fixture: &Fixture) -> StoredReceipt {
 /// The task server's endpoint: the tracker at its address, or a stdio server.
 fn endpoint(is_at_address: bool) -> McpServerEndpoint {
     if is_at_address {
-        McpServerEndpoint::at_address(&tracker_address())
+        McpServerEndpoint::at_address(&tracker_digest())
     } else {
         McpServerEndpoint::stdio()
     }
@@ -104,7 +104,7 @@ async fn a_receipt_ends_by_its_session(
 ) {
     let mut fixture = Fixture::new().await;
     if is_at_address {
-        fixture.address = Some(tracker_address());
+        fixture.address_digest = Some(tracker_digest());
     }
     // Held, so a live connection stays published for the whole sweep.
     let connected = if is_connected {
@@ -154,7 +154,7 @@ async fn a_receipt_ends_by_its_session(
 #[tokio::test(start_paused = true)]
 async fn a_swept_task_resolves_once_over_two_sweeps() {
     let mut fixture = Fixture::new().await;
-    fixture.address = Some(tracker_address());
+    fixture.address_digest = Some(tracker_digest());
     // Held, so the server answers for both sweeps.
     let (_standing, server) = fixture
         .connect(task_server(|method, _| match method {

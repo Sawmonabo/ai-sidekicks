@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::McpServerName;
-use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -29,6 +28,7 @@ use crate::client::test_server::{
 };
 use crate::command_receipts::{InFlightReceipt, InFlightTask, background_statement};
 use crate::schema::schema_parts;
+use crate::sign_in::address_digest::ServerAddressDigest;
 
 /// A receipt row as stored: its status, whether it was claimed and ended, and its four task
 /// columns.
@@ -41,8 +41,8 @@ pub(super) struct StoredReceipt {
 }
 
 /// A dispatch over a fresh database, its client with its questions card, and a session with the
-/// server name `tracker`, whose connections reach a stdio server unless `address` names the
-/// server's address.
+/// server name `tracker`, whose connections reach a stdio server unless `address_digest` names
+/// the keyed digest of the server's address.
 pub(super) struct Fixture {
     pub(super) database: TestDatabase,
     pub(super) dispatch: Arc<McpToolDispatch>,
@@ -50,7 +50,7 @@ pub(super) struct Fixture {
     pub(super) card: Arc<QuestionCard>,
     pub(super) session_id: SessionId,
     pub(super) name: McpServerName,
-    pub(super) address: Option<McpServerAddress>,
+    pub(super) address_digest: Option<ServerAddressDigest>,
 }
 
 impl Fixture {
@@ -70,20 +70,20 @@ impl Fixture {
             card,
             session_id: SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id"),
             name: FreeFormText::new("tracker".to_owned()).expect("a short server name"),
-            address: None,
+            address_digest: None,
         }
     }
 
-    /// Opens a connection of the session to a server answering through `responder`, at
-    /// `address` or a stdio server, without publishing it.
+    /// Opens a connection of the session to a server answering through `responder`, at the
+    /// address `address_digest` names or a stdio server, without publishing it.
     pub(super) async fn open(
         &self,
         responder: Responder,
-        address: Option<&McpServerAddress>,
+        address_digest: Option<&ServerAddressDigest>,
     ) -> (McpServerConnection, TestServer) {
-        let start = address.map_or_else(
+        let start = address_digest.map_or_else(
             || McpConnectionStart::stdio(None, None),
-            |address| McpConnectionStart::http(None, address),
+            |digest| McpConnectionStart::http(None, digest),
         );
         let (opened, server) = start_test_server(
             self.client
@@ -102,7 +102,7 @@ impl Fixture {
         &self,
         responder: Responder,
     ) -> (McpStandingConnection, TestServer) {
-        let (opened, server) = self.open(responder, self.address.as_ref()).await;
+        let (opened, server) = self.open(responder, self.address_digest.as_ref()).await;
         self.client.add_connection(opened).await;
         (
             self.client.standing_connection(self.session_id, &self.name),

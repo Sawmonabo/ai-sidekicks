@@ -3,14 +3,16 @@ use std::sync::Arc;
 
 use rmcp::transport::auth::{AuthError, CredentialStore as _, StoredCredentials};
 use rstest::rstest;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret as _, SecretString};
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_store::credential_store::items::os_service_name;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::credential_store::test_keychain::{CountingKeychain, test_keychain};
 
 use super::SignInCustody;
-use crate::sign_in::address_digest::ServerAddressDigest;
+use crate::sign_in::address_digest::{
+    ADDRESS_KEY_ACCOUNT, ServerAddressDigest, ServerAddressKeyError,
+};
 
 fn server_address() -> McpServerAddress {
     McpServerAddress::new("https://docs.example.com/mcp").expect("a server address")
@@ -348,5 +350,80 @@ async fn the_seed_marks_only_the_filed_servers_this_life_has_not_read() {
     assert_eq!(
         *custody.signed_in_servers().borrow(),
         BTreeSet::from([digest_of(&custody, &unread).await])
+    );
+}
+
+/// An address key item that holds no key is refused and left as it was, and a key that is gone is
+/// made again with every sign-in filed under its new digest, so each still reads and is marked
+/// signed in, and none is left under the lost key's. Killed by a damaged item replaced with a new
+/// key, by a lost key made again without filing the sign-ins, by a filed sign-in whose old item
+/// stays, and by a seed that lists the items before the key is read.
+#[tokio::test]
+async fn a_damaged_address_key_is_refused_and_a_lost_one_keeps_every_sign_in() {
+    let (_data_folder, _credentials, keychain) = test_keychain(KeychainService::McpSignIns);
+    let other = McpServerAddress::new("https://other.example.com/mcp").expect("a server address");
+    let first_life = SignInCustody::new(Arc::clone(&keychain));
+    keep(&first_life, &server_address(), "first-access-token").await;
+    keep(&first_life, &other, "second-access-token").await;
+    keychain
+        .write(
+            ADDRESS_KEY_ACCOUNT,
+            &SecretString::from("not a key".to_owned()),
+        )
+        .await
+        .expect("the keychain keeps the item");
+
+    assert!(matches!(
+        SignInCustody::new(Arc::clone(&keychain))
+            .digest(&server_address())
+            .await,
+        Err(ServerAddressKeyError::Damaged)
+    ));
+    let kept = keychain
+        .read(ADDRESS_KEY_ACCOUNT)
+        .await
+        .expect("the keychain reads")
+        .expect("the damaged item stays");
+    assert_eq!(kept.expose_secret(), "not a key");
+
+    keychain
+        .remove(ADDRESS_KEY_ACCOUNT)
+        .await
+        .expect("the keychain removes the item");
+    let custody = SignInCustody::new(Arc::clone(&keychain));
+    custody
+        .seed_signed_in()
+        .await
+        .expect("the sign-ins are filed under a new key");
+
+    let mut filed = BTreeSet::new();
+    for (address, token) in [
+        (&server_address(), "first-access-token"),
+        (&other, "second-access-token"),
+    ] {
+        let digest = digest_of(&custody, address).await;
+        let loaded = custody
+            .credential_store(&digest, address)
+            .load()
+            .await
+            .expect("the keychain answers")
+            .expect("the sign-in is filed under the new key");
+        assert_eq!(access_token(&loaded), token);
+        filed.insert(digest);
+    }
+    assert_eq!(*custody.signed_in_servers().borrow(), filed);
+    let mut accounts: BTreeSet<String> = keychain
+        .accounts()
+        .await
+        .expect("the keychain lists its items")
+        .into_iter()
+        .collect();
+    assert!(accounts.remove(ADDRESS_KEY_ACCOUNT));
+    assert_eq!(
+        accounts,
+        filed
+            .iter()
+            .map(|digest| digest.as_str().to_owned())
+            .collect()
     );
 }

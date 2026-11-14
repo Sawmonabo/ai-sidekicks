@@ -239,11 +239,19 @@ impl SignInCustody {
 
     /// Marks signed in every server the keychain files a sign-in for, reading no item: each
     /// server this daemon life has not read or written yet, under its custody's lock, so a seed
-    /// that ends after a sign-in, a sign-out or a refused renewal there never undoes it. Fails with
-    /// the [`KeychainRefusal`] when the keychain refuses to list its items.
-    pub async fn seed_signed_in(&self) -> Result<(), KeychainRefusal> {
+    /// that ends after a sign-in, a sign-out or a refused renewal there never undoes it. Where a
+    /// sign-in is filed the address key is read first and the items listed again, so a lost key's
+    /// sign-ins are listed once filed under the new one; where none is, no key is read or made.
+    /// Fails with [`SignInCustodyError`] when the address key cannot be read or the keychain
+    /// refuses to list its items.
+    pub(crate) async fn seed_signed_in(&self) -> Result<(), SignInCustodyError> {
+        let is_sign_in = |account: &String| account != ADDRESS_KEY_ACCOUNT;
+        if !self.keychain.accounts().await?.iter().any(is_sign_in) {
+            return Ok(());
+        }
+        self.keys.read().await?;
         for account in self.keychain.accounts().await? {
-            if account == ADDRESS_KEY_ACCOUNT {
+            if !is_sign_in(&account) {
                 continue;
             }
             let server = self.server(&ServerAddressDigest::from_stored(account));
@@ -422,15 +430,7 @@ impl SignInCustody {
         }
         let held = match self.keychain.read(server.account.as_str()).await? {
             None => None,
-            Some(item) => Some(Arc::new(
-                serde_json::from_str::<HeldSignIn>(item.expose_secret()).map_err(|error| {
-                    SignInCustodyError::Unreadable {
-                        category: error.classify(),
-                        line: error.line(),
-                        column: error.column(),
-                    }
-                })?,
-            )),
+            Some(item) => Some(Arc::new(read_held_sign_in(&item)?)),
         };
         *state = HeldState::Read(held.clone());
         Ok(held)
@@ -689,6 +689,18 @@ impl Drop for RenewalGuard {
     fn drop(&mut self) {
         *lock(&self.0) = RenewalState::default();
     }
+}
+
+/// The sign-in a keychain item holds. Fails with [`SignInCustodyError::Unreadable`], naming no
+/// value it read, when the item is not a sign-in.
+pub(crate) fn read_held_sign_in(item: &SecretString) -> Result<HeldSignIn, SignInCustodyError> {
+    serde_json::from_str(item.expose_secret()).map_err(|error: serde_json::Error| {
+        SignInCustodyError::Unreadable {
+            category: error.classify(),
+            line: error.line(),
+            column: error.column(),
+        }
+    })
 }
 
 // rmcp's store error, which carries text alone: the refusal's words, which name no value.

@@ -21,6 +21,7 @@ use crate::client::McpClient;
 use crate::client::connection::McpServerConnection;
 use crate::client::http::NoAuthorization;
 use crate::client::stdio::{McpServerBaseEnvironment, McpStdioServer};
+use crate::sign_in::credential_store::SignInCustody;
 
 /// What a server offers to attach.
 #[derive(Clone, Debug, PartialEq)]
@@ -34,7 +35,8 @@ pub struct McpServerResources {
 /// Why a server's resources could not be read.
 #[derive(Debug, thiserror::Error)]
 pub enum McpResourceListError {
-    /// The copy did not start, or the connection did not open.
+    /// The copy did not start, the address key a connection's endpoint is keyed with could not
+    /// be read, or the connection did not open.
     #[error("the tool server could not be reached")]
     Reach(#[source] Box<dyn Error + Send + Sync>),
     /// A page's request failed.
@@ -45,14 +47,16 @@ pub enum McpResourceListError {
 impl McpClient {
     /// The resources of `binding`'s server, one of `session_id`'s, reached as `reach` says: a
     /// program started on `spawner` as a copy in its provider process's environment, one at a time
-    /// per binding, or the server at its address with no sign-in; the connection is closed, and a
-    /// copy ended, before this answers. Fails as [`McpResourceListError`] says.
+    /// per binding, or the server at its address with no sign-in, its endpoint the digest
+    /// `sign_ins` keeps the address's sign-in under; the connection is closed, and a copy ended,
+    /// before this answers. Fails as [`McpResourceListError`] says.
     pub async fn list_server_resources(
         &self,
         session_id: SessionId,
         binding: &McpServerBindingRef,
         reach: McpServerReach,
         spawner: &Spawner,
+        sign_ins: &SignInCustody,
     ) -> Result<McpServerResources, McpResourceListError> {
         let scope = self.connection_scope(session_id, binding.server_name().clone());
         let connection = match reach {
@@ -86,8 +90,13 @@ impl McpClient {
             }
             McpServerReach::Address { address, headers } => {
                 let headers = read_headers(headers)?;
+                let digest = sign_ins
+                    .digest(&address)
+                    .await
+                    .map_err(|error| McpResourceListError::Reach(Box::new(error)))?;
                 McpServerConnection::connect_http(
                     &address,
+                    &digest,
                     headers,
                     Arc::new(NoAuthorization),
                     None,
@@ -150,6 +159,8 @@ mod tests {
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_platforms::{POSIX_SHELL, Spawner};
     use sidekicks_provider::driver::mcp_server::resources::McpServerReach;
+    use sidekicks_store::credential_store::service::KeychainService;
+    use sidekicks_store::credential_store::test_keychain::test_keychain;
 
     use super::list_and_close;
     use crate::client::connection::McpConnectionStart;
@@ -157,6 +168,7 @@ mod tests {
         Reply, method_not_found, start_test_server, test_client, v1_initialize_result,
     };
     use crate::client::tests::lasting_process;
+    use crate::sign_in::credential_store::SignInCustody;
 
     /// A program server that writes `start` to the log its first argument names when it starts
     /// and `end` once it answers its resource list, after a 0.2 s pause another copy could start
@@ -211,9 +223,12 @@ done"#;
             working_folder: None,
         };
 
+        let (_data_folder, _credentials, keychain) = test_keychain(KeychainService::McpSignIns);
+        let sign_ins = SignInCustody::new(keychain);
+
         let (first, second) = tokio::join!(
-            client.list_server_resources(session_id, &binding, reach(), &spawner),
-            client.list_server_resources(session_id, &binding, reach(), &spawner),
+            client.list_server_resources(session_id, &binding, reach(), &spawner, &sign_ins),
+            client.list_server_resources(session_id, &binding, reach(), &spawner, &sign_ins),
         );
 
         first.expect("the first copy lists");

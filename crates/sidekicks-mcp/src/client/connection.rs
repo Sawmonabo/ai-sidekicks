@@ -32,7 +32,6 @@ use rmcp::service::{
 use rmcp::{ClientHandler, RoleClient};
 use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::McpServerName;
-use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
@@ -51,6 +50,7 @@ use crate::client::requests::{McpRequestError, PageCursors, RequestWait, ServerR
 use crate::client::stdio::StdioProcess;
 use crate::client::tasks::watches::{QuestionOutcome, TaskWatches};
 use crate::client::tasks::{McpServerEndpoint, McpTaskGeneration};
+use crate::sign_in::address_digest::ServerAddressDigest;
 
 /// The notification a 2025-11-25 server sends when a task's status changes.
 const V1_TASK_STATUS_METHOD: &str = "notifications/tasks/status";
@@ -140,13 +140,14 @@ impl McpConnectionStart {
         )
     }
 
-    /// A start at `address`, from now, within `startup_timeout` or the default.
-    pub(super) fn http(startup_timeout: Option<Duration>, address: &McpServerAddress) -> Self {
+    /// A start at the address whose keyed digest is `digest`, from now, within `startup_timeout`
+    /// or the default.
+    pub(super) fn http(startup_timeout: Option<Duration>, digest: &ServerAddressDigest) -> Self {
         Self::new(
             startup_timeout,
             crate::client::requests::HTTP_TOOL_CALL_IDLE_TIMEOUT,
             None,
-            McpServerEndpoint::at_address(address),
+            McpServerEndpoint::at_address(digest),
         )
     }
 

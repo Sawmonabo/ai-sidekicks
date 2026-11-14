@@ -9,6 +9,12 @@
 //! system's random source the first time it is needed, read once per daemon life and wiped when it
 //! drops. It is never logged. A keychain that cannot give the key refuses the call that needed it,
 //! and nothing is read or written under a digest no key made.
+//!
+//! - A key item that holds no key is refused and left as it is, never replaced, since every item
+//!   filed under its digests would be lost with it.
+//! - A key that is gone while sign-ins are filed is made again, and each sign-in is filed under
+//!   the new key's digest of the address its secret holds before the new key is written, so a stop
+//!   part-way leaves the key gone and the next life finishes the move.
 
 use std::sync::Arc;
 
@@ -24,6 +30,7 @@ use sidekicks_store::credential_store::seed_item::{
 use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
 
 use crate::errors::McpRefusal;
+use crate::sign_in::credential_store::read_held_sign_in;
 
 /// The address key's one account in the sign-ins' keychain service, which files no sign-in.
 pub(crate) const ADDRESS_KEY_ACCOUNT: &str = "address-key";
@@ -82,6 +89,9 @@ pub(crate) enum ServerAddressKeyError {
     /// The system gave no random bytes for a new key.
     #[error("the system gave no random bytes for the MCP address key")]
     Random(#[from] getrandom::Error),
+    /// The key's item holds no key; it is left as it is, so the sign-ins filed under it stay.
+    #[error("the MCP address key's keychain item holds no key, so it is left as it is")]
+    Damaged,
 }
 
 impl From<ServerAddressKeyError> for McpRefusal {
@@ -91,7 +101,7 @@ impl From<ServerAddressKeyError> for McpRefusal {
             ServerAddressKeyError::Keychain(refusal) => {
                 Some(McpBindingStoreUnavailableCause::Keychain(refusal.cause()))
             }
-            ServerAddressKeyError::Random(_) => None,
+            ServerAddressKeyError::Random(_) | ServerAddressKeyError::Damaged => None,
         };
         Self::BindingStoreUnavailable {
             cause,
@@ -117,27 +127,59 @@ impl ServerAddressKeys {
         }
     }
 
-    /// The address key: the one held, else the keychain's item, else a new one written and read
-    /// back. An item that is no key reads as none. Fails with [`ServerAddressKeyError`] as the
-    /// keychain or the random source fails, holding nothing.
+    /// The address key: the one held, else the keychain's item, else a new one, every sign-in
+    /// filed again under it, written and read back. Fails with [`ServerAddressKeyError::Damaged`],
+    /// writing nothing, when the item holds no key, and otherwise as the keychain or the random
+    /// source fails, holding nothing.
     pub(crate) async fn read(&self) -> Result<Arc<ServerAddressKey>, ServerAddressKeyError> {
         let mut held = self.key.lock().await;
         if let Some(key) = held.as_ref() {
             return Ok(Arc::clone(key));
         }
-        let item = self.keychain.read(ADDRESS_KEY_ACCOUNT).await?;
-        let seed = if let Some(seed) = item.as_ref().and_then(item_seed) {
-            seed
+        let key = if let Some(item) = self.keychain.read(ADDRESS_KEY_ACCOUNT).await? {
+            ServerAddressKey::of_seed(&item_seed(&item).ok_or(ServerAddressKeyError::Damaged)?)
         } else {
             let seed = random_seed()?;
+            let key = ServerAddressKey::of_seed(&seed);
+            self.file_sign_ins_under(&key).await?;
             self.keychain
                 .write_verified(ADDRESS_KEY_ACCOUNT, &encode_seed(&seed))
                 .await?;
-            seed
+            key
         };
-        Ok(Arc::clone(
-            held.insert(Arc::new(ServerAddressKey::of_seed(&seed))),
-        ))
+        Ok(Arc::clone(held.insert(Arc::new(key))))
+    }
+
+    // Files each sign-in under `key`'s digest of the address its secret holds, written there
+    // before its old item is removed, so a stop part-way leaves it under one account or both. An
+    // item that does not read as a sign-in names no address and is left where it is.
+    async fn file_sign_ins_under(&self, key: &ServerAddressKey) -> Result<(), KeychainRefusal> {
+        for account in self.keychain.accounts().await? {
+            if account == ADDRESS_KEY_ACCOUNT {
+                continue;
+            }
+            let Some(item) = self.keychain.read(&account).await? else {
+                continue;
+            };
+            let sign_in = match read_held_sign_in(&item) {
+                Ok(sign_in) => sign_in,
+                Err(error) => {
+                    tracing::warn!(
+                        error = &error as &(dyn std::error::Error + 'static),
+                        "a kept MCP sign-in did not read, so it is not filed under the new \
+                         address key"
+                    );
+                    continue;
+                }
+            };
+            let digest = key.digest(&sign_in.server_address);
+            if digest.as_str() == account {
+                continue;
+            }
+            self.keychain.write_verified(digest.as_str(), &item).await?;
+            self.keychain.remove(&account).await?;
+        }
+        Ok(())
     }
 
     /// The digest of `address` under the address key. Fails as [`Self::read`] fails.

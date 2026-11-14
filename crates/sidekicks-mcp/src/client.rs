@@ -300,7 +300,6 @@ mod tests {
 
     use serde_json::json;
     use sidekicks_contracts::mcp::server::McpServerName;
-    use sidekicks_contracts::mcp::server::config::McpServerAddress;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
@@ -313,7 +312,8 @@ mod tests {
     use crate::client::stdio::StdioProcess;
     use crate::client::tasks::McpServerEndpoint;
     use crate::client::test_server::{
-        Reply, method_not_found, start_test_server, test_client, v1_initialize_result,
+        Reply, method_not_found, start_test_server, test_client, tracker_digest,
+        v1_initialize_result,
     };
 
     // A new session and the server name `tracker`.
@@ -414,12 +414,11 @@ mod tests {
             .add_connection(open(&client, session_id, &name, None).await)
             .await;
         let standing = client.standing_connection(session_id, &name);
-        let address = McpServerAddress::new("http://127.0.0.1:1/mcp").expect("a loopback address");
         let mut waiter = tokio::spawn(async move {
             standing
                 .replacement(
                     Some(&old),
-                    &McpServerEndpoint::at_address(&address),
+                    &McpServerEndpoint::at_address(&tracker_digest()),
                     &|_| {},
                 )
                 .await

@@ -56,6 +56,7 @@ use crate::client::connection::{
     McpConnectionError, McpConnectionScope, McpConnectionStart, McpServerConnection,
 };
 use crate::client::raw_copy::RawReplyCopy;
+use crate::sign_in::address_digest::ServerAddressDigest;
 
 /// The bound rmcp's own HTTP client holds an SSE event to when the transport passes none, rmcp's
 /// `DEFAULT_MAX_SSE_EVENT_SIZE`, which it does not export.
@@ -171,13 +172,14 @@ pub(super) struct McpHttpClient {
 }
 
 impl McpServerConnection {
-    /// Opens a connection to the server at `address`, whose canonical form is its endpoint, over
-    /// the client's one HTTP client, sending `headers` with every request and the headers
-    /// `authorizer` makes for each, its start held to `startup_timeout` or the 30 s default.
-    /// Refused when `headers` names `Accept`, `Mcp-Session-Id` or `Last-Event-Id`, which the
-    /// transport sets itself; fails when the server does not complete its start in time.
+    /// Opens a connection to the server at `address`, whose keyed digest `digest` is its
+    /// endpoint, over the client's one HTTP client, sending `headers` with every request and the
+    /// headers `authorizer` makes for each, its start held to `startup_timeout` or the 30 s
+    /// default. Refused when `headers` names `Accept`, `Mcp-Session-Id` or `Last-Event-Id`, which
+    /// the transport sets itself; fails when the server does not complete its start in time.
     pub(crate) async fn connect_http(
         address: &McpServerAddress,
+        digest: &ServerAddressDigest,
         headers: HashMap<HeaderName, HeaderValue>,
         authorizer: Arc<dyn McpRequestAuthorizer>,
         startup_timeout: Option<Duration>,
@@ -192,7 +194,7 @@ impl McpServerConnection {
                 name: name.as_str().to_owned(),
             });
         }
-        let start = McpConnectionStart::http(startup_timeout, address);
+        let start = McpConnectionStart::http(startup_timeout, digest);
         let raw = RawReplyCopy::default();
         let client = McpHttpClient {
             http: scope.http.clone(),

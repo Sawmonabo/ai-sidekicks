@@ -19,20 +19,22 @@ use crate::client::tasks::McpTaskContact::{
 use crate::client::tasks::{McpServerEndpoint, McpToolCallEnd};
 use crate::client::test_server::{
     Reply, Responder, board_accepted, board_answer, board_form, completed, contact, input_required,
-    method_not_found, text_result, track_call, tracked_end, tracker_address, v1_status_reply,
+    method_not_found, text_result, track_call, tracked_end, tracker_digest, v1_status_reply,
     v2_task_server, wait_for_contact,
 };
+use crate::sign_in::address_digest::{ServerAddressDigest, ServerAddressKey};
 
 /// A fixture whose connections reach the server `tracker` at its address.
 async fn fixture_at_address() -> Fixture {
     let mut fixture = Fixture::new().await;
-    fixture.address = Some(tracker_address());
+    fixture.address_digest = Some(tracker_digest());
     fixture
 }
 
-/// Another address the session's server `tracker` can be configured at.
-fn other_address() -> McpServerAddress {
-    McpServerAddress::new("https://other.example.com/mcp").expect("an address")
+/// The keyed digest of another address the session's server `tracker` can be configured at.
+fn other_digest() -> ServerAddressDigest {
+    ServerAddressKey::of_test_fill(1)
+        .digest(&McpServerAddress::new("https://other.example.com/mcp").expect("an address"))
 }
 
 /// A 2025-11-25 server whose task `task-1` reads `working` at every poll.
@@ -45,7 +47,7 @@ fn working_task_server() -> Responder {
 
 /// The receipt of task `task-1` on the 2025-11-25 server `tracker` at its address, at `status`.
 fn address_task_receipt(status: &str, is_completed: bool) -> StoredReceipt {
-    let endpoint = McpServerEndpoint::at_address(&tracker_address());
+    let endpoint = McpServerEndpoint::at_address(&tracker_digest());
     StoredReceipt {
         status: status.to_owned(),
         is_started: true,
@@ -233,10 +235,7 @@ async fn a_question_answered_while_its_servers_address_changed_fails_at_once_and
         async {
             fixture.card.wait_until_taken(1).await;
             let (opened, other) = fixture
-                .open(
-                    v2_task_server(|_, _, _| completed()),
-                    Some(&other_address()),
-                )
+                .open(v2_task_server(|_, _, _| completed()), Some(&other_digest()))
                 .await;
             fixture.client.add_connection(opened).await;
             let mut seen = contact.subscribe();
@@ -294,7 +293,7 @@ async fn a_task_whose_server_is_no_longer_configured_reads_so_and_waits_until_th
     let fixture = fixture_at_address().await;
     let (standing, feed) = McpStandingConnection::new(CancellationToken::new());
     let (opened, server) = fixture
-        .open(working_task_server(), fixture.address.as_ref())
+        .open(working_task_server(), fixture.address_digest.as_ref())
         .await;
     let connection = Arc::new(opened);
     feed.publish(Some(Arc::clone(&connection)));
@@ -327,7 +326,7 @@ async fn a_task_whose_server_is_no_longer_configured_reads_so_and_waits_until_th
                 "the task waits in flight"
             );
             let (elsewhere, _other) = fixture
-                .open(working_task_server(), Some(&other_address()))
+                .open(working_task_server(), Some(&other_digest()))
                 .await;
             feed.publish(Some(Arc::new(elsewhere)));
             wait_for_contact(&contact, Reconfigured).await;
@@ -358,7 +357,7 @@ async fn a_task_whose_connection_ends_with_no_reconnect_reads_lost_300_s_after_i
                 ("tasks/get", _) => Reply::Silent,
                 _ => method_not_found(),
             }),
-            fixture.address.as_ref(),
+            fixture.address_digest.as_ref(),
         )
         .await;
     let connection = Arc::new(opened);
@@ -422,7 +421,7 @@ async fn a_task_whose_server_answered_errors_reads_errors_persisted_when_its_wai
                 ),
                 _ => method_not_found(),
             }),
-            fixture.address.as_ref(),
+            fixture.address_digest.as_ref(),
         )
         .await;
     let connection = Arc::new(opened);
@@ -474,7 +473,7 @@ async fn a_task_waiting_for_its_replacement_when_the_client_stops_stays_in_fligh
                 .wait_until(|server| !server.requests("tasks/get").is_empty())
                 .await;
             let (opened, _other) = fixture
-                .open(working_task_server(), Some(&other_address()))
+                .open(working_task_server(), Some(&other_digest()))
                 .await;
             fixture.client.add_connection(opened).await;
             wait_for_contact(&contact, Reconfigured).await;
@@ -531,7 +530,7 @@ async fn a_backgrounded_task_canceled_while_waiting_for_its_replacement_keeps_it
     let fixture = fixture_at_address().await;
     let (standing, feed) = McpStandingConnection::new(CancellationToken::new());
     let (opened, server) = fixture
-        .open(working_task_server(), fixture.address.as_ref())
+        .open(working_task_server(), fixture.address_digest.as_ref())
         .await;
     let connection = Arc::new(opened);
     feed.publish(Some(Arc::clone(&connection)));
@@ -586,7 +585,7 @@ async fn a_dispatch_dropped_as_its_follow_leaves_the_tasks_watch_withdraws_the_t
                 },
                 _ => method_not_found(),
             }),
-            fixture.address.as_ref(),
+            fixture.address_digest.as_ref(),
         )
         .await;
     let connection = Arc::new(opened);

@@ -32,6 +32,7 @@ use sidekicks_ipc::registry::{
 use sidekicks_ipc::stream::feed::{Feed, SendGate};
 use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::client::resources::McpServerResources;
+use sidekicks_mcp::sign_in::credential_store::SignInCustody;
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::notices::McpNoticeFeed;
 use sidekicks_platforms::Spawner;
@@ -57,6 +58,9 @@ pub(crate) struct McpServerMethods {
     pub(crate) client: Arc<McpClient>,
     /// The thread a second copy of a program server starts on.
     pub(crate) spawner: Spawner,
+    /// The sign-ins' keychain custody, whose address key a connection to a server at an address
+    /// is stamped with.
+    pub(crate) sign_ins: Arc<SignInCustody>,
     /// The event log's followers, on which a session's close drops its switch state.
     pub(crate) followers: Arc<SessionEventFollowers>,
 }
@@ -496,7 +500,13 @@ async fn list_resources(
         },
         McpResourceSource::Reach { binding, reach } => methods
             .client
-            .list_server_resources(session_id, &binding, reach, &methods.spawner)
+            .list_server_resources(
+                session_id,
+                &binding,
+                reach,
+                &methods.spawner,
+                &methods.sign_ins,
+            )
             .await
             .map_err(|error| {
                 tracing::warn!(
