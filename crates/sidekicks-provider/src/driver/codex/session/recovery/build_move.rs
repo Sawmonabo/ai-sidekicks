@@ -390,6 +390,7 @@ impl CodexServiceRecovery {
             service: Arc::clone(from),
             thread_ids: released,
             deadline,
+            tasks: self.dependencies.tasks.clone(),
         };
         let leaving = Arc::clone(from);
         let writer_left: CodexWriterLeft = Box::new(move || {

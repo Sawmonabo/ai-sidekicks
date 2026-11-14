@@ -236,7 +236,7 @@ Fields:
 Result, one line per session:
 
 ```
-builder · s-8f21 · Codex gpt-5.5 · shop-api · this Mac · working: running tests · last: "2 tests fail in token-rotation"
+builder · s-8f21 · Codex gpt-6.1-sol · shop-api · this Mac · working: running tests · last: "2 tests fail in token-rotation"
 planner · s-4a10 · Claude Code Opus 5.5 · shop-api · this Mac · this session
 ```
 
@@ -317,7 +317,7 @@ Fields:
 - `files` (optional): `Paths you can read, attached to the first message.`
 - `wait` (optional): `true waits until the new session finishes its first turn or needs the person, and returns its answer. Default false.`
 
-Result: `Started tax-fix · s-91c3 · Codex gpt-5.5 · shop-api · branch tax-fix · Sandboxed (your level).`
+Result: `Started tax-fix · s-91c3 · Codex gpt-6.1-sol · shop-api · branch tax-fix · Sandboxed (your level).`
 
 #### `session_send`
 

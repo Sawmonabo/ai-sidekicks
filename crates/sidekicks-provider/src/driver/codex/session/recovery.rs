@@ -556,8 +556,8 @@ impl CodexServiceRecovery {
     // session directory opened first, so what the resumed conversation delivers at once is taken;
     // a binding that cannot be opened, the directory unregistered among the causes, fails the
     // relaunch with no resume, as the live service's refusal. The resume carries
-    // `held_lead_continue` to the session's held lead, and waits for each conversation `released`
-    // names to unload on the service a move left before its helper is reopened. A session that
+    // `held_lead_continue` to the session's held lead, and answers once the lead is back, each
+    // helper `released` names reopened after its unload on the service a move left. A session that
     // closed or was established anew meanwhile answers `None`, its opened binding forgotten
     // through a failed relaunch.
     async fn resume_claimed(

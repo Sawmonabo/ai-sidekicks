@@ -247,6 +247,12 @@ pub(crate) enum CodexSessionCall {
         /// Where the resume's result, and why it failed where it did, goes.
         reply: oneshot::Sender<CodexInPlaceOutcome>,
     },
+    /// Reopens a helper a move let go once the service the move left unloaded it, or its wait ran
+    /// out, where the record still binds its child run.
+    ReopenHelper {
+        /// The helper's conversation.
+        thread_id: String,
+    },
     /// Cuts the conversation back to before `turn_id` with `thread/revert`, once the caller
     /// claimed the slot.
     RevertBefore {

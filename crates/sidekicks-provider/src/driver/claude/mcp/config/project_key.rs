@@ -57,7 +57,8 @@ fn find_project_folder(folder: &Path) -> PathBuf {
 // The main checkout of the linked worktree rooted at `worktree_root`: the worktree's `.git` file
 // names its git folder, whose `commondir` names the repository's common git folder, which must
 // hold it under `worktrees/`, and whose `gitdir` names the worktree's `.git` file back. Each path
-// is joined and folded as written, as Claude Code joins it. `None` where any of them is missing or
+// is joined and folded as written, as Claude Code joins it, but the back-link, which is resolved
+// through its links before it is compared. `None` where any of them is missing or
 // does not agree, as for a checkout of its own or a submodule. The main checkout is the common
 // folder's parent where the common folder is a `.git` folder, else the common folder itself.
 fn find_main_checkout(worktree_root: &Path) -> Option<PathBuf> {

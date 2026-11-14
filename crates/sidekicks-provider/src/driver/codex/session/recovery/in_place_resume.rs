@@ -2,15 +2,18 @@
 //! with the binding and function legs it resumes under, the turn ends the resume lists as over
 //! that the daemon still owed the session, the person's answers carried to the lead a restart
 //! held where the person's restart brought them, and the session's helpers reopened on the new
-//! connection, each registered on its service first and, after a move, unloaded on the service the
-//! move left.
+//! connection, each registered on its service first and, after a move, reopened by a call of its
+//! own once the service the move left unloaded it, so the resume answers once the lead is back.
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
 
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use tokio::sync::watch;
 use tokio::time::Instant;
+use tokio_util::task::TaskTracker;
 
 use super::CodexWriterLeft;
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
@@ -24,9 +27,11 @@ use crate::driver::codex::session::establishment::helpers::{
 use crate::driver::codex::session::establishment::{
     CodexInPlaceOutcome, CodexSessionEstablishment,
 };
+use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
 use crate::driver::codex::session::owed_turn_ends::{
     end_owed_codex_helper_turn, end_owed_codex_turns,
 };
+use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::session_control::DriverResumeResult;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
@@ -54,9 +59,9 @@ pub(crate) struct CodexInPlaceResumeCall {
     pub(crate) released: Option<CodexReleasedConversations>,
 }
 
-/// The conversations a move let go on the service it left, each waited for there before its
-/// helper is reopened on the new service, since Codex refuses a helper's reopen while another
-/// service holds it loaded.
+/// The conversations a move let go on the service it left, each waited for there, off the
+/// session's task, before its helper is reopened on the new service, since Codex refuses a
+/// helper's reopen while another service holds it loaded.
 pub(crate) struct CodexReleasedConversations {
     /// The service the move left.
     pub(crate) service: Arc<CodexService>,
@@ -64,14 +69,17 @@ pub(crate) struct CodexReleasedConversations {
     pub(crate) thread_ids: Vec<String>,
     /// When the wait gives up and the reopen goes ahead, Codex deciding.
     pub(crate) deadline: Instant,
+    /// The driver's tracked tasks, which the waits run on.
+    pub(crate) tasks: TaskTracker,
 }
 
 /// Resumes the session's conversation in place on the session's task, then ends each turn the
 /// session still owed an end that the resume lists as over: its `turn/completed` was sent while
 /// the daemon was not connected, and Codex sends none again. Once resumed, each helper whose child
 /// run is still bound is reopened, since Codex attaches a running helper only to the connections
-/// open as it started, and one whose newest turn is over has its owed end routed; one a move let go
-/// is reopened once the service the move left unloaded it, or its wait ran out. The person's
+/// open as it started, and one whose newest turn is over has its owed end routed; after a move,
+/// each is reopened by a call of its own on the session's task once the service the move left
+/// unloaded it, or its wait ran out, so no call to the session waits behind an unload. The person's
 /// answers the call carries go to the held lead as an adoption carries them, its answer in the
 /// outcome set still running where they reached it. Answers the resume's outcome and the frames
 /// its routing released.
@@ -117,7 +125,10 @@ pub(crate) async fn resume_codex_session_in_place(
         {
             answer_steers.send(answer_steer, task.record.inbound.clone());
         }
-        routed.extend(reopen_bound_codex_helpers(task, dependencies, released.as_ref()).await);
+        match released {
+            Some(released) => reopen_released_codex_helpers(task, released),
+            None => routed.extend(reopen_bound_codex_helpers(task, dependencies).await),
+        }
     }
     (resumed.outcome, routed)
 }
@@ -134,32 +145,10 @@ struct BoundHelper {
     parent_run_id: RunId,
 }
 
-// Reopens, parents first, each helper whose child run the record still binds on the session's
-// connection, registered on its service, each `released` names first waited for on the service it
-// was let go on, and routes the owed end of each whose newest turn the reopen shows over. A refused
-// reopen is logged and the rest go on. Answers the frames the ends produced.
-async fn reopen_bound_codex_helpers(
-    task: &mut CodexSessionTask<'_>,
-    dependencies: &CodexSessionCallDependencies,
-    released: Option<&CodexReleasedConversations>,
-) -> CodexRoutedFrames {
-    let mut routed = CodexRoutedFrames::default();
-    let record = &*task.record;
-    let session_id = record.session_id;
-    let auto_memory = record.thread_settings.auto_memory;
-    let service = Arc::clone(&record.service);
-    let connection = match service.connection() {
-        Ok(connection) => connection,
-        Err(error) => {
-            tracing::warn!(
-                session_id = %session_id,
-                error = &error as &(dyn Error + 'static),
-                "the codex service went away before the session's helpers were reopened"
-            );
-            return routed;
-        }
-    };
-    let bound: Vec<BoundHelper> = record
+// The helpers whose child runs the record still binds, parents first.
+fn list_bound_codex_helpers(task: &CodexSessionTask<'_>) -> Vec<BoundHelper> {
+    let bound = task
+        .record
         .delivery
         .child_run_by_thread_id
         .iter()
@@ -172,59 +161,164 @@ async fn reopen_bound_codex_helpers(
             })
         })
         .collect();
-    let ordered = order_parents_first(
+    order_parents_first(
         bound,
         |helper| helper.run_id,
         |helper| Some(helper.parent_run_id),
-    );
-    for helper in ordered {
-        if let Some(released) = released
-            && released.thread_ids.contains(&helper.thread_id)
-            && !released
-                .service
-                .await_unloaded(&helper.thread_id, released.deadline)
-                .await
-        {
-            // Another client, such as a terminal the person joined, still holds it on the old
-            // service; the reopen goes ahead and Codex decides.
-            CodexTransportDiagnostic::ConversationUnloadTimedOut {
-                thread_id: helper.thread_id.clone(),
-            }
-            .report();
+    )
+}
+
+// The session's connection, or `None`, logged, when its service went away.
+fn read_session_connection(task: &CodexSessionTask<'_>) -> Option<Arc<CodexAppServerConnection>> {
+    match task.record.service.connection() {
+        Ok(connection) => Some(connection),
+        Err(error) => {
+            tracing::warn!(
+                session_id = %task.record.session_id,
+                error = &error as &(dyn Error + 'static),
+                "the codex service went away before the session's helpers were reopened"
+            );
+            None
         }
-        match reopen_registered_codex_helper(
-            &service,
-            &connection,
-            session_id,
-            &helper.thread_id,
-            auto_memory,
-        )
-        .await
-        {
-            Ok(CodexReopenedHelper {
-                newest_turn: Some(newest),
-                ..
-            }) => routed.extend(
-                end_owed_codex_helper_turn(
-                    &mut *task.routing,
-                    &dependencies.forks.delivery,
-                    &mut *task.record,
-                    &helper.thread_id,
-                    &newest,
-                )
-                .await,
-            ),
-            Ok(CodexReopenedHelper {
-                newest_turn: None, ..
-            }) => {}
-            Err(error) => tracing::warn!(
+    }
+}
+
+// Reopens, parents first, each helper whose child run the record still binds on the session's
+// connection, registered on its service, and routes the owed end of each whose newest turn the
+// reopen shows over. A refused reopen is logged and the rest go on. Answers the frames the ends
+// produced.
+async fn reopen_bound_codex_helpers(
+    task: &mut CodexSessionTask<'_>,
+    dependencies: &CodexSessionCallDependencies,
+) -> CodexRoutedFrames {
+    let mut routed = CodexRoutedFrames::default();
+    let Some(connection) = read_session_connection(task) else {
+        return routed;
+    };
+    for helper in list_bound_codex_helpers(task) {
+        routed.extend(reopen_bound_codex_helper(task, dependencies, &connection, &helper).await);
+    }
+    routed
+}
+
+// Waits, off the session's task, for each conversation `released` names to unload on the service
+// the move left, or its deadline, each helper on a task of its own, then queues that helper's
+// reopen as a call of its own once its parent's is queued, so a parent is loaded before its helper
+// is reopened and no helper waits on another's unload.
+fn reopen_released_codex_helpers(
+    task: &CodexSessionTask<'_>,
+    released: CodexReleasedConversations,
+) {
+    let inbound = task.record.inbound.clone();
+    let CodexReleasedConversations {
+        service,
+        thread_ids: released_ids,
+        deadline,
+        tasks,
+    } = released;
+    let mut queued_by_run_id: HashMap<RunId, watch::Receiver<bool>> = HashMap::new();
+    // Parents first, so each parent's signal is there before its helpers look for it.
+    for helper in list_bound_codex_helpers(task) {
+        let (queued, is_queued) = watch::channel(false);
+        let parent_queued = queued_by_run_id.get(&helper.parent_run_id).cloned();
+        queued_by_run_id.insert(helper.run_id, is_queued);
+        let is_released = released_ids.contains(&helper.thread_id);
+        let service = Arc::clone(&service);
+        let inbound = inbound.clone();
+        tasks.spawn(async move {
+            let thread_id = helper.thread_id;
+            if is_released && !service.await_unloaded(&thread_id, deadline).await {
+                // Another client, such as a terminal the person joined, still holds it on the
+                // old service; the reopen goes ahead and Codex decides.
+                CodexTransportDiagnostic::ConversationUnloadTimedOut {
+                    thread_id: thread_id.clone(),
+                }
+                .report();
+            }
+            if let Some(mut parent_queued) = parent_queued {
+                // A parent whose task ended without queuing its reopen lets its helpers go ahead.
+                let _parent_ended = parent_queued
+                    .wait_for(|is_queued| *is_queued)
+                    .await
+                    .map(drop);
+            }
+            let call = CodexSessionCall::ReopenHelper { thread_id };
+            // The session's task ended where the push fails, so no helper of it is reopened.
+            if inbound.push(CodexSessionInbound::Call(call)) {
+                // A parent with no helper waiting on it has no one to tell.
+                let _unwatched = queued.send(true);
+            }
+        });
+    }
+}
+
+/// Reopens the helper `thread_id` on the session's connection, a move's unload wait over, where
+/// the record still binds its child run, and routes its owed end where its newest turn is over. A
+/// refused reopen is logged. Answers the frames the end produced.
+pub(crate) async fn reopen_released_codex_helper(
+    task: &mut CodexSessionTask<'_>,
+    dependencies: &CodexSessionCallDependencies,
+    thread_id: &str,
+) -> CodexRoutedFrames {
+    let Some(helper) = list_bound_codex_helpers(task)
+        .into_iter()
+        .find(|helper| helper.thread_id == thread_id)
+    else {
+        // Its child run ended while its unload was waited for.
+        return CodexRoutedFrames::default();
+    };
+    let Some(connection) = read_session_connection(task) else {
+        return CodexRoutedFrames::default();
+    };
+    reopen_bound_codex_helper(task, dependencies, &connection, &helper).await
+}
+
+// Reopens one bound helper on `connection`, registered on the session's service, and routes its
+// owed end where the reopen shows its newest turn over; a refused reopen is logged.
+async fn reopen_bound_codex_helper(
+    task: &mut CodexSessionTask<'_>,
+    dependencies: &CodexSessionCallDependencies,
+    connection: &CodexAppServerConnection,
+    helper: &BoundHelper,
+) -> CodexRoutedFrames {
+    let record = &*task.record;
+    let session_id = record.session_id;
+    let auto_memory = record.thread_settings.auto_memory;
+    let service = Arc::clone(&record.service);
+    match reopen_registered_codex_helper(
+        &service,
+        connection,
+        session_id,
+        &helper.thread_id,
+        auto_memory,
+    )
+    .await
+    {
+        Ok(CodexReopenedHelper {
+            newest_turn: Some(newest),
+            ..
+        }) => {
+            end_owed_codex_helper_turn(
+                &mut *task.routing,
+                &dependencies.forks.delivery,
+                &mut *task.record,
+                &helper.thread_id,
+                &newest,
+            )
+            .await
+        }
+        Ok(CodexReopenedHelper {
+            newest_turn: None, ..
+        }) => CodexRoutedFrames::default(),
+        Err(error) => {
+            tracing::warn!(
                 session_id = %session_id,
                 run_id = %helper.run_id,
                 thread_id = %helper.thread_id,
                 error = &error as &(dyn Error + 'static),
                 "codex refused the reopen of a helper after its service's recovery"
-            ),
+            );
+            CodexRoutedFrames::default()
         }
     }
-    routed
 }

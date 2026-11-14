@@ -157,20 +157,20 @@ impl McpInventoryService {
         request: &McpServerListRequest,
     ) -> Result<McpServerListResponse, McpInventoryError> {
         let is_refresh = request.refresh == Some(true);
-        let context = self.read_context().await?;
-        let providers = join_all(self.sources.providers.drivers().map(|(provider, driver)| {
-            self.list_provider(provider, driver.as_ref(), &context, is_refresh)
-        }))
+        let context = &self.read_context().await?;
+        let providers = join_all(self.sources.providers.drivers().map(
+            |(provider, driver)| async move {
+                let rows = self
+                    .list_provider(provider, driver.as_ref(), context, is_refresh)
+                    .await;
+                (provider, rows)
+            },
+        ))
         .await;
         let mut servers = Vec::new();
         let mut failed_providers = Vec::new();
         let mut failed_roots = Vec::new();
-        let listed_providers = self
-            .sources
-            .providers
-            .drivers()
-            .map(|(provider, _driver)| provider);
-        for (listed_provider, rows) in listed_providers.zip(providers) {
+        for (listed_provider, rows) in providers {
             match rows {
                 Ok((rows, roots)) => {
                     servers.extend(rows.into_iter().map(|(_key, entry)| entry));
