@@ -189,7 +189,7 @@ async fn deliver_and_publish(
 
 // Publishes to `readings` how the turn `turn_id` of `thread_id` on `service`, which the message
 // `message_id` opened, ended: as `ended` hands it back, else, where the seat's connection ended
-// first, as it is read again, or not reachable once it cannot be.
+// first, as it is read again, or not reachable once the service is left down for good.
 async fn publish_turn_end(
     service: Arc<CodexService>,
     thread_id: String,
@@ -222,29 +222,22 @@ async fn publish_turn_end(
 }
 
 // The end of the turn `turn_id` of `thread_id` on `service`, read again after the seat's connection
-// ended before it: at once while the service is up, else once it is back within the terminal's
-// reconnect window, the wait staying open meanwhile; a read the service's going away cuts short
-// waits again. `None` past the window, or where no terminal holds the conversation any more.
+// ended before it: at once while the service is up, else once it is back however long it was
+// away, past the terminal's reconnect window too, the wait staying open meanwhile; a read the
+// service's going away cuts short waits again. `None` once the service is left down for good, or
+// where the read fails while it is up.
 async fn await_turn_end_again(
     service: &Arc<CodexService>,
     thread_id: &str,
     turn_id: &str,
 ) -> Option<CodexTerminalTurnEnd> {
     loop {
-        if let Some(away) = service.away_for() {
-            let window_left = TERMINAL_RECONNECT_WINDOW.saturating_sub(away);
-            if window_left.is_zero()
-                || tokio::time::timeout(window_left, service.when_up())
-                    .await
-                    .is_err()
-            {
-                return None;
-            }
+        if !service.comes_back_up().await {
+            return None;
         }
         match reread_turn_end(service, thread_id, turn_id).await {
             Ok(Some(end)) => return Some(end),
-            Ok(None) | Err(CodexTerminalExchangeError::Codex(_))
-                if service.away_for().is_some() => {}
+            Ok(None) | Err(_) if service.away_for().is_some() => {}
             Ok(None) => return None,
             Err(error) => {
                 tracing::warn!(

@@ -18,9 +18,10 @@ use crate::driver::codex::release_notes::release_notes_address;
 use crate::driver::codex::service::registry::CODEX_SWITCHING_HOME_FOLDER;
 use crate::driver::codex::tools::CODEX_BUILT_IN_TOOLS;
 use crate::driver::codex::written_names::CODEX_WRITTEN_NAME_FORMS;
+use crate::driver::command_sandbox::CommandSandboxNeeds;
 use crate::driver::{
-    CommandSandboxNeeds, InstallFolder, InstallFolderBase, ProviderCommand, ProviderCommandLookup,
-    ProviderDescriptor, ProviderMemoryEstimates, ProviderSwitchBoundaries,
+    InstallFolder, InstallFolderBase, ProviderCommand, ProviderCommandLookup, ProviderDescriptor,
+    ProviderMemoryEstimates, ProviderSwitchBoundaries,
 };
 
 /// Codex's fixed facts.

@@ -232,17 +232,17 @@ fn compose_message_input(message: &CodexTerminalMessage, moment: CodexArrivalMom
 }
 
 /// How the turn `turn_id` of `thread_id` on `service`, which is up, ended, read again once a
-/// seat's connection ended before it did: from the conversation's own turn list where the turn
-/// ended, its reply read from its items only where it answered, else on a new seat until it
-/// ends. A turn the list does not hold, which the service's stop lost from its record, failed as
-/// one that stop cut off. `None` where that seat's connection ended first too. Fails with
-/// `GivenUp` when no terminal holds the conversation, and as the reads fail.
+/// seat's connection ended before it did: from the conversation's stored turn list on the
+/// daemon's own connection where the turn ended, whether or not a terminal still holds the
+/// conversation, its reply read from its items only where it answered, else on a new seat until
+/// it ends. A turn the list does not hold, which the service's stop lost from its record, failed
+/// as one that stop cut off. `None` where that seat's connection ended first too. Fails as the
+/// reads fail.
 pub(super) async fn reread_turn_end(
     service: &CodexService,
     thread_id: &str,
     turn_id: &str,
-) -> Result<Option<CodexTerminalTurnEnd>, CodexTerminalExchangeError> {
-    require_terminal_session(service, thread_id).await?;
+) -> Result<Option<CodexTerminalTurnEnd>, CodexError> {
     let connection = service.connection()?;
     let Some(listed) = read_codex_turn(&connection, thread_id, turn_id).await? else {
         return Ok(Some(CodexTerminalTurnEnd::Failed {

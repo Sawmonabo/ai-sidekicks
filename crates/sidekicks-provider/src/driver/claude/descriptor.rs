@@ -25,9 +25,10 @@ use crate::driver::claude::spawn::environment::{
 };
 use crate::driver::claude::tools::CLAUDE_BUILT_IN_TOOLS;
 use crate::driver::claude::written_names::CLAUDE_WRITTEN_NAME_FORMS;
+use crate::driver::command_sandbox::CommandSandboxNeeds;
 use crate::driver::{
-    BackgroundWork, CommandSandboxNeeds, InstallFolder, InstallFolderBase, ProviderCommand,
-    ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates, ProviderSwitchBoundaries,
+    BackgroundWork, InstallFolder, InstallFolderBase, ProviderCommand, ProviderCommandLookup,
+    ProviderDescriptor, ProviderMemoryEstimates, ProviderSwitchBoundaries,
 };
 
 /// Claude Code's fixed facts. Its plan ids read as their own words, and it reads no tool-server

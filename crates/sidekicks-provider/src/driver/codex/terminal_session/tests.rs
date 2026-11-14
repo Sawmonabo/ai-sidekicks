@@ -29,13 +29,9 @@ const QUIET: Duration = Duration::from_millis(200);
 /// How long the test waits before it counts a step as stuck.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(10);
 
-// Answers the service's check that a terminal holds the conversation, and then its turn list
-// with `turn` alone on it, asserting the list is asked newest first with no items.
+// Answers the conversation's stored turn list with `turn` alone on it, asserting it is the first
+// request, asked newest first with no items, so no check that a terminal holds it comes first.
 async fn answer_turn_list(scripted: &mut ScriptedCodexService, turn: &Value) {
-    let loaded = scripted.next_request("thread/loaded/list").await;
-    scripted
-        .script
-        .answer(&loaded, &json!({"data": [THREAD], "nextCursor": null}));
     let turns = scripted.next_request("thread/turns/list").await;
     assert_eq!(turns["params"]["threadId"], THREAD);
     assert_eq!(turns["params"]["itemsView"], "notLoaded");
@@ -168,18 +164,19 @@ fn publish_unread_turn_end(
     ))
 }
 
-// Kills: a turn end answered before the service is back (the wait closed early or read as not
-// reachable), one answered without the re-read, and one answered with a fixed line instead of
-// the turn's own reply.
+// Kills: a wait that gives up at the terminal's reconnect window (closed early or read as not
+// reachable while the answer is stored), one that asks whether a terminal still holds the
+// conversation before reading its stored turn, and one answered with a fixed line instead of the
+// turn's own reply.
 #[tokio::test(start_paused = true)]
-async fn an_unread_turn_end_is_read_again_at_the_services_return_within_the_window() {
+async fn an_unread_turn_end_past_the_window_is_answered_from_the_stored_turn() {
     let mut scripted = start_scripted_terminal_service();
     let (recorded, readings) = recorded_readings();
     let connection = scripted.publish_reconnecting();
 
     let publishing = publish_unread_turn_end(&scripted, &readings);
     tokio::task::yield_now().await;
-    tokio::time::advance(TERMINAL_RECONNECT_WINDOW / 2).await;
+    tokio::time::advance(TERMINAL_RECONNECT_WINDOW * 3).await;
     let while_away = lock(&recorded.readings).clone();
     scripted.publish_up(connection);
     let turn = json!({"id": TURN, "status": "completed", "completedAt": 1_767_000_000});
@@ -201,17 +198,16 @@ async fn an_unread_turn_end_is_read_again_at_the_services_return_within_the_wind
     );
 }
 
-// Kills: a turn end past the window read as anything but not reachable with the reopen line,
-// and a service away past the window that is still asked.
+// Kills: a turn end on a service its crash loop left down read as anything but not reachable
+// with the reopen line, a wait left open on a service that never comes back, and a service left
+// down that is still asked.
 #[tokio::test(start_paused = true)]
-async fn an_unread_turn_end_past_the_window_reads_not_reachable_with_the_reopen_line() {
+async fn an_unread_turn_end_on_a_service_left_down_reads_not_reachable_with_the_reopen_line() {
     let mut scripted = start_scripted_terminal_service();
     let (recorded, readings) = recorded_readings();
-    let _connection = scripted.publish_reconnecting();
+    let _connection = scripted.publish_crash_loop();
 
     let publishing = publish_unread_turn_end(&scripted, &readings);
-    tokio::task::yield_now().await;
-    tokio::time::advance(TERMINAL_RECONNECT_WINDOW).await;
     tokio::time::timeout(DEADLOCK_BOUND, publishing)
         .await
         .expect("the turn's end is published")

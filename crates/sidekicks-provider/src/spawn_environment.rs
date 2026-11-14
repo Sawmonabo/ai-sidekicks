@@ -407,9 +407,10 @@ mod tests {
     use crate::driver::agent_tools::{
         AgentToolInstructions, AgentToolLoading, AgentToolLongCall, AgentToolWait,
     };
+    use crate::driver::command_sandbox::CommandSandboxNeeds;
     use crate::driver::{
-        BackgroundWork, CommandSandboxNeeds, ProviderCommand, ProviderDescriptor,
-        ProviderMemoryEstimates, ProviderSwitchBoundaries,
+        BackgroundWork, ProviderCommand, ProviderDescriptor, ProviderMemoryEstimates,
+        ProviderSwitchBoundaries,
     };
     use crate::tool_server_name::McpServerNameRule;
 

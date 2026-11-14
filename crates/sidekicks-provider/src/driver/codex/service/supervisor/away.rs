@@ -1,6 +1,6 @@
 //! How long a service has been away, anything but up since it last was: a terminal joined to the
 //! service retries for a window of its own and then never rejoins, so the time away says whether
-//! that terminal gave up on it.
+//! that terminal gave up on it; and whether a service away comes back up or is left down.
 
 use std::time::Duration;
 
@@ -40,5 +40,20 @@ impl CodexService {
     pub(crate) async fn when_up(&self) {
         self.wait_for(|availability| matches!(availability, CodexServiceAvailability::Up))
             .await;
+    }
+
+    /// Answers whether the service came up, waiting for as long as it is on its way back however
+    /// long that takes; `false` once it is left down for good: stopped, its start failed, its
+    /// restarts spent in a crash loop, or shut down with the daemon.
+    pub(crate) async fn comes_back_up(&self) -> bool {
+        let mut availability = self.availability.subscribe();
+        // A stop under way may still end in a start, so only where it ends counts.
+        availability
+            .wait_for(|availability| {
+                !availability.is_coming_back()
+                    && !matches!(availability, CodexServiceAvailability::Stopping)
+            })
+            .await
+            .is_ok_and(|settled| matches!(*settled, CodexServiceAvailability::Up))
     }
 }
