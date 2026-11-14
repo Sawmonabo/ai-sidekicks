@@ -14,6 +14,7 @@ mod lock;
 mod observe;
 mod plugin_manifest;
 mod policy;
+mod project_key;
 mod write;
 
 pub(crate) use self::compose::compose_claude_mcp_entry;
@@ -34,6 +35,7 @@ use sidekicks_platforms::PathRules;
 
 use self::plugin_manifest::read_plugin_manifest_name;
 use self::policy::read_server_policy;
+use self::project_key::resolve_claude_config_project_key;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::credentials::{
     CONFIG_FOLDER_VARIABLE, CUSTOM_SIGN_IN_HOST_VARIABLE,
@@ -69,7 +71,8 @@ const WS_TYPE: &str = "ws";
 /// servers by name.
 pub(crate) const MCP_SERVERS_MEMBER: &str = "mcpServers";
 
-/// The member of the person's config that holds each project's own settings, by its root.
+/// The member of the person's config that holds each project's own settings, by the key
+/// [`resolve_claude_config_project_key`] finds for its root.
 pub(crate) const PROJECTS_MEMBER: &str = "projects";
 
 /// The member of a server entry naming the address an `http` or `sse` entry reaches.
@@ -143,8 +146,8 @@ pub(crate) const SSE_TYPE: &str = "sse";
 /// One attached project root and the folder its files are read at on this computer.
 #[derive(Clone, Debug)]
 pub(crate) struct ClaudeMcpRoot {
-    /// The root, with the distribution it is in; its path is the key `.claude.json` files the
-    /// project under.
+    /// The root, with the distribution it is in; [`resolve_claude_config_project_key`] finds the
+    /// key `.claude.json` files the project under from its path.
     pub(crate) root: PlacedPath,
     /// The folder the root's `.mcp.json` and settings files are read at.
     pub(crate) folder: PathBuf,
@@ -262,6 +265,9 @@ pub(crate) struct ClaudeMcpRootConfig {
     pub(crate) kept_out_server_names: Vec<McpServerName>,
     /// The names Claude Code's own per-project switch turns off at the root.
     pub(crate) switched_off_server_names: Vec<McpServerName>,
+    /// Whether the key `.claude.json` files the root under could not be worked out, so its entry
+    /// there, with its `local` servers and its lists of names, was not read.
+    pub(crate) is_project_key_unread: bool,
 }
 
 /// Whether `kept_out_server_names` names `server_name`, matched as Claude Code matches them: a
@@ -312,8 +318,9 @@ pub(crate) struct ClaudePluginRoot {
 }
 
 /// Reads the person's Claude Code MCP config from `sources`. A file that is absent, not the
-/// daemon's to read or not JSON of the expected shape declares nothing; fails with the path and
-/// the system's error on any other read failure.
+/// daemon's to read or not JSON of the expected shape declares nothing; a root whose key in
+/// `.claude.json` cannot be worked out is marked so, logged, and read without its entry there.
+/// Fails with the path and the system's error on any other read failure.
 pub(crate) async fn read_claude_mcp_config(
     sources: &ClaudeMcpConfigSources<'_>,
 ) -> Result<ClaudeMcpConfigReading, ClaudeSettingsReadError> {
@@ -341,9 +348,23 @@ pub(crate) async fn read_claude_mcp_config(
     let projects = person_config.projects.read();
     let mut roots = Vec::with_capacity(sources.roots.len());
     for root in sources.roots {
-        let project_entry = projects
-            .and_then(|projects| projects.get(root.root.path.as_str()))
-            .and_then(Tolerated::read);
+        // A root whose key cannot be worked out has no entry the read can find; the other roots
+        // are read all the same, and the list names this one.
+        let project_key = resolve_claude_config_project_key(root.root.path.as_str())
+            .await
+            .inspect_err(|error| {
+                tracing::warn!(
+                    error = error as &(dyn std::error::Error + 'static),
+                    "a root's key in the Claude Code config could not be worked out, so its \
+                     entry there is not read"
+                );
+            });
+        let is_project_key_unread = project_key.is_err();
+        let project_entry = project_key.ok().and_then(|project_key| {
+            projects
+                .and_then(|projects| projects.get(&project_key))
+                .and_then(Tolerated::read)
+        });
         let project_file: ClaudeMcpServersFile = read_json_file(&root.folder.join(SERVERS_FILE))
             .await?
             .unwrap_or_default();
@@ -404,6 +425,7 @@ pub(crate) async fn read_claude_mcp_config(
             switched_off_server_names: project_entry
                 .map(|entry| read_names(&entry.disabled_mcp_servers))
                 .unwrap_or_default(),
+            is_project_key_unread,
         });
     }
 

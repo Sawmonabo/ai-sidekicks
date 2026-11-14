@@ -257,6 +257,8 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
       fast: hasFastTier,
       // A larger window is read from the catalog dump, which adds its own row for it.
       largerWindow: false,
+      // Anything but `true` marks nothing, so one unreadable flag never marks a row.
+      isDefault: entry["isDefault"] === true,
     };
     // Absent, not empty, when the model publishes no tier: it has no speed selection. Standard
     // leads, so a person can ask for it back; a tier the provider itself names so is not doubled.

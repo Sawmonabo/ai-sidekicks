@@ -1,6 +1,7 @@
 //! What a Claude Code session's processes showed the inspector, kept from each spawn until the
-//! session closes: the memory files its last context read named, the memory store folders and
-//! `Auto memory` value its last process ran with, and the hooks that process listed.
+//! session closes: the memory files its last context read named, the memory store folders its
+//! last `system/init` named, the `Auto memory` value its last process ran with, and the hooks that
+//! process listed.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -25,7 +26,7 @@ use crate::process_identity::ProviderProcessIdentity;
 pub(crate) struct ClaudeKeptMemory {
     /// The memory files the last context read named.
     pub(crate) files: Vec<FilesystemPath>,
-    /// The memory store folders the last process declared.
+    /// The memory store folders the last `system/init` named.
     pub(crate) stores: Vec<FilesystemPath>,
     /// The last process's `Auto memory` value.
     pub(crate) auto_memory: Option<bool>,
@@ -63,7 +64,8 @@ pub(crate) struct ClaudeInspectorReads {
 
 impl ClaudeInspectorReads {
     /// Keeps what `live`'s start showed in place of its predecessor's, the memory files kept until
-    /// its first context read, and lists its hooks; returns at once.
+    /// its first context read and the store folders until its first `system/init`, and lists its
+    /// hooks; returns at once.
     pub(crate) fn keep_spawn(
         self: &Arc<Self>,
         live: &Arc<LiveClaudeSession>,
@@ -72,9 +74,9 @@ impl ClaudeInspectorReads {
     ) {
         {
             let mut sessions = lock(&self.sessions);
-            let files = sessions
+            let (files, stores) = sessions
                 .get(&live.session_id)
-                .map(|kept| kept.memory.files.clone())
+                .map(|kept| (kept.memory.files.clone(), kept.memory.stores.clone()))
                 .unwrap_or_default();
             // The replaced entry's sender drops here, which ends a read waiting on its listing.
             sessions.insert(
@@ -83,7 +85,7 @@ impl ClaudeInspectorReads {
                     process: live.process_identity,
                     memory: ClaudeKeptMemory {
                         files,
-                        stores: live.initialize.memory_stores.clone(),
+                        stores,
                         auto_memory: read_claude_process_auto_memory(
                             &live.spawn_bound_legs.spawn_environment,
                             effective_auto_memory,
@@ -159,6 +161,14 @@ impl ClaudeInspectorReads {
     pub(crate) fn keep_memory_files(&self, session_id: SessionId, files: Vec<FilesystemPath>) {
         if let Some(kept) = lock(&self.sessions).get_mut(&session_id) {
             kept.memory.files = files;
+        }
+    }
+
+    /// Keeps the memory store folders a `system/init` of `session_id` named; with no entry, the
+    /// session closed or no process was adopted, it keeps nothing.
+    pub(crate) fn keep_memory_stores(&self, session_id: SessionId, stores: Vec<FilesystemPath>) {
+        if let Some(kept) = lock(&self.sessions).get_mut(&session_id) {
+            kept.memory.stores = stores;
         }
     }
 

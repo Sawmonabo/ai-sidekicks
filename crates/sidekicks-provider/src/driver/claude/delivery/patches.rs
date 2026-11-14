@@ -14,25 +14,9 @@ use sidekicks_contracts::transcript::content::{
 };
 use sidekicks_store::transcript::whole_patch::WholePatchFile;
 
+use crate::driver::claude::delivery::file_tool_writes::is_failed_notebook_edit;
 use crate::driver::unified_diff::{count_unified_diff, mark_every_line};
-use crate::record_readers::{filter_non_empty, read_count, read_non_empty_string};
-
-// The tools whose result is one file's change.
-const CLAUDE_FILE_CHANGING_TOOL_NAMES: [&str; 4] = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
-
-/// Whether a tool's result is one file's change, read for its patch.
-pub(crate) fn is_claude_file_changing_tool(tool_name: &str) -> bool {
-    CLAUDE_FILE_CHANGING_TOOL_NAMES.contains(&tool_name)
-}
-
-/// The file a file-changing call's input names: its `file_path`, else its `notebook_path`, each
-/// only when it has at least one character.
-pub(crate) fn select_claude_edit_path<'path>(
-    file_path: Option<&'path str>,
-    notebook_path: Option<&'path str>,
-) -> Option<&'path str> {
-    filter_non_empty(file_path).or_else(|| filter_non_empty(notebook_path))
-}
+use crate::record_readers::{read_count, read_non_empty_string};
 
 /// The patch one file-changing call's result carries, read in this order: `gitDiff`, a created
 /// file's `content`, a notebook cell's sources, then `structuredPatch`, which reads `Absent` when
@@ -115,9 +99,9 @@ fn read_created_file(result: &Map<String, Value>) -> Option<CountedPatch> {
 }
 
 // A notebook edit's one cell, from its old source to its new: an inserted cell from nothing, a
-// deleted one to nothing. A failed edit, which changed nothing, carries `error` and reads no patch.
+// deleted one to nothing. A failed edit, which changed nothing, reads no patch.
 fn read_notebook_cell_edit(result: &Map<String, Value>) -> Option<CountedPatch> {
-    if result.contains_key("error") {
+    if is_failed_notebook_edit(result) {
         return None;
     }
     let old_source = || result.get("old_source")?.as_str();
@@ -264,6 +248,7 @@ mod tests {
             "edit_mode": "replace",
             "old_source": "a = 1\nprint(a)",
             "new_source": "a = 2\nprint(a)",
+            "error": "",
         }),
         read("@@ -1,2 +1,2 @@\n-a = 1\n+a = 2\n print(a)", 1, 1)
     )]

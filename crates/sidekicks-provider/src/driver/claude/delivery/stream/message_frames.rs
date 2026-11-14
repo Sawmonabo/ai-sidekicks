@@ -8,6 +8,7 @@ use sidekicks_contracts::turn::TurnTasksUpdate;
 use tokio::time::Instant;
 
 use super::{ClaudeDeliveryStream, ClaudeFirstRequest, ClaudeSessionStream, report_engine_failure};
+use crate::driver::claude::delivery::file_tool_writes::open_file_tool_writes;
 use crate::driver::claude::delivery::messages::{
     ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, read_claude_assistant_rows,
     read_claude_user_rows, record_claude_traces,
@@ -37,9 +38,13 @@ impl ClaudeDeliveryStream {
             .observe_assistant_error(lead.run_id, frame.error())
             .await;
         let provider_account_id = session.provider_account_id();
-        let (pieces, rows, counts_step, tasks) = {
+        let (pieces, rows, counts_step, tasks, opened_writes) = {
             let mut readings = session.lock();
             readings.has_turn_message = true;
+            // Read before the rows move each call's input off the frame.
+            let opened_writes = session
+                .file_tool_writes
+                .open_calls(frame, session.session_id);
             readings.command_tasks.observe_calls(frame);
             let tasks = readings.turn_readings.observe_calls(frame);
             // As Claude Code reads a turn, its last refused message is the turn's refusal.
@@ -74,8 +79,9 @@ impl ClaudeDeliveryStream {
                 .into_iter()
                 .map(|row| ClaudeRowDelivery::of_message(&lead.binding_id, row, key.clone()))
                 .collect::<Vec<_>>();
-            (pieces, rows, counts_step, tasks)
+            (pieces, rows, counts_step, tasks, opened_writes)
         };
+        open_file_tool_writes(&self.dependencies.file_tool_writes, opened_writes).await;
         session.tool_call_arguments.spill_past_bounds().await;
         if let Some(tasks) = tasks {
             self.publish_turn_tasks(session, tasks);
@@ -119,6 +125,7 @@ impl ClaudeDeliveryStream {
                 session.session_id,
                 &mut readings.open_tool_calls,
                 &readings.tool_server_tasks,
+                &session.file_tool_writes,
                 Timestamp::now(),
                 is_tracing,
             );

@@ -20,6 +20,7 @@ use crate::driver::claude::spawn::environment::{
     CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE, CLAUDE_RESUME_INTERRUPTED_TURN_KEY,
     CLAUDE_RESUME_MAX_AGE_KEY, CLAUDE_RESUME_PROMPT_KEY, CLAUDE_RESUME_SHOWS_CUT_OFF_CALLS_KEY,
 };
+use crate::driver::claude::spawn::settings::CLAUDE_LIFTED_HELPER_CAPS;
 use crate::driver::claude::tools::CLAUDE_BUILT_IN_TOOLS;
 use crate::driver::claude::written_names::CLAUDE_WRITTEN_NAME_FORMS;
 use crate::driver::{
@@ -123,16 +124,9 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         // asks text and number questions under a title; unset, a process asks neither.
         ("CLAUDE_CODE_QUESTION_PREVIEW_FORMAT", "markdown"),
         ("CLAUDE_CODE_QUESTION_EXTENDED", "1"),
-        // Claude Code's own helper caps are lifted: the daemon applies the person's limit itself,
-        // and nothing bounds how deep helpers nest.
-        (
-            "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
-            "9223372036854775807",
-        ),
-        (
-            "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
-            "9223372036854775807",
-        ),
+        // Also in the session's `--settings`, which outranks the person's own settings files.
+        CLAUDE_LIFTED_HELPER_CAPS[0],
+        CLAUDE_LIFTED_HELPER_CAPS[1],
     ],
     launch_environment_names: &[],
     // The account's configuration home, its credential store, and the scratch folder the daemon

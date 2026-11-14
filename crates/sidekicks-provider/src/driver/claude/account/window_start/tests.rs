@@ -8,10 +8,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::real_path;
 use sidekicks_std::file::atomic_write::write_file_atomically;
 
-use super::{
-    CLAUDE_THINKING_OFF, CLAUDE_WINDOW_TURN_ARGUMENTS, CLAUDE_WINDOW_TURN_FOLDER,
-    CLAUDE_WINDOW_TURN_LINE,
-};
+use super::{CLAUDE_WINDOW_TURN_ARGUMENTS, CLAUDE_WINDOW_TURN_FOLDER, CLAUDE_WINDOW_TURN_LINE};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::test_account_legs;
 use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
@@ -30,7 +27,7 @@ const PASTED_TOKEN: &str = "sk-ant-oat01-window-turn-test-token-5d2e";
 const RESOLVED_MODEL: &str = "claude-haiku-5-5";
 
 // A stand-in for Claude Code: it records its command line one argument a line, its homes, its
-// folder, its thinking switch and any token handed on its pipe; reads its input to the end, as a
+// folder and any token handed on its pipe; reads its input to the end, as a
 // line given beside a piped input does; writes a session file into its configuration folder unless
 // told to keep none; then writes its start, a `rate_limit_event` and its `result`, an error one
 // where `is_error`.
@@ -42,8 +39,8 @@ handed=''
 if [ -n "$CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR" ]; then
   handed=$(cat <&"$CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR")
 fi
-printf '%s\n%s\n%s\n%s\n%s\n' "$CLAUDE_CONFIG_DIR" "$CLAUDE_SECURESTORAGE_CONFIG_DIR" "$PWD" \
-  "$MAX_THINKING_TOKENS" "$handed" > '{record}.homes'
+printf '%s\n%s\n%s\n%s\n' "$CLAUDE_CONFIG_DIR" "$CLAUDE_SECURESTORAGE_CONFIG_DIR" "$PWD" \
+  "$handed" > '{record}.homes'
 cat > /dev/null
 kept=yes
 for argument in "$@"; do
@@ -69,10 +66,10 @@ printf '%s\n' '{{"type":"result","subtype":"success","is_error":{is_error},"resu
 // Killed by `--no-session-persistence` dropped or any other change to the command line (the
 // recorded line differs, and the stand-in keeps a session file in the account's store), by the
 // turn run in the account's own configuration home, on another store or in a project folder, by
-// the thinking switch left off, by its input left open (the stand-in never ends), by the token
-// left off the pipe, by the event's windows dropped, by the counts dropped, by an error turn read
-// as a spend, by the flag that loads no MCP server dropped, and by the denial of every MCP tool
-// dropped, which an administrator's MCP file would otherwise let in.
+// its input left open (the stand-in never ends), by the token left off the pipe, by the event's
+// windows dropped, by the counts dropped, by an error turn read as a spend, by the flag that loads
+// no MCP server dropped, and by the denial of every MCP tool dropped, which an administrator's MCP
+// file would otherwise let in.
 #[rstest]
 #[case::a_window_start(false, false)]
 #[case::a_refused_window_start(false, true)]
@@ -221,8 +218,7 @@ async fn the_smallest_turn_runs_its_one_command_line_on_the_account_s_store_and_
         "the turn runs in the daemon's empty folder: {}",
         homes[2]
     );
-    assert_eq!(homes[3], CLAUDE_THINKING_OFF.1);
-    assert_eq!(homes[4], if is_token_read { PASTED_TOKEN } else { "" });
+    assert_eq!(homes[3], if is_token_read { PASTED_TOKEN } else { "" });
     let mut left = tokio::fs::read_dir(&turns_folder)
         .await
         .expect("the turns' folder stays");

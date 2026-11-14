@@ -2,6 +2,9 @@
 //! holds, and every file and folder a chat wrote, listed once with its newest version and how many
 //! versions it has. Any other artifact (an attachment, a client's log or diff) is no entry.
 //!
+//! A chat's files are those of the chat folder it holds, whichever holding chat wrote them, so
+//! every holder lists the same versions; each version's manifest names the chat that recorded it.
+//!
 //! A hand-off's seed plan, written again in the fresh session, lists there as accepted, from the
 //! fresh session's hand-off row once the planning session's purge has deleted the plan row. A plan
 //! manifest with neither row is no entry, since an entry needs its title. A fresh session whose
@@ -42,24 +45,26 @@ static PLAN_ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The newest version of each path the session's chat wrote, oldest path first; the newest version's
-// number is how many versions the path has.
+// The newest version of each path of the chat folders the session holds, oldest path first, with
+// the chat that recorded it; the newest version's number is how many versions the path has.
 static FILE_ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {MANIFEST_COLUMNS}, manifests.workspace_path, manifests.version_number
-  FROM artifact_manifests AS manifests
-  WHERE manifests.session_id = @sessionId
-    AND manifests.workspace_path IS NOT NULL
+        "SELECT {MANIFEST_COLUMNS}, manifests.workspace_path, manifests.version_number,
+       manifests.session_id
+  FROM managed_folder_holds AS hold
+  JOIN artifact_manifests AS manifests
+    ON manifests.repo_mount_id = hold.repo_mount_id AND manifests.workspace_path IS NOT NULL
+  WHERE hold.session_id = @sessionId
     AND manifests.version_number = (SELECT MAX(newer.version_number)
                                       FROM artifact_manifests AS newer
-                                     WHERE newer.session_id = manifests.session_id
+                                     WHERE newer.repo_mount_id = manifests.repo_mount_id
                                        AND newer.workspace_path = manifests.workspace_path)
-  ORDER BY manifests.workspace_path"
+  ORDER BY manifests.workspace_path, manifests.repo_mount_id"
     )
 });
 
-/// The artifacts of `session_id`: its plans, then its chat's files and folders. Fails with
-/// `session.notFound` for a session the daemon does not hold, and as the read fails.
+/// The artifacts of `session_id`: its plans, then the files and folders of its chat folder. Fails
+/// with `session.notFound` for a session the daemon does not hold, and as the read fails.
 pub async fn list_artifacts(
     reads: &DatabaseReadPool,
     session_id: SessionId,
@@ -99,8 +104,10 @@ fn read_list_entries(
     let files = files.query_map(
         named_params! { "@sessionId": session_id.text().as_str() },
         |row| {
+            let recorded_on =
+                text_column(row, MANIFEST_COLUMN_COUNT + 2, |text| SessionId::new(&text))?;
             Ok(ArtifactListEntry::File {
-                manifest: read_manifest(row, session_id)?,
+                manifest: read_manifest(row, recorded_on)?,
                 path: text_column(row, MANIFEST_COLUMN_COUNT, |text| {
                     ComposedText::new(text).ok_or(StoredPathEmptyError)
                 })?,

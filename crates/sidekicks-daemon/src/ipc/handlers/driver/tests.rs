@@ -96,6 +96,7 @@ fn model(id: &str) -> ProviderModel {
         "capabilities": [],
         "fast": false,
         "largerWindow": false,
+        "isDefault": false,
     }))
     .expect("the test's model reads")
 }

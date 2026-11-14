@@ -17,9 +17,8 @@ use crate::driver::claude::session::scripted::binding_id;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
-use crate::driver::claude::spawn::launch::initialize_reply::{
-    ClaudeListedCommand, read_claude_listed_command_rows,
-};
+use crate::driver::claude::spawn::launch::initialize_reply::read_claude_listed_command_rows;
+use crate::driver::claude::spawn::launch::session_listing::ClaudeSessionListing;
 use crate::driver::contract::params_and_results::ListProviderCommandsParams;
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -44,15 +43,19 @@ fn text<const MAX: usize>(text: &str) -> FreeFormText<MAX> {
     FreeFormText::new(text.to_owned()).expect("the test's text fits")
 }
 
-// The rows a resting session's `initialize` reply lists, read as the read reads them: a command
-// with the empty hint Claude Code lists for one that takes none, and a tool server's prompt.
-fn listed_rows() -> Vec<ClaudeListedCommand> {
+// The listing a resting session's `initialize` reply gives, its rows read as the read reads them:
+// a command with the empty hint Claude Code lists for one that takes none, and a tool server's
+// prompt.
+fn listed_rows() -> ClaudeSessionListing {
     let reply = json!({"commands": [
         {"name": "review", "description": "Review the diff", "argumentHint": ""},
         {"name": "github:list_prs (MCP)", "description": "List PRs", "argumentHint": ""},
     ]});
     let reply = serde_json::value::to_raw_value(&reply).expect("a test reply serializes");
-    read_claude_listed_command_rows(Some(&reply))
+    ClaudeSessionListing {
+        commands: read_claude_listed_command_rows(Some(&reply)),
+        agents: Vec::new(),
+    }
 }
 
 fn command(name: &str, description: Option<&str>) -> ProviderCommandEntry {
@@ -97,8 +100,8 @@ async fn a_live_session_lists_its_declaration_and_one_at_rest_its_read(#[case] i
     };
     let rows = listed_rows();
     // Read absent, not as a hint the entry's bounds would refuse and report.
-    assert_eq!(rows[0].argument_hint, None);
-    fixture.starts.script_session_commands(rows);
+    assert_eq!(rows.commands[0].argument_hint, None);
+    fixture.starts.script_session_listing(rows);
     let asked = params(session_id);
 
     let listed = fixture
@@ -133,7 +136,7 @@ async fn a_live_session_lists_its_declaration_and_one_at_rest_its_read(#[case] i
         }
     );
     assert_eq!(
-        fixture.starts.take_session_commands_read_count(),
+        fixture.starts.take_session_listing_read_count(),
         usize::from(!is_live)
     );
 }
@@ -144,9 +147,9 @@ async fn a_live_session_lists_its_declaration_and_one_at_rest_its_read(#[case] i
 async fn concurrent_resting_reads_share_one_process_and_none_is_kept() {
     let fixture = ScriptedDriver::new();
     let session_id = new_session_id();
-    let release = fixture.starts.hold_next_session_commands_read();
-    fixture.starts.script_session_commands(listed_rows());
-    fixture.starts.script_session_commands(listed_rows());
+    let release = fixture.starts.hold_next_session_listing_read();
+    fixture.starts.script_session_listing(listed_rows());
+    fixture.starts.script_session_listing(listed_rows());
     let asked = params(session_id);
 
     let mut first = pin!(fixture.driver.list_provider_commands(asked.clone()));
@@ -158,7 +161,7 @@ async fn concurrent_resting_reads_share_one_process_and_none_is_kept() {
     let second = second.await.expect("the second read answers");
 
     assert_eq!(first, second);
-    assert_eq!(fixture.starts.take_session_commands_read_count(), 1);
+    assert_eq!(fixture.starts.take_session_listing_read_count(), 1);
 
     let third = fixture
         .driver
@@ -167,5 +170,5 @@ async fn concurrent_resting_reads_share_one_process_and_none_is_kept() {
         .expect("the third read answers");
 
     assert_eq!(third.entries, first.entries);
-    assert_eq!(fixture.starts.take_session_commands_read_count(), 1);
+    assert_eq!(fixture.starts.take_session_listing_read_count(), 1);
 }

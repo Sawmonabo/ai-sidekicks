@@ -230,6 +230,7 @@ async fn write_user_file(
     before: &McpServerObserved,
     cwd: &Path,
 ) -> Result<(), McpServerWriteOutcome> {
+    let written_members = written_members(&edits, binding.server_name());
     let params = ConfigBatchWriteParams {
         edits: edits
             .into_iter()
@@ -249,7 +250,12 @@ async fn write_user_file(
             // A reply that does not read as a landed write leaves the write's fate unknown.
             Some(_) | None => Err(McpServerWriteOutcome::Unknown),
         },
-        Err(error) => Err(batch_write_failure(connection, error, binding, before, cwd).await),
+        Err(error) => {
+            Err(
+                batch_write_failure(connection, error, binding, &written_members, before, cwd)
+                    .await,
+            )
+        }
     }
 }
 
@@ -260,12 +266,36 @@ struct BatchWriteReply {
     status: String,
 }
 
-/// The outcome of a batch write that failed with `error`. A version conflict reads the config
-/// once more at `cwd` for the version it holds now; nothing else is sent.
+/// The members of `server_name`'s entry that `edits` set: the key after the entry's own path, or
+/// every key of a value written to the entry's path whole.
+fn written_members(edits: &[(String, Value)], server_name: &McpServerName) -> Vec<String> {
+    let entry_path = server_key_path(server_name);
+    edits
+        .iter()
+        .flat_map(
+            |(key_path, value)| match key_path.strip_prefix(&entry_path) {
+                Some("") => value
+                    .as_object()
+                    .map(|members| members.keys().cloned().collect())
+                    .unwrap_or_default(),
+                Some(member_path) => member_path
+                    .strip_prefix('.')
+                    .map(|member| vec![member.to_owned()])
+                    .unwrap_or_default(),
+                None => Vec::new(),
+            },
+        )
+        .collect()
+}
+
+/// The outcome of a batch write that failed with `error`, which wrote `written_members` of the
+/// binding's entry. A version conflict reads the config once more at `cwd` for the version it
+/// holds now; nothing else is sent.
 async fn batch_write_failure(
     connection: &CodexAppServerConnection,
     error: CodexError,
     binding: &McpServerBindingRef,
+    written_members: &[String],
     before: &McpServerObserved,
     cwd: &Path,
 ) -> McpServerWriteOutcome {
@@ -308,26 +338,33 @@ async fn batch_write_failure(
                 }
             }
         }
-        Some(CONFIG_VALIDATION_ERROR_CODE) => {
-            McpServerWriteOutcome::Refused(if names_entry(message, binding.server_name()) {
+        Some(CONFIG_VALIDATION_ERROR_CODE) => McpServerWriteOutcome::Refused(
+            if names_entry(message, binding.server_name(), written_members) {
                 McpServerWriteRefusal::EntryInvalid { words }
             } else {
                 McpServerWriteRefusal::ConfigFileInvalid { words }
-            })
-        }
+            },
+        ),
         Some(_) | None => McpServerWriteOutcome::Refused(McpServerWriteRefusal::Provider { words }),
     }
 }
 
-/// Whether Codex's validation `message` faults a member of `server_name`'s own entry: it names
-/// `mcp_servers.<name>` followed by `.` or the closing backtick.
-fn names_entry(message: &str, server_name: &McpServerName) -> bool {
+/// Whether Codex's validation `message` faults `server_name`'s own entry: it names
+/// `mcp_servers.<name>` followed by the closing backtick, or by `.` and one of `written_members`.
+/// Codex joins the path's keys with `.` unquoted, so the fault of `docs.v2`'s entry also reads as
+/// a path under `docs`; only a member this write set ties it to this entry.
+fn names_entry(message: &str, server_name: &McpServerName, written_members: &[String]) -> bool {
     let entry_path = format!("{MCP_SERVERS_KEY}.{}", server_name.as_str());
     message.match_indices(&entry_path).any(|(at, _path)| {
-        matches!(
-            message[at + entry_path.len()..].chars().next(),
-            Some('.' | '`')
-        )
+        let rest = &message[at + entry_path.len()..];
+        rest.starts_with('`')
+            || rest.strip_prefix('.').is_some_and(|member_path| {
+                written_members.iter().any(|member| {
+                    member_path
+                        .strip_prefix(member.as_str())
+                        .is_some_and(|after| after.starts_with(['.', '`']))
+                })
+            })
     })
 }
 
@@ -656,31 +693,39 @@ mod tests {
         );
     }
 
-    // Killed by a file fault read as the entry's, the entry's read as the file's, the raw
-    // message, and a path taken from the message.
+    // Killed by a file fault read as the entry's, the entry's read as the file's, a fault under a
+    // longer name read as the shorter name's entry, and the raw message. Codex names the faulted
+    // key path, unquoted, and no file.
     #[rstest]
-    #[case::another_entry("mcp_servers.other.enabled", true)]
-    #[case::the_written_entry("mcp_servers.docs.v2.enabled", false)]
+    #[case::another_entry("docs.v2", "mcp_servers.other.enabled", true)]
+    #[case::the_written_entry("docs.v2", "mcp_servers.docs.v2.enabled", false)]
+    #[case::the_written_entry_whole("docs.v2", "mcp_servers.docs.v2", false)]
+    #[case::an_entry_whose_name_extends_it("docs", "mcp_servers.docs.v2.enabled", true)]
+    #[case::a_member_the_write_did_not_set("docs", "mcp_servers.docs.command", true)]
     #[tokio::test]
     async fn a_fault_outside_the_entry_is_a_file_fault_with_no_value(
+        #[case] written_server: &str,
         #[case] faulted_path: &str,
         #[case] is_file_fault: bool,
     ) {
         let (connection, mut script, _frames) = scripted_connection();
         let before = observed(json!({ "command": "npx", "enabled": true }));
         let write = McpServerWrite::SetEnabled {
-            binding: user_binding("docs.v2").binding(),
+            binding: user_binding(written_server).binding(),
             is_enabled: false,
         };
         let message = format!(
-            "Invalid configuration: invalid type: string \"{SECRET}\", expected a boolean in \
-             /Users/x/.codex/config.toml in `{faulted_path}`"
+            "Invalid configuration: invalid type: string \"{SECRET}\", expected a boolean\nin \
+             `{faulted_path}`\n"
         );
         let script_run = async {
             let sent = script.next_sent().await;
             assert_eq!(
                 edits_by_path(&sent),
-                members(json!({ "mcp_servers.\"docs.v2\".enabled": false }))
+                members(Value::Object(Map::from_iter([(
+                    format!("mcp_servers.\"{written_server}\".enabled"),
+                    Value::Bool(false),
+                )])))
             );
             script.send(&refusal(
                 &sent,
@@ -709,7 +754,6 @@ mod tests {
             };
         assert_eq!(is_refused_as_file_fault, is_file_fault);
         assert!(!words.contains(SECRET), "{words}");
-        assert!(!words.contains("/Users/x"), "{words}");
         assert!(script.sent.try_recv().is_err(), "nothing follows a refusal");
     }
 }
