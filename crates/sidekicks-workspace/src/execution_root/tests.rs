@@ -13,10 +13,11 @@ use super::ExecutionRootError;
 use super::test_fixture::{ExecutionRootFixture, MOUNT_ID, SESSION_ID};
 use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::schema::schema_parts;
-use crate::test_rows::PARENT_ROWS_AT;
+use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 const WORKSPACE_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e82";
 const DAEMON_TREE_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e83";
+const DETACHED_MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e84";
 
 // Far past any git call these tests make, so only a preparation waiting on itself reaches it.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(60);
@@ -149,6 +150,66 @@ async fn a_move_binds_a_person_made_tree_as_a_checkout_and_keeps_one_context_per
         1
     );
     assert_eq!(fixture.workspace(workspace_id).state, "ready");
+}
+
+#[tokio::test]
+async fn a_move_into_a_tree_another_mount_of_the_repository_retired_is_refused() {
+    // Catches the guard reading the workspace's own mount alone: the move would land in a tree a
+    // detached project of the same repository left, which the cleanup deletes.
+    let fixture = ExecutionRootFixture::new().await;
+    let common_folder = fixture.repository.join(".git");
+    for row in project_and_mount_rows(DETACHED_MOUNT_ID, None) {
+        fixture
+            .rows
+            .execute_batch(&row)
+            .expect("the detached project and its mount are stored");
+    }
+    fixture
+        .rows
+        .execute(
+            "UPDATE repo_mounts SET state = 'detached', canonical_root = ?1, \
+             metadata = json_set(metadata, '$.commonDir', ?2) WHERE id = ?3",
+            params![
+                fixture.repository.to_string_lossy(),
+                common_folder.to_string_lossy(),
+                DETACHED_MOUNT_ID
+            ],
+        )
+        .expect("the detached mount held the same repository");
+    fixture
+        .rows
+        .execute(
+            "UPDATE repo_mounts SET metadata = json_set(metadata, '$.commonDir', ?1) WHERE id = ?2",
+            params![common_folder.to_string_lossy(), MOUNT_ID],
+        )
+        .expect("the mount records its repository's common folder");
+    let left_tree = fixture.add_tree("left").await;
+    fixture
+        .rows
+        .execute(
+            "INSERT INTO worktrees (id, repo_mount_id, created_by_session_id, branch_name, \
+             base_ref, fs_root, state, created_at, updated_at) VALUES (?1, ?2, ?3, 'left', \
+             'main', ?4, 'retired', ?5, ?5)",
+            params![
+                DAEMON_TREE_ID,
+                DETACHED_MOUNT_ID,
+                SESSION_ID,
+                left_tree.to_string_lossy(),
+                PARENT_ROWS_AT
+            ],
+        )
+        .expect("the detached project's retired tree is recorded");
+    let workspace_id = fixture.bind().await;
+
+    let refused = fixture
+        .move_to(workspace_id, &left_tree)
+        .await
+        .expect_err("a move into the retired tree is refused");
+
+    assert_eq!(
+        refusal_code(refused),
+        RefusalCode::RepoMountOutsideTrustEnvelope
+    );
 }
 
 #[tokio::test]

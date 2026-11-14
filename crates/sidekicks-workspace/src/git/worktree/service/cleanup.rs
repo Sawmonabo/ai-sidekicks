@@ -4,7 +4,10 @@
 //!
 //! - A retired tree holding what the person could lose is never deleted: it is kept aside whole
 //!   and listed with the removed worktrees, or, on a mount no longer attached, left where it is.
-//! - A tree a run works in, or a session stands in, is left for a later pass.
+//! - A tree a run works in, or any live workspace of any mount stands at or inside, a session's or
+//!   a workflow run's, is left for a later pass. The folder is held closing from before that read
+//!   until it is deleted or kept aside, and a workspace written into it meanwhile is refused, so
+//!   none arrives between the read and the delete.
 //! - Before a folder goes, the processes the daemon started in it are ended through their owners,
 //!   and git's built-in file-watch daemon for the tree is stopped, since nothing else would end it
 //!   once its folder is gone.
@@ -87,9 +90,9 @@ static SELECT_SWEEPABLE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// Whether a run works in the tree, or a session stands in it, is decided per row by resolved path
-// just before its removal, never here. A live tree at the same folder, one put back there, owns
-// the folder now, so the retired row leaves it alone.
+// Whether a run works in the tree, or a workspace stands in it, is decided per row by resolved
+// path just before its removal, never here. A live tree at the same folder, one put back there,
+// owns the folder now, so the retired row leaves it alone.
 static SELECT_UNCLEANED_RETIRED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {WORKTREE_ROW_COLUMNS}, mount.place, wt.retired_risk_digest,
@@ -132,6 +135,9 @@ pub struct WorktreeCleanupReport {
     pub cleaned: Vec<WorktreeId>,
     /// Retired trees whose folder held something new, kept aside or left where they are.
     pub kept: Vec<WorktreeId>,
+    /// Retired trees left for a later pass because a run works in them or a workspace stands in
+    /// them.
+    pub deferred: Vec<WorktreeId>,
     /// The entries git's index listed across the cleaned trees whose record the pass removed,
     /// read before each record went: their tracked files, never untracked or ignored ones.
     pub cleaned_index_entries: u64,
@@ -214,14 +220,14 @@ enum RetiredFolderOutcome {
 impl WorktreeService {
     /// One sweep: retires live trees on a mount no longer attached, stamping them cleaned so their
     /// folders stay on disk, then empties each retired folder with no `cleaned_at` while no run
-    /// works in it and no session stands in it. A folder whose risk read shows nothing to lose, or
-    /// the same as its retirement recorded, is deleted: the processes `owners` started in it ended,
-    /// then git's record, then the folder, then the stamp. One holding anything more has those
-    /// processes ended and goes to `keeper`, or on a mount no longer attached is left where it is,
-    /// since a detach touches nothing on disk. A row that fails does not stop
-    /// the others; once every row has been tried, every failure is returned together. The pass is
-    /// idempotent and re-entrant, and once `cancel` is canceled it stops between rows, leaving the
-    /// rest to the next pass.
+    /// works in it and no live workspace of any mount stands at or inside it. A folder whose risk
+    /// read shows nothing to lose, or the same as its retirement recorded, is deleted: the
+    /// processes `owners` started in it ended, then git's record, then the folder, then the stamp.
+    /// One holding anything more has those processes ended and goes to `keeper`, or on a mount no
+    /// longer attached is left where it is, since a detach touches nothing on disk. A row that
+    /// fails does not stop the others; once every row has been tried, every failure is returned
+    /// together. The pass is idempotent and re-entrant, and once `cancel` is canceled it stops
+    /// between rows, leaving the rest to the next pass.
     pub async fn cleanup_pass(
         &self,
         keeper: &dyn RetiredWorktreeKeeper,
@@ -276,7 +282,9 @@ impl WorktreeService {
                         Ok(RetiredFolderOutcome::Kept) => {
                             report.kept.push(retired.row.id);
                         }
-                        Ok(RetiredFolderOutcome::Deferred) => {}
+                        Ok(RetiredFolderOutcome::Deferred) => {
+                            report.deferred.push(retired.row.id);
+                        }
                         Err(cause) => outcomes.push(Err(WorktreeCleanupFailure::Tree {
                             worktree_id: retired.row.id,
                             cause,
@@ -301,8 +309,16 @@ impl WorktreeService {
         if !is_named_worktree_folder(&self.deps.worktrees_folder, folder) {
             return Err(WorktreeCleanupError::UnnamedFolder);
         }
+        let folder_key = canonical_folder_path(folder)
+            .await
+            .map_err(WorktreeServiceError::Folder)?;
+        // Held until the folder is deleted or kept aside; none while a workspace is being written
+        // there, which the next pass reads.
+        let Some(_closing) = self.deps.occupancy.hold_closing(&folder_key) else {
+            return Ok(RetiredFolderOutcome::Deferred);
+        };
         // Decided per row, right before removal: earlier removals are waits a run can start in.
-        if self.is_folder_in_use(row).await? {
+        if self.is_folder_in_use(row, &folder_key).await? {
             return Ok(RetiredFolderOutcome::Deferred);
         }
         // Read while git still knows the tree, which names the record only from inside it. A pass
@@ -360,17 +376,17 @@ impl WorktreeService {
         Ok(RetiredFolderOutcome::Cleaned { index_entries })
     }
 
-    // A run works in the tree, by the test its removal refuses on, or a session stands in its
-    // folder, by the mount's occupancy read its removal also asks.
-    async fn is_folder_in_use(&self, row: &WorktreeRow) -> Result<bool, WorktreeCleanupError> {
+    // A run works in the tree, by the test its removal refuses on, or any live workspace of any
+    // mount stands at or inside its folder, whose key is `folder_key`.
+    async fn is_folder_in_use(
+        &self,
+        row: &WorktreeRow,
+        folder_key: &Path,
+    ) -> Result<bool, WorktreeCleanupError> {
         if self.running_session_in(row).await?.is_some() {
             return Ok(true);
         }
-        let occupancy = self.deps.occupancy.read(&row.repo_mount_id).await?;
-        let folder = canonical_folder_path(Path::new(row.fs_root.as_str()))
-            .await
-            .map_err(WorktreeServiceError::Folder)?;
-        Ok(occupancy.standing_by_folder.contains_key(&folder))
+        Ok(self.deps.occupancy.is_stood_in(folder_key).await?)
     }
 
     // Git shows something in the tree to lose beyond what its retirement recorded: anything at all

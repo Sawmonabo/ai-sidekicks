@@ -121,11 +121,13 @@ impl ExecutionRootFixture {
             database.path(),
             READ_STATEMENT_CAPACITY,
         ));
+        let occupancy = MountOccupancyReader::new(Arc::clone(&reads));
         let workspaces = Arc::new(WorkspaceService::new(WorkspaceServiceDeps {
             reads: Arc::clone(&reads),
             events: Arc::new(WorkspaceEventEmitter::new(Arc::clone(&log.service))),
             resolver: RepoRootResolver::new(git.clone()),
             writer: Arc::clone(&log.writer),
+            occupancy: occupancy.clone(),
         }));
         let events = Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service)));
         let worktrees_folder = scratch_root.join("worktrees");
@@ -134,7 +136,7 @@ impl ExecutionRootFixture {
             reads: Arc::clone(&reads),
             writer: Arc::clone(&log.writer),
             events: Arc::clone(&events),
-            occupancy: MountOccupancyReader::new(Arc::clone(&reads)),
+            occupancy,
             worktrees_folder: worktrees_folder.clone(),
         }));
         let setup = Arc::new(test_setup_runner(

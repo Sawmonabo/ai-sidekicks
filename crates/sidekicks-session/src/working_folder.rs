@@ -4,7 +4,8 @@
 //! The row holds at most one, so a later request replaces it, and a request for the folder the
 //! session already works in clears it. A removed tree's sessions are swept back to the
 //! repository's own checkout; one with a run still bound in that tree, an agent run or a workflow
-//! run, keeps its folder until that run is released, and is swept at that run's end.
+//! run, keeps its folder until that run is released, and is swept at that run's end. A move that
+//! completes sweeps its session again, so one that landed in a tree removed meanwhile goes home.
 //!
 //! - Each move takes one workspace's preparation hold at a time, and a move at a run's boundary
 //!   runs under the hold the gate gives it, never taking it again.
@@ -36,7 +37,6 @@ use sidekicks_contracts::session::directory::{
     SessionWorkingFolderUpdateResponse,
 };
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
@@ -58,6 +58,7 @@ use sidekicks_workspace::execution_root::{
 };
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
 use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
+use sidekicks_workspace::git::worktree::occupancy::REPOSITORY_STANDING_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::rows::UNRELEASED_RUNS_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::errors::RepoRefusal;
 use sidekicks_workspace::row_guards::CHECKOUT_ROOT_METADATA_PATH;
@@ -69,11 +70,11 @@ use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 use crate::working_folder::pending::PendingMove;
 
 /// The statements the working folders' reads keep prepared on each read connection: a session's
-/// pending move, every pending move, a session's workspace, a mount's workspaces, a mount's root,
-/// a session's live run, the removed tree it works in, and the unreleased runs a sweep reads, a
-/// read the worktree service shares.
+/// pending move, every pending move, a session's workspace, a session's live run, the removed tree
+/// it works in, the standing reads a sweep makes through the occupancy's statements, and the
+/// unreleased runs a sweep reads, a read the worktree service shares.
 pub const SESSION_WORKING_FOLDERS_STATEMENT_CAPACITY: usize =
-    7 + UNRELEASED_RUNS_STATEMENT_CAPACITY;
+    5 + REPOSITORY_STANDING_STATEMENT_CAPACITY + UNRELEASED_RUNS_STATEMENT_CAPACITY;
 
 // Why a session with no working folder cannot move.
 const CANNOT_MOVE: &str = "The session works in no folder any more, so it cannot move.";
@@ -163,14 +164,6 @@ pub enum SessionWorkingFolderError {
     /// The workspace of a move to the folder already waiting was not written.
     #[error("the workspace of the session's pending move could not be written")]
     Write(#[from] WriteError),
-    /// The removed tree's mount has no row to sweep its sessions to.
-    #[error("cannot sweep worktree {worktree_id}: its mount {repo_mount_id} has no row")]
-    MountMissing {
-        /// The removed tree.
-        worktree_id: WorktreeId,
-        /// Its mount.
-        repo_mount_id: RepoMountId,
-    },
     /// One or more sessions of a sweep could not be swept; every other session was.
     #[error(transparent)]
     Sweep(#[from] SettleFailures<SessionSweepFailure>),
@@ -199,7 +192,6 @@ impl From<SessionWorkingFolderError> for HandlerError {
             | SessionWorkingFolderError::Folder(_)
             | SessionWorkingFolderError::Append(_)
             | SessionWorkingFolderError::Write(_)
-            | SessionWorkingFolderError::MountMissing { .. }
             | SessionWorkingFolderError::Sweep(_)) => Self::Internal(Box::new(fault)),
         }
     }
@@ -288,6 +280,8 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
                 .await?;
             drop(hold);
             self.store_pending(session_id, None).await?;
+            self.sweep_session_from_removed_tree(session_id, None, None)
+                .await?;
             return Ok(response(SessionWorkingFolderDisposition::Applied));
         }
         drop(hold);
@@ -326,6 +320,10 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
             PendingTake::Move(_, folder) => {
                 self.execution_roots
                     .move_to_folder_held(&hold, &folder, append_hold)
+                    .await?;
+                // The sweep takes the hold itself.
+                drop(hold);
+                self.sweep_session_from_removed_tree(session_id, append_hold, None)
                     .await?;
                 Ok(SessionWorkingFolderDisposition::Applied)
             }
@@ -432,6 +430,8 @@ impl<W: Watcher + Send + Sync + 'static> SessionFolderMoves for SessionWorkingFo
             self.execution_roots
                 .move_to_folder_held(hold, &folder, None)
                 .await?;
+            self.sweep_session_from_removed_tree(*session_id, None, Some(hold))
+                .await?;
             Ok(())
         }
         .boxed()
@@ -458,9 +458,8 @@ impl<W: Watcher + Send + Sync + 'static> SessionFolderMoves for SessionWorkingFo
         hold: Option<&'a SessionAppendHold>,
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
         async move {
-            if let Some(sweep) = self.read_removed_tree_of(*session_id).await? {
-                self.sweep(&sweep, hold).await?;
-            }
+            self.sweep_session_from_removed_tree(*session_id, hold, None)
+                .await?;
             Ok(())
         }
         .boxed()

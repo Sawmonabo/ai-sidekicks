@@ -83,7 +83,8 @@ static DETACH_OLD_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // The new mount takes the old one's machine, place and project at the folder bound, anchored on
 // the repository there now, and owes its first verdict to each session on it, naming the old one
-// to the sessions whose workspaces move to it next; its project is answered for the service log.
+// to the sessions whose own workspaces move to it next; its project is answered for the service
+// log.
 static INSERT_NEW_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO repo_mounts (
@@ -97,7 +98,8 @@ static INSERT_NEW_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
                   '{REPLACED_REPO_MOUNT_METADATA_PATH}', @repo_mount_id,
                   '{MOVED_SESSIONS_METADATA_PATH}', json((
                     SELECT json_group_array(DISTINCT session_id) FROM workspaces
-                     WHERE repo_mount_id = @repo_mount_id AND state <> '{}')))
+                     WHERE repo_mount_id = @repo_mount_id AND state <> '{}'
+                       AND workflow_run_id IS NULL)))
     FROM repo_mounts
    WHERE id = @repo_mount_id
   RETURNING project_id",

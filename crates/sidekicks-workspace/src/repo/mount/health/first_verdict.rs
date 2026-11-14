@@ -1,8 +1,9 @@
-//! The first verdict a re-attach or a move owes each session on the mount it made. The commit's
-//! write records the replaced mount on the new mount's row; every pass of the new mount sends its
-//! verdict to each session on it whose log holds no health of the new mount, and clears the record
-//! only after a pass whose every such send was appended, so a send that failed or that a stop cut
-//! off is sent by the next pass, and a session that has it is never sent it again.
+//! The first verdict a re-attach or a move owes each session on the mount it made, a session being
+//! on a mount by a live workspace of its own there, never by a workflow run's. The commit's write
+//! records the replaced mount on the new mount's row; every pass of the new mount sends its verdict
+//! to each session on it whose log holds no health of the new mount, and clears the record only
+//! after a pass whose every such send was appended, so a send that failed or that a stop cut off is
+//! sent by the next pass, and a session that has it is never sent it again.
 //!
 //! A mount ended while it still owed its own first verdict keeps its record, since only a pass of
 //! an attached mount clears one, so the records chain from the newest mount back through each one
@@ -51,8 +52,9 @@ static REPLACED_CHAIN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The sessions with a live workspace on the mount whose log holds no health of it, each with the
-// replaced mount its verdict names, null for a session the write did not move onto the mount.
+// The sessions with a live workspace of their own on the mount whose log holds no health of it,
+// each with the replaced mount its verdict names, null for a session the write did not move onto
+// the mount.
 static SELECT_UNTOLD_SESSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{}
@@ -75,6 +77,7 @@ SELECT untold.session_id, CASE WHEN EXISTS (
     SELECT DISTINCT workspace.session_id
       FROM workspaces AS workspace
      WHERE workspace.repo_mount_id = @repo_mount_id AND workspace.state <> '{archived}'
+       AND workspace.workflow_run_id IS NULL
        AND NOT EXISTS (
          SELECT 1 FROM session_events AS event
           WHERE event.session_id = workspace.session_id AND event.type = '{health_changed}'

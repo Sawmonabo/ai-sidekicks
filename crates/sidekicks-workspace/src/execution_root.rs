@@ -59,6 +59,7 @@ use crate::git::worktree::creation::{
     NameCollision, WorktreeCreationError, WorktreeCreator, WorktreeNameRequest,
 };
 use crate::git::worktree::errors::WorktreeRefusal;
+use crate::git::worktree::occupancy::repository_mounts_of;
 use crate::git::worktree::rows::{newest_branch_context_join, standing_worktree_state_predicate};
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceError};
 use crate::git::worktree::setup::WorktreeSetupRunner;
@@ -68,7 +69,7 @@ use crate::service::{WorkspaceRow, WorkspaceService, WorkspaceServiceError, wire
 use crate::trust_envelope::components_equal;
 
 /// The statements the execution roots' reads keep prepared on each read connection: the mount's
-/// live trees and its retired trees whose folders still stand.
+/// live trees and its repository's retired trees whose folders still stand.
 pub const EXECUTION_ROOT_SERVICE_STATEMENT_CAPACITY: usize = 2;
 
 // The daemon's trees on the mount that stand ready to work in, each with the branches its newest
@@ -86,11 +87,13 @@ static SELECT_STANDING_WORKTREES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The daemon's retired trees on the mount whose folders the sweep has not yet dealt with.
+// The daemon's retired trees on any mount of the mount's repository, a detached project's of the
+// same repository among them, whose folders the sweep has not yet dealt with.
 static SELECT_UNSWEPT_RETIRED_ROOTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT fs_root FROM worktrees
-  WHERE repo_mount_id = @repo_mount_id AND state = '{}' AND cleaned_at IS NULL",
+  WHERE repo_mount_id IN ({}) AND state = '{}' AND cleaned_at IS NULL",
+        repository_mounts_of("@repo_mount_id"),
         <&'static str>::from(WorktreeState::Retired)
     )
 });
@@ -167,7 +170,8 @@ impl From<WorkspaceServiceError> for ExecutionRootError {
             | WorkspaceServiceError::Read(_)
             | WorkspaceServiceError::Row(_)
             | WorkspaceServiceError::HealthProjection(_)
-            | WorkspaceServiceError::Append(_)) => Self::Workspace(fault),
+            | WorkspaceServiceError::Append(_)
+            | WorkspaceServiceError::Folder(_)) => Self::Workspace(fault),
         }
     }
 }
@@ -471,7 +475,7 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
     /// `workspace.rootUnavailable` when the mount's folder is out of reach,
     /// `repoMount.rootResolutionFailed` when it holds another repository, and
     /// `repoMount.outsideTrustEnvelope` for any other folder, with reason `worktreeRemoved` for a
-    /// retired tree whose folder the sweep has not yet removed.
+    /// retired tree of any mount of the repository whose folder the sweep has not yet removed.
     pub async fn require_listed_tree(
         &self,
         workspace_id: WorkspaceId,
@@ -538,7 +542,7 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
             ));
         }
         // A retired tree git still lists is the sweep's to delete, so work done there would be
-        // lost.
+        // lost; one a detached project of the same repository left counts too.
         let target = canonical_folder_path(&admitted.execution_root)
             .await
             .map_err(ExecutionRootError::Folder)?;

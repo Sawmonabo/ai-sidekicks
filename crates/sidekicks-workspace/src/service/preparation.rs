@@ -151,6 +151,11 @@ impl WorkspaceService {
         }
         let row = self.require_workspace_row(workspace_id).await?;
         refuse_illegal_predecessor(&row, &[WorkspaceState::Preparing], "finish preparing")?;
+        // Held until the write commits, so the cleanup never deletes the checkout under it.
+        let _landing = self
+            .occupancy
+            .hold_landing(&completed.checkout_root)
+            .await?;
         let statement = WriteStatement {
             sql: Cow::Borrowed(COMPLETE_ROOT_PREPARATION_SQL.as_str()),
             bindings: StatementBindings::Named(vec![

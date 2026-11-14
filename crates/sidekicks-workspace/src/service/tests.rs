@@ -21,6 +21,7 @@ use super::{
 };
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::git::process::{GitCall, test_git_runner};
+use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::schema::schema_parts;
 use crate::repo::root_resolver::RepoRootResolver;
 use crate::test_rows::PARENT_ROWS_AT;
@@ -35,14 +36,16 @@ const NON_HOLDER_SESSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e74";
 /// a connection the test writes rows through.
 async fn open_service(database: &TestDatabase) -> (Arc<WorkspaceService>, Connection) {
     let log = open_log(database, None).await;
+    let reads = Arc::new(DatabaseReadPool::new(
+        database.path(),
+        WORKSPACE_SERVICE_STATEMENT_CAPACITY,
+    ));
     let service = WorkspaceService::new(WorkspaceServiceDeps {
-        reads: Arc::new(DatabaseReadPool::new(
-            database.path(),
-            WORKSPACE_SERVICE_STATEMENT_CAPACITY,
-        )),
+        reads: Arc::clone(&reads),
         events: Arc::new(WorkspaceEventEmitter::new(log.service)),
         resolver: RepoRootResolver::new(test_git_runner()),
         writer: log.writer,
+        occupancy: MountOccupancyReader::new(reads),
     });
     let rows = database.reader();
     insert_session_row(&rows, SESSION_ID, None, None);
@@ -106,7 +109,8 @@ fn refusal_code(error: &WorkspaceServiceError) -> RefusalCode {
         | WorkspaceServiceError::Read(_)
         | WorkspaceServiceError::Row(_)
         | WorkspaceServiceError::HealthProjection(_)
-        | WorkspaceServiceError::Append(_)) => panic!("the call is refused, not {other:?}"),
+        | WorkspaceServiceError::Append(_)
+        | WorkspaceServiceError::Folder(_)) => panic!("the call is refused, not {other:?}"),
     }
 }
 

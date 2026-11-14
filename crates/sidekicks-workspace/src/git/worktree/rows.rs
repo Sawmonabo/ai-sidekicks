@@ -116,7 +116,7 @@ pub(crate) struct NewWorktreeRow {
 /// The SQL condition that the `worktrees` row read as `table` is live, on disk and holding its
 /// branch; built from the same state list as `idx_worktrees_active_branch`, so live reads agree
 /// with it.
-pub(crate) fn live_worktree_state_predicate(table: &str) -> String {
+pub fn live_worktree_state_predicate(table: &str) -> String {
     format!(
         "{table}.state NOT IN ({})",
         BRANCH_RELEASING_STATE_LIST.as_str()

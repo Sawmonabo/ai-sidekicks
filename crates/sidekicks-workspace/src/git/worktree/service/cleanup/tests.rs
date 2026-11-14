@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::{Connection, params};
-use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
+use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountState, WorkspaceState};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 use sidekicks_std::settle_all::SettleFailures;
@@ -332,6 +332,85 @@ async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_fail
     assert_eq!(second.kept, [kept]);
     assert!(!tree_at("busy").exists());
     assert!(!tree_at("standing").exists());
+}
+
+// Kills the standing read scoped to the tree's own mount, which deletes a folder the repository's
+// mount added again stands in, and a workflow run's workspace left out of that read.
+#[rstest]
+#[case::a_session_s_workspace(false)]
+#[case::a_workflow_run_s_workspace(true)]
+#[tokio::test]
+async fn a_detached_project_s_tree_is_kept_while_a_workspace_of_another_mount_stands_in_it(
+    #[case] is_run_owned: bool,
+) {
+    let fixture = CleanupFixture::new(test_git_runner()).await;
+    let folder = fixture.add_tree("left").await;
+    let connection = fixture.database.reader();
+    let left = store_retired_tree(&connection, &fixture.mount, &folder);
+    connection
+        .execute(
+            "UPDATE repo_mounts SET state = ?1 WHERE id = ?2",
+            params![
+                <&'static str>::from(RepoMountState::Detached),
+                fixture.mount
+            ],
+        )
+        .expect("the project's mount is detached");
+    let added_again = new_id();
+    for row in project_and_mount_rows(&added_again, None) {
+        connection
+            .execute_batch(&row)
+            .expect("the repository's new project and mount are stored");
+    }
+    connection
+        .execute(
+            "UPDATE repo_mounts SET canonical_root = ?1 WHERE id = ?2",
+            params![fixture.repository.to_string_lossy(), added_again],
+        )
+        .expect("the new mount points at the same repository");
+    let standing = stand_below(&connection, &added_again, &folder);
+    if is_run_owned {
+        // A run-owned workspace whose run has no context yet, so only the workspace holds it.
+        connection
+            .execute(
+                "UPDATE workspaces SET workflow_run_id = ?1 WHERE id = ?2",
+                params![new_id(), standing],
+            )
+            .expect("a workflow run owns the workspace");
+    }
+    let keeper = RecordingKeeper::default();
+
+    let first = fixture
+        .service
+        .cleanup_pass(&keeper, &[], &CancellationToken::new())
+        .await
+        .expect("the first pass succeeds");
+
+    assert_eq!(first.deferred, [left]);
+    assert!(
+        folder.exists(),
+        "a tree a workspace stands in keeps its folder"
+    );
+    assert_eq!(cleaned_at(&connection, &left), None);
+
+    connection
+        .execute(
+            "UPDATE workspaces SET state = ?1 WHERE id = ?2",
+            params![<&'static str>::from(WorkspaceState::Archived), standing],
+        )
+        .expect("the workspace is archived");
+    let second = fixture
+        .service
+        .cleanup_pass(&keeper, &[], &CancellationToken::new())
+        .await
+        .expect("the second pass succeeds");
+
+    assert_eq!(second.cleaned, [left]);
+    assert!(
+        !folder.exists(),
+        "the tree goes once no workspace stands in it"
+    );
+    assert!(cleaned_at(&connection, &left).is_some());
 }
 
 // Kills ending a tree's processes after it is kept aside or deleted, and dropping their hold

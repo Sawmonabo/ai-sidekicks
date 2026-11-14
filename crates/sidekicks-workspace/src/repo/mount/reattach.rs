@@ -213,7 +213,8 @@ impl From<WorkspaceServiceError> for RepoMountReattachError {
             | WorkspaceServiceError::Read(_)
             | WorkspaceServiceError::Row(_)
             | WorkspaceServiceError::HealthProjection(_)
-            | WorkspaceServiceError::Append(_)) => Self::Workspace(fault),
+            | WorkspaceServiceError::Append(_)
+            | WorkspaceServiceError::Folder(_)) => Self::Workspace(fault),
         }
     }
 }
@@ -439,6 +440,18 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 .await?,
             rebased_workspaces: target.rebased_workspaces,
             now: WireInstant::now(),
+        };
+        // Every rebased path lies inside the new root, so its one hold, kept until the write
+        // commits, keeps the cleanup from deleting a folder the write moves a workspace into.
+        let _landing = if bindings.rebased_workspaces.is_empty() {
+            None
+        } else {
+            Some(
+                self.workspaces
+                    .occupancy()
+                    .hold_landing(&target.canonical_root)
+                    .await?,
+            )
         };
         // Pending from before the write, so a capture folder of any name the move carries waits
         // for the write and opens only once it is carried, whatever runs between the write and

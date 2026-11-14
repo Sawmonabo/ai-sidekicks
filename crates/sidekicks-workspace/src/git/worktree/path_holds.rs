@@ -1,6 +1,6 @@
 //! Paths held in use, each counted once per hold standing on it, so dropping one of two holds of a
-//! path keeps the other: the names the folder moves are using, and the folders a removal is
-//! closing.
+//! path keeps the other: the names the folder moves are using, the folders a removal is closing,
+//! and the folders the cleanup is deleting and workspaces are being written into.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -44,6 +44,13 @@ impl PathHolds {
         lock(&self.holds)
             .keys()
             .any(|held| is_contained_within(path, held))
+    }
+
+    /// Whether a hold stands on `path`, on a folder it lies inside, or on a path inside it.
+    pub(crate) fn is_held_across(&self, path: &Path) -> bool {
+        lock(&self.holds)
+            .keys()
+            .any(|held| is_contained_within(path, held) || is_contained_within(held, path))
     }
 }
 

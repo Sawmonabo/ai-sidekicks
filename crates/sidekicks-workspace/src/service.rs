@@ -13,6 +13,8 @@
 //!   another tree) and that folder's checkout (`checkoutRoot`, rewritten by every completed
 //!   preparation).
 //! - No workspace is held for a run: two sessions' runs may work in one folder at once.
+//! - A bind and a completed preparation each hold the checkout they write landing until the write
+//!   commits, and are refused while the retired-tree cleanup deletes a folder holding it.
 //!
 //! - A workflow run started on a named project works in a workspace of its own on that project's
 //!   mount, which the session's reads leave out.
@@ -25,6 +27,7 @@
 //! run-owned workspace's archive at its run's end and its delete with its run.
 
 use std::borrow::Cow;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
@@ -64,6 +67,7 @@ use sidekicks_store::events::session::appender::{
 
 use crate::errors::{WorkspaceRefusal, WorkspaceServiceInvariantError};
 use crate::event_emitter::{EmitWorkspaceEventInput, WorkspaceEventEmitter};
+use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
 use crate::projector::{HealthProjectionError, RepoMountHealthRow};
 use crate::repo::errors::RepoRefusal;
@@ -83,9 +87,11 @@ pub(crate) mod preparation;
 #[cfg(test)]
 mod tests;
 
-/// The statements the service's reads keep prepared on each read connection, the session state
-/// read included.
-pub const WORKSPACE_SERVICE_STATEMENT_CAPACITY: usize = 8;
+/// The statements the service's reads keep prepared on each read connection: a session's live
+/// workspace, the attached mount, the managed folder hold, the attached roots, the mount's live
+/// trees, a workspace, a run's workspace (`SELECT_RUN_WORKSPACE_SQL`), the workspace list and the
+/// session state read.
+pub const WORKSPACE_SERVICE_STATEMENT_CAPACITY: usize = 9;
 
 // A session's own live workspace on one mount; `idx_workspaces_live_session_mount` holds it to one
 // row, and an archived workspace is history and a run-owned one its run's, so neither counts.
@@ -198,6 +204,9 @@ pub enum WorkspaceServiceError {
     /// The event and the row it carries were not kept.
     #[error("a workspace event was not appended")]
     Append(#[source] SessionEventEmitError),
+    /// The folder a workspace is written into could not be resolved (a permission refusal).
+    #[error("the folder a workspace is written into could not be resolved")]
+    Folder(#[source] io::Error),
 }
 
 impl From<WorkspaceRefusal> for WorkspaceServiceError {
@@ -221,7 +230,8 @@ impl From<WorkspaceServiceError> for HandlerError {
             | WorkspaceServiceError::Read(_)
             | WorkspaceServiceError::Row(_)
             | WorkspaceServiceError::HealthProjection(_)
-            | WorkspaceServiceError::Append(_)) => Self::Internal(Box::new(fault)),
+            | WorkspaceServiceError::Append(_)
+            | WorkspaceServiceError::Folder(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }
@@ -237,6 +247,9 @@ pub struct WorkspaceServiceDeps {
     pub resolver: RepoRootResolver,
     /// The writer a run-owned workspace's rows are written through alone, with no event.
     pub writer: Arc<DatabaseWriter>,
+    /// The daemon's one occupancy reader, whose holds keep a workspace out of a folder the
+    /// retired-tree cleanup is deleting.
+    pub occupancy: MountOccupancyReader,
 }
 
 /// Owns every workspace lifecycle transition and the `workspaces` writes that share no other row's
@@ -246,6 +259,7 @@ pub struct WorkspaceService {
     events: Arc<WorkspaceEventEmitter>,
     resolver: RepoRootResolver,
     writer: Arc<DatabaseWriter>,
+    occupancy: MountOccupancyReader,
     /// Where a test holds a `rootLost` move between its row read and its write.
     #[cfg(test)]
     pub(crate) root_lost_pause: PausePoint,
@@ -309,9 +323,16 @@ impl WorkspaceService {
             events: deps.events,
             resolver: deps.resolver,
             writer: deps.writer,
+            occupancy: deps.occupancy,
             #[cfg(test)]
             root_lost_pause: PausePoint::default(),
         }
+    }
+
+    /// The daemon's one occupancy reader, whose landing hold every write that puts a workspace in
+    /// a folder takes.
+    pub(crate) fn occupancy(&self) -> &MountOccupancyReader {
+        &self.occupancy
     }
 
     /// Binds `request`'s session to an attached mount: the workspace lands `preparing` with no
@@ -450,6 +471,8 @@ impl WorkspaceService {
             &admitted.checkout_root
         };
 
+        // Held until the insert commits, so the cleanup never deletes the checkout under it.
+        let _landing = self.occupancy.hold_landing(&admitted.checkout_root).await?;
         let workspace_id = new_workspace_id();
         let workflow_run_text = workflow_run_id.map(|workflow_run_id| workflow_run_id.text());
         let insert = WriteStatement {

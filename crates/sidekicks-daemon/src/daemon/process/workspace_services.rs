@@ -84,6 +84,9 @@ enum WorktreeCleanupWorkUnit {
     Runs,
     // Rows the pass acted on: kept copies put right, and trees retired or kept aside.
     Trees,
+    // Retired trees left in use, each read for the runs working in it and for the workspaces of
+    // every mount standing in it.
+    DeferredTrees,
     // Retired trees whose folder the pass removed, for the fixed part of each removal.
     CleanedTrees,
     // The entries git's index listed across the removed trees: their tracked files, never their
@@ -93,8 +96,9 @@ enum WorktreeCleanupWorkUnit {
 }
 
 // A cleanup pass's processor budget on its own threads: 5 ms for the work every pass does, 2 ms
-// per row it acted on, 50 ms per folder it removed and 120 ms per 1,000 index entries in them,
-// from one pass that removed a tree of 54,011 entries in 4,154 ms, about 77 µs an entry.
+// per row it acted on, 2 ms per tree it left in use, 50 ms per folder it removed and 120 ms per
+// 1,000 index entries in them, from one pass that removed a tree of 54,011 entries in 4,154 ms,
+// about 77 µs an entry.
 const WORKTREE_CLEANUP_BUDGET: JobBudget<WorktreeCleanupWorkUnit> = JobBudget::new(&[
     BudgetTerm {
         figure: Duration::from_millis(5),
@@ -105,6 +109,11 @@ const WORKTREE_CLEANUP_BUDGET: JobBudget<WorktreeCleanupWorkUnit> = JobBudget::n
         figure: Duration::from_millis(2),
         per: 1,
         unit: WorktreeCleanupWorkUnit::Trees,
+    },
+    BudgetTerm {
+        figure: Duration::from_millis(2),
+        per: 1,
+        unit: WorktreeCleanupWorkUnit::DeferredTrees,
     },
     BudgetTerm {
         figure: Duration::from_millis(50),
@@ -182,6 +191,7 @@ pub(crate) fn build_execution_root_services(
         events: Arc::clone(&repo.workspace_events),
         resolver: RepoRootResolver::new(git.clone()),
         writer: Arc::clone(&writer),
+        occupancy: repo.occupancy.clone(),
     }));
     let execution_roots = Arc::new(ExecutionRootService::new(ExecutionRootServiceDeps {
         writer: Arc::clone(&writer),
@@ -535,8 +545,8 @@ impl WorktreeCleanupRequests {
 impl WorktreeCleanup {
     // One pass: puts right what a crash cut short, logging each failure, then sweeps the retired
     // trees, then forgets the setup card of each tree retired, whatever the sweep answered. Stops
-    // between steps once `cancel` fires. Its workload is the pass, the rows it acted on, the
-    // folders it removed and the entries their indexes listed.
+    // between steps once `cancel` fires. Its workload is the pass, the rows it acted on, the trees
+    // it left in use, the folders it removed and the entries their indexes listed.
     async fn run_pass(
         &self,
         cancel: &CancellationToken,
@@ -564,6 +574,10 @@ impl WorktreeCleanup {
         let count = |count: usize| u64::try_from(count).unwrap_or(u64::MAX);
         let mut workload = JobWorkload::of(WorktreeCleanupWorkUnit::Runs, 1);
         workload.add(WorktreeCleanupWorkUnit::Trees, count(trees));
+        workload.add(
+            WorktreeCleanupWorkUnit::DeferredTrees,
+            count(swept.deferred.len()),
+        );
         workload.add(
             WorktreeCleanupWorkUnit::CleanedTrees,
             count(swept.cleaned.len()),

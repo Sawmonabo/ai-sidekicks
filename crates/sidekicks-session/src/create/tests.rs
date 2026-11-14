@@ -46,6 +46,7 @@ use sidekicks_workspace::clone::service::CloneAttachedListener;
 use sidekicks_workspace::event_emitter::WorkspaceEventEmitter;
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
+use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::managed::service::{ManagedWorkspaceService, SessionListRefresh};
 use sidekicks_workspace::repo::mount::service::RepoMountService;
@@ -168,6 +169,7 @@ impl Fixture {
             events: Arc::clone(&events),
             resolver: RepoRootResolver::new(test_git_runner()),
             writer: Arc::clone(&writer),
+            occupancy: MountOccupancyReader::new(Arc::clone(&reads)),
         }));
         let mounts = Arc::new(RepoMountService::new(
             Arc::clone(&writer),
