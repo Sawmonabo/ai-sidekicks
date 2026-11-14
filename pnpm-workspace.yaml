@@ -34,12 +34,9 @@ allowBuilds:
   # It also breaks Windows outright. Configure runs before gyp evaluates that condition, and on
   # `windows-latest` node-gyp 11.5.0 cannot parse the image's Visual Studio 18 Enterprise install
   # ("unknown version undefined", after a PowerShell probe that overflows its stdio buffer), so
-  # `pnpm install` exits 1 on a platform whose prebuild is sitting in the tarball unused. Measured
-  # on the `native-prebuilds` matrix: linux-x64, linux-arm64, darwin-arm64 and darwin-x64 green with
-  # the build approved; win32-x64 red. Denied, all five green.
-  #
-  # Denial is also what makes the provenance check's second conjunct absolute: `build/Release/`
-  # cannot hold a `.node` if no build ever runs.
+  # `pnpm install` exits 1 on a platform whose prebuild is sitting in the tarball unused. With the
+  # build approved, linux-x64, linux-arm64, darwin-arm64 and darwin-x64 install and win32-x64 fails;
+  # denied, all five install.
   better-sqlite3: false
   lefthook: true
   # Cloudflare Workers tooling (wrangler):

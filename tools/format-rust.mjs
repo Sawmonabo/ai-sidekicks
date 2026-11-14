@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Runs `cargo fmt` over every crate of the Cargo workspace but the ones the Rust port replaces.
+// Runs `cargo fmt` over every crate of the Cargo workspace but the ones the Rust port deletes.
 // `cargo fmt` takes no `--exclude`, so the crates that stay are named one by one, read from the
 // workspace's own manifests so a new crate needs no edit here. Arguments are passed on to
 // `cargo fmt` (`--check`).

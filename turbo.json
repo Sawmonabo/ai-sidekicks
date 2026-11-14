@@ -51,7 +51,7 @@
       "cache": false,
       "persistent": true
     },
-    // The Cargo workspace's own checks, once for every crate but the two the Rust port replaces.
+    // The Cargo workspace's own checks, once for every crate but the two the Rust port deletes.
     // The daemon embeds the grammars its engines' package builds, so every Cargo task waits for
     // that build.
     "sidekicks-crates#lint": {

@@ -59,7 +59,7 @@ We adopt the following five-axis configuration.
 
 **Published versions:** lefthook **2.1.16** and commitlint **21.2.3**, against Husky **9.1.7** for the comparison. This decision binds to published versions.
 
-**CI parity (cross-axis with Axis 1):** CI closes the `git commit --no-verify` bypass with explicit full-repo `eslint .` + `prettier --check .` + `cargo fmt --all -- --check` + `tombi format --check` invocations in `.github/workflows/ci.yml` — `lefthook run pre-commit --all-files` would be a no-op in CI, because `lint-staged` reads the git staging index, which is empty in a fresh checkout; the local hook is the diagnostic, CI is the enforcement.
+**CI parity (cross-axis with Axis 1):** CI closes the `git commit --no-verify` bypass with explicit full-repo `eslint .` + `prettier --check .` + `node tools/format-rust.mjs --check` + `tombi format --check` invocations in `.github/workflows/ci.yml` — `lefthook run pre-commit --all-files` would be a no-op in CI, because `lint-staged` reads the git staging index, which is empty in a fresh checkout; the local hook is the diagnostic, CI is the enforcement.
 
 **Antithesis (Husky 9.1.7):** Husky has the larger network effect — default in TypeScript starters (Next.js, t3-stack), 5× weekly downloads, highest AI-assistant familiarity. The 2 kB / no-runtime-deps profile is genuinely small. The Windows `core.hooksPath` issues are not show-stoppers — workarounds exist and are documented.
 
