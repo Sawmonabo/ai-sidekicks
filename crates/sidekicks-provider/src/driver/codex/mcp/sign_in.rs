@@ -33,6 +33,7 @@ use url::Url;
 use self::callback::{CodexCallbackSettings, resolve_codex_sign_in_callback};
 use self::login_failure::read_codex_login_failure;
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::account::auth_file::{deserialize_optional_secret, deserialize_secret};
 use crate::driver::codex::app_server_protocol::McpServerOauthLoginParams;
 use crate::driver::codex::config_read::read_codex_config;
 use crate::driver::codex::mcp::config::plugins::{CodexPluginServer, read_plugin_server_entries};
@@ -596,11 +597,12 @@ struct CodexSavedSignIn {
     #[serde(default)]
     issuer: Option<String>,
     client_id: String,
-    access_token: String,
+    #[serde(deserialize_with = "deserialize_secret")]
+    access_token: SecretString,
     #[serde(default)]
     expires_at: Option<u64>,
-    #[serde(default)]
-    refresh_token: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_secret")]
+    refresh_token: Option<SecretString>,
     #[serde(default)]
     scopes: Vec<String>,
 }

@@ -223,6 +223,7 @@ async fn a_probing_read_with_nothing_to_probe_takes_no_service_of_its_own(
     let request = McpServersReadRequest {
         attached_roots: Vec::new(),
         provider_account_ids: Vec::new(),
+        config_file_account_ids: Vec::new(),
         is_refresh: true,
         probe: McpProbeScope::EveryBinding,
         emulated_local_bindings,

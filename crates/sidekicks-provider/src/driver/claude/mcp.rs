@@ -19,19 +19,21 @@ use std::sync::Arc;
 
 use futures::future::join_all;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_ipc::redaction::sanitize_failure_chain;
 use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::mpsc;
 
 use self::config::{
-    ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles, add_claude_switch_offs,
-    read_claude_mcp_config,
+    ClaudeMcpConfigReading, ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles,
+    add_claude_switch_offs, read_claude_mcp_config,
 };
 use self::machine_probe::{
     ClaudeMcpProbeSources, ClaudeProbePlan, plan_claude_probe, probe_claude_mcp_servers,
 };
 use self::organization::{read_managed_mcp_servers, take_managed_entries};
 use self::precedence::{ClaudeMcpAccountServers, rank_claude_mcp_servers};
+use crate::driver::AccountFoldersError;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::account_servers::ClaudeAccountReadAsk;
@@ -76,8 +78,9 @@ impl From<ClaudeShortProcess> for ClaudeMcpProcess {
 /// organization server is probed under the first account that brings it, and every other binding
 /// under the first account that answered; with no such account no Claude Code process can run, so
 /// each target reads `unknown`, carrying the first account's failure as its failure text where
-/// accounts were asked. A root's switched-off servers are those the person's own config and each
-/// answering account's config, the one its sessions' processes read, switch off there. An
+/// accounts were asked. A root's switched-off servers are those the person's own config and the
+/// config of each account the request names for its config file, the one its sessions' processes
+/// read, switch off there, whether or not that account's servers were asked for or read. An
 /// organization server the administrator's MCP file declares is listed and probed as the file's
 /// entry, as Claude Code loads it. Fails as the config read, an account's environment or the probe
 /// does.
@@ -117,6 +120,8 @@ pub(crate) async fn read_claude_mcp_servers(
     let (reading, account_reads) =
         tokio::join!(read_claude_mcp_config(&config_sources), account_reads);
     let mut reading = reading.map_err(|error| DriverError::Internal(Box::new(error)))?;
+    let config_environments =
+        add_account_switch_offs(driver, &mut reading, &request.config_file_account_ids).await?;
     let mut account_failure = None;
     let mut accounts: Vec<ClaudeMcpAccountServers> = Vec::new();
     for read in account_reads {
@@ -141,14 +146,20 @@ pub(crate) async fn read_claude_mcp_servers(
     }
     let mut environments = Vec::with_capacity(accounts.len());
     for account in &accounts {
-        let environment = sources
-            .account_environment(&account.provider_account_id)
-            .await?;
-        let files = ClaudePersonConfigFiles::resolve(&environment, &sources.home_folder).await;
-        add_claude_switch_offs(&mut reading, &files.person_config)
-            .await
-            .map_err(|error| DriverError::Internal(Box::new(error)))?;
-        environments.push(environment);
+        let composed = config_environments
+            .iter()
+            .find(|(provider_account_id, _environment)| {
+                *provider_account_id == account.provider_account_id
+            })
+            .map(|(_provider_account_id, environment)| environment.clone());
+        environments.push(match composed {
+            Some(environment) => environment,
+            None => {
+                sources
+                    .account_environment(&account.provider_account_id)
+                    .await?
+            }
+        });
     }
     let ranking = rank_claude_mcp_servers(&reading, &accounts, has_managed_mcp_file);
     let mut probe_readings: Vec<McpProbeReading> = if request.is_refresh {
@@ -242,6 +253,35 @@ pub(crate) async fn read_claude_mcp_servers(
     })
 }
 
+/// Adds to each root of `reading` the servers the config file of each of `accounts`, the one a
+/// process on its home reads, switches off there, and answers each account's process environment.
+/// An account that is gone, or whose home is, has no such file and adds none. Fails as an
+/// account's folders cannot be read, its environment composed or its file read.
+async fn add_account_switch_offs(
+    driver: &ClaudeDriver,
+    reading: &mut ClaudeMcpConfigReading,
+    accounts: &[ProviderAccountId],
+) -> Result<Vec<(ProviderAccountId, Vec<(String, String)>)>, DriverError> {
+    let sources = &driver.sources;
+    let mut environments = Vec::with_capacity(accounts.len());
+    for provider_account_id in accounts {
+        let folders = match sources.account_folders(provider_account_id).await {
+            Ok(folders) => folders,
+            Err(AccountFoldersError::NotFound | AccountFoldersError::CredentialHomeUnavailable) => {
+                continue;
+            }
+            Err(error @ AccountFoldersError::Read(_)) => return Err(error.into()),
+        };
+        let environment = sources.account_process_environment(&folders, &[], &[])?;
+        let files = ClaudePersonConfigFiles::resolve(&environment, &sources.home_folder).await;
+        add_claude_switch_offs(reading, &files.person_config)
+            .await
+            .map_err(|error| DriverError::Internal(Box::new(error)))?;
+        environments.push((provider_account_id.clone(), environment));
+    }
+    Ok(environments)
+}
+
 /// Asks each live session's process for its MCP servers' status again, each reply reported to its
 /// leg; a session whose process does not answer reports nothing.
 pub(crate) async fn reread_claude_live_mcp_statuses(driver: &ClaudeDriver) {
@@ -272,6 +312,7 @@ mod tests {
         McpServersReadRequest {
             attached_roots: Vec::new(),
             provider_account_ids: vec![test_provider_account_id()],
+            config_file_account_ids: Vec::new(),
             is_refresh: true,
             probe: McpProbeScope::EveryBinding,
             emulated_local_bindings: Vec::new(),

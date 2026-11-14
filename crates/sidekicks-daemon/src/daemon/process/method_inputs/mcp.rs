@@ -141,8 +141,9 @@ pub(crate) struct McpSignIns {
 }
 
 /// Builds the sign-in service, the sign-outs a removal owes, the binding edits' service over them
-/// and the sign-in commands over `start`, and starts the service's seed of the signed-in servers
-/// from the keychain. Fails when the sign-ins' HTTP pools cannot be built.
+/// and the sign-in commands over `start`; the service's seed of the signed-in servers is started
+/// once the drivers' ports stand, since a new address key reads the bindings' addresses. Fails
+/// when the sign-ins' HTTP pools cannot be built.
 pub(crate) fn build_sign_ins(start: &McpSignInStart<'_>) -> Result<McpSignIns, reqwest::Error> {
     let custody = SignInCustody::new(Arc::new(
         start.secret_items.keychain(KeychainService::McpSignIns),
@@ -169,7 +170,6 @@ pub(crate) fn build_sign_ins(start: &McpSignInStart<'_>) -> Result<McpSignIns, r
         &RELAY_ADDRESS,
         Arc::clone(start.appender),
     );
-    service.start_signed_in_seed();
     let owed_sign_outs = OwedSignOuts::new(
         Arc::clone(&service),
         target_reads(),

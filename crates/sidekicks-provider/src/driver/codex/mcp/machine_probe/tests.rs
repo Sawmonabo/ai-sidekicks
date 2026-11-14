@@ -200,6 +200,7 @@ fn an_emulated_local_binding_is_probed_at_its_root_in_place_of_the_persons_entry
         let request = McpServersReadRequest {
             attached_roots: roots.iter().map(|root| root.root.clone()).collect(),
             provider_account_ids: Vec::new(),
+            config_file_account_ids: Vec::new(),
             is_refresh: true,
             probe,
             emulated_local_bindings: vec![local.clone()],
@@ -314,6 +315,7 @@ fn a_persons_server_is_probed_where_it_is_loaded_as_that_place_merges_it() {
     let request = McpServersReadRequest {
         attached_roots: roots.iter().map(|root| root.root.clone()).collect(),
         provider_account_ids: Vec::new(),
+        config_file_account_ids: Vec::new(),
         is_refresh: true,
         probe: McpProbeScope::Bindings(vec![user("docs"), user("notes"), user("pages")]),
         emulated_local_bindings: Vec::new(),

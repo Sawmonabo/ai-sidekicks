@@ -36,10 +36,12 @@ use crate::git::process::version::GitFeature;
 use crate::git::process::{GitCall, GitError, GitRunner};
 use crate::git::turn_snapshot::capture::{CORE_FSYNC_PIN, GitFloorReports};
 use crate::git::turn_snapshot::capture_folder::{
-    CAPTURES_SEGMENT, CaptureFolder, OBJECTS_SEGMENT, in_git_folder, is_partial_capture_folder_name,
+    CAPTURES_SEGMENT, CaptureCarries, CaptureFolder, OBJECTS_SEGMENT, in_git_folder,
+    is_partial_capture_folder_name,
 };
 use crate::git::turn_snapshot::capture_steps::joined;
 use crate::git::turn_snapshot::diagnostics::CaptureDiagnostic;
+use crate::git::turn_snapshot::kept_index::remove_kept_indexes;
 use crate::git::turn_snapshot::refs::SNAPSHOT_REFS_PREFIX;
 use answers::{ObjectCounts, read_object_counts, read_points};
 use leftovers::{
@@ -247,6 +249,8 @@ pub struct CapturePacking {
     /// When this daemon run's packing began; a scratch index last written before it is an earlier
     /// run's leftover at any age.
     began_at: SystemTime,
+    /// The moved repositories whose capture folders are still carried to their new names.
+    carries: CaptureCarries,
 }
 
 impl CapturePacking {
@@ -261,7 +265,14 @@ impl CapturePacking {
             failed_packs: Mutex::new(HashMap::new()),
             floor_reports,
             began_at: SystemTime::now(),
+            carries: CaptureCarries::default(),
         }
+    }
+
+    /// The moved repositories whose capture folders are still carried, which every capture folder
+    /// opens through.
+    pub(crate) fn carries(&self) -> &CaptureCarries {
+        &self.carries
     }
 
     /// The lock each capture folder's packs, folds and sweep passes take, keyed by its path, for a
@@ -312,9 +323,10 @@ impl CapturePacking {
 
     /// Renames the capture folder `from` to `to` once each one's pack, fold or sweep pass under way
     /// ends, carrying what this daemon run keeps of it, so a repository that moved keeps its
-    /// captures under its new path's name. Answers `false` when `from` is gone, as it is once an
-    /// earlier rename finished. Fails with `AlreadyExists` when `to` is there, which is never
-    /// replaced, and as the file system fails.
+    /// captures under its new path's name; the kept indexes, named for the checkouts' old paths,
+    /// are removed first. Answers `false` when `from` is gone, as it is once an earlier rename
+    /// finished. Fails with `AlreadyExists` when `to` is there, which is never replaced, and as the
+    /// file system fails.
     pub async fn move_capture_folder(&self, from: &Path, to: &Path) -> io::Result<bool> {
         let _holds = self
             .folder_lock
@@ -329,6 +341,8 @@ impl CapturePacking {
                 format!("the capture folder {} is already there", to.display()),
             ));
         }
+        let moved = from.to_path_buf();
+        joined(tokio::task::spawn_blocking(move || remove_kept_indexes(&moved)).await)?;
         tokio::fs::rename(from, to).await?;
         carry_kept(&mut lock(&self.packs_left_by_fold), from, to);
         carry_kept(&mut lock(&self.failed_folds), from, to);
@@ -420,7 +434,7 @@ impl CapturePacking {
         let owner = owner_folder.to_path_buf();
         joined(run_blocking(move || clear_partial_capture_folders(&owner)).await)
             .map_err(PackingError::Folder)?;
-        let Some(capture_folder) = CaptureFolder::open_existing(owner_folder, common_folder)
+        let Some(capture_folder) = CaptureFolder::open_existing(self, owner_folder, common_folder)
             .await
             .map_err(PackingError::Folder)?
         else {

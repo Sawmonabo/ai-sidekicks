@@ -120,6 +120,7 @@ async fn a_probing_read_runs_on_one_service_and_reads_each_server_once() {
     let request = McpServersReadRequest {
         attached_roots: vec![attached],
         provider_account_ids: Vec::new(),
+        config_file_account_ids: Vec::new(),
         is_refresh: true,
         probe: McpProbeScope::EveryBinding,
         emulated_local_bindings: vec![local.clone()],

@@ -148,6 +148,7 @@ async fn a_repository_with_no_commit_is_captured_and_packed() {
     let commands = CommandCaptureService::new(
         git.clone(),
         Arc::new(KeyedLock::new()),
+        Arc::clone(&packing),
         Arc::new(GitFloorReports::default()),
     );
     let owner = root.path().join("owner");
@@ -205,7 +206,8 @@ async fn folder_with_eleven_packs(git: &GitRunner, root: &Path) -> (PathBuf, Pat
         .await
         .expect("the repository's git folder is read");
     let owner = root.join("owner");
-    let capture_folder = CaptureFolder::open_or_create(git, None, &owner, &common)
+    let packing = CapturePacking::new(git.clone(), Arc::default());
+    let capture_folder = CaptureFolder::open_or_create(git, None, &packing, &owner, &common)
         .await
         .expect("the capture folder is made");
     let folder = capture_folder.folder().to_path_buf();
@@ -623,7 +625,7 @@ async fn a_sweep_packs_again_a_capture_whose_own_pack_failed(#[case] is_restarte
     let database = TestDatabase::new(schema_parts());
     let (service, packing) = service_and_packing(&git, &database);
     let owner = root.path().join("owner");
-    let capture_folder = CaptureFolder::open_or_create(&git, None, &owner, &common)
+    let capture_folder = CaptureFolder::open_or_create(&git, None, &packing, &owner, &common)
         .await
         .expect("the capture folder is made");
     let folder = capture_folder.folder();
@@ -729,7 +731,7 @@ async fn a_sweep_or_a_pack_queued_behind_the_owners_hold_finds_its_folder_gone(
         Arc::new(GitFloorReports::default()),
     ));
     let owner = root.path().join("owner");
-    let capture_folder = CaptureFolder::open_or_create(&git, None, &owner, &common)
+    let capture_folder = CaptureFolder::open_or_create(&git, None, &packing, &owner, &common)
         .await
         .expect("the capture folder is made");
     let folder = capture_folder.folder().to_path_buf();

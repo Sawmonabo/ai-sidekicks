@@ -202,7 +202,10 @@ fn a_saved_sign_in_matches_by_name_and_address_and_its_expiry_reads_in_milliseco
     .expect("the server's sign-in reads");
 
     let takeover = read.takeover;
-    assert_eq!(takeover.access_token, "access-of-the-server");
+    assert_eq!(
+        takeover.access_token.expose_secret(),
+        "access-of-the-server"
+    );
     assert_eq!(
         takeover.expires_at,
         Some(UNIX_EPOCH + Duration::from_millis(EXPIRY_MILLISECONDS))
@@ -245,7 +248,7 @@ async fn a_claude_takeover_leaves_the_persons_saved_sign_ins_as_they_were() {
     let signed_in = signed_in.expect("the sign-in reads back");
 
     assert_eq!(opened.as_str(), "https://auth.example.test/authorize");
-    assert_eq!(signed_in.access_token, "access-one");
+    assert_eq!(signed_in.access_token.expose_secret(), "access-one");
     let handed_back = channel
         .control_requests()
         .into_iter()
@@ -302,7 +305,7 @@ async fn a_sign_in_saved_in_the_keychain_is_read_and_its_item_removed() {
     let (_opened, signed_in) = sign_in(&scripted, user_binding()).await;
     let signed_in = signed_in.expect("the keychain's sign-in reads back");
 
-    assert_eq!(signed_in.access_token, "access-one");
+    assert_eq!(signed_in.access_token.expose_secret(), "access-one");
     assert_eq!(
         signed_in
             .client_secret
@@ -367,7 +370,8 @@ async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_e
     assert_eq!(
         signed_in
             .expect("the plugin's server signs in")
-            .access_token,
+            .access_token
+            .expose_secret(),
         "access-one"
     );
     let [start] = scripted
@@ -467,7 +471,10 @@ async fn a_sign_in_beside_a_managed_file_passes_no_servers_file(
     let starts = scripted.starts.take_sign_in_starts();
     if is_signed_in {
         assert_eq!(
-            signed_in.expect("the sign-in reads back").access_token,
+            signed_in
+                .expect("the sign-in reads back")
+                .access_token
+                .expose_secret(),
             "access-one"
         );
         let [start] = starts.try_into().ok().expect("one");
@@ -681,7 +688,7 @@ async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it
         .expect("the sign-in runs")
         .expect("the entry matches and the sign-in reads back");
 
-    assert_eq!(signed_in.access_token, "access-one");
+    assert_eq!(signed_in.access_token.expose_secret(), "access-one");
     let [start] = scripted
         .starts
         .take_sign_in_starts()

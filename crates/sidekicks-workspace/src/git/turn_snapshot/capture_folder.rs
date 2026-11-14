@@ -6,6 +6,7 @@
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::place::Place;
@@ -15,12 +16,14 @@ use sidekicks_platforms::{
 };
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::file::remove_tree_awaited;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::random_hex::random_hex;
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitCall, GitError, GitRunner};
 use crate::git::turn_snapshot::capture::{ObjectFormat, UnrecognizedObjectFormat};
 use crate::git::turn_snapshot::capture_steps::{INDEX_LOCK_SUFFIX, joined};
+use crate::git::turn_snapshot::repack::CapturePacking;
 
 /// The folder under an owner's folder that holds its capture folders.
 pub const CAPTURES_SEGMENT: &str = "captures";
@@ -37,8 +40,8 @@ const OBJECT_FOLDER_VARIABLE: &str = "GIT_OBJECT_DIRECTORY";
 /// The variable listing the object folders a git call also reads.
 const ALTERNATE_OBJECT_FOLDERS_VARIABLE: &str = "GIT_ALTERNATE_OBJECT_DIRECTORIES";
 
-/// The hex digits of a capture folder's name, the sha256 of its repository's real path.
-const CAPTURE_FOLDER_NAME_LENGTH: usize = 64;
+/// The hex digits of a real path's name, its sha256: a capture folder's and a kept index's.
+const REAL_PATH_NAME_LENGTH: usize = 64;
 
 /// The random bytes in the name of a capture folder still being made, so two makers never meet.
 const PARTIAL_NAME_BYTES: usize = 8;
@@ -95,42 +98,71 @@ impl CaptureFolder {
     /// The capture folder of the repository whose common git folder is `repository`, for the
     /// owner whose folder is `owner`: `<owner>/captures/<sha256 hex of the real path>/`, made once
     /// as a bare repository in the repository's object format, with automatic gc and maintenance
-    /// off, and reused when present. Fails as git or the file system does.
+    /// off, and reused when present. A repository whose move `packing` still carries opens at its
+    /// new folder's name, once the owner's folder is carried there. Fails as git or the file
+    /// system does, and with `AlreadyExists` when that carry finds both names taken.
     pub(crate) async fn open_or_create(
         git: &GitRunner,
         place: Option<&Place>,
+        packing: &CapturePacking,
         owner: &Path,
         repository: &Path,
     ) -> Result<Self, CaptureFolderError> {
-        let (capture_folder, name) = Self::locate(owner, repository)
+        let located = Self::locate(packing, owner, repository)
             .await
             .map_err(CaptureFolderError::Io)?;
-        let is_present = tokio::fs::try_exists(&capture_folder.folder)
+        let is_present = tokio::fs::try_exists(&located.capture_folder.folder)
             .await
             .map_err(CaptureFolderError::Io)?;
         if !is_present {
             let captures = owner.join(CAPTURES_SEGMENT);
-            capture_folder
-                .create(git, place, repository, &captures, &name)
+            located
+                .capture_folder
+                .create(git, place, &located.repository, &captures, &located.name)
                 .await?;
         }
-        Ok(capture_folder)
+        Ok(located.capture_folder)
     }
 
     /// The capture folder [`open_or_create`](Self::open_or_create) would open for `owner` and the
-    /// repository whose common git folder is `repository`, or `None` when it was never made;
-    /// nothing is made and no git runs. Fails as the file system does.
-    pub(crate) async fn open_existing(owner: &Path, repository: &Path) -> io::Result<Option<Self>> {
-        let (capture_folder, _) = Self::locate(owner, repository).await?;
-        let is_present = tokio::fs::try_exists(&capture_folder.folder).await?;
-        Ok(is_present.then_some(capture_folder))
+    /// repository whose common git folder is `repository`, carried as it would carry it, or `None`
+    /// when it was never made; nothing is made and no git runs. Fails as the file system does.
+    pub(crate) async fn open_existing(
+        packing: &CapturePacking,
+        owner: &Path,
+        repository: &Path,
+    ) -> io::Result<Option<Self>> {
+        let located = Self::locate(packing, owner, repository).await?;
+        let is_present = tokio::fs::try_exists(&located.capture_folder.folder).await?;
+        Ok(is_present.then_some(located.capture_folder))
     }
 
-    // Where the capture folder of `owner` and `repository` is, made or not, and its name.
-    async fn locate(owner: &Path, repository: &Path) -> io::Result<(Self, String)> {
+    // Where the capture folder of `owner` and `repository` is, made or not. A name either end of a
+    // carry `packing` holds is carried first, so no folder opens at the new name while the old one
+    // holds the repository's captures, and a stored old common folder reads the new one's objects.
+    async fn locate(
+        packing: &CapturePacking,
+        owner: &Path,
+        repository: &Path,
+    ) -> io::Result<LocatedCaptureFolder> {
         let name = real_path_name(repository).await?;
-        let folder = owner.join(CAPTURES_SEGMENT).join(&name);
-        Ok((Self::new(folder, &repository.join(OBJECTS_SEGMENT))?, name))
+        let captures = owner.join(CAPTURES_SEGMENT);
+        let Some(carry) = packing.carries().pending(&name) else {
+            return Ok(LocatedCaptureFolder {
+                capture_folder: Self::new(captures.join(&name), &repository.join(OBJECTS_SEGMENT))?,
+                repository: repository.to_path_buf(),
+                name,
+            });
+        };
+        let to = captures.join(&carry.new_name);
+        packing
+            .move_capture_folder(&captures.join(&carry.old_name), &to)
+            .await?;
+        Ok(LocatedCaptureFolder {
+            capture_folder: Self::new(to, &carry.moved_to.join(OBJECTS_SEGMENT))?,
+            repository: carry.moved_to,
+            name: carry.new_name,
+        })
     }
 
     // The capture folder at the git folder `folder`, attaching the object folder
@@ -279,6 +311,93 @@ impl CaptureFolder {
     }
 }
 
+// A capture folder found, the common git folder it reads objects from and its name.
+struct LocatedCaptureFolder {
+    capture_folder: CaptureFolder,
+    repository: PathBuf,
+    name: String,
+}
+
+/// One moved repository's capture folders still to be renamed from its old common folder's name to
+/// its new one's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CaptureCarry {
+    /// The old common folder's name.
+    old_name: String,
+    /// The new common folder's name.
+    new_name: String,
+    /// The new common folder.
+    moved_to: PathBuf,
+}
+
+impl CaptureCarry {
+    /// The carry of the repository whose common git folder moved from `moved_from` to `moved_to`.
+    /// Fails as resolving either path does.
+    pub(crate) async fn new(moved_from: &Path, moved_to: &Path) -> io::Result<Self> {
+        Ok(Self {
+            old_name: real_path_name(moved_from).await?,
+            new_name: real_path_name(moved_to).await?,
+            moved_to: moved_to.to_path_buf(),
+        })
+    }
+
+    /// The old common folder's name, which each owner's capture folder is renamed from.
+    pub(crate) fn old_name(&self) -> &str {
+        &self.old_name
+    }
+
+    /// The new common folder's name, which each owner's capture folder is renamed to.
+    pub(crate) fn new_name(&self) -> &str {
+        &self.new_name
+    }
+
+    /// Whether the folders are renamed: a checkout that moved within its repository, whose common
+    /// folder stayed, keeps its capture folders' names.
+    pub(crate) fn is_rename(&self) -> bool {
+        self.old_name != self.new_name
+    }
+
+    /// The new common folder, which the stored rows are rewritten to.
+    pub(crate) fn moved_to(&self) -> &Path {
+        &self.moved_to
+    }
+}
+
+/// The carries this daemon run holds pending, each from before its move's write until the write
+/// that ends it: a capture folder named for either end of one opens only once its owner's folder
+/// is renamed to the new name.
+#[derive(Debug, Default)]
+pub(crate) struct CaptureCarries {
+    /// The carries pending, at most one from each old name.
+    pending: Mutex<Vec<CaptureCarry>>,
+}
+
+impl CaptureCarries {
+    /// Holds `carry` pending, in place of one from the same old name; a carry that renames nothing
+    /// is never held, since no folder of its name waits for it.
+    pub(crate) fn expect(&self, carry: CaptureCarry) {
+        if !carry.is_rename() {
+            return;
+        }
+        let mut pending = lock(&self.pending);
+        pending.retain(|held| held.old_name != carry.old_name);
+        pending.push(carry);
+    }
+
+    /// Ends `carry`, once the rows name the new folder or its move's write failed.
+    pub(crate) fn finish(&self, carry: &CaptureCarry) {
+        lock(&self.pending).retain(|held| held != carry);
+    }
+
+    // The pending carry from or to the capture folder name `name`.
+    fn pending(&self, name: &str) -> Option<CaptureCarry> {
+        lock(&self.pending)
+            .iter()
+            .find(|carry| carry.old_name == name || carry.new_name == name)
+            .cloned()
+    }
+}
+
 /// Whether `folder` is a capture folder by its path: its name is 64 lowercase hex digits and its
 /// parent is an owner's captures folder, so a copy, a large file's folder and a folder still being
 /// made are not.
@@ -290,13 +409,16 @@ pub fn is_capture_folder(folder: &Path) -> bool {
     let is_capture_name = folder
         .file_name()
         .and_then(OsStr::to_str)
-        .is_some_and(|name| {
-            name.len() == CAPTURE_FOLDER_NAME_LENGTH
-                && name
-                    .bytes()
-                    .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-        });
+        .is_some_and(is_real_path_name);
     is_captures_parent && is_capture_name
+}
+
+/// Whether `name` is one [`real_path_name`] gives: 64 lowercase hex digits.
+pub(crate) fn is_real_path_name(name: &str) -> bool {
+    name.len() == REAL_PATH_NAME_LENGTH
+        && name
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 /// Whether `name`, an entry of an owner's captures folder, names a capture folder still being made:

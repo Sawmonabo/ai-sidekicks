@@ -213,7 +213,8 @@ pub(crate) async fn made_capture_folder(
     let git_common_folder = read_git_common_folder(git, None, repository, None)
         .await
         .expect("the repository's git folder is read");
-    CaptureFolder::open_existing(owner, &git_common_folder)
+    let packing = CapturePacking::new(git.clone(), Arc::default());
+    CaptureFolder::open_existing(&packing, owner, &git_common_folder)
         .await
         .expect("the capture folder is looked for")
         .expect("a capture made the capture folder")

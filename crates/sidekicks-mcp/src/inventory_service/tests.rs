@@ -1,4 +1,3 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -36,8 +35,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use tokio::sync::oneshot;
 
 use super::McpInventoryService;
-use crate::binding::resolver::{McpAttributionTable, McpFirstFill};
-use crate::binding::session_tool_servers::{McpSessionToolServers, McpSessionToolServersError};
+use crate::binding::resolver::McpAttributionTable;
 use crate::binding::store::McpBindingKey;
 use crate::schema::schema_parts;
 use crate::status::McpServerStatusTracker;
@@ -45,6 +43,8 @@ use crate::status::machine_probe::McpMachineProbeGate;
 use crate::status::normalizer::{McpSessionAttribution, open_mcp_leg_status_producer};
 use crate::status::notices::McpNoticeBoard;
 use crate::test_inventory::open_test_inventory;
+
+mod session_tool_servers;
 
 /// The statements a read connection keeps prepared: the store's, the accounts' and the roots'.
 const READ_STATEMENT_CAPACITY: usize = 8;
@@ -738,117 +738,4 @@ async fn a_plain_list_after_a_failed_probe_carries_its_failure_reason(#[case] pr
         probe_failure_reason.as_ref().map(FreeFormText::as_str),
         Some(REFUSAL)
     );
-}
-
-/// A first fill whose read fails is recorded as failed, and an opening then reads the provider
-/// once itself: where that read lands the opening composes from it, and where it fails too the
-/// opening is refused. Killed by the failed fill left unrecorded (the wait never ends), by a
-/// failed fill composing from the empty table, and by the opening refusing without its own read.
-#[rstest]
-#[case::its_read_lands(true)]
-#[case::its_read_fails_too(false)]
-#[tokio::test]
-async fn an_opening_after_a_failed_fill_reads_the_provider_once(#[case] does_read_land: bool) {
-    let reads = Arc::new(AtomicUsize::new(0));
-    let driver_reads = Arc::clone(&reads);
-    let answer: DriverAnswer = Box::new(move |provider, request| {
-        let is_fill = driver_reads.fetch_add(1, Ordering::SeqCst) == 0;
-        if is_fill || !does_read_land {
-            ready(Err(DriverError::Internal(
-                "the config could not be read".into(),
-            )))
-            .boxed()
-        } else {
-            ready(Ok(reading_of(&provider, &request))).boxed()
-        }
-    });
-    let inventory = open_inventory(answer).await;
-    inventory.service.fill_attribution().await;
-    let first_fill = tokio::time::timeout(
-        WAIT_BOUND,
-        inventory
-            .attribution
-            .wait_for_first_fill(&inventory.provider),
-    )
-    .await
-    .expect("a failed fill ends the wait");
-    assert_eq!(first_fill, McpFirstFill::Failed);
-    let composer = McpSessionToolServers::new(
-        Arc::clone(&inventory.attribution),
-        inventory.service.sources.store.clone(),
-    );
-    composer
-        .register_inventory(Arc::clone(&inventory.service))
-        .expect("the inventory registers once");
-
-    let composed = tokio::time::timeout(WAIT_BOUND, composer.compose(&inventory.provider, None))
-        .await
-        .expect("the opening answers");
-
-    assert_eq!(reads.load(Ordering::SeqCst), 2);
-    if does_read_land {
-        let bindings: Vec<_> = composed
-            .expect("the opening composes")
-            .into_iter()
-            .map(|server| server.binding)
-            .collect();
-        assert_eq!(bindings, vec![docs_binding(&inventory.provider)]);
-    } else {
-        assert!(matches!(
-            composed,
-            Err(McpSessionToolServersError::ProviderUnread(_))
-        ));
-    }
-}
-
-/// The openings that meet one failed fill share one read of the provider: the first to hold the
-/// provider's refill reads, and each after it finds the table filled and opens without a read.
-/// Killed by the hold removed, where every opening reads.
-#[tokio::test]
-async fn openings_after_a_failed_fill_share_one_read() {
-    const OPENINGS: usize = 4;
-    let reads = Arc::new(AtomicUsize::new(0));
-    let driver_reads = Arc::clone(&reads);
-    let answer: DriverAnswer = Box::new(move |provider, request| {
-        if driver_reads.fetch_add(1, Ordering::SeqCst) == 0 {
-            return ready(Err(DriverError::Internal(
-                "the config could not be read".into(),
-            )))
-            .boxed();
-        }
-        // Slow enough that every opening meets the failed fill while this read runs.
-        async move {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            Ok(reading_of(&provider, &request))
-        }
-        .boxed()
-    });
-    let inventory = open_inventory(answer).await;
-    inventory.service.fill_attribution().await;
-    let composer = McpSessionToolServers::new(
-        Arc::clone(&inventory.attribution),
-        inventory.service.sources.store.clone(),
-    );
-    composer
-        .register_inventory(Arc::clone(&inventory.service))
-        .expect("the inventory registers once");
-
-    let opened = tokio::time::timeout(
-        WAIT_BOUND,
-        futures::future::join_all(
-            (0..OPENINGS).map(|_| composer.compose(&inventory.provider, None)),
-        ),
-    )
-    .await
-    .expect("the openings answer");
-
-    assert_eq!(reads.load(Ordering::SeqCst), 2);
-    for composed in opened {
-        let bindings: Vec<_> = composed
-            .expect("the opening composes")
-            .into_iter()
-            .map(|server| server.binding)
-            .collect();
-        assert_eq!(bindings, vec![docs_binding(&inventory.provider)]);
-    }
 }

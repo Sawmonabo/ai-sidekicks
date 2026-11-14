@@ -116,12 +116,13 @@ impl Fixture {
         let log = open_log(&database, None).await;
         let floor_reports = Arc::new(GitFloorReports::default());
         let data_folder = root.path().join("data");
+        let packing = Arc::new(CapturePacking::new(git.clone(), Arc::clone(&floor_reports)));
         let captures = Arc::new(CommandCaptureService::new(
             git.clone(),
             Arc::new(KeyedLock::new()),
-            Arc::clone(&floor_reports),
+            Arc::clone(&packing),
+            floor_reports,
         ));
-        let packing = Arc::new(CapturePacking::new(git.clone(), floor_reports));
         let windows = Arc::new(CommandWindows::new(CommandWindowsDeps {
             pool: Arc::new(DatabaseReadPool::new(
                 database.path(),

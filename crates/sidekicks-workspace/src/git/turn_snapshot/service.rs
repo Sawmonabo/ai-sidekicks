@@ -397,6 +397,7 @@ impl TurnSnapshotService {
             &self.git,
             place,
             &self.checkout_lock,
+            &self.packing,
             &self.floor_reports,
             checkout.roots(),
         )
@@ -652,17 +653,17 @@ impl TurnSnapshotService {
         git_common_dir: &Path,
     ) -> TurnSnapshotPruneOutcome {
         // Opened, never made: a folder no capture made holds no ref.
-        let capture_folder = match CaptureFolder::open_existing(owner_folder, git_common_dir).await
-        {
-            Ok(Some(capture_folder)) => capture_folder,
-            Ok(None) => return skipped(TurnSnapshotRetentionSkipReason::GitDirAbsent, None),
-            Err(failure) => {
-                return skipped(
-                    TurnSnapshotRetentionSkipReason::GitDirUnusable,
-                    Some(TurnSnapshotPruneFailure::CaptureFolder(failure)),
-                );
-            }
-        };
+        let capture_folder =
+            match CaptureFolder::open_existing(&self.packing, owner_folder, git_common_dir).await {
+                Ok(Some(capture_folder)) => capture_folder,
+                Ok(None) => return skipped(TurnSnapshotRetentionSkipReason::GitDirAbsent, None),
+                Err(failure) => {
+                    return skipped(
+                        TurnSnapshotRetentionSkipReason::GitDirUnusable,
+                        Some(TurnSnapshotPruneFailure::CaptureFolder(failure)),
+                    );
+                }
+            };
         let ref_prefix = build_run_snapshot_ref_prefix(run_key);
         let git_dir_argument = git_folder_argument(capture_folder.folder());
 

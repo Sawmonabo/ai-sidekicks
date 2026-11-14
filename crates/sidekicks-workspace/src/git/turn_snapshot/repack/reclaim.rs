@@ -72,7 +72,7 @@ impl CapturePacking {
         run_key: RunContextKey,
     ) -> io::Result<()> {
         let Some(capture_folder) =
-            CaptureFolder::open_existing(owner_folder, common_folder).await?
+            CaptureFolder::open_existing(self, owner_folder, common_folder).await?
         else {
             return Ok(());
         };

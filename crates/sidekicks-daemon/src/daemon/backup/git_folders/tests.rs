@@ -293,6 +293,7 @@ async fn a_capture_folders_copy_holds_its_lock_and_every_object_its_copied_refs_
     let captures = Arc::new(CommandCaptureService::new(
         git.clone(),
         Arc::new(KeyedLock::new()),
+        Arc::new(CapturePacking::new(git.clone(), Arc::default())),
         Arc::new(GitFloorReports::default()),
     ));
     let input = CheckoutCaptureInput {

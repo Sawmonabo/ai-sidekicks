@@ -312,20 +312,21 @@ impl McpInventoryService {
     }
 
     /// Fills the attribution table from one read per provider of what it loads at each attached
-    /// root, with no account, no probe and no refresh, so a leg that reports before any list
-    /// resolves its servers; the status tracker's readings stay as they are. A provider whose read
-    /// fails keeps the table as it was, is logged and is recorded as a failed fill; a failed read
-    /// of the attached roots fills nothing, is logged and records every provider's fill as failed.
+    /// root, reading each stored account's config file but asking no account for its servers,
+    /// with no probe and no refresh, so a leg that reports before any list resolves its servers
+    /// and keeps out what any account switched off; the status tracker's readings stay as they
+    /// are. A provider whose read fails, or one of whose stored accounts has an id that is not
+    /// one, keeps the table as it was, is logged and is recorded as a failed fill; a failed read of
+    /// the attached roots or the accounts fills nothing, is logged and records every provider's
+    /// fill as failed.
     pub async fn fill_attribution(&self) {
-        let attached_roots: Vec<PlacedPath> = match self.read_attached_projects().await {
-            Ok(projects) => projects
-                .into_iter()
-                .map(|(_project_id, root)| root)
-                .collect(),
+        let context = match self.read_context().await {
+            Ok(context) => context,
             Err(error) => {
                 tracing::warn!(
                     error = &error as &(dyn std::error::Error + 'static),
-                    "the attached roots could not be read, so no MCP server name was attributed"
+                    "the attached roots or the accounts could not be read, so no MCP server name \
+                     was attributed"
                 );
                 for (provider, _driver) in self.sources.providers.drivers() {
                     self.sources.attribution.record_failed_fill(provider);
@@ -333,15 +334,32 @@ impl McpInventoryService {
                 return;
             }
         };
+        let attached_roots = context.attached_roots();
         join_all(self.sources.providers.drivers().map(|(provider, driver)| {
-            let request = McpServersReadRequest {
-                attached_roots: Vec::clone(&attached_roots),
-                provider_account_ids: Vec::new(),
-                is_refresh: false,
-                probe: McpProbeScope::None,
-                emulated_local_bindings: Vec::new(),
-            };
+            let config_file_account_ids = provider_account_ids(provider, &context);
+            let attached_roots = Vec::clone(&attached_roots);
             async move {
+                let config_file_account_ids = match config_file_account_ids {
+                    Ok(config_file_account_ids) => config_file_account_ids,
+                    Err(error) => {
+                        tracing::warn!(
+                            error = &error as &(dyn std::error::Error + 'static),
+                            provider = provider.as_str(),
+                            "a stored account of the provider has no account id, so its MCP \
+                             server names resolve as the last read left them"
+                        );
+                        self.sources.attribution.record_failed_fill(provider);
+                        return;
+                    }
+                };
+                let request = McpServersReadRequest {
+                    attached_roots,
+                    provider_account_ids: Vec::new(),
+                    config_file_account_ids,
+                    is_refresh: false,
+                    probe: McpProbeScope::None,
+                    emulated_local_bindings: Vec::new(),
+                };
                 let stamp = self.sources.attribution.stamp_read();
                 match driver.read_mcp_servers(request).await {
                     Ok(reading) => {
@@ -487,18 +505,7 @@ impl McpInventoryService {
         probe: McpProbeScope,
         landing: Option<McpBindingLanding<'_>>,
     ) -> Result<Vec<(McpBindingKey, McpBindingRow)>, McpInventoryError> {
-        let provider_account_ids = context
-            .accounts
-            .iter()
-            .filter(|account| account.provider == provider.as_str())
-            .map(|account| {
-                ProviderAccountId::new(account.account_id.clone()).ok_or_else(|| {
-                    McpInventoryError::AccountId {
-                        provider: provider.clone(),
-                    }
-                })
-            })
-            .collect::<Result<_, _>>()?;
+        let provider_account_ids = provider_account_ids(provider, context)?;
         // The store is read first, since the driver probes the `local` bindings it keeps.
         let stored = self
             .sources
@@ -522,6 +529,7 @@ impl McpInventoryService {
             });
         let request = McpServersReadRequest {
             attached_roots: context.attached_roots(),
+            config_file_account_ids: Vec::clone(&provider_account_ids),
             provider_account_ids,
             is_refresh,
             probe,
@@ -669,6 +677,26 @@ impl McpInventoryService {
             }
         ))
     }
+}
+
+// The ids of `provider`'s stored accounts in `context`. Fails with `AccountId` where one's id is
+// not an account id.
+fn provider_account_ids(
+    provider: &ProviderId,
+    context: &McpInventoryContext,
+) -> Result<Vec<ProviderAccountId>, McpInventoryError> {
+    context
+        .accounts
+        .iter()
+        .filter(|account| account.provider == provider.as_str())
+        .map(|account| {
+            ProviderAccountId::new(account.account_id.clone()).ok_or_else(|| {
+                McpInventoryError::AccountId {
+                    provider: provider.clone(),
+                }
+            })
+        })
+        .collect()
 }
 
 // `provider`, whose read failed with `error`, as the list names it, the failure logged.

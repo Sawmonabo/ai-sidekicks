@@ -22,11 +22,13 @@ use crate::driver::mcp_server::address::names_server_at;
 pub(super) fn holds_sign_in_for(stored: &ClaudeStoredCredentials, name: &McpServerName) -> bool {
     stored.mcp_oauth.values().any(|sign_in| {
         sign_in.server_name.as_deref() == Some(name.as_str())
-            && sign_in
-                .access_token
-                .as_deref()
-                .is_some_and(|token| !token.is_empty())
+            && sign_in.access_token.as_ref().is_some_and(is_held)
     })
+}
+
+// Whether `secret` holds a value; Claude Code leaves an empty one where it has none.
+fn is_held(secret: &SecretString) -> bool {
+    !secret.expose_secret().is_empty()
 }
 
 /// Reads the sign-in Claude Code saved for `name` at `address` where it keeps it: the credential
@@ -82,10 +84,10 @@ pub(crate) struct ClaudeSavedSignIn {
     server_name: Option<String>,
     #[serde(default)]
     server_url: Option<String>,
-    #[serde(default)]
-    access_token: Option<String>,
-    #[serde(default)]
-    refresh_token: Option<String>,
+    #[serde(default, deserialize_with = "read_secret")]
+    access_token: Option<SecretString>,
+    #[serde(default, deserialize_with = "read_secret")]
+    refresh_token: Option<SecretString>,
     #[serde(default)]
     expires_at: Option<f64>,
     #[serde(default)]
@@ -128,26 +130,24 @@ pub(super) fn read_claude_saved_sign_in(
     name: &McpServerName,
     address: &McpServerAddress,
 ) -> Result<ClaudeSavedSignInReading, ClaudeSignInError> {
-    let sign_in = stored
+    let (sign_in, access_token) = stored
         .mcp_oauth
         .into_values()
-        .find(|sign_in| {
-            sign_in.server_name.as_deref() == Some(name.as_str())
+        .find_map(|mut sign_in| {
+            let is_match = sign_in.server_name.as_deref() == Some(name.as_str())
                 && sign_in.server_url.as_deref().is_some_and(|url| {
                     names_server_at(url, address)
                         || names_server_at(&expand_remote_address(url, environment), address)
-                })
-                && sign_in
-                    .access_token
-                    .as_deref()
-                    .is_some_and(|token| !token.is_empty())
+                });
+            let access_token = sign_in.access_token.take().filter(is_held)?;
+            is_match.then_some((sign_in, access_token))
         })
         .ok_or(ClaudeSignInError::NoSavedSignIn)?;
     let has_client_id = sign_in.client_id.is_some();
     Ok(ClaudeSavedSignInReading {
         takeover: ProviderSignInTakeover {
-            access_token: sign_in.access_token.unwrap_or_default(),
-            refresh_token: sign_in.refresh_token.filter(|token| !token.is_empty()),
+            access_token,
+            refresh_token: sign_in.refresh_token.filter(is_held),
             expires_at: sign_in
                 .expires_at
                 .filter(|milliseconds| milliseconds.is_finite() && *milliseconds >= 0.0)
@@ -158,9 +158,7 @@ pub(super) fn read_claude_saved_sign_in(
                 .unwrap_or_default(),
             token_type: BEARER_TOKEN_TYPE.to_owned(),
             client_id: sign_in.client_id.unwrap_or_default(),
-            client_secret: sign_in
-                .client_secret
-                .filter(|secret| !secret.expose_secret().is_empty()),
+            client_secret: sign_in.client_secret.filter(is_held),
             issuer: sign_in.issuer.or_else(|| {
                 sign_in
                     .discovery_state

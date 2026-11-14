@@ -304,9 +304,11 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_in_the_capture_folder_an
     let planted_ref = format!("{prefix}epoch-0/turn-1");
     write_in(&git, &repository, &["update-ref", &plain_ref, &commit]).await;
     let capture_folder = if is_capture_folder_made {
-        let capture_folder = CaptureFolder::open_or_create(&git, None, &owner, &git_common_dir)
-            .await
-            .expect("the capture folder is made");
+        let packing = CapturePacking::new(git.clone(), Arc::default());
+        let capture_folder =
+            CaptureFolder::open_or_create(&git, None, &packing, &owner, &git_common_dir)
+                .await
+                .expect("the capture folder is made");
         let folder = capture_folder.folder();
         let snapshot = commit_in_git_folder(&git, folder).await;
         for arguments in [

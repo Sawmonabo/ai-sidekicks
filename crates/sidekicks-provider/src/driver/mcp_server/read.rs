@@ -22,6 +22,9 @@ pub struct McpServersReadRequest {
     pub attached_roots: Vec<PlacedPath>,
     /// The provider's accounts, whose connectors and organization servers the driver reads.
     pub provider_account_ids: Vec<ProviderAccountId>,
+    /// The provider's accounts whose own config files the driver reads for what they switch off,
+    /// whether or not their connectors are asked for or answer; reading them starts no process.
+    pub config_file_account_ids: Vec<ProviderAccountId>,
     /// Whether the person asked for a refresh, so the driver reads again what it keeps between
     /// reads.
     pub is_refresh: bool,

@@ -29,7 +29,10 @@ use crate::mutation::receipts::tests::idempotency_key;
 use crate::mutation::service::removal_sign_out::McpRemovalSignOut as _;
 use crate::mutation::service::tests::{ScriptedServer, WriteHook, delete, scripted_driver};
 use crate::mutation::service::{McpMutationService, McpMutationSources};
-use crate::sign_in::address_digest::{ServerAddressDigest, ServerAddressKey};
+use crate::sign_in::address_digest::{
+    ADDRESS_KEY_ACCOUNT, ServerAddressDigest, ServerAddressKey, ServerAddressKeys,
+};
+use crate::sign_in::admitted_client::AdmittedClientStore;
 use crate::sign_in::server::tests::{
     TestSources, answer_address_read, docs_binding, driver_declaring, remote_declaration,
     test_sources,
@@ -531,6 +534,92 @@ async fn no_row_or_keychain_account_holds_a_signed_in_address() {
         item.expose_secret().contains("hunter2-pass"),
         "the secret keeps the address"
     );
+}
+
+// A re-key with no kept sign-in to move still moves each binding's last declared address and its
+// server's admitted client to the new key's digest of the address the binding declares, and a
+// binding whose address no longer reads keeps neither, so no row is left at a digest the lost key
+// made. Killed by the rewrite skipped where no sign-in moved and by the bindings left unpaired
+// (both leave the rows at the old digests, the mark unread at the new one), and by an unpaired
+// row kept.
+#[tokio::test]
+async fn a_re_key_with_no_kept_sign_in_leaves_no_row_at_an_old_digest() {
+    let docs_address = McpServerAddress::new("https://docs.example.test/mcp").expect("an address");
+    let notes_address =
+        McpServerAddress::new("https://notes.example.test/mcp").expect("an address");
+    let mut docs = driver_declaring(vec![remote_declaration(
+        &docs_binding(),
+        docs_address.as_str(),
+    )]);
+    answer_address_read(
+        &mut docs,
+        Ok(McpServerAddressReading::Declared(docs_address.clone())),
+    );
+    let mut notes = driver_declaring(vec![remote_declaration(
+        &notes_binding(),
+        notes_address.as_str(),
+    )]);
+    answer_address_read(&mut notes, Ok(McpServerAddressReading::Unreadable));
+    let harness = harness().await;
+    let removal = removal_over(vec![Arc::new(docs), Arc::new(notes)], &harness).await;
+    let admitted_clients = AdmittedClientStore::new(
+        Arc::clone(&removal.sources.reads),
+        Arc::clone(&removal.sources.writer),
+    );
+    let mut old_digests = Vec::new();
+    for (binding, address) in [
+        (docs_binding(), &docs_address),
+        (notes_binding(), &notes_address),
+    ] {
+        let digest = removal
+            .owed
+            .note_declared(&binding, address)
+            .await
+            .expect("the address is kept");
+        admitted_clients
+            .mark_own_client_unfinished(&digest)
+            .await
+            .expect("the mark is kept");
+        old_digests.push(digest);
+    }
+
+    harness
+        .keychain
+        .remove(ADDRESS_KEY_ACCOUNT)
+        .await
+        .expect("the key is lost");
+    let next_life = ServerAddressKeys::new(Arc::clone(&harness.keychain));
+    next_life.follow_moves_with(Arc::clone(&removal.owed.records) as _);
+    let key = next_life.read().await.expect("a new key is made");
+
+    let new_docs = key.digest(&docs_address);
+    assert_eq!(
+        removal
+            .owed
+            .read_last_declared(&docs_binding())
+            .await
+            .expect("the binding reads"),
+        Some(new_docs.clone())
+    );
+    assert_eq!(
+        removal
+            .owed
+            .read_last_declared(&notes_binding())
+            .await
+            .expect("the binding reads"),
+        None
+    );
+    let admitted = admitted_clients
+        .read(&new_docs)
+        .await
+        .expect("the mark reads");
+    assert!(admitted.is_some_and(|admitted| admitted.is_own_client_unfinished));
+    for old in &old_digests {
+        assert_eq!(
+            admitted_clients.read(old).await.expect("the mark reads"),
+            None
+        );
+    }
 }
 
 // A removal that lands while a settle's scan runs, the scan having read its binding still

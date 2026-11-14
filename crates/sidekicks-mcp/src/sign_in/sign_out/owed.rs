@@ -27,6 +27,7 @@
 //! - No log line names an address, which may hold credentials.
 
 use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::sync::{Arc, Mutex, Weak};
 
 use futures::future::BoxFuture;
@@ -46,18 +47,19 @@ use crate::binding::store::{
     McpBindingKey, McpBindingStore, McpBindingStoreError, move_last_declared_digest_statement,
 };
 use crate::client::tasks::McpServerEndpoint;
-use crate::command_receipts::move_endpoint_statement;
+use crate::command_receipts::{clear_unkept_endpoints_statement, move_endpoint_statement};
 use crate::errors::McpRefusal;
 use crate::mutation::service::CONFIG_UNREAD_WORDS;
 use crate::mutation::service::removal_sign_out::{McpRemovalSignOut, McpRemovalSignOutHold};
 use crate::sign_in::address_digest::{
-    MovedDigest, ServerAddressDigest, ServerAddressKeyError, ServerDigestRows,
+    MovedDigest, ServerAddressDigest, ServerAddressKey, ServerAddressKeyError, ServerDigestRows,
 };
 use crate::sign_in::server::SignInTargetReads;
 use crate::sign_in::service::SignInService;
 
-/// The statements the owed sign-outs' reads run: the list of records.
-pub const MCP_OWED_SIGN_OUT_STATEMENT_CAPACITY: usize = 1;
+/// The statements the owed sign-outs' reads run: the list of records and whether any binding
+/// holds a last declared digest.
+pub const MCP_OWED_SIGN_OUT_STATEMENT_CAPACITY: usize = 2;
 
 const LIST_OWED_SIGN_OUTS_SQL: &str =
     "SELECT server_address_digest FROM mcp_server_owed_sign_outs ORDER BY server_address_digest";
@@ -90,6 +92,19 @@ const MOVE_ADMITTED_CLIENT_SQL: &str = "INSERT INTO mcp_server_admitted_clients
 
 const CLEAR_MOVED_ADMITTED_CLIENT_SQL: &str =
     "DELETE FROM mcp_server_admitted_clients WHERE server_address_digest = @old_digest";
+
+const HAS_LAST_DECLARED_DIGEST_SQL: &str = "SELECT EXISTS (SELECT 1 FROM mcp_server_bindings
+  WHERE last_declared_address_digest IS NOT NULL)";
+
+// Under a new address key a binding's last declared digest that is none of `@kept_digests`, a JSON
+// array, names a server under the lost key, so it is cleared; the binding's next read writes it.
+const CLEAR_UNKEPT_LAST_DECLARED_SQL: &str = "UPDATE mcp_server_bindings
+  SET last_declared_address_digest = NULL
+  WHERE last_declared_address_digest NOT IN (SELECT value FROM json_each(@kept_digests))";
+
+// An admitted client under none of `@kept_digests` names a server under the lost key.
+const CLEAR_UNKEPT_ADMITTED_CLIENTS_SQL: &str = "DELETE FROM mcp_server_admitted_clients
+  WHERE server_address_digest NOT IN (SELECT value FROM json_each(@kept_digests))";
 
 /// Why an owed sign-out, or a binding's last declared address, was not read or kept.
 #[derive(Debug, thiserror::Error)]
@@ -140,10 +155,13 @@ enum SettleError {
 }
 
 /// The owed sign-outs' records in `mcp_server_owed_sign_outs`, keyed by digest, read through the
-/// daemon's read pool and written through its writer.
+/// daemon's read pool and written through its writer, with the bindings' addresses and last
+/// declared digests a new address key pairs the rows by.
 struct OwedSignOutStore {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
+    targets: Arc<SignInTargetReads>,
+    bindings: McpBindingStore,
 }
 
 impl OwedSignOutStore {
@@ -169,6 +187,51 @@ impl OwedSignOutStore {
         self.write(CLEAR_OWED_SIGN_OUT_SQL, digest).await
     }
 
+    // Whether any binding holds a last declared digest.
+    async fn has_last_declared_digest(&self) -> Result<bool, OwedSignOutError> {
+        self.pool
+            .read(ReadLength::Short, |connection| {
+                Ok(connection
+                    .prepare_cached(HAS_LAST_DECLARED_DIGEST_SQL)?
+                    .query_row([], |row| row.get(0))?)
+            })
+            .await
+    }
+
+    // Each binding's last declared digest paired with `key`'s digest of the address it declares
+    // now; none where no binding holds one. A binding whose address does not read, and every one
+    // where the providers' read fails, gives none, so the rewrite clears its rows.
+    async fn binding_pairs(
+        &self,
+        key: &ServerAddressKey,
+    ) -> Result<Vec<MovedDigest>, OwedSignOutError> {
+        if !self.has_last_declared_digest().await? {
+            return Ok(Vec::new());
+        }
+        let addresses = match self.targets.read_remote_addresses().await {
+            Ok(addresses) => addresses,
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the MCP bindings' addresses could not be read under a new address key, so \
+                     the rows naming their servers are cleared"
+                );
+                return Ok(Vec::new());
+            }
+        };
+        let mut last_declared = LastDeclaredDigests::default();
+        let mut pairs = Vec::new();
+        for (binding, address) in addresses {
+            let Some(address) = address else {
+                continue;
+            };
+            if let Some(old) = last_declared.of(&self.bindings, &binding).await? {
+                pairs.push((old, key.digest(&address)));
+            }
+        }
+        Ok(pairs)
+    }
+
     async fn write(
         &self,
         sql: &'static str,
@@ -188,34 +251,89 @@ impl OwedSignOutStore {
     }
 }
 
-// Each row naming a moved sign-in's server follows it to its new digest in this one write: the
-// owed sign-out, each binding's last declared address, the server's admitted client and each task
-// accepted on it, so no settle reads a binding off the server and no client registers again.
+// Each row naming a server follows it to its new digest in this one write, by the moved sign-ins'
+// pairs and, for a server none of them names, each binding's: the owed sign-out, each binding's
+// last declared address, the server's admitted client and each task accepted on it, so no settle
+// reads a binding off the server and no client registers again. A binding's last declared address,
+// an admitted client and a task left at no new digest are cleared.
 impl ServerDigestRows for OwedSignOutStore {
     fn rewrite_digests<'a>(
         &'a self,
+        key: &'a ServerAddressKey,
         moved: &'a [MovedDigest],
-    ) -> BoxFuture<'a, Result<(), WriteError>> {
-        let statements = moved
-            .iter()
-            .flat_map(|(old, new)| {
-                [
-                    moved_digest_statement(MOVE_OWED_SIGN_OUT_SQL, old, Some(new)),
-                    moved_digest_statement(CLEAR_MOVED_OWED_SIGN_OUT_SQL, old, None),
-                    move_last_declared_digest_statement(old, new),
-                    moved_digest_statement(MOVE_ADMITTED_CLIENT_SQL, old, Some(new)),
-                    moved_digest_statement(CLEAR_MOVED_ADMITTED_CLIENT_SQL, old, None),
-                    move_endpoint_statement(
-                        &McpServerEndpoint::at_address(old),
-                        &McpServerEndpoint::at_address(new),
-                    ),
-                ]
-            })
-            .collect();
+    ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
         Box::pin(async move {
+            let mut pairs = moved.to_vec();
+            for (old, new) in self.binding_pairs(key).await? {
+                if !pairs.iter().any(|(moved_old, _new)| *moved_old == old) {
+                    pairs.push((old, new));
+                }
+            }
+            let kept_digests = serde_json::Value::from(
+                pairs
+                    .iter()
+                    .map(|(_old, new)| new.as_str())
+                    .collect::<Vec<_>>(),
+            )
+            .to_string();
+            let mut statements: Vec<WriteStatement> = pairs
+                .iter()
+                .flat_map(|(old, new)| {
+                    [
+                        moved_digest_statement(MOVE_OWED_SIGN_OUT_SQL, old, Some(new)),
+                        moved_digest_statement(CLEAR_MOVED_OWED_SIGN_OUT_SQL, old, None),
+                        move_last_declared_digest_statement(old, new),
+                        moved_digest_statement(MOVE_ADMITTED_CLIENT_SQL, old, Some(new)),
+                        moved_digest_statement(CLEAR_MOVED_ADMITTED_CLIENT_SQL, old, None),
+                        move_endpoint_statement(
+                            &McpServerEndpoint::at_address(old),
+                            &McpServerEndpoint::at_address(new),
+                        ),
+                    ]
+                })
+                .collect();
+            statements.extend([
+                kept_digests_statement(CLEAR_UNKEPT_LAST_DECLARED_SQL, &kept_digests),
+                kept_digests_statement(CLEAR_UNKEPT_ADMITTED_CLIENTS_SQL, &kept_digests),
+                clear_unkept_endpoints_statement(&kept_digests),
+            ]);
             self.writer.write(statements).await?;
             Ok(())
         })
+    }
+}
+
+// The statement `sql` run with `kept_digests`, a JSON array of digests under a new address key.
+fn kept_digests_statement(sql: &'static str, kept_digests: &str) -> WriteStatement {
+    WriteStatement {
+        sql: sql.into(),
+        bindings: StatementBindings::Named(vec![text_binding("@kept_digests", kept_digests)]),
+        expected_row_count: None,
+    }
+}
+
+// Each provider's bindings' last declared digests, read from the binding store once per provider.
+#[derive(Default)]
+struct LastDeclaredDigests(HashMap<ProviderId, HashMap<McpBindingKey, ServerAddressDigest>>);
+
+impl LastDeclaredDigests {
+    // The digest `binding` last read as, if one has, its provider's read from `bindings` the first
+    // time.
+    async fn of(
+        &mut self,
+        bindings: &McpBindingStore,
+        binding: &McpServerBindingRef,
+    ) -> Result<Option<ServerAddressDigest>, McpBindingStoreError> {
+        let provider = binding.provider();
+        if !self.0.contains_key(provider) {
+            let read = bindings.read_last_declared_digests(provider).await?;
+            self.0.insert(provider.clone(), read);
+        }
+        Ok(self
+            .0
+            .get(provider)
+            .and_then(|digests| digests.get(&McpBindingKey::of(binding)))
+            .cloned())
     }
 }
 
@@ -292,7 +410,7 @@ struct SettleRuns {
 pub struct OwedSignOuts {
     this: Weak<Self>,
     sign_ins: Arc<SignInService>,
-    targets: SignInTargetReads,
+    targets: Arc<SignInTargetReads>,
     records: Arc<OwedSignOutStore>,
     bindings: McpBindingStore,
     /// The removals in flight, by digest.
@@ -309,17 +427,21 @@ pub struct OwedSignOuts {
 impl OwedSignOuts {
     /// The owed sign-outs signed out through `sign_ins`, the bindings' addresses read through
     /// `targets`, the records and each binding's last declared address read on `reads` and
-    /// written through `writer`. The records follow a sign-in its custody files under a new
-    /// address key.
+    /// written through `writer`. Under a new address key the records and every row naming a
+    /// server follow it to its new digest.
     pub fn new(
         sign_ins: Arc<SignInService>,
         targets: SignInTargetReads,
         reads: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,
     ) -> Arc<Self> {
+        let targets = Arc::new(targets);
+        let bindings = McpBindingStore::new(Arc::clone(&writer), Arc::clone(&reads));
         let records = Arc::new(OwedSignOutStore {
-            pool: Arc::clone(&reads),
-            writer: Arc::clone(&writer),
+            pool: reads,
+            writer,
+            targets: Arc::clone(&targets),
+            bindings: bindings.clone(),
         });
         sign_ins
             .custody
@@ -329,7 +451,7 @@ impl OwedSignOuts {
             sign_ins,
             targets,
             records,
-            bindings: McpBindingStore::new(writer, reads),
+            bindings,
             in_flight: Arc::default(),
             deciding: tokio::sync::Mutex::new(()),
             runs: Mutex::default(),
@@ -640,8 +762,7 @@ impl OwedSignOuts {
             .address_key()
             .await
             .map_err(OwedSignOutError::from)?;
-        let mut last_declared: HashMap<ProviderId, HashMap<McpBindingKey, ServerAddressDigest>> =
-            HashMap::new();
+        let mut last_declared = LastDeclaredDigests::default();
         let mut named = HashSet::new();
         for (binding, address) in self
             .targets
@@ -649,19 +770,10 @@ impl OwedSignOuts {
             .await
             .map_err(SettleError::Addresses)?
         {
-            let provider = binding.provider();
-            if !last_declared.contains_key(provider) {
-                let read = self
-                    .bindings
-                    .read_last_declared_digests(provider)
-                    .await
-                    .map_err(OwedSignOutError::from)?;
-                last_declared.insert(provider.clone(), read);
-            }
             let last = last_declared
-                .get(provider)
-                .and_then(|digests| digests.get(&McpBindingKey::of(&binding)))
-                .cloned();
+                .of(&self.bindings, &binding)
+                .await
+                .map_err(OwedSignOutError::from)?;
             match address {
                 Some(address) => {
                     let digest = key.digest(&address);

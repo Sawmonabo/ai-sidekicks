@@ -574,6 +574,18 @@ pub(crate) struct WorkspaceWork {
 }
 
 impl WorkspaceWork {
+    /// Holds pending the carry of each moved mount's captures a stop cut off, so nothing captured
+    /// before the carry runs opens a capture folder of theirs uncarried. Called before anything
+    /// captures; a failure is logged, and the carry the start begins reads the same rows again.
+    pub(crate) async fn expect_moved_captures(&self) {
+        if let Err(error) = self.reattach.expect_moved_captures().await {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "a moved project's captures could not be held for their carry to its new folder"
+            );
+        }
+    }
+
     /// Begins in the background the finish of the creates, the removal of the copies and the carry
     /// of the moved mounts' captures a stop cut off, and the worktree cleanup, now and on each
     /// wake. Called once the start's recovery pass has ended.

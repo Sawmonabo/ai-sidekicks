@@ -35,6 +35,7 @@ use rmcp::transport::auth::{
     CredentialStore as _, OAuthClientConfig, OAuthTokenResponse, StoredCredentials,
     VendorExtraTokenFields,
 };
+use secrecy::ExposeSecret as _;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -478,10 +479,10 @@ impl SignInService {
 
     // Keeps `takeover` as the server's sign-in under its custody lock, the secret the server
     // issued its client beside the credentials, or, for the client the server's owner issued, the
-    // binding its secret is read through again, which marks the server signed in unless it was signed out since the flow
-    // began, and records the provider as the client the server admits, kept or not, since the
-    // flow completed at the server; the record also clears the mark that the daemon's own client
-    // did not finish. Answers why the sign-in was not kept.
+    // binding its secret is read through again, which marks the server signed in unless it was
+    // signed out since the flow began, and records the provider as the client the server admits,
+    // kept or not, since the flow completed at the server; the record also clears the mark that
+    // the daemon's own client did not finish. Answers why the sign-in was not kept.
     async fn keep_takeover(
         &self,
         running: &RunningFlow,
@@ -523,7 +524,8 @@ impl SignInService {
 }
 
 /// `takeover` as rmcp's credentials, received at `received_at`: its lifetime is counted from then,
-/// as the renewal reads it, so a token past its expiry is renewed on first use.
+/// as the renewal reads it, so a token past its expiry is renewed on first use. The one place the
+/// takeover's tokens leave their secrets, into rmcp's token types, whose `Debug` prints neither.
 fn stored_credentials(
     takeover: ProviderSignInTakeover,
     received_at: SystemTime,
@@ -537,11 +539,15 @@ fn stored_credentials(
         BasicTokenType::Extension(takeover.token_type)
     };
     let mut token_response = OAuthTokenResponse::new(
-        AccessToken::new(takeover.access_token),
+        AccessToken::new(takeover.access_token.expose_secret().to_owned()),
         token_type,
         VendorExtraTokenFields::default(),
     );
-    token_response.set_refresh_token(takeover.refresh_token.map(RefreshToken::new));
+    token_response.set_refresh_token(
+        takeover
+            .refresh_token
+            .map(|token| RefreshToken::new(token.expose_secret().to_owned())),
+    );
     let expires_in = takeover.expires_at.map(|expires_at| {
         expires_at
             .duration_since(received_at)

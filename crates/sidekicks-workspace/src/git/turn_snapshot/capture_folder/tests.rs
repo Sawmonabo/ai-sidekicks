@@ -14,6 +14,7 @@ use crate::git::process::{
 };
 use crate::git::turn_snapshot::capture::TURN_SNAPSHOT_SUBJECT;
 use crate::git::turn_snapshot::capture_steps::SnapshotCheckout;
+use crate::git::turn_snapshot::repack::CapturePacking;
 
 // What `arguments` against the git folder `folder` printed, its line end dropped, run with
 // `environment`; `None` when git refused.
@@ -88,17 +89,20 @@ async fn a_repository_gets_one_capture_folder_in_its_object_format() {
         .await
         .expect("the repository's git folder is read");
     let owner = root.path().join("owner");
+    let packing = CapturePacking::new(git.clone(), Arc::default());
 
-    let opened = CaptureFolder::open_or_create(&git, None, &owner, &git_common_folder)
+    let opened = CaptureFolder::open_or_create(&git, None, &packing, &owner, &git_common_folder)
         .await
         .expect("the capture folder is made");
+    let without_git = runner_without_git();
     let reopened =
-        CaptureFolder::open_or_create(&runner_without_git(), None, &owner, &git_common_folder)
+        CaptureFolder::open_or_create(&without_git, None, &packing, &owner, &git_common_folder)
             .await
             .expect("the present folder is reused without git");
-    let through_link = CaptureFolder::open_or_create(&git, None, &owner, &link.join(".git"))
-        .await
-        .expect("the folder opens through the link");
+    let through_link =
+        CaptureFolder::open_or_create(&git, None, &packing, &owner, &link.join(".git"))
+            .await
+            .expect("the folder opens through the link");
 
     let real = canonical_folder_path(&git_common_folder)
         .await
@@ -149,10 +153,15 @@ async fn a_capture_writes_into_its_folder_and_leaves_the_repository_as_it_was() 
     let git_common_folder = read_git_common_folder(&git, None, &repository, None)
         .await
         .expect("the repository's git folder is read");
-    let capture_folder =
-        CaptureFolder::open_or_create(&git, None, &root.path().join("owner"), &git_common_folder)
-            .await
-            .expect("the capture folder is made");
+    let capture_folder = CaptureFolder::open_or_create(
+        &git,
+        None,
+        &CapturePacking::new(git.clone(), Arc::default()),
+        &root.path().join("owner"),
+        &git_common_folder,
+    )
+    .await
+    .expect("the capture folder is made");
     let repository_objects = files_under(&git_common_folder.join("objects"));
     let checkout = SnapshotCheckout {
         git: &git,

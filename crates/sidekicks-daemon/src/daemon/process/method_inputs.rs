@@ -537,6 +537,7 @@ pub(crate) async fn register_method_inputs(
             chat_versions: Arc::clone(&session.chat_versions),
         },
     )?;
+    mcp_sign_ins.service.start_signed_in_seed();
     let shells = Arc::new(
         build_shell_table(ShellTableStart {
             terminals: Arc::clone(&session.terminals),

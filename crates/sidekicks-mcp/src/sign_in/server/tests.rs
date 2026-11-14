@@ -250,8 +250,9 @@ async fn a_remote_binding_is_read_at_the_address_its_entry_declares() {
 }
 
 // An entry naming both client halves, an `https:` metadata address and its scopes reads as a
-// target holding them, and an `http:` metadata address is refused as unusable. Killed by the
-// metadata address dropped from the target, and by the scheme check dropped.
+// target holding them, and an `http:` metadata address is refused as unusable with no read of the
+// entry, which reads the owner's secret. Killed by the metadata address dropped from the target,
+// by the scheme check dropped, and by the entry read before the check.
 #[rstest]
 #[case::https("https://auth.example.test/meta", None)]
 #[case::http(
@@ -275,7 +276,10 @@ async fn the_sign_in_settings_of_an_entry_reach_its_target(
         asks_offline_access_where_listed: true,
     });
     let mut driver = driver_declaring(vec![declaration]);
-    answer_entry_read(&mut driver, Ok(declared(DECLARED_ADDRESS)));
+    // The mock fails a read it was not told to expect.
+    if refusal.is_none() {
+        answer_entry_read(&mut driver, Ok(declared(DECLARED_ADDRESS)));
+    }
     let sources = test_sources(vec![Arc::new(driver)]).await;
 
     let read = sources.target_reads().read(&binding).await;

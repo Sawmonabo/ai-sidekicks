@@ -97,8 +97,8 @@ fn scripted_driver(
                     .send(scripted_browser_url())
                     .expect("the launch waits for the address");
                 Ok(ProviderSignInTakeover {
-                    access_token: PROVIDER_ACCESS_TOKEN.to_owned(),
-                    refresh_token: Some(PROVIDER_REFRESH_TOKEN.to_owned()),
+                    access_token: SecretString::from(PROVIDER_ACCESS_TOKEN),
+                    refresh_token: Some(SecretString::from(PROVIDER_REFRESH_TOKEN)),
                     // Already past, so the first use renews it.
                     expires_at: Some(SystemTime::now() - Duration::from_secs(60)),
                     scopes: vec!["docs.read".to_owned()],

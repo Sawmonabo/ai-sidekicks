@@ -66,6 +66,7 @@ fn running_holder() -> RunningHolder {
 /// folder as its anchor.
 struct ReattachFixture {
     roots: ExecutionRootFixture,
+    packing: Arc<CapturePacking>,
     service: Arc<RepoMountReattachService<NullWatcher>>,
 }
 
@@ -80,6 +81,10 @@ impl ReattachFixture {
                 params![roots.repository.join(".git").to_string_lossy(), MOUNT_ID],
             )
             .expect("the mount records its anchor");
+        let packing = Arc::new(CapturePacking::new(
+            test_git_runner(),
+            Arc::new(GitFloorReports::default()),
+        ));
         let service = Arc::new(RepoMountReattachService::new(
             RepoMountReattachServiceDeps {
                 writer: Arc::clone(&roots.log.writer),
@@ -92,16 +97,17 @@ impl ReattachFixture {
                 ))),
                 resolver: RepoRootResolver::new(test_git_runner()),
                 holders: Arc::new(FixedRunAgent),
-                packing: Arc::new(CapturePacking::new(
-                    test_git_runner(),
-                    Arc::new(GitFloorReports::default()),
-                )),
+                packing: Arc::clone(&packing),
                 data_folder: roots.scratch.path().join("data"),
                 common_folder_columns: Vec::new(),
                 attach_notice: Arc::default(),
             },
         ));
-        Self { roots, service }
+        Self {
+            roots,
+            packing,
+            service,
+        }
     }
 
     async fn reattach(
@@ -534,10 +540,11 @@ async fn a_lost_mount_follows_its_repository_keeping_every_id_and_refuses_anothe
 
 // A capture taken before its repository moved is found and read at the new folder after the move,
 // its run's context naming the new common folder; and so it is after a stop cut the move between
-// its write and the carry, once the start's carry runs, whether the folder was renamed or not.
-// Killed by the move's carry dropped (no folder at the new name), by the rows left unrewritten
-// (the context names the old folder), by the record of the carry left unwritten or uncleared, and
-// by a rename that replaces a folder already at the new name.
+// its write and the carry, once the start's carry runs, whether the folder was renamed or not, and
+// when a turn captured at the new name before that carry. Killed by the move's carry dropped (no
+// folder at the new name), by the rows left unrewritten (the context names the old folder), by the
+// record of the carry left unwritten or uncleared, by an opener that makes a folder at the new
+// name while the carry is pending, and by a rename that replaces a folder already at the new name.
 #[tokio::test]
 async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
     let fixture = ReattachFixture::new().await;
@@ -571,7 +578,8 @@ async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
     );
     let captured_file = fixture.roots.scratch.path().join("captured.txt");
     std::fs::write(&captured_file, "the captured words").expect("the file is written");
-    let capture_folder = CaptureFolder::open_or_create(git, None, &owner, &old_common)
+    let packing = &fixture.packing;
+    let capture_folder = CaptureFolder::open_or_create(git, None, packing, &owner, &old_common)
         .await
         .expect("the capture folder is made");
     let blob = capture_git(
@@ -621,6 +629,20 @@ async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
             }
             fixture
                 .service
+                .expect_moved_captures()
+                .await
+                .expect("the start holds the carry before anything captures");
+            // A turn captures at the new name before the start's carry runs.
+            let turn_folder =
+                CaptureFolder::open_or_create(git, None, packing, &owner, &new_common)
+                    .await
+                    .expect("the turn's capture folder opens");
+            assert_eq!(
+                capture_git(git, &turn_folder, &["cat-file", "-p", &blob]).await,
+                "the captured words"
+            );
+            fixture
+                .service
                 .carry_moved_captures()
                 .await
                 .expect("the start's carry finishes the move");
@@ -630,7 +652,7 @@ async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
             Some(new_common.to_string_lossy().into_owned())
         );
         assert_eq!(fixture.roots.count(record), 0);
-        let found = CaptureFolder::open_existing(&owner, &new_common)
+        let found = CaptureFolder::open_existing(packing, &owner, &new_common)
             .await
             .expect("the captures folder reads")
             .expect("the capture folder is found at the new folder");

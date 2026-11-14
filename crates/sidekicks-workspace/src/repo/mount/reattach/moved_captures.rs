@@ -3,10 +3,13 @@
 //! folder is renamed to the new path's name and every stored common folder that named the old one
 //! is rewritten to the new one.
 //!
-//! The move's write records the old common folder on the new mount. The carry renames the folders,
-//! then rewrites the rows and clears that record in one write. A stop after the move's write keeps
-//! the record, and the next start's carry finishes the move: a folder that was already renamed is
-//! skipped, and the rows are rewritten.
+//! The move's write records the old common folder on the new mount, and the capture folders'
+//! packing holds the carry pending from before that write, and from the start for each record a
+//! stop left: while it is pending, a capture folder of either name opens only once its owner's
+//! folder is renamed, so no capture is taken at the new name beside the old folder. The carry
+//! renames the folders, then rewrites the rows and clears that record in one write, which ends it.
+//! A stop after the move's write keeps the record, and the next start's carry finishes the move: a
+//! folder that was already renamed is skipped, and the rows are rewritten.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -23,8 +26,9 @@ use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::database::writer::WriteError;
 
 use super::RepoMountReattachService;
-use crate::git::turn_snapshot::capture_folder::{CAPTURES_SEGMENT, real_path_name};
+use crate::git::turn_snapshot::capture_folder::{CAPTURES_SEGMENT, CaptureCarry, real_path_name};
 use crate::git::turn_snapshot::capture_steps::joined;
+use crate::git::turn_snapshot::kept_index::remove_kept_indexes;
 use crate::row_guards::COMMON_DIR_METADATA_PATH;
 
 /// Where a moved mount records the common folder its captures are still carried from.
@@ -96,46 +100,70 @@ struct UncarriedMount {
 }
 
 impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
+    /// Holds pending the carry of every moved mount whose carry a stop cut off, so no capture
+    /// folder of theirs opens before it is carried. Run at the start, before anything captures.
+    /// Fails as the read or resolving a common folder fails, the carries held so far kept.
+    pub async fn expect_moved_captures(&self) -> Result<(), CaptureCarryError> {
+        self.expect_uncarried().await.map(drop)
+    }
+
     /// Carries the captures of every moved mount whose carry a stop cut off, as a move carries
     /// them. Run at the start. Fails at the first mount whose carry failed; that mount, and each
     /// one after it, keeps its record for the next start.
     pub async fn carry_moved_captures(&self) -> Result<(), CaptureCarryError> {
-        let uncarried = self
-            .reads
-            .read(ReadLength::Short, read_uncarried_mounts)
-            .await?;
-        for mount in uncarried {
-            self.carry_captures(mount.repo_mount_id, &mount.moved_from, &mount.moved_to)
-                .await?;
+        for (repo_mount_id, carry) in self.expect_uncarried().await? {
+            self.carry_captures(repo_mount_id, &carry).await?;
         }
         Ok(())
     }
 
-    /// Renames each owner's capture folder of the repository whose common folder moved from
-    /// `moved_from` to `moved_to`, then, in one write, rewrites every stored common folder named
-    /// like `moved_from` and clears the mount's record of the carry. Fails as the listing, a
-    /// rename, a read or the write fails, the record then kept.
+    // Holds pending the carry of each mount whose record a stop left, and answers them.
+    async fn expect_uncarried(
+        &self,
+    ) -> Result<Vec<(RepoMountId, CaptureCarry)>, CaptureCarryError> {
+        let uncarried = self
+            .reads
+            .read(ReadLength::Short, read_uncarried_mounts)
+            .await?;
+        let mut carries = Vec::with_capacity(uncarried.len());
+        for mount in uncarried {
+            let carry = CaptureCarry::new(&mount.moved_from, &mount.moved_to)
+                .await
+                .map_err(CaptureCarryError::Folder)?;
+            self.packing.carries().expect(carry.clone());
+            carries.push((mount.repo_mount_id, carry));
+        }
+        Ok(carries)
+    }
+
+    /// Renames each owner's capture folder of the moved repository `carry` names, or, for a carry
+    /// that renames nothing, removes each one's kept indexes, then, in one write, rewrites every
+    /// stored common folder named like its old one and clears the mount's record of the carry,
+    /// which ends it. Fails as the listing, a rename, a read or the write
+    /// fails, the record and the pending carry then kept.
     pub(super) async fn carry_captures(
         &self,
         repo_mount_id: RepoMountId,
-        moved_from: &Path,
-        moved_to: &Path,
+        carry: &CaptureCarry,
     ) -> Result<(), CaptureCarryError> {
-        let from_name = real_path_name(moved_from)
-            .await
-            .map_err(CaptureCarryError::Folder)?;
-        let to_name = real_path_name(moved_to)
-            .await
-            .map_err(CaptureCarryError::Folder)?;
+        let (old_name, new_name) = (carry.old_name(), carry.new_name());
         let data_folder = self.data_folder.clone();
         let owners = joined(tokio::task::spawn_blocking(move || owner_folders(&data_folder)).await)
             .map_err(CaptureCarryError::Folder)?;
         for owner in owners {
             let captures = owner.join(CAPTURES_SEGMENT);
-            self.packing
-                .move_capture_folder(&captures.join(&from_name), &captures.join(&to_name))
-                .await
-                .map_err(CaptureCarryError::Folder)?;
+            if carry.is_rename() {
+                self.packing
+                    .move_capture_folder(&captures.join(old_name), &captures.join(new_name))
+                    .await
+                    .map_err(CaptureCarryError::Folder)?;
+            } else {
+                // The folder keeps its name; its kept indexes go, the moved checkout's among them.
+                let folder = captures.join(new_name);
+                let _hold = self.packing.hold_capture_folder(&folder).await;
+                joined(tokio::task::spawn_blocking(move || remove_kept_indexes(&folder)).await)
+                    .map_err(CaptureCarryError::Folder)?;
+            }
         }
 
         let columns = self.common_folder_columns.clone();
@@ -145,7 +173,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 read_stored_common_folders(connection, &columns)
             })
             .await?;
-        let moved_to = moved_to.to_string_lossy();
+        let moved_to = carry.moved_to().to_string_lossy();
         let mut statements = Vec::new();
         for (column, spellings) in stored {
             let mut moved = Vec::new();
@@ -153,7 +181,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 let name = real_path_name(Path::new(&spelling))
                     .await
                     .map_err(CaptureCarryError::Folder)?;
-                if name == from_name {
+                if name == old_name {
                     moved.push(spelling);
                 }
             }
@@ -170,6 +198,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             expected_row_count: None,
         });
         self.writer.write(statements).await?;
+        self.packing.carries().finish(carry);
         Ok(())
     }
 }

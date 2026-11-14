@@ -4,6 +4,7 @@
 //! seeds it empty, since it may have no live index to copy. A turn snapshot never stages into it:
 //! it keeps a scratch index of its own.
 
+use std::io;
 use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::repo::git_reads::GitObjectId;
@@ -11,9 +12,11 @@ use sidekicks_platforms::create_private_folder;
 use sidekicks_std::missing_entry::MissingEntry as _;
 
 use crate::git::process::GitCall;
-use crate::git::turn_snapshot::capture_folder::real_path_name;
+use crate::git::turn_snapshot::capture_folder::{
+    INDEXES_SEGMENT, is_real_path_name, real_path_name,
+};
 use crate::git::turn_snapshot::capture_steps::{
-    CaptureStepError, SnapshotCheckout, index_lock_path, joined,
+    CaptureStepError, INDEX_LOCK_SUFFIX, SnapshotCheckout, index_lock_path, joined,
 };
 
 /// The extension of the file beside a kept index that records the HEAD it was seeded at.
@@ -101,6 +104,34 @@ pub(crate) async fn open_kept_index(
         .await
         .map_err(CaptureStepError::KeptIndex)?;
     Ok(KeptIndex { path, head })
+}
+
+/// Removes every kept index in the capture folder `folder`, with the HEAD recorded beside each and
+/// a lock file left beside one, for a folder whose repository or checkout moved: those of the
+/// checkouts that moved are named for their old paths, and the next capture of each checkout, moved
+/// or not, seeds its own again. The scratch indexes stay. The caller holds the folder's lock.
+/// Blocking; a folder with no indexes folder has nothing to remove. Fails as listing or removing a
+/// file does.
+pub(crate) fn remove_kept_indexes(folder: &Path) -> io::Result<()> {
+    let indexes = folder.join(INDEXES_SEGMENT);
+    let Some(entries) = std::fs::read_dir(&indexes).none_if_missing()? else {
+        return Ok(());
+    };
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let index_name = name
+            .strip_suffix(INDEX_LOCK_SUFFIX)
+            .or_else(|| name.strip_suffix(&format!(".{SEEDED_HEAD_EXTENSION}")))
+            .unwrap_or(name);
+        if is_real_path_name(index_name) {
+            std::fs::remove_file(entry.path()).none_if_missing()?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

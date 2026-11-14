@@ -475,7 +475,11 @@ impl DaemonProcess {
         self.project_list_feed = Some(inputs.project_list_feed);
         self.clones = inputs.clones;
         self.worktree_setup = Some(inputs.worktree_setup);
-        self.workspace_work = Some(inputs.workspace_work);
+        // Before the recovery pass and the socket, whose runs capture.
+        self.workspace_work
+            .insert(inputs.workspace_work)
+            .expect_moved_captures()
+            .await;
         // Before the socket serves, so no creation is under way.
         settle_interrupted_creations(self.worktree_creator.insert(inputs.worktree_creator)).await;
         let mcp_inventory = inputs.mcp_inventory;

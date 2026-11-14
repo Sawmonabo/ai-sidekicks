@@ -85,6 +85,23 @@ static COMPLETE_SQL: LazyLock<String> =
 const MOVE_ENDPOINT_SQL: &str = "UPDATE command_receipts SET mcp_server_endpoint = @new_endpoint
   WHERE mcp_server_endpoint = @old_endpoint";
 
+// Drops the task handle of every receipt whose server's digest is none of `@kept_digests`, a JSON
+// array, so a restart finds the call with no handle, runs it no more and tells its run the outcome
+// is unknown.
+static CLEAR_UNKEPT_ENDPOINTS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE command_receipts
+  SET mcp_task_id = NULL, mcp_task_generation = NULL, mcp_server_name = NULL,
+    mcp_server_endpoint = NULL
+  WHERE substr(mcp_server_endpoint, 1, {prefix_length}) = '{prefix}'
+    AND substr(mcp_server_endpoint, {digest_start})
+      NOT IN (SELECT value FROM json_each(@kept_digests))",
+        prefix = McpServerEndpoint::ADDRESS_PREFIX,
+        prefix_length = McpServerEndpoint::ADDRESS_PREFIX.len(),
+        digest_start = McpServerEndpoint::ADDRESS_PREFIX.len() + 1,
+    )
+});
+
 const BACKGROUND_SQL: &str = "UPDATE command_receipts SET backgrounded = 1
   WHERE command_id = ? AND completed_at IS NULL AND backgrounded = 0";
 
@@ -257,6 +274,17 @@ pub(crate) fn move_endpoint_statement(
             text_binding("@old_endpoint", old.as_str()),
             text_binding("@new_endpoint", new.as_str()),
         ]),
+        expected_row_count: None,
+    }
+}
+
+/// The statement that drops the task of every receipt accepted on a server at an address whose
+/// digest is none of `kept_digests`, a JSON array of digests under a new address key, since no
+/// connection reaches that server's endpoint again.
+pub(crate) fn clear_unkept_endpoints_statement(kept_digests: &str) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(CLEAR_UNKEPT_ENDPOINTS_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![text_binding("@kept_digests", kept_digests)]),
         expected_row_count: None,
     }
 }

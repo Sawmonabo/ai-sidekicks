@@ -12,7 +12,6 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 use crate::background_work::BackgroundWorkForms;
 use crate::command_search::ProviderCommandSearch;
-use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeCommandChannels;
 use crate::driver::claude::delivery::requests::answers::{
@@ -27,6 +26,7 @@ use crate::driver::claude::spawn::environment::{
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
+use crate::driver::{AccountFoldersError, ProviderAccountFolders};
 use crate::port::repository_reader::RepositoryReading;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
@@ -141,14 +141,24 @@ impl ClaudeSpawnSources {
         &self,
         provider_account_id: &ProviderAccountId,
     ) -> Result<Vec<(String, String)>, DriverError> {
-        let folders = self
-            .ports
+        let folders = self.account_folders(provider_account_id).await?;
+        self.account_process_environment(&folders, &[], &[])
+    }
+
+    /// The folders of `provider_account_id`'s home, read with no session. Fails with
+    /// [`AccountFoldersError::NotFound`] or [`AccountFoldersError::CredentialHomeUnavailable`] as
+    /// the account's folders answer, and with [`AccountFoldersError::Read`] as they or the
+    /// accounts reader cannot be read.
+    pub(crate) async fn account_folders(
+        &self,
+        provider_account_id: &ProviderAccountId,
+    ) -> Result<ProviderAccountFolders, AccountFoldersError> {
+        self.ports
             .provider_accounts
             .require_port()
-            .map_err(|error| DriverError::Internal(Box::new(error)))?
+            .map_err(|error| AccountFoldersError::Read(Box::new(error)))?
             .resolve_account_folders(provider_account_id.clone())
-            .await?;
-        self.account_process_environment(&folders, &[], &[])
+            .await
     }
 
     /// The repository of `working_folder` as Claude Code places its project settings; `None`

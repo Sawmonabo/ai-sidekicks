@@ -7,6 +7,7 @@ use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use rstest::rstest;
+use secrecy::ExposeSecret;
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
@@ -95,8 +96,11 @@ fn a_saved_sign_in_matches_by_name_and_address_and_its_expiry_reads_in_milliseco
     let read = read_codex_saved_sign_in(&file.to_string(), &name(), &address())
         .expect("the server's sign-in reads");
 
-    assert_eq!(read.access_token, "access-of-the-server");
-    assert_eq!(read.refresh_token.as_deref(), Some("refresh-one"));
+    assert_eq!(read.access_token.expose_secret(), "access-of-the-server");
+    assert_eq!(
+        read.refresh_token.as_ref().map(ExposeSecret::expose_secret),
+        Some("refresh-one")
+    );
     assert_eq!(
         read.expires_at,
         Some(UNIX_EPOCH + Duration::from_millis(EXPIRY_MILLISECONDS))
@@ -476,7 +480,7 @@ async fn a_codex_takeover_leaves_the_persons_saved_sign_ins_as_they_were() {
             .as_str(),
         "https://auth.example.test/authorize"
     );
-    assert_eq!(signed_in.access_token, SIGNED_IN_ACCESS);
+    assert_eq!(signed_in.access_token.expose_secret(), SIGNED_IN_ACCESS);
     assert_eq!(
         std::fs::read_to_string(&fixture.person_sign_ins).expect("the person's sign-ins read"),
         PERSON_SIGN_INS

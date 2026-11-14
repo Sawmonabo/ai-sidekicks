@@ -81,13 +81,13 @@ pub enum ProviderSignInReturn {
     OwnListener,
 }
 
-/// The credentials a provider's own client saved for one server, as plain data: the caller keeps
-/// them as its own sign-in. Its `Debug` prints no token.
+/// The credentials a provider's own client saved for one server: the caller keeps them as its own
+/// sign-in. Each token is held as a secret from the driver's read on, and its `Debug` prints none.
 pub struct ProviderSignInTakeover {
     /// The access token.
-    pub access_token: String,
+    pub access_token: SecretString,
     /// The refresh token, where the server issued one.
-    pub refresh_token: Option<String>,
+    pub refresh_token: Option<SecretString>,
     /// When the access token expires; `None` where the server named no lifetime.
     pub expires_at: Option<SystemTime>,
     /// The scopes the server granted.

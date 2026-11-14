@@ -123,10 +123,11 @@ impl SignInTargetReads {
 
     /// The target of a sign-in to `binding`, its whole address, the callback the provider's own
     /// client sends and the secret of a client its owner issued read through the provider's driver
-    /// in one read of the server's entry. Refuses
+    /// in one read of the server's entry, made only once the metadata address passes. Refuses
     /// `mcp.server.signInUnsupported` for a connector, whose sign-in is its account's own, for a
-    /// server whose declared address does not read, for an owner's callback that is no address
-    /// and for a metadata address that is no `https:` address (`unusableMetadata`), and
+    /// metadata address that is no `https:` address (`unusableMetadata`), before any secret is
+    /// read or helper run, for a server whose declared address does not read and for an owner's
+    /// callback that is no address, and
     /// `mcp.server.notFound` when no provider declares the binding; answers an inventory or driver
     /// failure, a secret or a callback that does not read among them, as each answers a call, and
     /// an accounts, settings or project read that fails, or a stored project root that is no
@@ -186,11 +187,26 @@ impl SignInTargetReads {
                 let Ok(driver) = self.providers.lookup(provider) else {
                     return Err(not_found());
                 };
+                let settings = declaration.sign_in_settings;
+                // Checked before the entry's read, which reads the owner's secret and may run the
+                // administrator's helper.
+                let authorization_server_metadata = match settings
+                    .as_ref()
+                    .and_then(|settings| settings.authorization_server_metadata_url.as_deref())
+                    .map(Url::parse)
+                {
+                    None => None,
+                    Some(Ok(metadata_address)) if metadata_address.scheme() == "https" => {
+                        Some(metadata_address)
+                    }
+                    Some(Ok(_) | Err(_)) => {
+                        return Err(unsupported(SignInUnsupportedReason::UnusableMetadata));
+                    }
+                };
                 let (every_project_rows, project_rows) = EnvironmentRowReads::read(self)
                     .await?
                     .rows_of(&self.projects, binding)
                     .await?;
-                let settings = declaration.sign_in_settings;
                 // Only a client its owner named has a secret its driver reads.
                 let is_owner_client_secret_read = settings
                     .as_ref()
@@ -215,19 +231,6 @@ impl SignInTargetReads {
                     McpServerAddressReading::Declared(address) => address,
                     McpServerAddressReading::Unreadable => {
                         return Err(unsupported(SignInUnsupportedReason::AddressUnreadable));
-                    }
-                };
-                let authorization_server_metadata = match settings
-                    .as_ref()
-                    .and_then(|settings| settings.authorization_server_metadata_url.as_deref())
-                    .map(Url::parse)
-                {
-                    None => None,
-                    Some(Ok(metadata_address)) if metadata_address.scheme() == "https" => {
-                        Some(metadata_address)
-                    }
-                    Some(Ok(_) | Err(_)) => {
-                        return Err(unsupported(SignInUnsupportedReason::UnusableMetadata));
                     }
                 };
                 let asks_offline_access_where_listed = settings

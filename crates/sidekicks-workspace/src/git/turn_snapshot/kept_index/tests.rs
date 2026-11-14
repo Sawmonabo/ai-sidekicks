@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use sidekicks_platforms::real_path;
 
@@ -7,6 +8,7 @@ use crate::git::process::test_repository::{commit_empty, make_test_repository};
 use crate::git::process::{read_git_common_folder, test_git_runner_with_environment};
 use crate::git::turn_snapshot::capture_folder::CaptureFolder;
 use crate::git::turn_snapshot::capture_steps::{SnapshotCheckout, index_lock_path};
+use crate::git::turn_snapshot::repack::CapturePacking;
 
 // The three settings each call on the kept index carries, as `-c` values.
 const GUARDS: [&str; 3] = [
@@ -49,10 +51,15 @@ async fn the_kept_index_is_seeded_with_its_guards_and_again_only_when_head_moves
     let git_common_folder = read_git_common_folder(&git, None, &repository, None)
         .await
         .expect("the repository's git folder is read");
-    let capture_folder =
-        CaptureFolder::open_or_create(&git, None, &root.path().join("owner"), &git_common_folder)
-            .await
-            .expect("the capture folder is made");
+    let capture_folder = CaptureFolder::open_or_create(
+        &git,
+        None,
+        &CapturePacking::new(git.clone(), Arc::default()),
+        &root.path().join("owner"),
+        &git_common_folder,
+    )
+    .await
+    .expect("the capture folder is made");
     let checkout = SnapshotCheckout {
         git: &git,
         place: None,
