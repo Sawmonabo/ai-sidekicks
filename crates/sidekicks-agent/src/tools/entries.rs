@@ -8,6 +8,7 @@
 //! the daemon's key derives for that conversation's path.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::provider::id::ProviderId;
@@ -17,6 +18,7 @@ use sidekicks_provider::driver::callback_tool::CallbackToolDispatcher;
 use sidekicks_provider::port::hook_tool_server::HookToolServer;
 use sidekicks_provider::port::tool_server_route::{ToolServerConversation, ToolServerSpawn};
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use crate::tools::secret_key::ToolServerSecretKey;
@@ -51,12 +53,14 @@ pub struct ToolServerEntry {
     hook_tools: Option<Arc<dyn HookToolServer>>,
     /// The `Mcp-Session-Id`s admitted for the spawn, each with the server it was minted on.
     mcp_sessions: Mutex<HashMap<String, (&'static str, CancellationToken)>>,
-    /// Canceled when the spawn drops, since its process is gone and no open call is answered.
-    spawn_ended: CancellationToken,
+    /// Set when the spawn drops, since its process is gone and no open call is answered.
+    has_ended: AtomicBool,
+    /// Wakes every wait on the spawn's end once, when it drops.
+    end_waiters: Notify,
 }
 
-// Counts the inline struct only: not its `Arc`'s counts, the heap its servers' slice, provider id
-// and cancellation node hold, its admitted sessions, the table's slot, or its guard.
+// Counts the inline struct only: not its `Arc`'s counts, the heap its servers' slice and provider
+// id hold, its admitted sessions, the table's slot, or its guard.
 const _: () = assert!(size_of::<ToolServerEntry>() <= 256);
 
 impl ToolServerEntry {
@@ -77,7 +81,18 @@ impl ToolServerEntry {
 
     /// Settles once the spawn dropped, so a call its process left open is canceled.
     pub async fn ended(&self) {
-        self.spawn_ended.cancelled().await;
+        // Made before the flag is read, so a drop between the two still wakes it.
+        let woken = self.end_waiters.notified();
+        if self.has_ended.load(Ordering::Acquire) {
+            return;
+        }
+        woken.await;
+    }
+
+    // Marks the spawn ended and wakes every wait on it.
+    fn end(&self) {
+        self.has_ended.store(true, Ordering::Release);
+        self.end_waiters.notify_waiters();
     }
 
     // The server named `server_name` the spawn opened, with its secret.
@@ -140,7 +155,8 @@ impl ToolServerEntries {
             dispatcher: spawn.dispatcher,
             hook_tools: spawn.hook_tools,
             mcp_sessions: Mutex::new(HashMap::new()),
-            spawn_ended: CancellationToken::new(),
+            has_ended: AtomicBool::new(false),
+            end_waiters: Notify::new(),
         });
         let guard = ToolServerEntryGuard {
             entries: Arc::downgrade(&self.entries),
@@ -237,7 +253,7 @@ pub struct ToolServerEntryGuard {
 impl Drop for ToolServerEntryGuard {
     fn drop(&mut self) {
         if let Some(entry) = self.entry.upgrade() {
-            entry.spawn_ended.cancel();
+            entry.end();
         }
         let Some(entries) = self.entries.upgrade() else {
             return;
@@ -375,5 +391,35 @@ pub(super) mod tests {
                 .is_none(),
             "the entry leaves the table when its spawn drops"
         );
+    }
+
+    // A spawn's drop ends a wait already parked on it and one that starts after, so no held call
+    // outlives its spawn. Killed by a drop that wakes no waiter and by an end kept in no flag.
+    #[tokio::test]
+    async fn a_spawns_drop_ends_a_wait_before_it_and_one_after() {
+        let session_id = SessionId::new(SESSION).expect("the text is a UUID");
+        let path = ToolServerPath {
+            session_id,
+            conversation: ToolServerConversation::of_session(session_id),
+            server_name: SERVER.to_owned(),
+        };
+        let entries = ToolServerEntries::default();
+        let token = BearerToken::mint().expect("the system's random source reads");
+        let header = token.header_value();
+        let guard = entries.insert(spawn_at(&path, "codex"), vec![(SERVER, token)]);
+        let entry = entries
+            .admitted(&path, Some(header.as_bytes()))
+            .expect("the live spawn admits its secret");
+
+        let mut parked = std::pin::pin!(entry.ended());
+        assert!(futures::poll!(&mut parked).is_pending());
+        drop(guard);
+        let bound = std::time::Duration::from_secs(5);
+        tokio::time::timeout(bound, parked)
+            .await
+            .expect("the drop wakes a wait parked before it");
+        tokio::time::timeout(bound, entry.ended())
+            .await
+            .expect("a wait that starts after the drop ends at once");
     }
 }
