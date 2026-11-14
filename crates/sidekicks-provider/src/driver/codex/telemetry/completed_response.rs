@@ -28,7 +28,8 @@ const RESPONSE_COMPLETED_KIND: &str = "response.completed";
 const EVENT_NAME_KEY: &str = "event.name";
 const EVENT_KIND_KEY: &str = "event.kind";
 const ERROR_MESSAGE_KEY: &str = "error.message";
-const CONVERSATION_KEY: &str = "conversation.id";
+/// The attribute every Codex record names its thread under.
+pub(crate) const CONVERSATION_KEY: &str = "conversation.id";
 const MODEL_KEY: &str = "model";
 const SERVICE_TIER_KEY: &str = "service_tier";
 const INPUT_KEY: &str = "input_token_count";

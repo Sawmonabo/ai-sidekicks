@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -47,7 +48,12 @@ async fn stop(tracker: &ExportStatusTracker) {
 // as the status's lock lets it.
 fn export_without_responses(tracker: &ExportStatusTracker, rollouts: &CodexLaunchRollouts) {
     tracker.export_arrived(|stops| {
-        rollouts.export_read(stops, Some(RETURNED_NEWEST_MS), RETURNED_NEWEST_MS + 5);
+        rollouts.export_read(
+            stops,
+            HashSet::new(),
+            Some(RETURNED_NEWEST_MS),
+            RETURNED_NEWEST_MS + 5,
+        );
     });
 }
 

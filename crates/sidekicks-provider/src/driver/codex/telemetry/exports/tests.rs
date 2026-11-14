@@ -70,7 +70,7 @@ fn settle_turn(
     let settled = turns
         .observe(CODEX_TURN_COMPLETED_METHOD, &params, Instant::now())
         .expect("the live turn settles");
-    exports.turn_settled(service_id, settled.made_request, settled.started_at);
+    exports.turn_settled(service_id, THREAD, settled.made_request, settled.started_at);
 }
 
 /// A log export whose one resource carries `tag`, as Codex's SDK reads it from the launch, and
@@ -203,7 +203,12 @@ impl TwoLaunches {
         let b_session = TestCodexSession::start_on(start_scripted_codex_service()).await;
         let tag_a = exports.launched(&a.service);
         let tag_b = exports.launched(&b_session.scripted.service);
-        exports.turn_settled(b_session.scripted.service.id(), true, Instant::now());
+        exports.turn_settled(
+            b_session.scripted.service.id(),
+            THREAD,
+            true,
+            Instant::now(),
+        );
         assert_eq!(export_checks(&scheduler), 1);
         Self {
             scheduler,

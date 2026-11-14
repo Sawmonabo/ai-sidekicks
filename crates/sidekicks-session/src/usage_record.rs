@@ -43,7 +43,7 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::number::Number;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_provider::account::usage_turns::sightings::{
-    is_sighting_passed_over, mark_sighting_statements,
+    is_sighting_passed_over, mark_sighting_statements, read_sighting_passed_over,
 };
 use sidekicks_provider::driver::run_control::HelperStopParams;
 use sidekicks_provider::port::usage_sink::{
@@ -77,9 +77,9 @@ use crate::usage_record::reads::{
 /// The statements the usage record prepares on the shared read pool: a binding, an account's
 /// credential generation and its stored quota windows, a helper's run, a run's state, its admitted
 /// token limit and its token count, the turn a provider's turn id opened with the run's rollbacks
-/// and turns before it, a thread's prior counts, and a session's thread tier and run at an
-/// instant.
-pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 13;
+/// and turns before it, a thread's prior counts, a session's thread tier and run at an instant,
+/// and whether a sighting is passed over.
+pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 14;
 
 // How many keys of requests filed as a session's own spend are kept for a later sighting on a
 // run; past it the oldest is forgotten, and its request then never reaches a run's count.
@@ -140,9 +140,9 @@ pub(crate) enum UsageRecordError {
 enum SightingWrite {
     // The row's event was written, or absorbed.
     Appended(InboundOutcome),
-    // The sighting was its request's second or later, so no row was written.
+    // The sighting was its request's second or later, so its mark was written and no row.
     PassedOver,
-    // The request's record moved between the refused row and the mark; the row is tried again.
+    // The request's record moved since the store was read, so the sighting is decided again.
     Moved,
 }
 
@@ -205,23 +205,29 @@ impl UsageRecord {
         } = metered;
         let read_binding_id = binding_id.clone();
         let read_owner = owner.clone();
+        let read_sighting = delta.sighting.clone();
         let kept_helper_run = match &owner {
             MeteredUsageOwner::Helper(subagent_id) => {
                 self.engine.helper_run(&binding_id, subagent_id)
             }
             MeteredUsageOwner::Run | MeteredUsageOwner::Session => None,
         };
-        let target = self
+        let (target, mut is_passed_over) = self
             .pool
             .read(ReadLength::Short, move |reader| {
-                read_metered_target(
+                let target = read_metered_target(
                     reader,
                     session_id,
                     &read_binding_id,
                     &read_owner,
                     kept_helper_run,
                     provider_account_id,
-                )
+                )?;
+                let is_passed_over = match &read_sighting {
+                    Some(sighting) => read_sighting_passed_over(reader, sighting)?,
+                    None => false,
+                };
+                Ok::<_, UsageRecordError>((target, is_passed_over))
             })
             .await?;
         let helper = match owner {
@@ -243,16 +249,16 @@ impl UsageRecord {
         let Some(run_id) = target.run_id else {
             // The session's own spend, counted toward no run.
             loop {
-                let delivered = self
-                    .dispatch
-                    .dispatch(InboundDelivery::SessionEvent {
-                        row: SessionScopedRow::UsageTokenCountRecorded(Box::new(payload.clone())),
+                let written = self
+                    .write_sighted_row(payload.sighting.as_ref(), is_passed_over, || {
+                        InboundDelivery::SessionEvent {
+                            row: SessionScopedRow::UsageTokenCountRecorded(Box::new(
+                                payload.clone(),
+                            )),
+                        }
                     })
-                    .await;
-                match self
-                    .settle_sighting(delivered, payload.sighting.as_ref())
-                    .await?
-                {
+                    .await?;
+                match written {
                     SightingWrite::Appended(outcome) => {
                         if let Some(sighting) = &payload.sighting {
                             *lock(&self.session_filed)
@@ -261,7 +267,9 @@ impl UsageRecord {
                         return Ok(recorded_usage(&outcome, target, helper));
                     }
                     SightingWrite::PassedOver => return Ok(None),
-                    SightingWrite::Moved => {}
+                    SightingWrite::Moved => {
+                        is_passed_over = self.read_sighting(payload.sighting.as_ref()).await?;
+                    }
                 }
             }
         };
@@ -289,21 +297,19 @@ impl UsageRecord {
         }
         let row_tokens = row_token_count(&payload);
         let recorded = loop {
-            let delivered = self
-                .dispatch
-                .dispatch(InboundDelivery::SessionRow {
-                    binding: DeliveryBinding {
-                        binding_id: binding_id.clone(),
-                        operation: None,
-                    },
-                    row: LateAppendableRow::UsageTokenCountRecorded(Box::new(payload.clone())),
-                    content: None,
+            let written = self
+                .write_sighted_row(payload.sighting.as_ref(), is_passed_over, || {
+                    InboundDelivery::SessionRow {
+                        binding: DeliveryBinding {
+                            binding_id: binding_id.clone(),
+                            operation: None,
+                        },
+                        row: LateAppendableRow::UsageTokenCountRecorded(Box::new(payload.clone())),
+                        content: None,
+                    }
                 })
-                .await;
-            match self
-                .settle_sighting(delivered, payload.sighting.as_ref())
-                .await?
-            {
+                .await?;
+            match written {
                 SightingWrite::Appended(outcome) => {
                     break recorded_usage(&outcome, target, helper.clone());
                 }
@@ -319,7 +325,9 @@ impl UsageRecord {
                     }
                     break None;
                 }
-                SightingWrite::Moved => {}
+                SightingWrite::Moved => {
+                    is_passed_over = self.read_sighting(payload.sighting.as_ref()).await?;
+                }
             }
         };
         // A run that has ended is stopped by no limit.
@@ -348,32 +356,54 @@ impl UsageRecord {
         }
     }
 
-    // What a usage row's write did: `delivered` as it is, unless the row's sighting refused it as
-    // not its request's first, when the sighting's mark is written in a write of its own: passed
-    // over where it marked the request's record or its source's id was recorded already, else the
-    // record moved since the refusal and the row's write is tried again.
-    async fn settle_sighting(
+    // Writes a usage row's sighting in one write, as the store was read: one `is_passed_over`
+    // writes only its mark, passed over where it marked the request's record or its source's id
+    // was recorded already; any other writes the row `delivery` builds with its record opened in
+    // the row's own write, which the row's prelude refuses where the record holds the request by
+    // now. Either answers moved where the store changed since it was read.
+    async fn write_sighted_row<'key>(
         &self,
-        delivered: Result<InboundOutcome, InboundDispatchError>,
         sighting: Option<&UsageSighting>,
+        is_passed_over: bool,
+        delivery: impl FnOnce() -> InboundDelivery<'key>,
     ) -> Result<SightingWrite, UsageRecordError> {
-        match (delivered, sighting) {
+        if let Some(sighting) = sighting
+            && is_passed_over
+        {
+            let marked = self
+                .writer
+                .write(Vec::from(mark_sighting_statements(sighting)))
+                .await?;
+            return Ok(if is_sighting_passed_over(&marked) {
+                SightingWrite::PassedOver
+            } else {
+                SightingWrite::Moved
+            });
+        }
+        match (self.dispatch.dispatch(delivery()).await, sighting) {
             (Ok(outcome), _) => Ok(SightingWrite::Appended(outcome)),
-            (Err(InboundDispatchError::Append(error)), Some(sighting))
+            (Err(InboundDispatchError::Append(error)), Some(_))
                 if error.refused_statement_index() == Some(SIGHTING_GUARD_INDEX) =>
             {
-                let marked = self
-                    .writer
-                    .write(Vec::from(mark_sighting_statements(sighting)))
-                    .await?;
-                Ok(if is_sighting_passed_over(&marked) {
-                    SightingWrite::PassedOver
-                } else {
-                    SightingWrite::Moved
-                })
+                Ok(SightingWrite::Moved)
             }
             (Err(error), _) => Err(error.into()),
         }
+    }
+
+    // Whether `sighting` is passed over as the store stands now; `false` for a row with none.
+    async fn read_sighting(
+        &self,
+        sighting: Option<&UsageSighting>,
+    ) -> Result<bool, UsageRecordError> {
+        let Some(sighting) = sighting.cloned() else {
+            return Ok(false);
+        };
+        self.pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, UsageRecordError>(read_sighting_passed_over(reader, &sighting)?)
+            })
+            .await
     }
 
     // Writes one `usage.cost.updated` per account `request`'s rows name, in the order the accounts

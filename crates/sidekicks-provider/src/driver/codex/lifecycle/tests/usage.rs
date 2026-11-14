@@ -98,9 +98,9 @@ impl GatedUsage {
             .collect()
     }
 
-    // Whether `metered`'s sighting is its request's first, as the usage record decides it: its
-    // record opened, or where that is refused, the mark written, tried again where neither took;
-    // a delta with no sighting is always recorded.
+    // Whether `metered`'s sighting is its request's first, by the usage record's own statements:
+    // its record opened, or where that is refused, the mark written, tried again where neither
+    // took; a delta with no sighting is always recorded.
     async fn is_first_sighting(&self, metered: &MeteredUsage) -> bool {
         let Some(sighting) = &metered.delta.sighting else {
             return true;

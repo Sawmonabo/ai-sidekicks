@@ -336,12 +336,14 @@ impl CodexExports {
         (tag, responses)
     }
 
-    /// A turn of `service_id`'s service that began at `started_at` settled, having made a model
-    /// request or not: its newest launch's export status takes it. A service with no exporting
+    /// A turn of the session thread `thread_id` on `service_id`'s service that began at
+    /// `started_at` settled, having made a model request or not: its newest launch's export status
+    /// takes it, and its rollout fallback reads the thread's files on. A service with no exporting
     /// launch changes nothing.
     pub(crate) fn turn_settled(
         &self,
         service_id: CodexServiceId,
+        thread_id: &str,
         made_request: bool,
         started_at: Instant,
     ) {
@@ -352,12 +354,19 @@ impl CodexExports {
                     launch: Arc::downgrade(&launch.placement),
                     rollouts: launch.rollouts.clone(),
                 };
-                (Arc::clone(&launch.tracker), read_rollouts)
+                (
+                    Arc::clone(&launch.tracker),
+                    launch.rollouts.clone(),
+                    read_rollouts,
+                )
             })
         });
-        let Some((tracker, read_rollouts)) = launch else {
+        let Some((tracker, rollouts, read_rollouts)) = launch else {
             return;
         };
+        if made_request {
+            rollouts.turn_settled(thread_id);
+        }
         if let Err(error) = tracker.turn_settled(made_request, started_at) {
             // Only a stopped scheduler refuses, and the daemon is stopping with it.
             tracing::debug!(

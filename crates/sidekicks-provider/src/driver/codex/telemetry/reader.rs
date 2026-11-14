@@ -3,6 +3,8 @@
 //! stamped with the account it ran on and handed off to the drain, or for an exec collected for
 //! the exec's caller.
 
+use std::collections::HashSet;
+
 use futures::future::{BoxFuture, ready};
 use opentelemetry_proto::tonic::logs::v1::ResourceLogs;
 use serde_json::Map;
@@ -12,7 +14,7 @@ use sidekicks_std::unix_time::read_unix_time_ms;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::telemetry::completed_response::{
-    CODEX_EXPORT, SSE_EVENT_NAME, read_codex_completed_responses,
+    CODEX_EXPORT, CONVERSATION_KEY, SSE_EVENT_NAME, read_codex_completed_responses,
 };
 use crate::driver::codex::telemetry::drain::CodexExportItem;
 use crate::driver::codex::telemetry::exports::{
@@ -20,7 +22,7 @@ use crate::driver::codex::telemetry::exports::{
 };
 use crate::driver::codex::telemetry::placement::refuse_unplaced;
 use crate::pricing::receiver::bearers::TelemetryHolderId;
-use crate::pricing::receiver::records::{RecordRefusal, read_count};
+use crate::pricing::receiver::records::{RecordRefusal, read_count, read_text};
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
 
 impl CodexExports {
@@ -98,9 +100,10 @@ impl CodexExports {
         // Every record's stamp bounds the launch's rollout fallback's reading, set under the
         // status's lock with the stop it ends, so the fallback reads the stop and its end together.
         let newest_record_ms = read_newest_record_ms(resource_logs);
+        let threads = read_named_threads(resource_logs);
         tracker.export_arrived(|stops| {
             read.rollouts
-                .export_read(stops, newest_record_ms, arrived_at_ms);
+                .export_read(stops, threads, newest_record_ms, arrived_at_ms);
         });
         self.offer(CodexExportItem::Retry {
             service: read.service,
@@ -120,6 +123,23 @@ fn read_newest_record_ms(resource_logs: &ResourceLogs) -> Option<u64> {
         .map(|record| record.observed_time_unix_nano / 1_000_000)
         .filter(|&at_ms| at_ms != 0)
         .max()
+}
+
+// The thread each record `resource_logs` carries names, completed response or not, whose rollout
+// file the export may have grown.
+fn read_named_threads(resource_logs: &ResourceLogs) -> HashSet<String> {
+    resource_logs
+        .scope_logs
+        .iter()
+        .flat_map(|scope_logs| &scope_logs.log_records)
+        .filter_map(|record| {
+            read_text(&record.attributes, CONVERSATION_KEY)
+                .ok()
+                .flatten()
+        })
+        .filter(|thread_id| !thread_id.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 // The tag `resource_logs`' resource carries, of either kind; `None` where it carries none a

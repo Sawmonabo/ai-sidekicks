@@ -706,6 +706,7 @@ fn read_ended_turn_id(record: &CodexSessionRecord, params: &RawValue) -> Option<
 fn arm_export_check(record: &CodexSessionRecord, settled: &CodexSettledTurn) {
     record.service.dependencies().exports.turn_settled(
         record.service.id(),
+        &record.thread_id,
         settled.made_request,
         settled.started_at,
     );
