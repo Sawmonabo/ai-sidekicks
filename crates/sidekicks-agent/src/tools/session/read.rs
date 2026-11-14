@@ -1,6 +1,6 @@
 //! `session_read`: another session's last answer, latest turns or the turns around a search hit,
-//! or one large tool output by line range or by a search inside it. The executor writes the
-//! result's text and ends a paged one with the shared `more_trailer`.
+//! or one large tool output or long message by line range or by a search inside it. The executor
+//! writes the result's text and ends a paged one with the shared `more_trailer`.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -29,8 +29,8 @@ pub const DESCRIPTION: ToolDescription = ToolDescription {
     name: "session_read",
     summary: "Read another session: its last answer, its latest turns, or the turns around a \
               search hit, with its tool calls, their output and its file changes when you ask \
-              for them. Reads one large output (a 40,000-line test log) by line range or by \
-              search inside it.",
+              for them. Reads one large output (a 40,000-line test log) or long message by line \
+              range or by search inside it.",
     body: "{\"session\": \"builder\"}\n{\"session\": \"builder\", \"turns\": 3, \"include\": \
            [\"tools\", \"changes\"]}\n{\"session\": \"builder\", \"output\": \"o-31\", \
            \"search\": \"FAIL\"}\n\nUse it to check another session's work instead of asking it \
@@ -87,9 +87,10 @@ pub struct SessionReadArguments {
     )]
     #[schemars(with = "Vec<Include>")]
     pub include: Option<Vec<Include>>,
-    /// The one tool output to read alone.
+    /// The one tool output or message to read alone.
     #[schemars(description = text_field(
-        "One tool output's id, from an earlier read, to read it alone.",
+        "One tool output's or message's id, from an earlier read or a cut row's last line, to \
+         read it alone by its lines.",
         SESSION_ITEM_ID_MAX_LEN,
     ))]
     #[serde(
@@ -266,11 +267,11 @@ pub fn typed_in_terminal(session: &str) -> String {
     format!("{session} runs in a terminal, so its record cannot be read here.")
 }
 
-/// The refusal for an output id the read session holds no output under.
+/// The refusal for an output id the read session holds neither a tool output nor a message under.
 pub fn output_not_found(output: &str, session: &str) -> String {
     format!(
-        "{session} has no output {output}. Read it with include [\"outputs\"] to see its output \
-         ids."
+        "{session} has no output or message {output}. Read it with include [\"outputs\"] to see \
+         its output ids; a cut row's last line names the id it reads on under."
     )
 }
 
@@ -279,10 +280,16 @@ pub fn position_unknown(position: &str, session: &str) -> String {
     format!("\"{position}\" names no hit or next_cursor in {session}. Read it again without it.")
 }
 
-/// The line that ends a row cut at a page's size inside its line `line`, naming the id the rest
-/// reads under by lines.
-pub fn rest_of_row(output: &str, line: usize) -> String {
-    format!("Cut in line {line}; read on with output \"{output}\" and lines from {line}.")
+/// The line that ends a row cut at a page's size inside its line `line`, naming the id and the
+/// cursor the rest reads on under.
+pub fn rest_of_row(output: &str, line: u64, cursor: &str) -> String {
+    format!("Cut in line {line}; read on with output \"{output}\" and cursor \"{cursor}\".")
+}
+
+/// The line that ends a tool call's row cut at a page's size inside its changed files, naming the
+/// id and the cursor the rest of the list reads on under.
+pub fn rest_of_changed_files(output: &str, cursor: &str) -> String {
+    format!("Cut in its changed files; read on with output \"{output}\" and cursor \"{cursor}\".")
 }
 
 /// The result of reading a session whose record holds nothing yet.

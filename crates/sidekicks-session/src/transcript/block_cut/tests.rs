@@ -172,7 +172,8 @@ fn block_cut_starts_equal_one_whole_parse_in_any_window_and_streamed() {
 // Killed by an ended body's cut, handed a stretch at a time, that keeps a start at another stored
 // byte or drawn offset than one cut of the whole body, which cuts the body's parts at the wrong
 // byte: on a body whose escape sequences move its stored offsets off the drawn ones, a long body
-// of many blocks, and one block past two windows, whose tail is parsed again only once it doubled.
+// of many blocks, and one block past two windows, whose tail is parsed again only once another
+// window arrived.
 #[test]
 fn an_ended_body_cut_a_stretch_at_a_time_keeps_the_starts_of_one_whole_cut() {
     let code_lines = "a line of code\n".repeat(CUT_WINDOW_BYTES / 4);

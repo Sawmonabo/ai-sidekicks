@@ -229,13 +229,19 @@ fn bind_free_port() -> Result<TcpListener, ToolServerListenerError> {
     bind_loopback(0, false).map_err(ToolServerListenerError::Bind)
 }
 
-// A listener on `127.0.0.1:<port>`, the address reused where `reuse_address` says, which lets the
-// bind pass the port's own closing connections and, under BSD rules, share a wildcard holder's
-// port.
+// A listener on `127.0.0.1:<port>`, bound reusing the address only where `reuse_address` says,
+// which lets the bind pass the port's own closing connections; on macOS it also lets the bind
+// share the port of a wildcard holder of the same user, which Linux refuses. The address is reused
+// from the bind on in every case, before `listen`: on Linux the listener's connections, and their
+// closing connections, carry the option, and a later bind that reuses the address passes them
+// only then.
 fn bind_loopback(port: u16, reuse_address: bool) -> io::Result<TcpListener> {
     let socket = TcpSocket::new_v4()?;
     socket.set_reuseaddr(reuse_address)?;
     socket.bind((Ipv4Addr::LOCALHOST, port).into())?;
+    if !reuse_address {
+        socket.set_reuseaddr(true)?;
+    }
     socket.listen(LISTEN_BACKLOG)
 }
 
@@ -500,8 +506,9 @@ pub(super) mod tests {
     // The kept port is bound again at the next start, though the last start's connections are still
     // closing on it; while another program listens there, on loopback or on the wildcard address,
     // the listener moves, says from where, and keeps the new port for the start after. Killed by
-    // binding a fresh port each start, by a bind without `SO_REUSEADDR`, by failing on a held port,
-    // by sharing a wildcard holder's port, and by not keeping a new port.
+    // binding a fresh port each start, by a bind without `SO_REUSEADDR`, on Linux by a listener
+    // whose connections do not carry it, by failing on a held port, by sharing a wildcard holder's
+    // port, and by not keeping a new port.
     #[tokio::test]
     async fn a_restart_keeps_its_port_and_a_held_one_moves_and_is_kept() {
         let data_folder = tempfile::tempdir().expect("a scratch folder");

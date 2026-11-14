@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::provider::id::ProviderId;
@@ -24,7 +24,6 @@ use sidekicks_provider::port::hook_tool_server::HookToolServer;
 use sidekicks_provider::port::tool_server_route::{ToolServerConversation, ToolServerSpawn};
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::Notify;
-use tokio_util::sync::CancellationToken;
 
 use crate::tools::secret_key::ToolServerSecretKey;
 use crate::tools::server::ToolServerPath;
@@ -182,8 +181,10 @@ pub struct ToolServerEntry {
     dispatcher: CallbackToolDispatcher,
     /// Lists and answers the tools the spawn's hook rows call; `None` for a spawn with no rows.
     hook_tools: Option<Arc<dyn HookToolServer>>,
-    /// Canceled when the spawn drops, since its process is gone and no open call is answered.
-    end: CancellationToken,
+    /// Set when the spawn drops, since its process is gone and no open call is answered.
+    has_ended: AtomicBool,
+    /// Wakes every wait on the spawn's end.
+    end_wakes: Notify,
     /// Wakes every standing stream at a changed tool list or a close.
     stream_changes: Notify,
 }
@@ -210,7 +211,11 @@ impl ToolServerEntry {
 
     /// Settles once the spawn dropped, so a call its process left open is canceled.
     pub async fn ended(&self) {
-        self.end.cancelled().await;
+        // Made before the flag is read, so an end between the two still wakes it.
+        let woken = self.end_wakes.notified();
+        if !self.has_ended.load(Ordering::Acquire) {
+            woken.await;
+        }
     }
 
     // The place of the server named `server_name` among those the spawn opened.
@@ -261,7 +266,9 @@ impl ToolServerClient {
         loop {
             // Made before the marks are read, so a change between the two still wakes it.
             let woken = self.entry.stream_changes.notified();
-            if self.entry.end.is_cancelled() || self.stream_closes() != marks.stream_closes {
+            if self.entry.has_ended.load(Ordering::Acquire)
+                || self.stream_closes() != marks.stream_closes
+            {
                 return StandingStreamEvent::Closed;
             }
             let tools_changes = server.tools_changes.load(Ordering::Acquire);
@@ -271,7 +278,7 @@ impl ToolServerClient {
             }
             tokio::select! {
                 () = woken => {}
-                () = self.entry.end.cancelled() => {}
+                () = self.entry.ended() => {}
             }
         }
     }
@@ -370,7 +377,8 @@ impl ToolServerEntries {
             servers,
             dispatcher: spawn.dispatcher,
             hook_tools: spawn.hook_tools,
-            end: CancellationToken::new(),
+            has_ended: AtomicBool::new(false),
+            end_wakes: Notify::new(),
             stream_changes: Notify::new(),
         });
         let guard = ToolServerEntryGuard {
@@ -521,7 +529,8 @@ pub struct ToolServerEntryGuard {
 impl Drop for ToolServerEntryGuard {
     fn drop(&mut self) {
         if let Some(entry) = self.entry.upgrade() {
-            entry.end.cancel();
+            entry.has_ended.store(true, Ordering::Release);
+            entry.end_wakes.notify_waiters();
         }
         let Some(entries) = self.entries.upgrade() else {
             return;

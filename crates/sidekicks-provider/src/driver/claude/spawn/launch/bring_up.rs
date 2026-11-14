@@ -42,7 +42,7 @@ use crate::driver::claude::spawn::launch::{
 };
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::claude::spawn::settings::{
-    ClaudePermissionsRequest, ClaudePreApprovals, compose_claude_spawn_settings,
+    ClaudeHelperCaps, ClaudePermissionsRequest, ClaudePreApprovals, compose_claude_spawn_settings,
 };
 use crate::driver::session_control::SubagentPolicy;
 use crate::port::in_process_tool_servers::{
@@ -91,6 +91,8 @@ pub(crate) struct ClaudeBringUpRequest<'a> {
     /// What the process may do unasked; with only deny rules, it loads none of the person's
     /// settings files.
     pub(crate) pre_approvals: ClaudePreApprovals<'a>,
+    /// The helper caps it runs under: lifted only where its hook answers the helper limit.
+    pub(crate) helper_caps: ClaudeHelperCaps,
 }
 
 /// What a `get_settings` reply says the process runs with.
@@ -142,6 +144,7 @@ pub(crate) async fn bring_up_claude_process(
         legs.output_style.as_deref(),
         legs.command_channel.as_deref(),
         request.pre_approvals,
+        request.helper_caps,
     )?;
     let has_managed_mcp_file =
         has_readable_managed_mcp_file(DESCRIPTOR.managed_settings_folder().as_deref()).await;
@@ -323,7 +326,7 @@ mod tests {
     use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
     use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
     use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
-    use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+    use crate::driver::claude::spawn::settings::{ClaudeHelperCaps, ClaudeSessionAdvisor};
     use crate::driver::ports::DriverPorts;
     use crate::driver::test_registry::new_session_id;
     use crate::driver::test_registry::registered_test_accounts;
@@ -484,6 +487,7 @@ mod tests {
                 permission_mode: None,
                 messaging_socket: None,
                 pre_approvals: ClaudePreApprovals::Kept,
+                helper_caps: ClaudeHelperCaps::Lifted,
             },
         )
         .await;

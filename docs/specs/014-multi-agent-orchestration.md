@@ -276,7 +276,7 @@ No fields.
 #### `session_read`
 
 ```
-Read another session: its last answer, its latest turns, or the turns around a search hit, with its tool calls, their output and its file changes when you ask for them. Reads one large output (a 40,000-line test log) by line range or by search inside it.
+Read another session: its last answer, its latest turns, or the turns around a search hit, with its tool calls, their output and its file changes when you ask for them. Reads one large output (a 40,000-line test log) or long message by line range or by search inside it.
 
 {"session": "builder"}
 {"session": "builder", "turns": 3, "include": ["tools", "changes"]}
@@ -291,19 +291,21 @@ Fields:
 - `turns` (optional): `How many of the latest turns. Omit for the last answer only. Not with around.`
 - `around` (optional): `A hit id from session_search; returns the turns around it. Not with turns.`
 - `include` (optional): `Any of "tools", "outputs", "changes". Omit for messages only.`
-- `output` (optional): `One tool output's id, from an earlier read, to read it alone.`
+- `output` (optional): `One tool output's or message's id, from an earlier read or a cut row's last line, to read it alone by its lines.`
 - `lines` (optional): `With output: a range such as "1-200" or "-50" (the last 50).`
 - `search` (optional): `With output: return only the lines that match this text, with their line numbers.`
 - `cursor` (optional): `The next_cursor from the previous page.`
 
 The result ends `More: next_cursor "…"` when there is more.
 
+A row longer than a page is cut at the page and followed by a line naming the id and the cursor its rest reads on under: `Cut in line <line>; read on with output "<id>" and cursor "<cursor>".` for an answer or a message, and `Cut in its changed files; read on with output "<id>" and cursor "<cursor>".` for a tool call's changed files. A line longer than a page is cut there too, its page ending with a cursor inside it, and the page that reads on shows the rest under `<line> (cont.): `, or `changed (cont.): ` for changed files; a search tests a line's opening page, and the pages that read on from it follow without a second test. A cursor reads on at a later start of the background service.
+
 Results: a session whose record holds nothing yet reads `<session> has no messages yet.`; an output's lines with none in the range matching the search read `No lines of output <output> match.`, and with no search and none in the range, `Output <output> has no lines in that range.`.
 
 Refusals:
 
 - A session the person typed in a terminal: `<session> runs in a terminal, so its record cannot be read here.`
-- An output id the session holds no output under: `<session> has no output <output>. Read it with include ["outputs"] to see its output ids.`
+- An output id the session holds neither a tool output nor a message under: `<session> has no output or message <output>. Read it with include ["outputs"] to see its output ids; a cut row's last line names the id it reads on under.`
 - An `around` hit or a `cursor` that names no place in the session: `"<position>" names no hit or next_cursor in <session>. Read it again without it.`
 
 #### `session_start`

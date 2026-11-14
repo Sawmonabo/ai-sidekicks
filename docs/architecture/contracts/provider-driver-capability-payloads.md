@@ -202,13 +202,15 @@ type McpServerStatusProducer = (emission: McpServerStatusEmission) => void;
 // is the `disabled` arm, and the daemon withholds the provider's helper tool; any other number N is
 // passed as Codex's own limit, `features.multi_agent_v2.max_concurrent_threads_per_session` set to
 // N + 1, because Codex counts the lead among those threads (its helper limit is that setting minus
-// one). On Claude Code the daemon lifts Claude Code's own helper caps
-// (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` and `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` at their
-// largest value) and applies the limit itself: its pre-tool hook on the Agent and `SendMessage`
-// tools holds a new helper's start, or a message that would wake a finished helper, while N of
-// that session's helpers run, and lets it go when one finishes. There is no ceiling of the app's
-// own, and nothing bounds how deep helpers nest (Spec-004 §Parity Capability Mechanism Grades;
-// Spec-014 §Provider-Native Subagents).
+// one). On Claude Code the daemon lifts Claude Code's own helper caps for the session's own
+// process (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` and `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` at
+// their largest value) and applies the limit itself: its pre-tool hook on the Agent and
+// `SendMessage` tools holds a new helper's start, or a message that would wake a finished helper,
+// while N of that session's helpers run, and lets it go when one finishes. There is no ceiling of
+// the app's own, and nothing bounds how deep helpers nest (Spec-004 §Parity Capability Mechanism
+// Grades; Spec-014 §Provider-Native Subagents). A one-turn copy of a Claude Code session, whose
+// hooks pass every request, keeps Claude Code's own caps, N passed as
+// `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` where it is set.
 type SubagentPolicy =
   // Discriminated on `policy`: a disabled policy carries no limit or definitions —
   // "off but configured" is unrepresentable; the daemon sends the full arm on enable.

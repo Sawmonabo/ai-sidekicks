@@ -1,9 +1,9 @@
 //! The one-turn process: a session's process brought up over a copy of its conversation that
 //! Claude Code keeps no file of, sent one message, and read until its lead `result`. No one watches
-//! it, so every tool ask is denied, the daemon's hooks pass, its in-process tool servers answer as
-//! on the session's own process, and a stop ends it at once. A process given a channel apart from
-//! the session's, a staged review's, makes each of its commands a row under its run, any left open
-//! ending with the process.
+//! it, so every tool ask is denied, the daemon's hooks pass, Claude Code's own helper caps hold, its
+//! in-process tool servers answer as on the session's own process, and a stop ends it at once. A
+//! process given a channel apart from the session's, a staged review's, makes each of its commands
+//! a row under its run, any left open ending with the process.
 
 use std::sync::Arc;
 
@@ -47,7 +47,7 @@ use crate::driver::claude::spawn::launch::control_only::{
     ClaudeShortProcessArrival, ForwardedArrivals,
 };
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
-use crate::driver::claude::spawn::settings::ClaudePreApprovals;
+use crate::driver::claude::spawn::settings::{ClaudeHelperCaps, ClaudePreApprovals};
 use crate::lenient_json::read_lenient;
 use crate::outbound_text::OutboundText;
 use crate::spawned_version::ResolvedProviderExecutable;
@@ -207,6 +207,8 @@ pub(crate) async fn run_claude_one_turn(
     let apart_run = command_channel
         .as_deref()
         .and_then(ClaudeCommandChannel::apart_run);
+    // Its hooks pass, so nothing but Claude Code's own caps bounds its helpers.
+    let helper_caps = ClaudeHelperCaps::one_turn(request.spawn.legs.subagent_policy.as_ref());
     let (listener, mut arrivals) = ForwardedArrivals::open();
     let provider_session_id = mint_uuid_v7().to_string();
     let brought_up = match bring_up_claude_process(
@@ -224,6 +226,7 @@ pub(crate) async fn run_claude_one_turn(
             permission_mode: request.permission_mode,
             messaging_socket: None,
             pre_approvals: request.pre_approvals,
+            helper_caps,
         },
     )
     .await

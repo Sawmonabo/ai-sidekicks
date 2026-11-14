@@ -1,9 +1,10 @@
 //! `session_read`'s handler: another session's last answer, its latest turns or the turns around
 //! a search hit, read through the session's transcript windows, or one output or message by line
 //! range or by the lines that match a search. A result stops at a page's size and ends with the
-//! shared `more_trailer`, whose cursor the next call hands back.
+//! shared `more_trailer`, whose cursor the next call hands back; a row longer than a page ends with
+//! a line naming the id and the cursor its rest reads on under.
 
-mod output;
+pub(crate) mod output;
 
 use std::collections::HashSet;
 use std::ops::ControlFlow;
@@ -12,7 +13,8 @@ use rusqlite::params;
 use serde_json::{Map, Value};
 use sidekicks_agent::tools::session::more_trailer;
 use sidekicks_agent::tools::session::read::{
-    Include, SessionReadArguments, nothing_yet, position_unknown, rest_of_row, typed_in_terminal,
+    Include, SessionReadArguments, nothing_yet, position_unknown, rest_of_changed_files,
+    rest_of_row, typed_in_terminal,
 };
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::event_cursor::{EventCursor, encode_event_cursor};
@@ -28,6 +30,7 @@ use sidekicks_store::database::schema::SESSION_EVENTS_TABLE;
 use sidekicks_store::events::session::read::session_read_bound;
 
 use crate::agent_tools::AgentToolError;
+use crate::agent_tools::session::read::output::{LineCursor, LineCursorKey, LinePlace};
 use crate::orchestration::session_directory::{
     CallerReference, SessionDirectory, resolve_session_reference,
 };
@@ -36,12 +39,13 @@ use crate::orchestration::session_directory::{
 /// model's context; the rest follows a page at a time.
 const READ_PAGE_MAX_BYTES: usize = 64 * 1024;
 
-/// `session_read` for a call `caller` makes. Refuses, in the text the model reads, a name the
-/// directory does not resolve to one session, a session typed in a terminal, an output, hit or
-/// cursor the session does not hold; fails as a read fails.
+/// `session_read` for a call `caller` makes, its line cursors drawn under `cursor_key`. Refuses,
+/// in the text the model reads, a name the directory does not resolve to one session, a session
+/// typed in a terminal, an output, hit or cursor the session does not hold; fails as a read fails.
 pub(crate) async fn read_session(
     directory: &SessionDirectory,
     sessions: &SessionService,
+    cursor_key: &LineCursorKey,
     caller: &SessionId,
     arguments: SessionReadArguments,
 ) -> Result<String, AgentToolError> {
@@ -65,6 +69,7 @@ pub(crate) async fn read_session(
     let reading = SessionReading {
         directory,
         sessions,
+        cursor_key,
         session_id,
         name,
     };
@@ -111,11 +116,12 @@ pub(crate) async fn read_session(
     reading.render(&rows, &shown, continues_after).await
 }
 
-// One session being read: the directory and store it is read through, its id and the name a
-// result uses.
+// One session being read: the directory and store it is read through, the key its line cursors
+// are drawn under, its id and the name a result uses.
 struct SessionReading<'read> {
     directory: &'read SessionDirectory,
     sessions: &'read SessionService,
+    cursor_key: &'read LineCursorKey,
     session_id: SessionId,
     name: String,
 }
@@ -131,6 +137,27 @@ struct Window {
     rows: Vec<TranscriptReadRow>,
     has_more: bool,
     next_cursor: Option<EventCursor>,
+}
+
+// One row's text, and the part of it a read by the row's id serves on past a page's cut.
+struct RowPiece {
+    text: String,
+    served: Option<ServedPart>,
+}
+
+// The tail of a row's text that a read by the row's id serves, from `start`, a byte offset in
+// the row's text.
+struct ServedPart {
+    start: usize,
+    text: ServedText,
+}
+
+// What a read by a row's id serves: the text's lines, or the list of the files a tool call
+// changed.
+#[derive(Clone, Copy)]
+enum ServedText {
+    Lines,
+    ChangedFiles,
 }
 
 // The members a read takes from a row of either arm.
@@ -320,21 +347,22 @@ impl SessionReading<'_> {
                 continue;
             };
             if let Some(piece) = self.piece_of(&parts, shown).await? {
-                if !pieces.is_empty() && length + piece.len() > READ_PAGE_MAX_BYTES {
+                if !pieces.is_empty() && length + piece.text.len() > READ_PAGE_MAX_BYTES {
                     let cursor = taken.map_or("", |cursor| cursor.as_str());
                     pieces.push(more_trailer(cursor));
                     return Ok(pieces.join("\n"));
                 }
-                length += piece.len();
-                let is_over_page = piece.len() > READ_PAGE_MAX_BYTES;
-                let piece = cut_to_page(piece);
-                // The row's line the cut fell in, its last shown: a row's text opens on its
-                // body's first line.
-                let cut_line = piece.lines().count();
-                pieces.push(piece);
-                if is_over_page {
-                    // A row no page holds goes on by its lines, read under its own id.
-                    pieces.push(rest_of_row(parts.id, cut_line));
+                length += piece.text.len();
+                if piece.text.len() > READ_PAGE_MAX_BYTES {
+                    // A row no page holds goes on under its own id from where the page cut it.
+                    let cut = piece.text.floor_char_boundary(READ_PAGE_MAX_BYTES);
+                    let rest = self.rest_of_cut_row(parts.id, &piece, cut);
+                    let mut text = piece.text;
+                    text.truncate(cut);
+                    pieces.push(text);
+                    pieces.extend(rest);
+                } else {
+                    pieces.push(piece.text);
                 }
             }
             taken = Some(row_cursor(row));
@@ -348,23 +376,84 @@ impl SessionReading<'_> {
         Ok(pieces.join("\n"))
     }
 
+    // The line that ends `piece`, the row `output`'s text cut at its byte `cut`: the id and the
+    // cursor its served part reads on under. `None` for a row with no served part, which no row
+    // longer than a page is, since the parts it shows inline stay under a page.
+    fn rest_of_cut_row(&self, output: &str, piece: &RowPiece, cut: usize) -> Option<String> {
+        let served = piece.served.as_ref()?;
+        let text = &piece.text[served.start..];
+        // A cut before the served part reads it from its start.
+        let offset = cut.saturating_sub(served.start);
+        let byte_offset = |offset: usize| u64::try_from(offset).expect("an offset fits 64 bits");
+        Some(match served.text {
+            ServedText::ChangedFiles => rest_of_changed_files(
+                output,
+                &self.line_cursor(
+                    output,
+                    &LineCursor {
+                        line: 1,
+                        offset: byte_offset(offset),
+                        place: LinePlace::ChangedFiles,
+                    },
+                ),
+            ),
+            ServedText::Lines => {
+                let line = 1 + byte_offset(text[..offset].matches('\n').count());
+                let rest = &text[offset..];
+                // A cut at a line's end goes on at the next line's start.
+                let line_end = ["\n", "\r\n"]
+                    .into_iter()
+                    .find(|ending| rest.starts_with(ending));
+                let is_at_line_start = offset == 0 || text[..offset].ends_with('\n');
+                let next = match line_end {
+                    Some(ending) => LineCursor {
+                        line: line + 1,
+                        offset: byte_offset(offset + ending.len()),
+                        place: LinePlace::Start,
+                    },
+                    None => LineCursor {
+                        line,
+                        offset: byte_offset(offset),
+                        place: if is_at_line_start {
+                            LinePlace::Start
+                        } else {
+                            LinePlace::Inside
+                        },
+                    },
+                };
+                rest_of_row(output, line, &self.line_cursor(output, &next))
+            }
+        })
+    }
+
     // One row's text, or `None` for a row the read does not show.
     async fn piece_of(
         &self,
         parts: &RowParts<'_>,
         shown: &ShownRows,
-    ) -> Result<Option<String>, AgentToolError> {
+    ) -> Result<Option<RowPiece>, AgentToolError> {
         let event_type = parts.event_type;
         let includes = |include| shown.include.contains(&include);
+        // A text that opens with `label`, its rest served by its lines.
+        let lines_after = |label: &str, rest: &str| RowPiece {
+            text: format!("{label}{rest}"),
+            served: Some(ServedPart {
+                start: label.len(),
+                text: ServedText::Lines,
+            }),
+        };
         if event_type == SessionEventType::AgentMessageSent.as_str() {
             let body = self.body_of(parts).await?;
-            return Ok(Some(format!("answer: {}", body.unwrap_or_default())));
+            return Ok(Some(lines_after("answer: ", &body.unwrap_or_default())));
         }
         if shown.is_answer_only {
             return Ok(None);
         }
         if event_type == SessionEventType::UserMessageSent.as_str() {
-            return Ok(Some(format!("message: {}", message_text_of(parts.payload))));
+            return Ok(Some(lines_after(
+                "message: ",
+                message_text_of(parts.payload),
+            )));
         }
         if event_type == SessionEventType::AgentToolCallInvoked.as_str() && includes(Include::Tools)
         {
@@ -373,23 +462,23 @@ impl SessionReading<'_> {
                 .get("toolName")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            return Ok(Some(match parts.content {
+            let text = match parts.content {
                 TranscriptRowContent::Available { body, .. } => {
                     format!("tool {tool}: {}", body.as_str())
                 }
                 TranscriptRowContent::Large { .. } | TranscriptRowContent::Unavailable { .. } => {
                     format!("tool {tool}")
                 }
-            }));
+            };
+            return Ok(Some(RowPiece { text, served: None }));
         }
         let is_tool_end = event_type == SessionEventType::AgentToolCallCompleted.as_str()
             || event_type == SessionEventType::AgentToolCallFailed.as_str();
         if !is_tool_end {
             return Ok(None);
         }
-        let mut lines = Vec::new();
-        if includes(Include::Outputs) {
-            lines.push(match parts.content {
+        let mut text = if includes(Include::Outputs) {
+            match parts.content {
                 TranscriptRowContent::Available { body, .. } => {
                     format!("output {}: {}", parts.id, body.as_str())
                 }
@@ -400,22 +489,25 @@ impl SessionReading<'_> {
                     parts.id
                 ),
                 TranscriptRowContent::Unavailable { .. } => format!("output {}", parts.id),
-            });
-        }
-        if includes(Include::Changes) {
-            let mut paths = parts.changed_paths.clone();
-            let inline_files = match parts.content {
-                TranscriptRowContent::Available { body, .. } => changed_files_of(body.as_str()),
-                TranscriptRowContent::Large { .. } | TranscriptRowContent::Unavailable { .. } => {
-                    Vec::new()
-                }
-            };
-            paths.extend(inline_files.iter().map(String::as_str));
-            if !paths.is_empty() {
-                lines.push(format!("changed: {}", paths.join(", ")));
             }
+        } else {
+            String::new()
+        };
+        let mut served = None;
+        if includes(Include::Changes)
+            && let Some(changed) = changed_files_text(parts)
+        {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str("changed: ");
+            served = Some(ServedPart {
+                start: text.len(),
+                text: ServedText::ChangedFiles,
+            });
+            text.push_str(&changed);
         }
-        Ok((!lines.is_empty()).then(|| lines.join("\n")))
+        Ok((!text.is_empty()).then_some(RowPiece { text, served }))
     }
 
     // A row's body as far as a page shows it: the one its row carries, or a large one read part
@@ -482,17 +574,16 @@ fn message_text_of(payload: &Map<String, Value>) -> &str {
         .unwrap_or_default()
 }
 
-// A piece longer than a page alone, cut there on a character's boundary.
-fn cut_to_page(mut piece: String) -> String {
-    if piece.len() > READ_PAGE_MAX_BYTES {
-        let mut cut = READ_PAGE_MAX_BYTES;
-        while !piece.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        piece.truncate(cut);
-        piece.push('…');
-    }
-    piece
+// The files a tool call's row says it changed, as one list: the ones its row leaves out, then the
+// ones a file list it carries whole names; `None` for a row that names none.
+fn changed_files_text(parts: &RowParts<'_>) -> Option<String> {
+    let mut paths = parts.changed_paths.clone();
+    let inline_files = match parts.content {
+        TranscriptRowContent::Available { body, .. } => changed_files_of(body.as_str()),
+        TranscriptRowContent::Large { .. } | TranscriptRowContent::Unavailable { .. } => Vec::new(),
+    };
+    paths.extend(inline_files.iter().map(String::as_str));
+    (!paths.is_empty()).then(|| paths.join(", "))
 }
 
 // The paths of a tool completion's file list a row carries whole: `{"files": [{"path": …}]}`.
@@ -513,294 +604,4 @@ fn changed_files_of(body: &str) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use futures::FutureExt as _;
-    use serde_json::json;
-    use sidekicks_agent::tools::session::SessionReference;
-    use sidekicks_agent::tools::session::errors::{SharedNameHolder, shared_name};
-    use sidekicks_agent::tools::session::read::{
-        SessionReadArguments, position_unknown, rest_of_row,
-    };
-    use sidekicks_contracts::event::registry::SessionEventType;
-    use sidekicks_contracts::provider::id::ProviderId;
-    use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_contracts::wire::instant::WireInstant;
-    use sidekicks_provider::driver::PROVIDERS;
-    use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
-    use sidekicks_provider::driver::test_registry::registry_of_first_providers;
-    use sidekicks_session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
-    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-    use sidekicks_store::database::schema::session_directory::insert_session_row;
-    use sidekicks_store::database::writer::test_file::{
-        TestDatabase, insert_lead, insert_test_event, test_run_id, test_session_id,
-    };
-    use sidekicks_store::events::test_log::AT;
-
-    use super::{READ_PAGE_MAX_BYTES, read_session};
-    use crate::agent_tools::AgentToolError;
-    use crate::daemon::schema::schema_parts;
-    use crate::orchestration::session_directory::SessionDirectory;
-
-    // A database holding this machine's row.
-    fn database_of_this_machine() -> (TestDatabase, rusqlite::Connection) {
-        let database = TestDatabase::new(schema_parts());
-        let reader = database.opener()().expect("the test creates its database");
-        reader
-            .execute(
-                "INSERT INTO local_machine (singleton, machine_id, owner_user_id, name, minted_at)
-                 VALUES (1, ?1, ?2, 'this Mac', ?3)",
-                [
-                    mint_uuid_v7().to_string(),
-                    mint_uuid_v7().to_string(),
-                    WireInstant::now().as_str().to_owned(),
-                ],
-            )
-            .expect("the test records this machine");
-        (database, reader)
-    }
-
-    // The directory and the session store over `database`, its one provider holding no session
-    // typed in a terminal.
-    fn directory_and_sessions(database: &TestDatabase) -> (SessionDirectory, SessionService) {
-        let mut driver = MockProviderDriver::new();
-        driver
-            .expect_list_terminal_sessions()
-            .returning(|| async { Ok(Vec::new()) }.boxed());
-        driver
-            .expect_list_standalone_terminal_sessions()
-            .returning(|| async { Ok(Vec::new()) }.boxed());
-        let pool = Arc::new(DatabaseReadPool::new(
-            database.path(),
-            SESSION_SERVICE_STATEMENT_CAPACITY,
-        ));
-        let directory = SessionDirectory {
-            pool: Arc::clone(&pool),
-            providers: Arc::new(registry_of_first_providers(vec![
-                Arc::new(driver) as Arc<dyn ProviderDriver>
-            ])),
-            read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
-        };
-        let sessions = SessionService::new(
-            pool,
-            Arc::new(|_: &SessionId| None),
-            Arc::new(|_: &ProviderId| None),
-        );
-        (directory, sessions)
-    }
-
-    // A name two sessions share is refused with both holders before any transcript is read.
-    // Killed by reading the first session the name matches.
-    #[tokio::test]
-    async fn session_read_on_an_ambiguous_name_answers_the_choices_and_reads_nothing() {
-        let (database, reader) = database_of_this_machine();
-        let caller: SessionId = test_session_id();
-        let builders: [SessionId; 2] = [test_session_id(), test_session_id()];
-        for builder in builders {
-            insert_session_row(&reader, builder.text().as_str(), Some("builder"), None);
-            insert_lead(&database, builder, PROVIDERS[0].id);
-        }
-        let (directory, sessions) = directory_and_sessions(&database);
-        let arguments = SessionReadArguments {
-            session: SessionReference::new("builder".to_owned()).expect("a valid reference"),
-            turns: None,
-            around: None,
-            include: None,
-            output: None,
-            lines: None,
-            search: None,
-            cursor: None,
-        };
-
-        let refused = read_session(&directory, &sessions, &caller, arguments).await;
-        let Err(AgentToolError::Refused(text)) = refused else {
-            panic!("a shared name is refused, never read");
-        };
-        let [first, second] = builders.map(|builder| builder.to_string());
-        assert_eq!(
-            text,
-            shared_name(
-                "builder",
-                &[
-                    SharedNameHolder {
-                        name: "builder",
-                        id: &first,
-                        project: "no project",
-                    },
-                    SharedNameHolder {
-                        name: "builder",
-                        id: &second,
-                        project: "no project",
-                    },
-                ],
-            )
-        );
-    }
-
-    // An answer longer than a page is cut there with a line naming the id its rest reads under,
-    // and that read walks the whole body by lines, page by page, as it was written. Killed by an
-    // over-page row with no such line, and by a line split wrongly where the body's parts meet.
-    #[tokio::test]
-    async fn an_answer_past_a_page_reads_on_by_its_lines() {
-        let (database, reader) = database_of_this_machine();
-        let caller: SessionId = test_session_id();
-        let builder: SessionId = test_session_id();
-        insert_session_row(&reader, builder.text().as_str(), Some("builder"), None);
-        insert_lead(&database, builder, PROVIDERS[0].id);
-        let lines: Vec<String> = (1..=20_000).map(|line| format!("line {line:05}")).collect();
-        let body = lines.join("\n");
-        insert_test_event(
-            &reader,
-            builder,
-            json!({
-                "type": "agent.message.sent",
-                "payload": {
-                    "sessionId": builder,
-                    "runId": test_run_id(),
-                    "providerMessageId": "m1",
-                },
-            }),
-            Some(&body),
-            AT,
-        );
-        let (directory, sessions) = directory_and_sessions(&database);
-        let read = |arguments: serde_json::Value| {
-            let arguments: SessionReadArguments =
-                serde_json::from_value(arguments).expect("the test's arguments parse");
-            read_session(&directory, &sessions, &caller, arguments)
-        };
-
-        let answer = read(json!({"session": "builder"}))
-            .await
-            .expect("the answer reads");
-        let (shown, rest) = answer
-            .rsplit_once('\n')
-            .expect("a cut answer ends with a line");
-        assert!(shown.starts_with("answer: line 00001\nline 00002\n"));
-        assert!(shown.len() <= READ_PAGE_MAX_BYTES + '…'.len_utf8());
-        let output = rest
-            .split('"')
-            .nth(1)
-            .expect("the line names the answer's id");
-        assert_eq!(rest, rest_of_row(output, shown.lines().count()));
-
-        let mut read_lines: Vec<String> = Vec::new();
-        let mut cursor: Option<String> = None;
-        loop {
-            let mut arguments = json!({"session": "builder", "output": output, "lines": "1-20000"});
-            if let Some(cursor) = &cursor {
-                arguments["cursor"] = json!(cursor);
-            }
-            let page = read(arguments).await.expect("a page of lines reads");
-            cursor = None;
-            for line in page.lines() {
-                match line.strip_prefix("More: next_cursor \"") {
-                    Some(next) => cursor = Some(next.trim_end_matches('"').to_owned()),
-                    None => read_lines.push(line.to_owned()),
-                }
-            }
-            if cursor.is_none() {
-                break;
-            }
-        }
-        let numbered: Vec<String> = (1_u64..)
-            .zip(&lines)
-            .map(|(number, line)| format!("{number}: {line}"))
-            .collect();
-        assert_eq!(read_lines, numbered);
-
-        let last = read(json!({"session": "builder", "output": output, "lines": "-2"}))
-            .await
-            .expect("the last lines read");
-        assert_eq!(last, "19999: line 19999\n20000: line 20000");
-    }
-
-    // A message longer than a page, whose text only its event holds, is cut there with a line
-    // naming its id and the line the cut fell in, and reading on from that line walks the text to
-    // its last line, page by page; a cursor whose line is changed is refused. Killed by a message
-    // read refused as no output, and by a cursor taken where it does not start its line.
-    #[tokio::test]
-    async fn a_message_past_a_page_reads_on_by_its_lines_to_its_last() {
-        let (database, reader) = database_of_this_machine();
-        let caller: SessionId = test_session_id();
-        let builder: SessionId = test_session_id();
-        insert_session_row(&reader, builder.text().as_str(), Some("builder"), None);
-        insert_lead(&database, builder, PROVIDERS[0].id);
-        // About 220 KB, so the rest past the first page takes more than one page.
-        let lines: Vec<String> = (1..=20_000).map(|line| format!("line {line:05}")).collect();
-        let (_, message_id) = insert_test_event(
-            &reader,
-            builder,
-            json!({
-                "type": SessionEventType::UserMessageSent.as_str(),
-                "payload": {"sessionId": builder, "actor": "person", "message": lines.join("\n")},
-            }),
-            None,
-            AT,
-        );
-        let (directory, sessions) = directory_and_sessions(&database);
-        let read = |arguments: serde_json::Value| {
-            let arguments: SessionReadArguments =
-                serde_json::from_value(arguments).expect("the test's arguments parse");
-            read_session(&directory, &sessions, &caller, arguments)
-        };
-
-        let turn = read(json!({"session": "builder", "turns": 1}))
-            .await
-            .expect("the turn reads");
-        let (shown, rest) = turn
-            .rsplit_once('\n')
-            .expect("a cut message ends with a line");
-        assert!(shown.starts_with("message: line 00001\nline 00002\n"));
-        let cut_line = shown.lines().count();
-        assert_eq!(rest, rest_of_row(&message_id, cut_line));
-
-        let range = format!("{cut_line}-20000");
-        let mut read_lines: Vec<String> = Vec::new();
-        let mut cursor: Option<String> = None;
-        let mut first_cursor: Option<String> = None;
-        loop {
-            let mut arguments = json!({"session": "builder", "output": message_id, "lines": range});
-            if let Some(cursor) = &cursor {
-                arguments["cursor"] = json!(cursor);
-            }
-            let page = read(arguments).await.expect("a page of lines reads");
-            cursor = None;
-            for line in page.lines() {
-                match line.strip_prefix("More: next_cursor \"") {
-                    Some(next) => cursor = Some(next.trim_end_matches('"').to_owned()),
-                    None => read_lines.push(line.to_owned()),
-                }
-            }
-            if first_cursor.is_none() {
-                first_cursor.clone_from(&cursor);
-            }
-            if cursor.is_none() {
-                break;
-            }
-        }
-        let numbered: Vec<String> = (1_u64..)
-            .zip(&lines)
-            .skip(cut_line - 1)
-            .map(|(number, line)| format!("{number}: {line}"))
-            .collect();
-        assert_eq!(read_lines, numbered);
-
-        let first_cursor = first_cursor.expect("the rest takes more than one page");
-        let (line, place) = first_cursor
-            .split_once('@')
-            .expect("a cursor names its line");
-        let line: u64 = line.parse().expect("a cursor's line is a number");
-        let moved = format!("{}@{place}", line + 1);
-        let refused = read(json!({
-            "session": "builder", "output": message_id, "lines": range, "cursor": moved,
-        }))
-        .await;
-        let Err(AgentToolError::Refused(text)) = refused else {
-            panic!("a cursor moved off its line is refused");
-        };
-        assert_eq!(text, position_unknown(&moved, "builder"));
-    }
-}
+mod tests;

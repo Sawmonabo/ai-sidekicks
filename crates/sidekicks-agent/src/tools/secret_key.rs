@@ -54,6 +54,12 @@ impl ToolServerSecretKey {
     pub(crate) fn secret_of(&self, path: &ToolServerPath) -> BearerToken {
         BearerToken::of_digest(blake3::keyed_hash(&self.0, path.to_string().as_bytes()).as_bytes())
     }
+
+    /// A key of its own for the use `context` names, derived from this one: the same at every
+    /// start that reads this key back, and unrelated to every secret and every other context's key.
+    pub fn derive_key(&self, context: &str) -> Seed {
+        Seed::new(blake3::derive_key(context, self.0.as_slice()))
+    }
 }
 
 #[cfg(test)]
