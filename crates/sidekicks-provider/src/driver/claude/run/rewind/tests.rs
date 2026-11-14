@@ -156,17 +156,16 @@ enum MergedMember {
 }
 
 // Claude Code's conversation file holds the three messages as one command, `user` entry `u-3`, and
-// finds no entry for the earlier two. The first member's undo is cut once more before the command;
-// the middle one's is not, since that cut would also take the first member, which its undo keeps;
-// the last member's lands on its first send, as before. Killed by no second send, by a second send
-// under the target's own id or under any id but the command entry's own, by a middle member
-// mapped, and by the mapping read from an entry that is no `user` one.
+// finds no entry for the earlier two. The first and the middle member's undo is cut once more
+// before the command; the last member's lands on its first send. Killed by no second send, by a
+// second send under the target's own id or under any id but the command entry's own, by only the
+// first member mapped, and by the mapping read from an entry that is no `user` one.
 #[rstest]
 #[case::first(MergedMember::First)]
 #[case::middle(MergedMember::Middle)]
 #[case::last(MergedMember::Last)]
 #[tokio::test(start_paused = true)]
-async fn an_undo_to_a_merged_message_is_cut_before_its_command_from_its_first_member(
+async fn an_undo_to_a_merged_message_is_cut_before_its_command_from_any_member(
     #[case] member: MergedMember,
 ) {
     let session = ScriptedSession::new().await;
@@ -225,18 +224,9 @@ async fn an_undo_to_a_merged_message_is_cut_before_its_command_from_its_first_me
         cut_message_text: Some("one\ntwo\nthree".to_owned()),
     };
     match member {
-        MergedMember::First => {
+        MergedMember::First | MergedMember::Middle => {
             assert_eq!(targets, [json!(TARGET_MESSAGE_ID), json!("u-3")]);
             assert_eq!(result, applied_result);
-        }
-        MergedMember::Middle => {
-            assert_eq!(targets, [json!(TARGET_MESSAGE_ID)]);
-            assert_eq!(
-                result,
-                RewindConversationResult::Degraded {
-                    fallback_action: Some("rewind-refused: target_not_found".to_owned()),
-                }
-            );
         }
         MergedMember::Last => {
             assert_eq!(targets, [json!(TARGET_MESSAGE_ID)]);

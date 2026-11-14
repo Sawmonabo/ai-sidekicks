@@ -49,6 +49,7 @@ pub(super) enum RunWork {
         run_id: RunId,
         turn_number: SafeInt<1>,
         message_id: QueueItemId,
+        is_cut_with_opening: bool,
     },
 }
 
@@ -172,9 +173,10 @@ impl RunInboundDispatch {
                 run_id,
                 turn_number,
                 message_id,
+                is_cut_with_opening,
             } => match self
                 .engine
-                .record_steer(run_id, turn_number, message_id)
+                .record_steer(run_id, turn_number, message_id, is_cut_with_opening)
                 .await?
             {
                 SteerRecord::Written(event_id) => {

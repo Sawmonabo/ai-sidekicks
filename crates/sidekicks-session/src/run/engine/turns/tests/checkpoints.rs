@@ -229,7 +229,7 @@ async fn a_steers_write_records_its_checkpoint_at_its_position() {
     assert_eq!(start(&engine, run_id, Some(opening)).await, Some(1));
     let steer_sequence = send(&appender, session_id, run_id, steer).await;
     let written = engine
-        .record_steer(run_id, turn(1), steer)
+        .record_steer(run_id, turn(1), steer, false)
         .await
         .expect("the steer is written");
     assert!(matches!(written, SteerRecord::Written(_)), "{written:?}");
@@ -245,7 +245,7 @@ async fn a_steers_write_records_its_checkpoint_at_its_position() {
 
     assert_eq!(
         engine
-            .record_steer(run_id, turn(1), never_sent)
+            .record_steer(run_id, turn(1), never_sent, false)
             .await
             .expect("an unsent message's landing reads"),
         SteerRecord::NotSent
@@ -254,7 +254,7 @@ async fn a_steers_write_records_its_checkpoint_at_its_position() {
     end_run_aside(&database.path(), &run_id);
     assert_eq!(
         engine
-            .record_steer(run_id, turn(1), late_steer)
+            .record_steer(run_id, turn(1), late_steer, false)
             .await
             .expect("a steer on an ended run reads"),
         SteerRecord::RunEnded

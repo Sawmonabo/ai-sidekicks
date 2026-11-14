@@ -1,7 +1,7 @@
 //! Claude Code's own record of one conversation, `<config folder>/projects/<project>/<id>.jsonl`:
 //! one JSON entry per line, each with its own `uuid`. Read to find where a resume lands, which
-//! message a fork keeps up to, which messages an ended process took and which command a message
-//! merged into opens; titled anew at rest;
+//! message a fork keeps up to, which messages an ended process took and which command holds a
+//! message merged into it; titled anew at rest;
 //! deleted on a purge with every other file Claude Code keeps for the conversation under the same
 //! config folder and the daemon's scratch folder, a batch of conversations of one home listing
 //! each folder it searches once.
@@ -177,23 +177,22 @@ pub(crate) async fn find_claude_taken_messages(
         .collect())
 }
 
-/// The uuid of the command Claude Code merged the person's message `message_uuid` into as its
-/// first member: messages that waited together are taken as one `user` entry under the last
-/// member's uuid, its `mergedSendUuids` naming the others in send order. `None` where no entry
-/// lists the message first; stops at the first that does, and fails with the file's open or read
-/// failure.
-pub(crate) async fn find_claude_command_opened_by(
+/// The uuid of the command Claude Code merged the person's message `message_uuid` into with
+/// others, the message not being its last: messages that waited together are taken as one `user`
+/// entry under the last member's uuid, its `mergedSendUuids` naming the others in send order.
+/// `None` where no entry lists the message; stops at the first that does, and fails with the
+/// file's open or read failure.
+pub(crate) async fn find_claude_command_holding(
     file: &Path,
     message_uuid: &str,
 ) -> io::Result<Option<String>> {
     let mut found = None;
     read_entries(file, |entry| {
-        let first_member = entry
-            .merged_send_uuids
-            .and_then(|LenientList(members)| members.into_iter().next());
-        let opens = entry.entry_type.as_deref() == Some("user")
-            && first_member.as_deref() == Some(message_uuid);
-        match entry.uuid.filter(|uuid| opens && !uuid.is_empty()) {
+        let holds = entry.entry_type.as_deref() == Some("user")
+            && entry.merged_send_uuids.is_some_and(|LenientList(members)| {
+                members.iter().any(|uuid| uuid == message_uuid)
+            });
+        match entry.uuid.filter(|uuid| holds && !uuid.is_empty()) {
             Some(uuid) => {
                 found = Some(uuid);
                 ControlFlow::Break(())

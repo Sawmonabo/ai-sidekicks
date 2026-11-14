@@ -205,11 +205,6 @@ impl ProviderDriver for ClaudeDriver {
         self.rewind_conversation(params).boxed()
     }
 
-    // Claude Code's rewind names any of the person's messages, a steer's included.
-    fn can_cut_inside_turn(&self) -> bool {
-        true
-    }
-
     fn respond_to_request(
         &self,
         params: RespondToRequestParams,

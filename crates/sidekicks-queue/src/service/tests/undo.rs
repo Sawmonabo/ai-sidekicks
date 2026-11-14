@@ -114,15 +114,14 @@ fn applied_in_place() -> RewindAnswer {
     })
 }
 
-/// The scene, its provider answering every cut with `answer` and cutting inside a turn.
+/// The scene, its provider answering every cut with `answer`.
 async fn scene(answer: RewindAnswer) -> Scene {
-    scene_on(answer, true, Form::Words(OPENING_WORDS)).await
+    scene_on(answer, Form::Words(OPENING_WORDS)).await
 }
 
-/// The scene, its provider answering every cut with `answer`, its cut landing inside a turn as
-/// `can_cut_inside_turn` says, the target message sent in `opening`'s form; the provider answers
-/// each skill pick by its name and folder.
-async fn scene_on(answer: RewindAnswer, can_cut_inside_turn: bool, opening: Form) -> Scene {
+/// The scene, its provider answering every cut with `answer`, the target message sent in
+/// `opening`'s form; the provider answers each skill pick by its name and folder.
+async fn scene_on(answer: RewindAnswer, opening: Form) -> Scene {
     let calls = Arc::new(DriverCalls::default());
     let rewinds = Arc::new(AtomicUsize::new(0));
     let rewound_message_ids = Arc::new(Mutex::new(Vec::new()));
@@ -140,9 +139,6 @@ async fn scene_on(answer: RewindAnswer, can_cut_inside_turn: bool, opening: Form
             let answered = answer();
             async move { answered }.boxed()
         });
-    driver
-        .expect_can_cut_inside_turn()
-        .return_const(can_cut_inside_turn);
     driver
         .expect_skill_resolve_starts_process()
         .return_const(false);
@@ -232,12 +228,14 @@ struct SteerScene {
     opening: SessionRestoreTarget,
     /// The queue item of O3, which opened the run's next turn.
     later_message_id: QueueItemId,
+    /// The queue item of S2 and its checkpoint.
+    second_steer: (QueueItemId, SessionRestoreTarget),
 }
 
-/// The steer scene, its provider answering every cut with `answer` and cutting inside a turn as
-/// `can_cut_inside_turn` says, O sent in `opening`'s form.
-async fn steer_scene(answer: RewindAnswer, can_cut_inside_turn: bool, opening: Form) -> SteerScene {
-    let mut scene = scene_on(answer, can_cut_inside_turn, opening).await;
+/// The steer scene, its provider answering every cut with `answer`, each steer landing with no
+/// point of its own as `is_cut_with_opening` says, O sent in `opening`'s form.
+async fn steer_scene(answer: RewindAnswer, is_cut_with_opening: bool, opening: Form) -> SteerScene {
+    let mut scene = scene_on(answer, opening).await;
     let fixture = &scene.fixture;
     let run_id = scene.run_id;
     let opening = scene.target.clone();
@@ -247,15 +245,22 @@ async fn steer_scene(answer: RewindAnswer, can_cut_inside_turn: bool, opening: F
         .await;
     fixture.insert_edit(&opening, OPENING_EDIT).await;
     let (steer_message_id, steer) = fixture
-        .insert_steer(run_id, STEER_WORDS, TARGET_TURN_NUMBER, STEER_POSITION)
+        .insert_steer(
+            run_id,
+            STEER_WORDS,
+            TARGET_TURN_NUMBER,
+            STEER_POSITION,
+            is_cut_with_opening,
+        )
         .await;
     fixture.insert_edit(&steer, STEER_EDIT).await;
-    fixture
+    let second_steer = fixture
         .insert_steer(
             run_id,
             SECOND_STEER_WORDS,
             TARGET_TURN_NUMBER,
             SECOND_STEER_POSITION,
+            is_cut_with_opening,
         )
         .await;
     fixture
@@ -284,10 +289,11 @@ async fn steer_scene(answer: RewindAnswer, can_cut_inside_turn: bool, opening: F
         opening_message_id,
         opening,
         later_message_id,
+        second_steer,
     }
 }
 
-/// The steer scene, cutting inside a turn as `can_cut_inside_turn` says, with a turn after it
+/// The steer scene, its steers landing as `is_cut_with_opening` says, with a turn after it
 /// that no new message of the person's opened, opened as `opening` says; it edits
 /// [`ANSWER_EDIT`], takes the steer S3, edits [`ANSWER_STEER_EDIT`] and ends.
 struct DaemonTurnScene {
@@ -312,10 +318,10 @@ enum DaemonTurnOpening {
 /// The daemon-turn scene, its provider answering every cut with `answer`.
 async fn daemon_turn_scene(
     answer: RewindAnswer,
-    can_cut_inside_turn: bool,
+    is_cut_with_opening: bool,
     opening: DaemonTurnOpening,
 ) -> DaemonTurnScene {
-    let steer = steer_scene(answer, can_cut_inside_turn, Form::Words(OPENING_WORDS)).await;
+    let steer = steer_scene(answer, is_cut_with_opening, Form::Words(OPENING_WORDS)).await;
     let mut scene = steer.scene;
     let fixture = &scene.fixture;
     let run_id = scene.run_id;
@@ -360,6 +366,7 @@ async fn daemon_turn_scene(
             ANSWER_STEER_WORDS,
             started.turn_number.get(),
             turn_start.turn.position.0.get() + 1,
+            is_cut_with_opening,
         )
         .await;
     fixture.insert_edit(&steer, ANSWER_STEER_EDIT).await;
@@ -465,13 +472,15 @@ impl Fixture {
     }
 
     /// Writes the person's message saying `words`, steered into turn `turn_number` of `run_id` at
-    /// run position `at` with its checkpoint, and answers its queue item and the checkpoint.
+    /// run position `at` with its checkpoint, its landing marked `is_cut_with_opening`, and
+    /// answers its queue item and the checkpoint.
     async fn insert_steer(
         &self,
         run_id: RunId,
         words: &'static str,
         turn_number: u64,
         at: u64,
+        is_cut_with_opening: bool,
     ) -> (QueueItemId, SessionRestoreTarget) {
         let (message_id, sequence) = self.insert_sent_message(run_id, Form::Words(words)).await;
         self.insert_event(
@@ -484,6 +493,7 @@ impl Fixture {
                 "turnNumber": turn_number,
                 "position": at,
                 "messageId": message_id,
+                "isCutWithOpening": is_cut_with_opening,
             }),
         );
         let checkpoint = self

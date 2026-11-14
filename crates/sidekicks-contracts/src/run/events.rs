@@ -368,6 +368,10 @@ run_event_payloads! {
         pub position: SourcePosition,
         /// The queue item whose message the turn took.
         pub message_id: QueueItemId,
+        /// Whether the provider's conversation cut cannot fall between this message and the turn's
+        /// opening, so an undo aimed at it goes back with the opening: a message the provider took
+        /// together with the opening, or any message on a provider whose cut lands only at turns.
+        pub is_cut_with_opening: bool,
     }
 
     /// The `agent.turn.completed` payload: the turn ended normally, as the provider reported it.

@@ -25,7 +25,7 @@ use crate::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_c
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::conversation_file::{
-    conversation_file_of, find_claude_command_opened_by,
+    conversation_file_of, find_claude_command_holding,
 };
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::state::LiveClaudeSession;
@@ -178,9 +178,9 @@ impl ClaudeConversationCuts {
     /// dropped once the cut lands and delivered as sent when it does not. A refusal Claude Code
     /// marks sendable again, but a missing target, is sent once more after the session's turn
     /// settles; any other refusal, a second one, or a turn still held at the request deadline is
-    /// `Degraded` with Claude Code's reason. A target Claude Code finds missing that opens a
-    /// command it merged from several messages is cut once more before that command, whose
-    /// answer is final. Fails as the settle, a request or the conversation file's read fails. An
+    /// `Degraded` with Claude Code's reason. A target Claude Code finds missing that it merged with
+    /// other messages into one command is cut once more before that command, whose answer is
+    /// final. Fails as the settle, a request or the conversation file's read fails. An
     /// applied cut lets go the held `Allow once` presses of every binding the process served,
     /// through `reviewer_denials` once the approvals are registered.
     pub(crate) async fn rewind(
@@ -225,11 +225,11 @@ impl ClaudeConversationCuts {
                 .cut_holding_lead(live, target_message_id, stream, settled_run)
                 .await?;
         }
-        // Claude Code finds no entry for a message it merged into a command with others; the
-        // first member's undo reaches the whole command, so the cut goes before the command.
+        // Claude Code finds no entry for a message it merged into a command with others, and its
+        // cut finds only the whole command, which every member's undo reaches.
         if let ClaudeCutAnswer::Refused(refusal) = &answer
             && refusal.is_target_missing()
-            && let Some(command_uuid) = find_command_opened_by(live, target_message_id).await?
+            && let Some(command_uuid) = find_command_holding(live, target_message_id).await?
         {
             (answer, held_lead) = self
                 .cut_holding_lead(live, &command_uuid, stream, settled_run)
@@ -426,9 +426,9 @@ async fn cut_claude_conversation(
     })
 }
 
-// The uuid of the command Claude Code merged `message_id` into as its first member, read from the
-// live conversation's file; `None` where the file holds no such command or no file is found.
-async fn find_command_opened_by(
+// The uuid of the command Claude Code merged `message_id` into with others, read from the live
+// conversation's file; `None` where the file holds no such command or no file is found.
+async fn find_command_holding(
     live: &LiveClaudeSession,
     message_id: &str,
 ) -> Result<Option<String>, DriverError> {
@@ -440,7 +440,7 @@ async fn find_command_opened_by(
     .await
     .map_err(read_failure)?;
     match file {
-        Some(file) => find_claude_command_opened_by(&file, message_id)
+        Some(file) => find_claude_command_holding(&file, message_id)
             .await
             .map_err(read_failure),
         None => Ok(None),

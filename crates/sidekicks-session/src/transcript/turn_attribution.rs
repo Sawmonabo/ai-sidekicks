@@ -555,6 +555,7 @@ mod tests {
                     "turnNumber": 1,
                     "position": 2,
                     "messageId": mint_uuid_v7().to_string(),
+                    "isCutWithOpening": false,
                 },
             }),
             None,

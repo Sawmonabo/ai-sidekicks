@@ -126,11 +126,14 @@ impl ClaudeDeliveryStream {
         let Some(started) = started else {
             return;
         };
+        // Taken before the turn opened, they waited together with its opening, and Claude Code
+        // merged them into one command, which its cut finds only whole.
         for message_id in taken {
             let steered = InboundDelivery::TurnSteered {
                 binding_id: lead.binding_id.clone(),
                 turn_number: started.turn_number,
                 message_id,
+                is_cut_with_opening: true,
             };
             self.send(session, steered, None).await;
         }

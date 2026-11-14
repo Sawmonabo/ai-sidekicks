@@ -17,7 +17,7 @@ use crate::command::CommandId;
 use crate::free_form_string::FilesystemPath;
 use crate::method::KeyedRequest;
 use crate::method::methods;
-use crate::run::queue::QueuedSkillPick;
+use crate::run::queue::{QueueItemId, QueuedSkillPick};
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -234,6 +234,10 @@ pub struct SessionRestorePreviewResponse {
     pub commands_ran_after_point: bool,
     /// The paths other sessions changed since the point.
     pub also_changed_by: Vec<SessionRestoreAlsoChanged>,
+    /// The person's messages that undo together with the target because they reached the
+    /// provider together, from the group's first, in send order, which the ask counts; empty
+    /// where the undo goes back to the target alone.
+    pub undone_together: Vec<QueueItemId>,
 }
 
 /// The edited message an edit and resend sends once the undo has applied, with its files, the

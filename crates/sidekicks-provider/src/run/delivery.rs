@@ -117,6 +117,10 @@ pub enum InboundDelivery<'key> {
         turn_number: SafeInt<1>,
         /// The queue item whose message the provider took.
         message_id: QueueItemId,
+        /// Whether the provider's conversation cut cannot fall between the message and the turn's
+        /// opening: a message the provider took together with the opening, or any message on a
+        /// provider whose cut lands only at turns.
+        is_cut_with_opening: bool,
     },
     /// The provider moved a run.
     RunLifecycle {

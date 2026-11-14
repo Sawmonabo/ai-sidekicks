@@ -491,6 +491,7 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
             binding_id,
             turn_number,
             message_id,
+            ..
         } => {
             recorded.kind = "turnSteered";
             recorded.binding_id = Some(binding_id.clone());

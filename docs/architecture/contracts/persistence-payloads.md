@@ -160,6 +160,11 @@ interface SessionRestorePreviewResponse {
   // Paths another session working in the same folder also changed since the point, left as they are
   // unless the restore includes them.
   alsoChangedBy: Array<{ sessionId: SessionId; paths: string[] }>;
+  // The person's messages that undo together with the target because they reached the provider
+  // together — a Codex turn's opening and the messages sent while it worked, a command Claude Code
+  // merged — from the group's first, in send order, which the ask counts (`Undo 3 messages?`).
+  // Empty where the undo goes back to the target alone, and always at the files-only scope.
+  undoneTogether: QueueItemId[];
 }
 ```
 

@@ -234,8 +234,8 @@ impl RunQueue {
     }
 
     /// Cuts the held session's conversation before the person's message `target` names, as the
-    /// provider of the target's run does it, outside every lock: before that message, or, on a
-    /// provider whose cut lands only at turns, before the opening of the turn it steered into.
+    /// provider of the target's run does it, outside every lock: before that message, or, for one
+    /// whose landing says the cut cannot fall between it and its turn's opening, before that turn.
     /// Once the provider applied it, one write records an `agent.run.rolledBack` of that run at the
     /// position before the reach's and of each later lead run at its start, with `companions`
     /// committing in it, and the cut is fenced on the session's live binding; a fork the provider

@@ -336,7 +336,7 @@ async fn a_cut_applied_on_a_fork_moves_the_session_to_the_forks_binding() {
     let fork_binding_id = mint_runtime_binding_id();
     let scene = steer_scene(
         applied_on_fork(&fork_binding_id, "fork-conversation"),
-        true,
+        false,
         Form::Words(OPENING_WORDS),
     )
     .await

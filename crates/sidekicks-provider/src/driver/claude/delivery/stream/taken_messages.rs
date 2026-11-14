@@ -94,6 +94,7 @@ impl ClaudeDeliveryStream {
                             binding_id,
                             turn_number,
                             message_id: taken.message_id,
+                            is_cut_with_opening: false,
                         });
                     }
                     None => readings.taken_without_turn.push(taken),
@@ -130,11 +131,13 @@ impl ClaudeDeliveryStream {
                 }
             }
         };
+        // A steer taken mid-turn is a command of its own, which Claude Code's cut finds exactly.
         if let Some((binding_id, turn_number)) = landing {
             let steered = InboundDelivery::TurnSteered {
                 binding_id,
                 turn_number,
                 message_id,
+                is_cut_with_opening: false,
             };
             self.send(session, steered, None).await;
         }

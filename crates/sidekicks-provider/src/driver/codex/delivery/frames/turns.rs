@@ -171,10 +171,12 @@ impl CodexFrameDelivery {
                     .started_turn_by_turn_id
                     .insert(turn_id.to_owned(), started);
                 for message_id in opening.map(|opening| opening.later).unwrap_or_default() {
+                    // `thread/revert` cuts before a whole turn and nowhere inside one.
                     let steered = InboundDelivery::TurnSteered {
                         binding_id: turn_run.binding.binding_id.clone(),
                         turn_number,
                         message_id,
+                        is_cut_with_opening: true,
                     };
                     self.send(record, steered, "turn/started").await;
                 }

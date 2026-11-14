@@ -38,12 +38,13 @@ pub(crate) enum SteerRecord {
 }
 
 impl RunEngine {
-    /// Records that the provider took `message_id`'s message into turn `turn_number` of `run_id`:
-    /// one `agent.turn.steered` at the run's next position, whose write keeps the checkpoint before
-    /// that message at that position, guarded on the run's version and read again when the run
-    /// moved in between. Writes nothing for a run that has ended or a message the person never
-    /// sent. Fails with the read's or the append's failure, [`RunRefusal::NotFound`] for a run with
-    /// no row among them.
+    /// Records that the provider took `message_id`'s message into turn `turn_number` of `run_id`,
+    /// marked `is_cut_with_opening` where the provider's cut cannot fall between it and the turn's
+    /// opening: one `agent.turn.steered` at the run's next position, whose write keeps the
+    /// checkpoint before that message at that position, guarded on the run's version and read
+    /// again when the run moved in between. Writes nothing for a run that has ended or a message
+    /// the person never sent. Fails with the read's or the append's failure,
+    /// [`RunRefusal::NotFound`] for a run with no row among them.
     ///
     /// [`RunRefusal::NotFound`]: crate::run::refusals::RunRefusal::NotFound
     pub(crate) async fn record_steer(
@@ -51,6 +52,7 @@ impl RunEngine {
         run_id: RunId,
         turn_number: SafeInt<1>,
         message_id: QueueItemId,
+        is_cut_with_opening: bool,
     ) -> Result<SteerRecord, RunEngineError> {
         let session_id = self.require_run(run_id).await?.session_id;
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
@@ -88,6 +90,7 @@ impl RunEngine {
                             turn_number,
                             position,
                             message_id,
+                            is_cut_with_opening,
                         }),
                     )?,
                     preceding_events: Vec::new(),

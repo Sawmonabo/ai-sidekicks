@@ -272,11 +272,6 @@ impl ProviderDriver for CodexDriver {
         self.rewind_conversation(params).boxed()
     }
 
-    // Codex's `thread/revert` cuts before a whole turn and has no verb that cuts inside one.
-    fn can_cut_inside_turn(&self) -> bool {
-        false
-    }
-
     fn respond_to_request(
         &self,
         params: RespondToRequestParams,
