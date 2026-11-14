@@ -19,6 +19,7 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { selectStandingEvents } from "#renderer/store/session/selectors.js";
@@ -75,6 +76,7 @@ function StartedShellBody(props: ShellBodyProps): React.JSX.Element {
   const standingEvents = useSessionStore(sessionStore, selectStandingEvents);
   const thisDeviceId = useMainProcessState(frameStore).negotiation?.deviceId;
   const output = useShellOutput(bridge, { sessionId, terminalId });
+  const clock = useClock();
   const [gridSize, setGridSize] = useState<TerminalGridSize | undefined>(undefined);
 
   // The selector returns the stored array, so the fold reruns only when its identity changes.
@@ -115,6 +117,7 @@ function StartedShellBody(props: ShellBodyProps): React.JSX.Element {
         terminalId={terminalId}
         isWriteEnabled={canTypeIntoShell(lease.holder) && output.isFollowing && !hasExited}
         label={TERMINAL_OUTPUT_LABEL}
+        clock={clock}
         onKeystroke={output.typeKeys}
         onPaste={output.pasteText}
         onGridResize={setGridSize}

@@ -7,12 +7,16 @@ import { act, cleanup, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { XtermMountPoint } from "#renderer/features/terminal/emulator/components/XtermMountPoint.js";
 import { renderSettledMountPoint } from "#renderer/features/terminal/emulator/components/XtermMountPoint.test-support.js";
 import { TYPE_SCALE_REM } from "#renderer/styles/typography.js";
 import { DEFAULT_APPEARANCE_RECORD, type TextSize } from "#shared/appearance.js";
 
 /** A text size whose terminal step is neither the default's nor the library's own 15 px. */
+/** The window clock the box's loading line waits on; these cases never reach the delay. */
+const MOUNT_POINT_CLOCK = new ManualClock();
+
 const LARGER_TEXT_SIZE: TextSize = 18;
 
 afterEach(() => {
@@ -25,7 +29,12 @@ describe("the terminal's type step", () => {
     installMeridianTokens(document);
     applyAppearance(document, DEFAULT_APPEARANCE_RECORD);
     const { container } = await renderSettledMountPoint(
-      <XtermMountPoint terminalId="text-size" isWriteEnabled={false} label="Terminal output" />,
+      <XtermMountPoint
+        clock={MOUNT_POINT_CLOCK}
+        terminalId="text-size"
+        isWriteEnabled={false}
+        label="Terminal output"
+      />,
     );
 
     expect(gridFontSizeOf(container)).toBe(terminalStepPx(DEFAULT_APPEARANCE_RECORD.textSize));

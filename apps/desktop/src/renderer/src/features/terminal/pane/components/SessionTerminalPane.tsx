@@ -4,7 +4,8 @@
 //
 // Split from `TerminalPane.tsx` because the store hooks may only be called when there is a store.
 // Until the list is read, and while the first shell is being opened for a session with none, the
-// pane reads `Loading…`; once the last tab is closed it reads `No active terminal.`
+// pane reads `Loading…` under its header after the short delay, since no tab strip is drawn before
+// the list says which shells there are; once the last tab is closed it reads `No active terminal.`
 // above the `+`, which takes the focus when this pane closed that tab.
 
 import { useMemo } from "react";
@@ -12,6 +13,7 @@ import { useMemo } from "react";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { TerminalId, TerminalListEntry } from "@ai-sidekicks/contracts/terminal";
 
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { type TabMenuRow } from "#renderer/components/TabStrip/TabMenu.js";
@@ -59,7 +61,7 @@ export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.
   if (terminals === undefined || (terminals.length === 0 && shells.isOpening)) {
     return (
       <>
-        <Nothing kind="not-loaded" placement="block" title="Loading…" />
+        <LoadingNotice clock={clock} placement="block" title="Loading…" />
         {refusalLine}
       </>
     );

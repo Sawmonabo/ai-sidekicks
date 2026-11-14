@@ -8,6 +8,7 @@ import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { terminalRendererPool } from "../renderer-pool.js";
 import { XtermTerminalAdapter } from "../xterm/adapter.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { XtermMountPoint } from "./XtermMountPoint.js";
 import {
   COMPONENT_TERMINAL_IDS,
@@ -24,10 +25,18 @@ afterEach(() => {
   reclaimComponentHolds(COMPONENT_TERMINAL_IDS);
 });
 
+/** The window clock the box's loading line waits on; these cases never reach the delay. */
+const MOUNT_POINT_CLOCK = new ManualClock();
+
 describe("the mount point — one adapter per mount", () => {
   it("disposes on unmount, tearing the emulator's DOM down", async () => {
     const { unmount, container } = await renderSettledMountPoint(
-      <XtermMountPoint terminalId="terminal-1" isWriteEnabled={false} label="Terminal output" />,
+      <XtermMountPoint
+        clock={MOUNT_POINT_CLOCK}
+        terminalId="terminal-1"
+        isWriteEnabled={false}
+        label="Terminal output"
+      />,
     );
     const mountElement = emulatorElementOf(container);
     expect(mountElement.childElementCount).toBeGreaterThan(0);
@@ -44,6 +53,7 @@ describe("the mount point — one adapter per mount", () => {
     const shown: { mountElement?: HTMLElement } = {};
     const { unmount, container } = await renderSettledMountPoint(
       <XtermMountPoint
+        clock={MOUNT_POINT_CLOCK}
         terminalId="terminal-1"
         isWriteEnabled={false}
         label="Terminal output"
@@ -71,6 +81,7 @@ describe("the emulator outlives the parent's callback identities", () => {
     const observedAtMount = vi.fn();
     const { container, rerender } = await renderSettledMountPoint(
       <XtermMountPoint
+        clock={MOUNT_POINT_CLOCK}
         terminalId="terminal-1"
         isWriteEnabled
         label="Terminal output"
@@ -85,6 +96,7 @@ describe("the emulator outlives the parent's callback identities", () => {
     act(() => {
       rerender(
         <XtermMountPoint
+          clock={MOUNT_POINT_CLOCK}
           terminalId="terminal-1"
           isWriteEnabled
           label="Terminal output"
@@ -105,11 +117,23 @@ describe("the emulator outlives the parent's callback identities", () => {
   it("builds a new emulator for a different terminal id", async () => {
     // Reusing the emulator would show one shell's scrollback under another's name.
     const { container, rerender } = await renderSettledMountPoint(
-      <XtermMountPoint terminalId="terminal-1" isWriteEnabled label="Terminal output" />,
+      <XtermMountPoint
+        clock={MOUNT_POINT_CLOCK}
+        terminalId="terminal-1"
+        isWriteEnabled
+        label="Terminal output"
+      />,
     );
     const emulatorBefore = emulatorElementOf(container).firstElementChild;
     act(() => {
-      rerender(<XtermMountPoint terminalId="terminal-2" isWriteEnabled label="Terminal output" />);
+      rerender(
+        <XtermMountPoint
+          clock={MOUNT_POINT_CLOCK}
+          terminalId="terminal-2"
+          isWriteEnabled
+          label="Terminal output"
+        />,
+      );
     });
     expect(emulatorElementOf(container).firstElementChild).not.toBe(emulatorBefore);
   });
@@ -119,6 +143,7 @@ describe("the emulator outlives the parent's callback identities", () => {
     const latestKeystrokeHandler = vi.fn();
     const { container, rerender } = await renderSettledMountPoint(
       <XtermMountPoint
+        clock={MOUNT_POINT_CLOCK}
         terminalId="terminal-1"
         isWriteEnabled
         label="Terminal output"
@@ -128,6 +153,7 @@ describe("the emulator outlives the parent's callback identities", () => {
     act(() => {
       rerender(
         <XtermMountPoint
+          clock={MOUNT_POINT_CLOCK}
           terminalId="terminal-1"
           isWriteEnabled
           label="Terminal output"
@@ -149,6 +175,7 @@ describe("the emulator outlives the parent's callback identities", () => {
     const watcherKeystrokeHandler = vi.fn();
     const { container } = await renderSettledMountPoint(
       <XtermMountPoint
+        clock={MOUNT_POINT_CLOCK}
         terminalId="terminal-2"
         isWriteEnabled={false}
         label="Terminal output"
@@ -169,6 +196,7 @@ describe("the write gate", () => {
     // forwarded only when the lease moves would leave a holder watching a shell they hold.
     const { container } = await renderSettledMountPoint(
       <XtermMountPoint
+        clock={MOUNT_POINT_CLOCK}
         terminalId="terminal-1"
         isWriteEnabled
         label="Terminal output"
@@ -182,6 +210,7 @@ describe("the write gate", () => {
     const observed = vi.fn();
     const { container, rerender } = await renderSettledMountPoint(
       <XtermMountPoint
+        clock={MOUNT_POINT_CLOCK}
         terminalId="terminal-1"
         isWriteEnabled={false}
         label="Terminal output"
@@ -194,6 +223,7 @@ describe("the write gate", () => {
       act(() => {
         rerender(
           <XtermMountPoint
+            clock={MOUNT_POINT_CLOCK}
             terminalId="terminal-1"
             isWriteEnabled={isWriteEnabled}
             label="Terminal output"
@@ -219,6 +249,7 @@ describe("the write gate", () => {
     // A fresh adapter is built with the lease's answer, never an open stdin by default.
     const { container, rerender } = await renderSettledMountPoint(
       <XtermMountPoint
+        clock={MOUNT_POINT_CLOCK}
         terminalId="terminal-1"
         isWriteEnabled={false}
         label="Terminal output"
@@ -228,6 +259,7 @@ describe("the write gate", () => {
     act(() => {
       rerender(
         <XtermMountPoint
+          clock={MOUNT_POINT_CLOCK}
           terminalId="terminal-2"
           isWriteEnabled={false}
           label="Terminal output"
@@ -249,6 +281,7 @@ describe("a renderer-mode consumer that throws during the first delivery", () =>
     const consumerFailure = new Error("the renderer-mode consumer refused the delivery");
     render(
       <XtermMountPoint
+        clock={MOUNT_POINT_CLOCK}
         terminalId="terminal-1"
         isWriteEnabled={false}
         label="Terminal output"

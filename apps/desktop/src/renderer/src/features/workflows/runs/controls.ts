@@ -2,7 +2,7 @@
 // and the words each refuses in where it may not. Every control keeps its place whatever the
 // state; one the state does not allow stands disabled with its reason beside it, rather than
 // quietly not being there. These are the states the daemon's own refusals name, so a press the
-// screen allows and the daemon still refuses shows the daemon's words instead.
+// screen allows and the daemon still refuses shows the daemon's refusal instead.
 
 import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/list";
 import type { WorkflowRunStatus } from "@ai-sidekicks/contracts/workflow/run/status";
@@ -10,7 +10,7 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/rec
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 import { GOING_RUN_STATUSES } from "@ai-sidekicks/contracts/workflow/run/status";
 
-import { isLaterStep } from "./steps.js";
+import { isLaterStep, isPersonWaitCause } from "./steps.js";
 
 /** Whether a control may act now, or the sentence saying why not. */
 export type RunControlAvailability =
@@ -86,7 +86,23 @@ function cancelAvailability(run: WorkflowRunReadResponse): RunControlAvailabilit
 }
 
 function resumeAvailability(run: WorkflowRunReadResponse): RunControlAvailability {
-  return isParked(run) ? ALLOWED : RESUME_REFUSED;
+  if (!isParked(run)) {
+    return RESUME_REFUSED;
+  }
+  return isAwaitingAnswer(run) ? RESUME_AWAITS_ANSWER : ALLOWED;
+}
+
+/**
+ * Whether a waiting run waits only on a person's answer or its chain's question, which the answer
+ * lifts and a Resume does not; a spent account's wait and a failed park are what a Resume lifts.
+ */
+function isAwaitingAnswer(run: WorkflowRunReadResponse): boolean {
+  return (
+    run.status === "waiting" &&
+    run.steps
+      .filter((step) => step.status === "waiting")
+      .every((step) => isPersonWaitCause(step.waitCause))
+  );
 }
 
 /** Why `Cancel` cannot act on a run that has finished, canceled or not. */
@@ -97,6 +113,12 @@ const CANCEL_REFUSED: RunControlAvailability = {
 
 /** Why `Delete run` cannot act on a run a person can still resume or cancel. */
 const DELETE_REFUSED: RunControlAvailability = { kind: "refused", reason: "Cancel it first." };
+
+/** Why `Resume` cannot act on a run that waits only on the person's answer. */
+const RESUME_AWAITS_ANSWER: RunControlAvailability = {
+  kind: "refused",
+  reason: "Resume · this run is waiting on you",
+};
 
 /** Why `Resume` cannot act on a run that is not parked, going or ended. */
 const RESUME_REFUSED: RunControlAvailability = {

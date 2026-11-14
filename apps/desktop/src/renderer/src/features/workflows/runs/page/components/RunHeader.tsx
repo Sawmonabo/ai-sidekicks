@@ -7,9 +7,10 @@ import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/r
 
 import { parseInstant } from "#renderer/lib/instant.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
+import { refusalWords } from "#renderer/lib/code-words.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
-import { callDaemon } from "#renderer/services/daemon/reply.js";
+import { callDaemon, type DaemonReply } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
@@ -88,7 +89,7 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
     callDaemon(bridge, "workflow.run.cancel", { workflowRunId }),
   );
   const resume = useWorkflowCall(() =>
-    callDaemon(bridge, "workflow.run.resume", { workflowRunId }),
+    callDaemon(bridge, "workflow.run.resume", { workflowRunId }).then(readRefusalByItsWords),
   );
   const isChained = run.chainRoot.runId !== workflowRunId;
   const isTicking = isGoing(run.status);
@@ -249,6 +250,18 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
       )}
     </header>
   );
+}
+
+/**
+ * The reply with a refusal the service wrote read as its code's words, since the service's
+ * sentences for a refused Resume name the run by its id.
+ */
+function readRefusalByItsWords<TValue>(reply: DaemonReply<TValue>): DaemonReply<TValue> {
+  if (reply.status === "served") {
+    return reply;
+  }
+  const words = refusalWords(reply.refusal.code);
+  return words === undefined ? reply : { ...reply, refusal: { ...reply.refusal, detail: words } };
 }
 
 function Fact(props: {

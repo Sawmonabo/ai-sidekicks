@@ -1,6 +1,6 @@
 // The emulator's mount point: a DOM box and the lifetime of one `XtermTerminalAdapter` against it.
 // The emulator's code arrives a commit after the mount (`loader.ts`), so the box reads
-// `Loading…` until it lands, or `Couldn't load terminal` with `Retry`. This
+// `Loading…` after the short delay until it lands, or `Couldn't load terminal` with `Retry`. This
 // component names the region and leaves the live text to xterm's own `aria-live` region, since
 // announcing the grid again would read every cell twice.
 
@@ -13,6 +13,8 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { useChunkLoad, type ChunkLoadState } from "#renderer/hooks/useChunkLoad.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useRootFontSizePx } from "#renderer/hooks/useRootFontSizePx.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { terminalEmulatorLoader, type TerminalEmulatorModule } from "../loader.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import type { TerminalRendererMode } from "../xterm/addons.js";
@@ -26,6 +28,8 @@ export interface XtermMountPointProps {
   readonly isWriteEnabled: boolean;
   /** The terminal region's accessible name, supplied by the pane that mounted it. */
   readonly label: string;
+  /** The window's clock, from `useClock()`, which delays the loading line. */
+  readonly clock: Clock;
   /** Where keystrokes go. Absent means this terminal never writes to the wire. */
   readonly onKeystroke?: ((data: string) => void) | undefined;
   /** Where pasted text goes, whole. Absent leaves a paste to the keystroke path. */
@@ -187,7 +191,7 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
           aria-label={isWritable ? props.label : `${props.label}, read-only`}
         />
       ) : (
-        renderEmulatorAbsence(emulator, retryEmulator, emulatorAttempt)
+        renderEmulatorAbsence(emulator, props.clock, retryEmulator, emulatorAttempt)
       )}
     </div>
   );
@@ -197,16 +201,17 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
 type XtermTerminalAdapterInstance = InstanceType<TerminalEmulatorModule["XtermTerminalAdapter"]>;
 
 /**
- * What stands in the box while the emulator's code is not there: one line while the fetch is in
- * flight, and one line naming the pane with `Retry` when it failed.
+ * What stands in the box while the emulator's code is not there: one line once the fetch has run
+ * past the short delay, and one line naming the pane with `Retry` when it failed.
  */
 function renderEmulatorAbsence(
   emulator: Exclude<ChunkLoadState<TerminalEmulatorModule>, { status: "loaded" }>,
+  clock: Clock,
   retry: () => void,
   attempt: number,
 ): React.JSX.Element {
   return emulator.status === "loading" ? (
-    <Nothing kind="not-loaded" placement="block" title="Loading…" />
+    <LoadingNotice clock={clock} placement="block" title="Loading…" />
   ) : (
     <Nothing
       kind="error"

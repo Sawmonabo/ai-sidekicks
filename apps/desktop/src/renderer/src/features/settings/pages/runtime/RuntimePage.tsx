@@ -11,9 +11,12 @@
 
 import type { ReactNode } from "react";
 
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import type { Clock } from "#renderer/lib/clock.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import {
   UNREPORTED_DAEMON_NOTICE,
@@ -33,11 +36,12 @@ export interface RuntimePageProps {
 
 /** The page: what the supervisor reports about the service, and its folders. */
 export function RuntimePage(props: RuntimePageProps): ReactNode {
+  const clock = useClock();
   return (
     <section className="meridian-settings-page" aria-label="Runtime">
       <section className="meridian-settings-page__block">
         <dl className="meridian-settings-page__facts">
-          {renderSupervisorFacts(props.context.mainProcessState)}
+          {renderSupervisorFacts(props.context.mainProcessState, clock)}
         </dl>
         <p className="meridian-settings-page__aside">
           Everything above is read from the service and is not edited here.
@@ -52,18 +56,19 @@ export function RuntimePage(props: RuntimePageProps): ReactNode {
 }
 
 /**
- * The supervisor's own numbers.
+ * The supervisor's own numbers. Before main's first report the state row reads its loading line
+ * only after the short delay, so a report that comes at once draws no flash of words.
  *
  * The attempt count appears only on the two arms that have one, which is why the connection
  * is a union.
  */
-function renderSupervisorFacts(state: MainProcessState): ReactNode {
+function renderSupervisorFacts(state: MainProcessState, clock: Clock): ReactNode {
   const { connection } = state;
   return (
     <>
       <SettingsFact control={RUNTIME_CONTROLS.state}>
         {connection.kind === "unreported" ? (
-          <Nothing kind="not-checked" placement="inline" title={UNREPORTED_DAEMON_NOTICE.title} />
+          <LoadingNotice clock={clock} placement="inline" title={UNREPORTED_DAEMON_NOTICE.title} />
         ) : (
           <span>{describeDaemonConnection(connection)}</span>
         )}

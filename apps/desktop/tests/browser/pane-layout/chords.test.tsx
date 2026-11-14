@@ -22,6 +22,7 @@ import { SessionPaneLayout } from "#renderer/features/sessions/pane-layout/compo
 import { failOnPaneSizesRefusal } from "#renderer/features/sessions/pane-layout/kept-sizes.test-support.js";
 import { openStore } from "#renderer/store/persistence/ui-state-store.test-support.js";
 import { PaneLayoutStore } from "#renderer/features/sessions/pane-layout/store.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { XtermMountPoint } from "#renderer/features/terminal/emulator/components/XtermMountPoint.js";
 import { reclaimComponentHolds } from "#renderer/features/terminal/emulator/components/XtermMountPoint.test-support.js";
 import { publishCommandWindow } from "#renderer/registries/commands/command-window.js";
@@ -31,6 +32,9 @@ import { KeybindingTable } from "#renderer/registries/keybindings/table.js";
 import { PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
+
+/** The window clock the box's loading line waits on; these cases never reach the delay. */
+const MOUNT_POINT_CLOCK = new ManualClock();
 
 const TERMINAL_ID = "terminal-pane-chords";
 
@@ -61,6 +65,7 @@ function registryWithShell(onKeystroke: (data: string) => void): PaneRegistry {
     render: () => (
       <PaneFrame kind="terminal" sessionId={undefined}>
         <XtermMountPoint
+          clock={MOUNT_POINT_CLOCK}
           terminalId={TERMINAL_ID}
           isWriteEnabled
           label="Terminal output"

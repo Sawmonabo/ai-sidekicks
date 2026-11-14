@@ -1,22 +1,25 @@
 // `Retry from this step` acts only on the latest execution of a node whose step failed, on a run
 // no longer going: a run still going, a step that did not fail and an earlier pass a later one
 // superseded each refuse in their own words, so the panel never offers a retry that cannot act.
+// `Resume` acts on a waiting run only where a wait the person's answer does not lift holds it.
 
 import { describe, expect, it } from "vitest";
 
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { WORKFLOW_RUN_IDS, WORKFLOW_RUN_RECORDS } from "#fixtures/data/workflow/run/records.js";
-import { retryAvailability } from "./controls.js";
+import { retryAvailability, runHeaderControlAvailability } from "./controls.js";
 
-function failedRun(): WorkflowRunReadResponse {
-  const record = WORKFLOW_RUN_RECORDS.find(
-    (run) => run.read.workflowRunId === WORKFLOW_RUN_IDS.failed,
-  );
+function fixtureRun(workflowRunId: string): WorkflowRunReadResponse {
+  const record = WORKFLOW_RUN_RECORDS.find((run) => run.read.workflowRunId === workflowRunId);
   if (record === undefined) {
-    throw new Error("the fixture daemon holds no failed run");
+    throw new Error(`the fixture daemon holds no run ${workflowRunId}`);
   }
   return record.read;
+}
+
+function failedRun(): WorkflowRunReadResponse {
+  return fixtureRun(WORKFLOW_RUN_IDS.failed);
 }
 
 describe("Retry from this step", () => {
@@ -53,5 +56,26 @@ describe("Retry from this step", () => {
       kind: "refused",
       reason: "Retry · this step did not fail",
     });
+  });
+});
+
+describe("Resume", () => {
+  it("refuses a run whose waiting steps all wait on the person, and acts on a spent account", () => {
+    for (const workflowRunId of [
+      WORKFLOW_RUN_IDS.waitingApproval,
+      WORKFLOW_RUN_IDS.waitingForm,
+      WORKFLOW_RUN_IDS.waitingReply,
+      WORKFLOW_RUN_IDS.chainHeld,
+    ]) {
+      const run = fixtureRun(workflowRunId);
+      expect(run.status).toBe("waiting");
+      expect(runHeaderControlAvailability("resume", run)).toStrictEqual({
+        kind: "refused",
+        reason: "Resume · this run is waiting on you",
+      });
+    }
+    expect(
+      runHeaderControlAvailability("resume", fixtureRun(WORKFLOW_RUN_IDS.waitingAccount)),
+    ).toStrictEqual({ kind: "allowed" });
   });
 });

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { XtermMountPoint } from "#renderer/features/terminal/emulator/components/XtermMountPoint.js";
 import {
   COMPONENT_TERMINAL_IDS,
@@ -137,6 +138,7 @@ describe("a paste while a copy is being written", () => {
       <>
         <HeldPaste bridge={bridge} />
         <XtermMountPoint
+          clock={new ManualClock()}
           terminalId="terminal-1"
           isWriteEnabled
           label="Terminal output"

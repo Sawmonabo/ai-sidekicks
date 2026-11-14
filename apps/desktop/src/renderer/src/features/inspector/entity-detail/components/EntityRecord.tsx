@@ -53,10 +53,11 @@ export interface EntityRecordProps {
  * record.
  */
 export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
-  const subject = props.heading.toLowerCase();
+  // The pane's header and its crumbs name the entity, so its loading line names nothing.
   if (!props.isInitialized) {
-    return <Nothing kind="not-loaded" placement="block" title={`Loading ${subject} record…`} />;
+    return <Nothing kind="not-loaded" placement="block" title="Loading…" />;
   }
+  const subject = props.heading.toLowerCase();
   if (props.degradedCause !== undefined) {
     return (
       <Nothing
