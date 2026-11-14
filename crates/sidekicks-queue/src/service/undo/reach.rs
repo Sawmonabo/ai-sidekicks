@@ -18,7 +18,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{
-    SessionRestoreResend, SessionRestoreScope, SessionRestoreTarget, SnapshotId,
+    SessionRestoreResend, SessionRestoreScope, SessionRestoreTarget,
 };
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -27,8 +27,8 @@ use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_session::checkpoints::store::Checkpoint;
 use sidekicks_session::checkpoints::store::kept::{
-    CheckpointReadError, checkpoints_reached_from, read_checkpoint, reopening_turn_numbers,
-    sent_message_checkpoint, turn_start_checkpoint,
+    CheckpointReadError, checkpoints_reached_from, lead_message_checkpoint_before, read_checkpoint,
+    reopening_turn_numbers, sent_message_checkpoint, turn_start_checkpoint,
 };
 use sidekicks_session::driver_resolution::resolve_live_run_driver;
 use sidekicks_session::queue_store::{QueueItemBody, QueueItemReader, QueueMessageBody};
@@ -112,14 +112,8 @@ static PROVIDER_TURN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The lead runs' checkpoints before `@message_sequence`, newest first.
-const LEAD_CHECKPOINTS_BEFORE_SQL: &str = "SELECT kept.checkpoint_id
-  FROM session_checkpoints AS kept JOIN runs ON runs.run_id = kept.run_id
-  WHERE kept.session_id = @session_id AND runs.parent_run_id IS NULL
-    AND kept.message_sequence < @message_sequence
-  ORDER BY kept.message_sequence DESC";
-
 // Where the group the pressed message's landing named begins, in the turn it landed in.
+#[derive(Clone, Copy)]
 enum GroupStart {
     // At whatever opened that turn.
     TurnOpening,
@@ -307,12 +301,23 @@ pub struct ReachRead {
     /// The provider's id of the turn the reach's message opened or steered, where its start
     /// recorded one.
     pub(super) message_turn_id: Option<ProviderTurnId>,
-    /// The person's last message still in the lead's conversation before the reach, with the cut in
-    /// scope; `None` where none stands before it.
-    pub(super) message_before: Option<AskedMessage>,
-    /// What the reach was read for, so the cut reads its messages again under the hold.
-    pub(super) target: SessionRestoreTarget,
-    pub(super) scope: SessionRestoreScope,
+    /// The pressed message and its group, which the cut reads the reach's messages from again
+    /// under the hold.
+    pub(super) pressed_group: PressedGroup,
+}
+
+/// The pressed message and the group the provider's cut takes it with, which the reach's
+/// messages are read from.
+#[derive(Clone)]
+pub(super) struct PressedGroup {
+    // The pressed message's checkpoint.
+    pressed: Checkpoint,
+    // Its queue item.
+    pressed_message_id: QueueItemId,
+    // The turn its landing named a group in, and where that group begins.
+    group: Option<(SafeInt<1>, GroupStart)>,
+    // The queue item that opened the turn the reach goes back to the start of, where one did.
+    turn_opening_id: Option<QueueItemId>,
 }
 
 /// One of the person's messages the provider's read is asked about.
@@ -358,10 +363,32 @@ impl RunQueue {
             })
             .await
     }
+
+    /// The person's last message sent through the queue before `reach` that the lead's
+    /// conversation still holds, which an ask of the provider reads once the reach's own message
+    /// reads cut away; `None` where none stands before it. Fails as a read fails.
+    pub(super) async fn read_message_before(
+        &self,
+        session_id: SessionId,
+        reach: &ReachRead,
+    ) -> Result<Option<AskedMessage>, ConversationCutError> {
+        let checkpoint = reach.reach.checkpoint.clone();
+        let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
+        self.pool
+            .read(ReadLength::Short, move |reader| {
+                read_message_before(
+                    reader,
+                    &*read_damaged_from_sequence,
+                    session_id,
+                    &checkpoint,
+                )
+            })
+            .await
+    }
 }
 
-/// Reads an undo's reach on `reader`, as [`RunQueue::read_undo_reach`] says.
-pub(super) fn read_reach(
+// Reads an undo's reach on `reader`, as `RunQueue::read_undo_reach` says.
+fn read_reach(
     reader: &Connection,
     providers: &ProviderRegistry,
     read_damaged: &DamagedFromSequenceReader,
@@ -409,30 +436,10 @@ pub(super) fn read_reach(
         }
         SessionRestoreScope::Files => None,
     };
-    let events = SessionEventReads::new(reader, read_damaged);
-    let read_events = |checkpoints: &[&Checkpoint]| -> Result<_, ConversationCutError> {
-        let sequences: Vec<i64> = checkpoints
-            .iter()
-            .map(|checkpoint| i64::from(checkpoint.message_sequence))
-            .collect();
-        let mut at_sequence = HashMap::with_capacity(sequences.len());
-        for envelope in events
-            .read_at_sequences(&session_id, &sequences)
-            .map_err(QueueError::from)?
-        {
-            let sequence = i64::from(envelope.sequence);
-            // A checkpoint stands before one of the person's messages or a turn's start.
-            let event = SessionEvent::from_envelope(&envelope).map_err(QueueError::from)?;
-            if let SessionEvent::AgentTurnStarted(_) = event {
-                at_sequence.insert(sequence, CheckpointEvent::TurnStart);
-            } else if let SessionEvent::UserMessageSent(payload) = event {
-                at_sequence.insert(sequence, CheckpointEvent::Sent(payload.queue_item_id));
-            }
-        }
-        Ok(at_sequence)
-    };
     let pressed_message_id =
-        match read_events(&[&pressed])?.remove(&i64::from(pressed.message_sequence)) {
+        match read_checkpoint_events(reader, read_damaged, session_id, &[&pressed])?
+            .remove(&i64::from(pressed.message_sequence))
+        {
             Some(CheckpointEvent::Sent(Some(queue_item_id))) => queue_item_id,
             Some(CheckpointEvent::Sent(None) | CheckpointEvent::TurnStart) | None => {
                 return Err(ConversationCutError::MessageNotQueued);
@@ -502,6 +509,82 @@ pub(super) fn read_reach(
     };
     let turn_opening_id = reach_start.as_ref().and_then(|start| start.turn_opening_id);
     let checkpoint = reach_start.map_or_else(|| pressed.clone(), |start| start.checkpoint);
+    let pressed_group = PressedGroup {
+        pressed,
+        pressed_message_id,
+        group,
+        turn_opening_id,
+    };
+    let read = read_cut_messages(
+        reader,
+        read_damaged,
+        session_id,
+        &checkpoint,
+        &later_run_ids,
+        &pressed_group,
+        driver.is_some(),
+    )?;
+    // A turn whose start stands at a row of its own is cut before through the pressed message,
+    // which the provider's cut takes with that turn's opening.
+    let message_id = match &read.opening {
+        Some(TurnOpening::Queued { queue_item_id, .. }) if read.is_opened_by_its_row => {
+            *queue_item_id
+        }
+        Some(TurnOpening::Queued { .. } | TurnOpening::Unqueued) | None => pressed_message_id,
+    };
+    let message_turn_id = if driver.is_some() {
+        read_provider_turn_id(reader, read_damaged, session_id, &checkpoint)?
+    } else {
+        None
+    };
+    Ok(ReachRead {
+        reach: UndoReach {
+            checkpoint,
+            message_id,
+            pressed_message_id,
+            opening: read.opening,
+            cut_messages: read.cut_messages,
+        },
+        later_run_ids,
+        driver,
+        message_turn_id,
+        pressed_group,
+    })
+}
+
+/// What the read of an undo's messages found.
+pub(super) struct CutMessagesRead {
+    /// What opened the turn the reach goes back to the start of, where it does.
+    opening: Option<TurnOpening>,
+    /// Whether that opening is a message whose own row the reach stands at.
+    is_opened_by_its_row: bool,
+    /// The person's messages the undo takes back, in send order.
+    pub(super) cut_messages: Vec<CutMessage>,
+}
+
+/// The person's messages an undo to `checkpoint` takes back, from `checkpoint`'s run position on
+/// and the whole of each of `later_run_ids`, read from the daemon's own queue items, with what
+/// opened the turn the undo goes back to the start of, as `pressed_group` names them: read with
+/// the reach, and again under the cut's hold, so a member of the pressed message's group that
+/// landed since goes with the group's words. `has_conversation` says the conversation is in
+/// scope. Fails with `MessageNotQueued` for a message no queue item holds, or a read's failure.
+pub(super) fn read_cut_messages(
+    reader: &Connection,
+    read_damaged: &DamagedFromSequenceReader,
+    session_id: SessionId,
+    checkpoint: &Checkpoint,
+    later_run_ids: &[RunId],
+    pressed_group: &PressedGroup,
+    has_conversation: bool,
+) -> Result<CutMessagesRead, ConversationCutError> {
+    let PressedGroup {
+        pressed,
+        pressed_message_id,
+        group,
+        turn_opening_id,
+    } = pressed_group;
+    let pressed_message_id = *pressed_message_id;
+    let run_id = pressed.run_id;
     let group_members = |turn_number: SafeInt<1>, start: &GroupStart| {
         let (kind, group_message_id) = start.stored();
         reader
@@ -528,11 +611,11 @@ pub(super) fn read_reach(
     // conversation in scope, those that name the pressed message as their group's first, or,
     // where it opened its turn, those that name that turn's opening, with those that name the
     // opening of each later turn that reopened it, as a retry turn does.
-    let grouped: HashSet<QueueItemId> = match &group {
+    let grouped: HashSet<QueueItemId> = match group {
         Some((turn_number, start)) if checkpoint.checkpoint_id != pressed.checkpoint_id => {
             group_members(*turn_number, start)?
         }
-        None if driver.is_some() => {
+        None if has_conversation => {
             let led = group_members(
                 pressed.turn_number,
                 &GroupStart::Message(pressed_message_id),
@@ -561,16 +644,11 @@ pub(super) fn read_reach(
     // sent before the reach's that landed after it comes back too, and one sent after it that
     // landed in a turn before it, as a priority steer into the turn before, stays in the
     // conversation the cut leaves and out of the draft.
-    let reached = checkpoints_reached_from(
-        reader,
-        read_damaged,
-        session_id,
-        &checkpoint,
-        &later_run_ids,
-    )
-    .map_err(cut_error_of)?;
+    let reached =
+        checkpoints_reached_from(reader, read_damaged, session_id, checkpoint, later_run_ids)
+            .map_err(cut_error_of)?;
     let reached: Vec<&Checkpoint> = reached.iter().map(|stored| &stored.checkpoint).collect();
-    let at_sequence = read_events(&reached)?;
+    let at_sequence = read_checkpoint_events(reader, read_damaged, session_id, &reached)?;
     let is_resent = |cut: &Checkpoint, queue_item_id: QueueItemId| {
         if is_turn_reach || !grouped.is_empty() {
             cut.checkpoint_id == checkpoint.checkpoint_id
@@ -596,7 +674,7 @@ pub(super) fn read_reach(
             Some(CheckpointEvent::Sent(Some(queue_item_id))) => *queue_item_id,
             Some(CheckpointEvent::TurnStart) => {
                 if is_reach {
-                    opening = Some(match turn_opening_id {
+                    opening = Some(match *turn_opening_id {
                         Some(queue_item_id) => TurnOpening::Queued {
                             queue_item_id,
                             kind: QueuedOpeningKind::of(&read_body(queue_item_id)?),
@@ -627,36 +705,40 @@ pub(super) fn read_reach(
             });
         }
     }
-    // A turn whose start stands at a row of its own is cut before through the pressed message,
-    // which the provider's cut takes with that turn's opening.
-    let message_id = match &opening {
-        Some(TurnOpening::Queued { queue_item_id, .. }) if is_opened_by_its_row => *queue_item_id,
-        Some(TurnOpening::Queued { .. } | TurnOpening::Unqueued) | None => pressed_message_id,
-    };
-    let (message_turn_id, message_before) = if driver.is_some() {
-        let message_before = read_message_before(reader, read_damaged, session_id, &checkpoint)?;
-        (
-            read_provider_turn_id(reader, read_damaged, session_id, &checkpoint)?,
-            message_before,
-        )
-    } else {
-        (None, None)
-    };
-    Ok(ReachRead {
-        reach: UndoReach {
-            checkpoint,
-            message_id,
-            pressed_message_id,
-            opening,
-            cut_messages,
-        },
-        later_run_ids,
-        driver,
-        message_turn_id,
-        message_before,
-        target: target.clone(),
-        scope,
+    Ok(CutMessagesRead {
+        opening,
+        is_opened_by_its_row,
+        cut_messages,
     })
+}
+
+// What the log holds at each of `checkpoints`' sequences, by sequence: one of the person's
+// messages or the start of a turn.
+fn read_checkpoint_events(
+    reader: &Connection,
+    read_damaged: &DamagedFromSequenceReader,
+    session_id: SessionId,
+    checkpoints: &[&Checkpoint],
+) -> Result<HashMap<i64, CheckpointEvent>, ConversationCutError> {
+    let sequences: Vec<i64> = checkpoints
+        .iter()
+        .map(|checkpoint| i64::from(checkpoint.message_sequence))
+        .collect();
+    let mut at_sequence = HashMap::with_capacity(sequences.len());
+    for envelope in SessionEventReads::new(reader, read_damaged)
+        .read_at_sequences(&session_id, &sequences)
+        .map_err(QueueError::from)?
+    {
+        let sequence = i64::from(envelope.sequence);
+        // A checkpoint stands before one of the person's messages or a turn's start.
+        let event = SessionEvent::from_envelope(&envelope).map_err(QueueError::from)?;
+        if let SessionEvent::AgentTurnStarted(_) = event {
+            at_sequence.insert(sequence, CheckpointEvent::TurnStart);
+        } else if let SessionEvent::UserMessageSent(payload) = event {
+            at_sequence.insert(sequence, CheckpointEvent::Sent(payload.queue_item_id));
+        }
+    }
+    Ok(at_sequence)
 }
 
 // The provider's id of the turn `checkpoint`'s message opened or steered, where its start recorded
@@ -688,57 +770,24 @@ fn read_provider_turn_id(
 }
 
 // The person's last message sent through the queue before `reach` that the lead's conversation
-// still holds, a cut away one or a turn's start passed over; `None` where none stands before it.
+// still holds, a cut away one or a turn's start passed over, with the provider's id of the turn it
+// opened or steered; `None` where none stands before it.
 fn read_message_before(
     reader: &Connection,
     read_damaged: &DamagedFromSequenceReader,
     session_id: SessionId,
     reach: &Checkpoint,
 ) -> Result<Option<AskedMessage>, ConversationCutError> {
-    let mut statement = reader
-        .prepare_cached(LEAD_CHECKPOINTS_BEFORE_SQL)
-        .map_err(QueueError::from)?;
-    let mut rows = statement
-        .query(named_params! {
-            "@session_id": session_id.text().as_str(),
-            "@message_sequence": i64::from(reach.message_sequence),
-        })
-        .map_err(QueueError::from)?;
-    let events = SessionEventReads::new(reader, read_damaged);
-    while let Some(row) = rows.next().map_err(QueueError::from)? {
-        let snapshot_id = SnapshotId::new(row.get::<_, String>(0).map_err(QueueError::from)?)
-            .ok_or(ConversationCutError::NoCheckpoint { source: None })?;
-        let target = SessionRestoreTarget::Snapshot { snapshot_id };
-        let before = match read_checkpoint(reader, read_damaged, session_id, &target) {
-            Ok(Some(stored)) => stored.checkpoint,
-            Ok(None) | Err(CheckpointReadError::Superseded { .. }) => continue,
-            Err(CheckpointReadError::CursorUnresolvable(source)) => {
-                return Err(ConversationCutError::NoCheckpoint {
-                    source: Some(source),
-                });
-            }
-            Err(CheckpointReadError::Database(error)) => return Err(QueueError::from(error).into()),
-            Err(CheckpointReadError::Rollback(error)) => {
-                return Err(ConversationCutError::Rollback(error));
-            }
-        };
-        let sequence = i64::from(before.message_sequence);
-        for envelope in events
-            .read_at_sequences(&session_id, &[sequence])
+    let Some((before, message_id)) =
+        lead_message_checkpoint_before(reader, read_damaged, session_id, reach)
             .map_err(QueueError::from)?
-        {
-            if let SessionEvent::UserMessageSent(payload) =
-                SessionEvent::from_envelope(&envelope).map_err(QueueError::from)?
-                && let Some(message_id) = payload.queue_item_id
-            {
-                return Ok(Some(AskedMessage {
-                    message_id,
-                    turn_id: read_provider_turn_id(reader, read_damaged, session_id, &before)?,
-                }));
-            }
-        }
-    }
-    Ok(None)
+    else {
+        return Ok(None);
+    };
+    Ok(Some(AskedMessage {
+        message_id,
+        turn_id: read_provider_turn_id(reader, read_damaged, session_id, &before)?,
+    }))
 }
 
 // The cut's refusal for a failed read of the reach's checkpoints.

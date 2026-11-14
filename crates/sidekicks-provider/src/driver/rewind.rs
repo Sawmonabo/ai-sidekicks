@@ -26,8 +26,8 @@ pub struct RewindConversationParams {
     pub target_turn_id: Option<ProviderTurnId>,
 }
 
-/// What a rewind did: a cut landed in place or on a fork the session restarts on, or a fallback the
-/// driver took instead.
+/// What a rewind did: a cut landed in place or on a fork the session restarts on, a fallback the
+/// driver took instead, or a refusal for a message the provider does not hold.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RewindConversationResult {
     /// The cut landed.
@@ -44,6 +44,25 @@ pub enum RewindConversationResult {
         /// The fallback it took.
         fallback_action: Option<String>,
     },
+    /// The provider refused the cut because its live conversation holds no such message, and
+    /// changed nothing: the message is cut away already, or held in a form the cut does not find.
+    TargetNotHeld {
+        /// The refusal, as the fallback a `Degraded` names.
+        fallback_action: Option<String>,
+    },
+}
+
+/// When the daemon asks [`read_rewind_target`] of an undo's cut, a fixed fact of the driver: what
+/// its own cut answers for a message its provider no longer holds decides it.
+///
+/// [`read_rewind_target`]: crate::driver::contract::ProviderDriver::read_rewind_target
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RewindTargetAsk {
+    /// Before the cut is sent, since a cut sent for a message already cut away would cut again.
+    BeforeCut,
+    /// Only once the cut came back [`RewindConversationResult::TargetNotHeld`], since the
+    /// provider checks every cut against its own live conversation first.
+    AfterRefusal,
 }
 
 /// Where the bound conversation stands to one of the person's messages, as the provider's own

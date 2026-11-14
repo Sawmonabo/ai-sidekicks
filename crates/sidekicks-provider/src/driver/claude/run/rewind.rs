@@ -25,9 +25,7 @@ use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSession
 use crate::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
-use crate::driver::claude::session::conversation_file::live_chain::{
-    ClaudeMessagePlace, read_claude_message_place,
-};
+use crate::driver::claude::session::conversation_file::cut_rows::read_claude_cut_rows;
 use crate::driver::claude::session::conversation_file::{
     conversation_file_of, find_claude_command_holding,
 };
@@ -152,12 +150,18 @@ impl ClaudeCutRefusal {
                 .is_some_and(ClaudeRewindRefusal::may_be_sent_again)
     }
 
-    fn into_degraded(self) -> RewindConversationResult {
-        RewindConversationResult::Degraded {
-            fallback_action: self
-                .reason
-                .filter(|reason| !reason.is_empty())
-                .map(|reason| format!("rewind-refused: {reason}")),
+    // A missing target is `TargetNotHeld`, which the daemon reads the cut's own rows for; any
+    // other refusal is `Degraded`. Each names Claude Code's reason.
+    fn into_result(self) -> RewindConversationResult {
+        let is_target_missing = self.is_target_missing();
+        let fallback_action = self
+            .reason
+            .filter(|reason| !reason.is_empty())
+            .map(|reason| format!("rewind-refused: {reason}"));
+        if is_target_missing {
+            RewindConversationResult::TargetNotHeld { fallback_action }
+        } else {
+            RewindConversationResult::Degraded { fallback_action }
         }
     }
 }
@@ -184,7 +188,8 @@ impl ClaudeConversationCuts {
     /// settles; any other refusal, a second one, or a turn still held at the request deadline is
     /// `Degraded` with Claude Code's reason. A target Claude Code finds missing that it merged with
     /// other messages into one command is cut once more before that command, whose answer is
-    /// final. Fails as the settle, a request or the conversation file's read fails. An
+    /// final; a target still missing then is `TargetNotHeld`, Claude Code having changed nothing.
+    /// Fails as the settle, a request or the conversation file's read fails. An
     /// applied cut lets go the held `Allow once` presses of every binding the process served,
     /// through `reviewer_denials` once the approvals are registered.
     pub(crate) async fn rewind(
@@ -229,7 +234,7 @@ impl ClaudeConversationCuts {
         }
         let cut_message_text = match answer {
             ClaudeCutAnswer::Applied { cut_message_text } => cut_message_text,
-            ClaudeCutAnswer::Refused(refusal) => return Ok(refusal.into_degraded()),
+            ClaudeCutAnswer::Refused(refusal) => return Ok(refusal.into_result()),
         };
         self.settle_landed_cut(live, stream, held_lead, reviewer_denials)
             .await;
@@ -503,10 +508,10 @@ async fn find_command_holding(
     }
 }
 
-/// Whether the live conversation still holds the person's message `message_id`, read from its
-/// file: a cut appends a `last-prompt` row naming the kept leaf, so the message is cut away once
-/// the chain from the conversation's end no longer reaches the entry that holds it. A file that
-/// holds no such entry, or no file, answers `Held`. Fails as the file cannot be found or read.
+/// Whether a cut Claude Code made took the person's message `message_id`, read from the live
+/// conversation's file once Claude Code refused a cut for it: `CutAway` only where a cut's own row,
+/// written after the last turn and never taken back, names the entry holding the message, and
+/// `Held` otherwise, no file included. Fails as the file cannot be found or read.
 pub(crate) async fn read_claude_rewind_target(
     live: &LiveClaudeSession,
     message_id: &str,
@@ -518,20 +523,12 @@ pub(crate) async fn read_claude_rewind_target(
     )
     .await
     .map_err(read_failure)?;
-    let Some(file) = file else {
-        return Ok(RewindTargetPresence::Held);
-    };
-    Ok(
-        match read_claude_message_place(&file, message_id)
+    match file {
+        Some(file) => read_claude_cut_rows(&file, message_id)
             .await
-            .map_err(read_failure)?
-        {
-            ClaudeMessagePlace::CutAway => RewindTargetPresence::CutAway,
-            ClaudeMessagePlace::OnLiveChain | ClaudeMessagePlace::Unwritten => {
-                RewindTargetPresence::Held
-            }
-        },
-    )
+            .map_err(read_failure),
+        None => Ok(RewindTargetPresence::Held),
+    }
 }
 
 #[cfg(test)]

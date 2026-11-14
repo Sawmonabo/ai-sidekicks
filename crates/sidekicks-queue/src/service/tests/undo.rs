@@ -34,7 +34,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::rewind::{
-    ForkedBinding, RewindConversationResult, RewindTargetPresence,
+    ForkedBinding, RewindConversationResult, RewindTargetAsk, RewindTargetPresence,
 };
 use sidekicks_provider::driver::session_control::SessionCloseCause;
 use sidekicks_provider::port::run_host::RunHost;
@@ -105,6 +105,8 @@ struct Scene {
     /// What the provider's read answers of each message, by its queue item; one not named reads
     /// held.
     presence: Arc<Mutex<HashMap<String, RewindTargetPresence>>>,
+    /// When the daemon asks the provider's read of a cut, before it at first.
+    ask: Arc<Mutex<RewindTargetAsk>>,
     run_id: RunId,
     target: SessionRestoreTarget,
     /// The queue item of the message at `target`.
@@ -184,6 +186,11 @@ async fn scene_on(answer: RewindAnswer, opening: Form) -> Scene {
             .unwrap_or(RewindTargetPresence::Held);
         async move { Ok(answered) }.boxed()
     });
+    let ask = Arc::new(Mutex::new(RewindTargetAsk::BeforeCut));
+    let asking = Arc::clone(&ask);
+    driver
+        .expect_rewind_target_ask()
+        .returning(move || *asking.lock().expect("unpoisoned"));
     let adopts = Arc::new(AtomicUsize::new(0));
     let adopted = Arc::clone(&adopts);
     driver
@@ -272,6 +279,7 @@ async fn scene_on(answer: RewindAnswer, opening: Form) -> Scene {
         failing_closes,
         adopts,
         presence,
+        ask,
         run_id,
         target,
         target_message_id,

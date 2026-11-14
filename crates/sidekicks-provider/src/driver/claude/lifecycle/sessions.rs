@@ -147,7 +147,8 @@ impl ClaudeDriver {
             .await
     }
 
-    /// Reads whether the live conversation still holds the person's message; see the cuts.
+    /// Reads whether a cut Claude Code made took the person's message from the live conversation;
+    /// see `read_claude_rewind_target`.
     pub(crate) async fn read_rewind_target(
         &self,
         params: RewindConversationParams,

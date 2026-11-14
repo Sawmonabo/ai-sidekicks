@@ -2,11 +2,11 @@
 //! time: the session held, what its key already applied answered as applied, the files of a
 //! recorded cut finished and its resend sent, a pause or resume of the lead already under way
 //! waited out, the person's consent checked, a fork an earlier cut left unrecorded closed, the
-//! provider asked whether its conversation already ends at the point, what started after the point
-//! stopped and its held calls settled, the lead's turn ended, the files' after-captures taken, the
-//! conversation cut with the caller's companions, the files put back and recorded, and the hold
-//! let go on every exit, each outcome read into what the undo reports, a failure once something
-//! was stopped among them.
+//! provider asked whether its conversation already ends at the point where its cut needs that
+//! asked first, what started after the point stopped and its held calls settled, the lead's turn
+//! ended, the files' after-captures taken, the conversation cut with the caller's companions, the
+//! files put back and recorded, and the hold let go on every exit, each outcome read into what
+//! the undo reports, a failure once something was stopped among them.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,14 +16,13 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{
-    SessionRestoreFailure, SessionRestoreFailures, SessionRestoreFileOutcome,
-    SessionRestoreOutcome, SessionRestoreResend, SessionRestoreScope, SessionRestoreStops,
-    SessionRestoreTarget, SessionRestoredScope,
+    SessionRestoreFailure, SessionRestoreFailures, SessionRestoreOutcome, SessionRestoreResend,
+    SessionRestoreScope, SessionRestoreStops, SessionRestoreTarget, SessionRestoredScope,
 };
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_session::checkpoints::restore_cuts::RecordedCut;
+use sidekicks_session::checkpoints::restore_cuts::{FilesPutBack, RecordedCut};
 use sidekicks_session::checkpoints::store::Checkpoint;
 use sidekicks_session::interventions::service::{InterventionError, InterventionService};
 use sidekicks_session::queue_store::CurrentLeadRun;
@@ -85,22 +84,6 @@ impl<'files> UndoScope<'files> {
             Self::Conversation => None,
         }
     }
-}
-
-/// What the put-back of an undo's files did.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FilesPutBack {
-    /// Every file went back, or was skipped with its reason.
-    Restored(SessionRestoreFileOutcome),
-    /// Some files went back and the rest failed, with the daemon's reason for those.
-    Partial {
-        /// What went back.
-        outcome: SessionRestoreFileOutcome,
-        /// Why the rest did not.
-        failure: SessionRestoreFailure,
-    },
-    /// No file went back.
-    Failed(SessionRestoreFailure),
 }
 
 /// One undo, as every caller asks for it.
@@ -179,7 +162,7 @@ enum UndoStepFailure {
     Superseded,
     /// A lead turn started after the undo's recorded cut, so its retry leaves the files as they
     /// are.
-    #[error("a turn started after the undo's cut, so its files were not put back")]
+    #[error("a turn started after the undo's cut, so its files were not all put back")]
     TurnSinceCut,
 }
 
@@ -211,24 +194,25 @@ impl UndoService {
     /// Undoes as `request` asks, in order, once every earlier undo of the session has ended: holds
     /// the session; answers the conversation applied with nothing cut again where the undo's key
     /// already recorded its cut, sending the resend recorded with it, and the files applied too
-    /// where it recorded them put back, else finishes them to the checkpoint the key kept while no
-    /// lead turn has started since the cut, and once one has stops nothing and names the files not
-    /// put back; waits
-    /// out a pause or resume of the lead already under way, at most [`UNDO_PAUSE_WAIT_BOUND`], a
-    /// paused lead resting as it is; answers [`SessionRestoreOutcome::StopsChanged`] with nothing
-    /// moved when more runs after the point than the person agreed to stop, a live lead turn a
-    /// restore of the files alone ends among it; with the conversation in scope, closes a fork an
-    /// earlier cut left unrecorded and running, opens the session's process where none is and asks
-    /// the provider whether its conversation already ends at the point, so a cut it already made
-    /// is only recorded; stops every command and agent started after the point and waits for
-    /// their ends; settles the cut turns' open held calls `stopped`; ends a starting, running or
-    /// waiting lead's turn by the undo's own interrupt, its waiting messages kept waiting; takes
-    /// the files' after-captures; keeps the edited message for a restart, then cuts the
-    /// conversation with the companions; puts the files back and records them beside the cut; and
-    /// lets go the hold, sending the resend once the cut applied, under the undo's key, so a retry
-    /// sends it once. Each part that did not go back is named in the report, a step that failed
-    /// once a stop ran as nothing restored with its cause, a conversation the key recorded cut
-    /// still reading applied, and a resend that was not sent as
+    /// where it recorded them all put back, else finishes them to the checkpoint the key kept while
+    /// no lead turn has started since the cut, and once one has stops nothing and answers what the
+    /// recorded put-back did, its reason led by that turn; waits out a pause or resume of the lead
+    /// already under way, at most [`UNDO_PAUSE_WAIT_BOUND`], a paused lead resting as it is;
+    /// answers [`SessionRestoreOutcome::StopsChanged`] with nothing moved when more runs after the
+    /// point than the person agreed to stop, a live lead turn a restore of the files alone ends
+    /// among it; with the conversation in scope, closes a fork an earlier cut left unrecorded and
+    /// running, opens the session's process where none is and, where the provider's cut needs it
+    /// asked first, asks whether its conversation already ends at the point, so a cut it already
+    /// made is only recorded, while a provider that refuses a cut for a message it does not hold is
+    /// asked once the cut comes back so refused; stops every command and agent started after the
+    /// point and waits for their ends; settles the cut turns' open held calls `stopped`; ends a
+    /// starting, running or waiting lead's turn by the undo's own interrupt, its waiting messages
+    /// kept waiting; takes the files' after-captures; keeps the edited message for a restart, then
+    /// cuts the conversation with the companions; puts the files back and records them beside the
+    /// cut; and lets go the hold, sending the resend once the cut applied, under the undo's key, so
+    /// a retry sends it once. Each part that did not go back is named in the report, a step that
+    /// failed once a stop ran as nothing restored with its cause, a conversation the key recorded
+    /// cut still reading applied, and a resend that was not sent as
     /// [`SessionRestoreOutcome::ResendUnapplied`]. Fails as [`UndoError`] says, the hold let go
     /// first.
     pub async fn undo(&self, request: UndoRequest<'_>) -> Result<SessionRestoreOutcome, UndoError> {
@@ -360,7 +344,7 @@ trait UndoSteps: Sync {
         &self,
         session_id: SessionId,
         undo_key: ClientUuid,
-        files: SessionRestoreFileOutcome,
+        files: FilesPutBack,
     ) -> BoxFuture<'_, Result<(), QueueError>>;
 
     fn release(
@@ -461,42 +445,22 @@ async fn run_held<Steps: UndoSteps>(
     };
     // A recorded cut's resend goes under the undo's key, so a retry after it sends it once.
     let mut point = match recorded {
-        Some(recorded) => match (scope.files(), recorded.files) {
-            (None, _) => {
-                return Ok(HeldUndo {
-                    outcome: restore_outcome(requested, Some(Ok(())), None),
-                    resend: recorded.resend,
-                });
-            }
-            (Some(_), Some(files)) => {
-                return Ok(HeldUndo {
-                    outcome: restore_outcome(
-                        requested,
-                        Some(Ok(())),
-                        Some(FilesPutBack::Restored(files)),
-                    ),
-                    resend: recorded.resend,
-                });
-            }
-            // The files may hold the later turn's work, so nothing is stopped or put back.
-            (Some(_), None) if recorded.is_lead_turn_started_since => {
-                return Ok(HeldUndo {
-                    outcome: restore_outcome(
-                        requested,
-                        Some(Ok(())),
-                        Some(FilesPutBack::Failed(SessionRestoreFailure {
-                            reason: reason_of(&UndoStepFailure::TurnSinceCut),
-                        })),
-                    ),
-                    resend: recorded.resend,
-                });
-            }
-            (Some(_), None) => UndoPoint {
+        Some(recorded) => match scope
+            .files()
+            .map(|_| recorded_files_answer(recorded.files, recorded.is_lead_turn_started_since))
+        {
+            Some(None) => UndoPoint {
                 checkpoint: recorded.checkpoint,
                 resend: recorded.resend,
                 edited: None,
                 reach: None,
             },
+            answered => {
+                return Ok(HeldUndo {
+                    outcome: restore_outcome(requested, Some(Ok(())), answered.flatten()),
+                    resend: recorded.resend,
+                });
+            }
         },
         None => steps
             .read_point(session_id, target, requested, resend)
@@ -578,8 +542,9 @@ async fn run_held<Steps: UndoSteps>(
             .await
             .map_err(|error| UndoError::Session(Box::new(error)))?;
     }
-    // The provider is asked before anything stops whether a cut it made already took the point,
-    // so one undo never cuts twice; a read that fails moves nothing.
+    // Where the provider's cut needs it asked first, it is asked before anything stops whether a
+    // cut it made already took the point, so one undo never cuts twice; a read that fails moves
+    // nothing. A provider that checks its cut itself is asked to cut.
     let conversation = match (has_conversation, point.reach.take()) {
         (false, _) => None,
         (true, None) => Some(ConversationLeg::Recorded),
@@ -766,24 +731,58 @@ async fn held_after_stops<Steps: UndoSteps>(
         Some((_, Err(failure))) => Some(FilesPutBack::Failed(failure)),
         None => None,
     };
-    // Beside the key's recorded cut, so a retry answers the files applied and puts back nothing.
+    // Beside the key's recorded cut, so a retry answers files all put back and puts back nothing,
+    // and answers what a put-back left once a turn has started since.
     if matches!(conversation, Some(Ok(())))
-        && let Some(FilesPutBack::Restored(files)) = &put_back
+        && let Some(files) = &put_back
         && let Err(error) = steps
             .record_files(session_id, undo_key, files.clone())
             .await
     {
-        // The files went back; a retry under the key only puts them back again.
+        // A retry under the key then puts the files back again.
         tracing::error!(
             session_id = %session_id,
             error = &error as &(dyn std::error::Error + 'static),
-            "the undo's files went back, but its key's record of them was not written"
+            "the undo's files were put back, but its key's record of that was not written"
         );
     }
     Ok(HeldUndo {
         outcome: restore_outcome(requested, conversation, put_back),
         resend,
     })
+}
+
+// What a retry answers for the files its key recorded, `None` where it finishes them: a put-back
+// recorded whole stands; once a lead turn has started since the cut the files may hold its work, so
+// nothing more goes back and what the earlier put-back did is answered, its reason led by that
+// turn.
+fn recorded_files_answer(
+    files: Option<FilesPutBack>,
+    is_lead_turn_started_since: bool,
+) -> Option<FilesPutBack> {
+    let turn_since = |earlier: Option<SessionRestoreFailure>| SessionRestoreFailure {
+        reason: match earlier {
+            Some(earlier) => NonEmptyText::new(format!(
+                "{}: {}",
+                UndoStepFailure::TurnSinceCut,
+                earlier.reason.as_str()
+            ))
+            .expect("a reason led by another has words"),
+            None => reason_of(&UndoStepFailure::TurnSinceCut),
+        },
+    };
+    match (files, is_lead_turn_started_since) {
+        (Some(restored @ FilesPutBack::Restored(_)), _) => Some(restored),
+        (_, false) => None,
+        (Some(FilesPutBack::Partial { outcome, failure }), true) => Some(FilesPutBack::Partial {
+            outcome,
+            failure: turn_since(Some(failure)),
+        }),
+        (Some(FilesPutBack::Failed(failure)), true) => {
+            Some(FilesPutBack::Failed(turn_since(Some(failure))))
+        }
+        (None, true) => Some(FilesPutBack::Failed(turn_since(None))),
+    }
 }
 
 // A conversation the undo's key recorded cut, with the resend its record keeps.

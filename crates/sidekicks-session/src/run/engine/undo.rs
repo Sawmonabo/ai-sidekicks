@@ -184,10 +184,10 @@ impl RunEngine {
     /// one whatever state it is in, and `companions` commit in the same write, their events before
     /// the rollbacks. A run that moved after it was read is read again and the write retried. The
     /// caller fences a cut in place once this returns, and a fork and restart before it is called
-    /// (`RunBindingCursors::fence_cut`). Answers the
-    /// rollbacks in the order the cuts were given. Fails with [`NotFound`] for an unknown run,
-    /// [`VersionStale`] for one that kept moving, [`TurnOpen`] for one holding a turn with no end
-    /// and [`CompanionRefused`] for a refusing companion statement; each refusal writes nothing.
+    /// (`RunBindingCursors::fence_cut`). Answers the rollbacks in the order the cuts were given.
+    /// Fails with [`NotFound`] for an unknown run, [`VersionStale`] for one that kept moving,
+    /// [`TurnOpen`] for one holding a turn with no end and [`CompanionRefused`] for a refusing
+    /// companion statement; each refusal writes nothing.
     ///
     /// [`NotFound`]: crate::run::refusals::RunRefusal::NotFound
     /// [`VersionStale`]: crate::run::refusals::RunRefusal::VersionStale

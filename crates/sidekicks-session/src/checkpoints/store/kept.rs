@@ -1,6 +1,7 @@
 //! The reads of the checkpoints no later undo cut away: one by the point a request names, a
 //! session's list, the one a turn's start wrote, the turns that reopened a prompt, the one before a
-//! queue item's sent prompt, and those of the runs an undo reaches from a point on.
+//! queue item's sent prompt, the lead's last one before a point at a prompt sent through the
+//! queue, and those of the runs an undo reaches from a point on.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -17,7 +18,8 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{SessionRestoreTarget, SnapshotId};
 use sidekicks_contracts::transcript::turn_attribution::{SupersededTurns, transcript_run_stamp_at};
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_store::database::stored_column::safe_int_column;
+use sidekicks_store::database::stored_column::{safe_int_column, text_column};
+use sidekicks_store::events::session::read::{readable_event_sql, session_read_bound};
 
 use super::{Checkpoint, ReachedBindings, StoredCheckpoint, stored_checkpoint_of};
 use crate::run::superseded::{
@@ -55,6 +57,38 @@ static SENT_MESSAGE_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
     ORDER BY sequence LIMIT 1)",
         select_checkpoints!("WHERE session_id = @sessionId"),
         SessionEventType::UserMessageSent.as_str()
+    )
+});
+
+// The newest checkpoint of a lead run before `@messageSequence` that stands at a prompt sent
+// through the queue, with its queue item, past each a rollback cut away: the k-th readable
+// rollback of a run cuts its positions above its target in epochs k and earlier, the cuts
+// `is_superseded` reads. Read newest first on the session's prompt order, so it stops at the
+// first it keeps.
+static LEAD_MESSAGE_BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "WITH rollbacks AS (
+    SELECT run_id, json_extract(payload, '$.targetPosition') AS point,
+      ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY sequence) - 1 AS rewound_epoch
+    FROM session_events AS event
+    WHERE session_id = @sessionId AND type = '{rolled_back}' AND {readable_rollback})
+  SELECT kept.checkpoint_id, kept.session_id, kept.message_sequence, kept.run_id,
+    kept.turn_number, kept.epoch, kept.position, kept.created_at, kept.turn_opening_id,
+    json_extract(sent.payload, '$.queueItemId')
+  FROM session_checkpoints AS kept
+    JOIN runs ON runs.run_id = kept.run_id
+    JOIN session_events AS sent
+      ON sent.session_id = kept.session_id AND sent.sequence = kept.message_sequence
+  WHERE kept.session_id = @sessionId AND kept.message_sequence < @messageSequence
+    AND runs.parent_run_id IS NULL AND sent.type = '{sent}'
+    AND json_extract(sent.payload, '$.queueItemId') IS NOT NULL AND {readable_sent}
+    AND NOT EXISTS (SELECT 1 FROM rollbacks WHERE rollbacks.run_id = kept.run_id
+      AND rollbacks.rewound_epoch >= kept.epoch AND rollbacks.point < kept.position)
+  ORDER BY kept.message_sequence DESC LIMIT 1",
+        rolled_back = SessionEventType::AgentRunRolledBack.as_str(),
+        sent = SessionEventType::UserMessageSent.as_str(),
+        readable_rollback = readable_event_sql("event"),
+        readable_sent = readable_event_sql("sent"),
     )
 });
 
@@ -270,6 +304,35 @@ pub fn sent_message_checkpoint(
         checkpoint.into_iter().collect(),
     )?
     .pop())
+}
+
+/// The newest checkpoint of a lead run before `reach` in `session_id` that stands at a prompt sent
+/// through the queue, with its queue item, past those a later undo cut away and the starts of
+/// turns no new prompt opened; `None` where none stands before it. One read however many
+/// checkpoints earlier undos cut away, the rollbacks read as far as `read_damaged_from_sequence`
+/// lets the log read. Fails as SQLite does, or when a stored column does not read.
+pub fn lead_message_checkpoint_before(
+    connection: &Connection,
+    read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
+    session_id: SessionId,
+    reach: &Checkpoint,
+) -> rusqlite::Result<Option<(Checkpoint, QueueItemId)>> {
+    connection
+        .prepare_cached(&LEAD_MESSAGE_BEFORE_SQL)?
+        .query_row(
+            named_params! {
+                "@sessionId": session_id.text().as_str(),
+                "@messageSequence": i64::from(reach.message_sequence),
+                "@read_bound": session_read_bound(read_damaged_from_sequence, &session_id, None),
+            },
+            |row| {
+                Ok((
+                    stored_checkpoint_of(row)?.checkpoint,
+                    text_column(row, 9, |text| QueueItemId::new(&text))?,
+                ))
+            },
+        )
+        .optional()
 }
 
 /// The checkpoints an undo to `reach` in `session_id` takes, oldest prompt first, but those a

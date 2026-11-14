@@ -28,7 +28,7 @@ use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_provider::driver::test_registry::new_run_id;
-use sidekicks_session::checkpoints::restore_cuts::RecordedCut;
+use sidekicks_session::checkpoints::restore_cuts::{FilesPutBack, RecordedCut};
 use sidekicks_session::checkpoints::store::Checkpoint;
 use sidekicks_session::interventions::service::InterventionError;
 use sidekicks_session::queue_store::CurrentLeadRun;
@@ -38,8 +38,8 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::test_session_id;
 
 use super::{
-    FilesPutBack, UNDO_PAUSE_WAIT_BOUND, UndoError, UndoFiles, UndoPoint, UndoRequest, UndoScope,
-    UndoSteps, restore_outcome, run_undo,
+    UNDO_PAUSE_WAIT_BOUND, UndoError, UndoFiles, UndoPoint, UndoRequest, UndoScope, UndoSteps,
+    restore_outcome, run_undo,
 };
 use crate::error::QueueError;
 use crate::provider_session::errors::ProviderSessionError;
@@ -329,10 +329,10 @@ impl UndoSteps for RecordingSteps {
         &self,
         _session_id: SessionId,
         _undo_key: ClientUuid,
-        files: SessionRestoreFileOutcome,
+        files: FilesPutBack,
     ) -> BoxFuture<'_, Result<(), QueueError>> {
         self.take(Step::RecordFiles);
-        assert_eq!(files, file_outcome());
+        assert_eq!(files, FilesPutBack::Restored(file_outcome()));
         async { Ok(()) }.boxed()
     }
 
@@ -517,27 +517,32 @@ async fn two_undos_of_one_session_run_one_after_the_other() {
 
 // A retry under the key of an undo whose cut applied, the outcome lost with the process, cuts
 // nothing again and sends the resend the key recorded, which goes under the key: with its files
-// recorded put back it answers both applied and moves nothing; with them not recorded it finishes
-// them to the checkpoint the key kept, its stops and captures first, and records them, unless a
-// lead turn started since the cut, where it stops nothing, puts nothing back and names the files
-// not put back. Killed by the recorded cut not looked for, where the retry reads its own cut's
-// point as superseded or cuts a second time, by the files answered failed or left unfinished, by
-// files recorded put back run again, by files finished over a later turn, and by the recorded
-// resend dropped.
+// recorded all put back it answers both applied and moves nothing; with no put-back recorded it
+// finishes them to the checkpoint the key kept, its stops and captures first, and records them,
+// unless a lead turn started since the cut, where it stops nothing, puts nothing back and answers
+// the partial put-back it recorded, its paths kept and its reason led by that turn. Killed by the
+// recorded cut not looked for, where the retry reads its own cut's point as superseded or cuts a
+// second time, by the files answered failed or left unfinished, by files recorded put back run
+// again, by files finished over a later turn, by a partial put-back answered as no file back, and
+// by the recorded resend dropped.
 #[rstest]
-#[case::files_recorded(true, false)]
-#[case::files_not_recorded(false, false)]
-#[case::turn_started_since(false, true)]
+#[case::files_recorded(Some(FilesPutBack::Restored(file_outcome())), false)]
+#[case::files_not_recorded(None, false)]
+#[case::turn_started_since_a_partial_put_back(
+    Some(FilesPutBack::Partial { outcome: file_outcome(), failure: failure("one file failed") }),
+    true
+)]
 #[tokio::test]
 async fn a_retry_after_its_recorded_cut_answers_applied_and_cuts_nothing(
-    #[case] is_files_recorded: bool,
+    #[case] recorded_files: Option<FilesPutBack>,
     #[case] is_lead_turn_started_since: bool,
 ) {
+    let is_files_recorded = recorded_files.is_some();
     let mut steps = RecordingSteps::new(&[RunState::Running]);
     steps.recorded = Some(RecordedCut {
         checkpoint: reach_at_point(steps.run_id).checkpoint,
         resend: Some(edited()),
-        files: is_files_recorded.then(file_outcome),
+        files: recorded_files,
         is_lead_turn_started_since,
     });
     let files = RecordingFiles { steps: &steps };
@@ -545,33 +550,21 @@ async fn a_retry_after_its_recorded_cut_answers_applied_and_cuts_nothing(
     let undone = run_undo(&steps, &KeyedLock::new(), request(&files)).await;
 
     let undone = undone.expect("a recorded cut answers");
-    if is_lead_turn_started_since {
-        assert!(
-            matches!(
-                &undone,
-                SessionRestoreOutcome::RestoreFinished {
-                    restored: SessionRestoredScope::Conversation,
-                    files: None,
-                    failures: Some(SessionRestoreFailures {
-                        conversation: None,
-                        files: Some(_)
-                    }),
-                    ..
-                }
-            ),
-            "{undone:?}"
-        );
-    } else {
-        assert_eq!(
-            undone,
-            SessionRestoreOutcome::RestoreFinished {
-                requested: SessionRestoreScope::ConversationAndFiles,
-                restored: SessionRestoredScope::ConversationAndFiles,
-                files: Some(file_outcome()),
-                failures: None,
-            }
-        );
-    }
+    assert_eq!(
+        undone,
+        SessionRestoreOutcome::RestoreFinished {
+            requested: SessionRestoreScope::ConversationAndFiles,
+            restored: SessionRestoredScope::ConversationAndFiles,
+            files: Some(file_outcome()),
+            failures: is_lead_turn_started_since.then(|| SessionRestoreFailures {
+                conversation: None,
+                files: Some(failure(
+                    "a turn started after the undo's cut, so its files were not all put back: \
+                     one file failed"
+                )),
+            }),
+        }
+    );
     let finished: &[Step] = if is_files_recorded || is_lead_turn_started_since {
         &[]
     } else {

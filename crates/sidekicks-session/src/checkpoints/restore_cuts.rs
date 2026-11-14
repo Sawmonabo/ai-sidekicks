@@ -1,18 +1,19 @@
 //! The conversation cuts recorded under an undo's key once the cut applied, with the checkpoint
 //! the undo's files go back to, the message the undo resends, where the session's log stood at the
-//! cut and, once the files went back, what their put-back did, so a retry under that key after an
-//! outcome the daemon could not read never cuts again, finishes the files to the point the cut took
-//! away while no lead turn has started since, and sends the resend.
+//! cut and, once the files' put-back ran, what it did, so a retry under that key after an outcome
+//! the daemon could not read never cuts again, finishes the files to the point the cut took away
+//! while no lead turn has started since, else answers what the put-back did, and sends the resend.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use rusqlite::types::Type;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
+use serde::{Deserialize, Serialize};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{
-    SessionRestoreFileOutcome, SessionRestoreResend, SnapshotId,
+    SessionRestoreFailure, SessionRestoreFileOutcome, SessionRestoreResend, SnapshotId,
 };
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_store::database::statement::{
@@ -48,6 +49,23 @@ static RECORDED_CUT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+/// What the put-back of an undo's files did.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub enum FilesPutBack {
+    /// Every file went back, or was skipped with its reason.
+    Restored(SessionRestoreFileOutcome),
+    /// Some files went back and the rest failed, with the daemon's reason for those.
+    Partial {
+        /// What went back.
+        outcome: SessionRestoreFileOutcome,
+        /// Why the rest did not.
+        failure: SessionRestoreFailure,
+    },
+    /// No file went back.
+    Failed(SessionRestoreFailure),
+}
+
 /// What an undo's key recorded of its conversation cut.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecordedCut {
@@ -55,8 +73,8 @@ pub struct RecordedCut {
     pub checkpoint: Checkpoint,
     /// The message the undo resends once its cut applied, `None` for an undo with no resend.
     pub resend: Option<SessionRestoreResend>,
-    /// What the files' put-back did once every file went back, `None` until then.
-    pub files: Option<SessionRestoreFileOutcome>,
+    /// What the files' put-back did, `None` until one ran.
+    pub files: Option<FilesPutBack>,
     /// Whether a lead turn started after the cut was recorded, so the files a retry would finish
     /// may hold that turn's work.
     pub is_lead_turn_started_since: bool,
@@ -85,14 +103,14 @@ pub fn record_cut_statement(
 }
 
 /// The statement that records `files`, what the put-back of the files of `session_id`'s undo
-/// `undo_key` did once every file went back, beside the cut it recorded; refused where the key
-/// recorded no cut.
+/// `undo_key` did, beside the cut it recorded, in place of what an earlier put-back recorded;
+/// refused where the key recorded no cut.
 pub fn record_files_statement(
     session_id: SessionId,
     undo_key: &ClientUuid,
-    files: &SessionRestoreFileOutcome,
+    files: &FilesPutBack,
 ) -> WriteStatement {
-    let files = serde_json::to_string(files).expect("a file outcome serializes");
+    let files = serde_json::to_string(files).expect("a put-back serializes");
     WriteStatement {
         sql: Cow::Borrowed(RECORD_FILES_SQL),
         bindings: StatementBindings::Named(vec![
@@ -105,8 +123,8 @@ pub fn record_files_statement(
 }
 
 /// What `session_id`'s undo `undo_key` recorded of its conversation cut, `None` where it recorded
-/// none. Fails as SQLite does, and as a conversion failure where the stored resend or files'
-/// outcome does not read or the checkpoint the cut named is gone.
+/// none. Fails as SQLite does, and as a conversion failure where the stored resend or put-back
+/// does not read or the checkpoint the cut named is gone.
 pub fn read_recorded_cut(
     connection: &Connection,
     session_id: SessionId,

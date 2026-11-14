@@ -53,7 +53,7 @@ use crate::driver::mcp_server::write::{
 };
 use crate::driver::message_handing::MessageHanding;
 use crate::driver::rewind::{
-    RewindConversationParams, RewindConversationResult, RewindTargetPresence,
+    RewindConversationParams, RewindConversationResult, RewindTargetAsk, RewindTargetPresence,
 };
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
@@ -153,14 +153,20 @@ pub trait ProviderDriver: Send + Sync {
     /// never cuts twice (gated on `rollback`). Answers `CutAway` only where the record shows the
     /// message once held and no longer in the conversation, and `Held` wherever it cannot tell;
     /// fails as the read fails. With its own record empty, as after a restart, a driver reads the
-    /// provider's stored history: Claude Code its transcript, `CutAway` for a message written
-    /// there off the live chain and `Held` with no transcript or no such message; Codex the
-    /// conversation's turns, `CutAway` where no turn listed since the message's send is
-    /// `params.target_turn_id` or holds the message's id, which a fork's copy keeps.
+    /// provider's stored history: Claude Code its transcript, `CutAway` only where a cut's own
+    /// row, written after the last turn and never taken back, names the entry holding the message,
+    /// and `Held` otherwise; Codex the conversation's turns, `CutAway` where no turn listed since
+    /// the message's send is `params.target_turn_id` or holds the message's id, which a fork's
+    /// copy keeps. Asked when [`rewind_target_ask`](Self::rewind_target_ask) says.
     fn read_rewind_target(
         &self,
         params: RewindConversationParams,
     ) -> BoxFuture<'_, Result<RewindTargetPresence, DriverError>>;
+
+    /// When an undo asks [`read_rewind_target`](Self::read_rewind_target): before its cut, or once
+    /// the cut came back refused for a message the provider does not hold. A fixed fact of the
+    /// driver, like [`message_handing`](Self::message_handing).
+    fn rewind_target_ask(&self) -> RewindTargetAsk;
 
     /// Brings the driver's own record of the bound conversation to a cut before the person's
     /// message `params.target_message_id` that the provider already made, as a landed

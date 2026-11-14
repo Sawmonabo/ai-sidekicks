@@ -59,7 +59,7 @@ use crate::driver::mcp_server::write::{
 };
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{
-    RewindConversationParams, RewindConversationResult, RewindTargetPresence,
+    RewindConversationParams, RewindConversationResult, RewindTargetAsk, RewindTargetPresence,
 };
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
@@ -213,6 +213,12 @@ impl ProviderDriver for ClaudeDriver {
         params: RewindConversationParams,
     ) -> BoxFuture<'_, Result<RewindTargetPresence, DriverError>> {
         self.read_rewind_target(params).boxed()
+    }
+
+    // Claude Code checks a cut against its own live conversation and refuses one it does not
+    // hold with nothing changed, so the cut goes first.
+    fn rewind_target_ask(&self) -> RewindTargetAsk {
+        RewindTargetAsk::AfterRefusal
     }
 
     fn adopt_conversation_rewind(

@@ -6,14 +6,13 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{
-    SessionRestoreFileOutcome, SessionRestoreResend, SessionRestoreScope, SessionRestoreStops,
-    SessionRestoreTarget,
+    SessionRestoreResend, SessionRestoreScope, SessionRestoreStops, SessionRestoreTarget,
 };
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_session::checkpoints::resends::{stage_resend_statement, unstage_resend_statement};
 use sidekicks_session::checkpoints::restore_cuts::{
-    RecordedCut, read_recorded_cut, record_files_statement,
+    FilesPutBack, RecordedCut, read_recorded_cut, record_files_statement,
 };
 use sidekicks_session::interventions::service::InterventionError;
 use sidekicks_session::queue_store::{CurrentLeadRun, QueueItemReader};
@@ -203,7 +202,7 @@ impl UndoSteps for UndoService {
         &self,
         session_id: SessionId,
         undo_key: ClientUuid,
-        files: SessionRestoreFileOutcome,
+        files: FilesPutBack,
     ) -> BoxFuture<'_, Result<(), QueueError>> {
         async move {
             self.queue

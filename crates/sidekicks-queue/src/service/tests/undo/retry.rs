@@ -1,10 +1,11 @@
 //! The ends a retried undo comes to: a fork its cut left unrecorded is closed before the retry
 //! cuts the source again, a resend recorded with its cut is sent once however often it is
-//! retried, a conversation cut back past the point is no cut already made, a lead turn after the
+//! retried, a conversation cut back past the point is no cut already made, a provider that checks
+//! the cut first is asked to cut and its record read only once it refuses, a lead turn after the
 //! recorded cut is read from the log, a group member that landed before the cut goes with the
-//! group's words, and an edited message a restart put back into the draft is never sent. A cut the
-//! provider made before a restart and the daemon never recorded is read in each driver's own
-//! tests, since it turns on the provider's record.
+//! group's words, and an edited message a restart put back into the draft is never sent. How a
+//! provider's record shows a cut it made before a restart and the daemon never recorded is read in
+//! each driver's own tests.
 
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,9 +14,12 @@ use std::sync::{Arc, LazyLock};
 use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::run::events::CutGroupStart;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::restore::SessionRestoreResend;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_provider::driver::rewind::RewindTargetPresence;
+use sidekicks_provider::driver::rewind::{
+    RewindConversationResult, RewindTargetAsk, RewindTargetPresence,
+};
 use sidekicks_provider::driver::session_control::SessionCloseCause;
 use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
 use sidekicks_session::checkpoints::resends::{is_resend_returned, stage_resend_statement};
@@ -44,6 +48,10 @@ enum FirstAttempt {
     /// A cut took the conversation back past the point: neither the reach's message nor the one
     /// before it is held.
     CutPastPoint,
+    /// The provider checks each cut against its own live conversation first and refuses one for a
+    /// message it does not hold: first one it still holds where its cut does not find it, then
+    /// one its cut took before the reply was lost.
+    RefusedAsNotHeld,
     /// The cut applied, then a child run's turn and a lead turn started.
     TurnSinceCut,
     /// A member of the pressed message's group landed after the reach was read.
@@ -53,6 +61,9 @@ enum FirstAttempt {
     /// The resend was kept and the daemon stopped before the cut was recorded.
     ReturnedWithoutCut,
 }
+
+/// The refusal the provider that checks each cut first answers a message it does not hold with.
+const NOT_HELD: &str = "target not found";
 
 /// Companions whose one statement matches no row, so the rollback's write that holds them fails.
 fn refusing_companions() -> RollbackCompanions {
@@ -96,19 +107,24 @@ fn draft(fixture: &Fixture) -> Vec<String> {
 // retry cuts the source conversation in place. A resend recorded with an applied cut is sent under
 // the undo's key by each of two retries and lands once. A conversation that holds neither the
 // reach's message nor the one before it fails the read with its cause, and one that holds the
-// message before reads the cut made. A lead turn started after the recorded cut is read from the
-// log, a child run's is not. A group member that landed after the reach was read goes into the
-// resend, the draft's messages and the key's record. An edited message a restart put back into the
-// draft, its cut recorded or not, is marked returned and never sent under the key. Killed by a fork
-// never closed again, by a process opened while the fork runs, by the retry reading the source as
-// cut, by the resend left out of the key's record, by a resend sent under a key of its own, by a
-// cut away message read as the cut made, by the turn read from no log position or from a child
-// run, by the group read only before the hold, by the returned row deleted, and by a returned
-// resend sent.
+// message before reads the cut made. A provider that checks each cut first is asked to cut whatever
+// its record reads; its refusal for a message it still holds ends the cut as that fallback with
+// nothing recorded, and for one its record shows cut, the message before held, records the cut it
+// made. A lead turn started after the recorded cut is read from the log, a child run's is not. A
+// group member that landed after the reach was read goes into the resend, the draft's messages and
+// the key's record. An edited message a restart put back into the draft, its cut recorded or not,
+// is marked returned and never sent under the key. Killed by a fork never closed again, by a
+// process opened while the fork runs, by the retry reading the source as cut, by a record read
+// before a cut the provider checks itself, by a refusal recorded as a cut made or one the record
+// shows cut left unrecorded, by the resend left out of the key's record, by a resend sent under a
+// key of its own, by a cut away message read as the cut made, by the turn read from no log position
+// or from a child run, by the group read only before the hold, by the returned row deleted, and by
+// a returned resend sent.
 #[rstest]
 #[case::fork_left_running(FirstAttempt::ForkLeftRunning)]
 #[case::reply_lost(FirstAttempt::ReplyLost)]
 #[case::cut_past_point(FirstAttempt::CutPastPoint)]
+#[case::refused_as_not_held(FirstAttempt::RefusedAsNotHeld)]
 #[case::turn_since_cut(FirstAttempt::TurnSinceCut)]
 #[case::member_landed_since(FirstAttempt::MemberLandedSince)]
 #[case::returned_with_cut(FirstAttempt::ReturnedWithCut)]
@@ -120,20 +136,27 @@ async fn a_retried_undo_ends_applied(#[case] first_attempt: FirstAttempt) {
     let in_place = applied_in_place();
     let asked = Arc::new(AtomicUsize::new(0));
     let is_forked_first = matches!(first_attempt, FirstAttempt::ForkLeftRunning);
+    let is_refused = matches!(first_attempt, FirstAttempt::RefusedAsNotHeld);
     let counted = Arc::clone(&asked);
     let answer = Arc::new(move || {
-        if is_forked_first && counted.fetch_add(1, Ordering::SeqCst) == 0 {
+        if is_refused {
+            Ok(RewindConversationResult::TargetNotHeld {
+                fallback_action: Some(NOT_HELD.to_owned()),
+            })
+        } else if is_forked_first && counted.fetch_add(1, Ordering::SeqCst) == 0 {
             fork_answer()
         } else {
             in_place()
         }
     });
     let (scene, opening_message_id) = match first_attempt {
-        FirstAttempt::CutPastPoint | FirstAttempt::MemberLandedSince => {
-            let landing = if matches!(first_attempt, FirstAttempt::CutPastPoint) {
-                SteerLanding::Alone
-            } else {
+        FirstAttempt::CutPastPoint
+        | FirstAttempt::RefusedAsNotHeld
+        | FirstAttempt::MemberLandedSince => {
+            let landing = if matches!(first_attempt, FirstAttempt::MemberLandedSince) {
                 SteerLanding::Continued
+            } else {
+                SteerLanding::Alone
             };
             let steer = steer_scene(answer, landing, Form::Words(OPENING_WORDS)).await;
             (steer.scene, Some(steer.opening_message_id))
@@ -334,6 +357,52 @@ async fn a_retried_undo_ends_applied(#[case] first_attempt: FirstAttempt) {
                 "{past:?}"
             );
             assert!(matches!(made, Ok(ProviderCut::AlreadyMade)), "{made:?}");
+        }
+        FirstAttempt::RefusedAsNotHeld => {
+            *scene.ask.lock().expect("unpoisoned") = RewindTargetAsk::AfterRefusal;
+            let presence = |message_id: QueueItemId, read| {
+                scene
+                    .presence
+                    .lock()
+                    .expect("unpoisoned")
+                    .insert(message_id.to_string(), read);
+            };
+            // The provider's record reads the steer cut, so only a read before the cut takes it.
+            presence(scene.target_message_id, RewindTargetPresence::CutAway);
+            let provider_cut = fixture
+                .queue
+                .read_provider_cut(fixture.session_id, &reach)
+                .await
+                .expect("the provider's read answers");
+            presence(scene.target_message_id, RewindTargetPresence::Held);
+            let held = cut_once(None).await;
+            presence(scene.target_message_id, RewindTargetPresence::CutAway);
+            presence(
+                opening_message_id.expect("the steer scene names its opening"),
+                RewindTargetPresence::Held,
+            );
+            let made = cut_once(None).await;
+
+            assert_eq!(provider_cut, ProviderCut::ToMake);
+            assert!(
+                matches!(
+                    &held,
+                    Ok(ConversationCut::Degraded { fallback_action: Some(action) })
+                        if action == NOT_HELD
+                ),
+                "{held:?}"
+            );
+            assert!(
+                matches!(made, Ok(ConversationCut::Applied { .. })),
+                "{made:?}"
+            );
+            assert_eq!(scene.rewinds.load(Ordering::SeqCst), 2);
+            assert_eq!(scene.adopts.load(Ordering::SeqCst), 1);
+            assert!(
+                read_recorded_cut(&fixture.database.reader(), fixture.session_id, &undo_key)
+                    .expect("the key's record reads")
+                    .is_some()
+            );
         }
         FirstAttempt::TurnSinceCut => {
             cut_once(None).await.expect("the cut applies");

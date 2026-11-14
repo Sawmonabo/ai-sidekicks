@@ -160,7 +160,14 @@ impl WorkFolderRemoval {
 impl Drop for WorkFolderRemoval {
     fn drop(&mut self) {
         if let Some(folder) = self.folder.take() {
-            tokio::spawn(remove_work_folder(folder, self.tree_ends.clone()));
+            match tokio::runtime::Handle::try_current() {
+                Ok(runtime) => {
+                    drop(runtime.spawn(remove_work_folder(folder, self.tree_ends.clone())));
+                }
+                // Off a runtime nothing can wait for the fork's processes, which their trees'
+                // drops have already signaled, so the folder is removed here.
+                Err(_no_runtime) => log_left_folder(&folder, remove_folder(&folder)),
+            }
         }
     }
 }
@@ -172,11 +179,26 @@ async fn remove_work_folder(folder: PathBuf, tree_ends: TaskTracker) {
     tree_ends.wait().await;
     let removed = tokio::task::spawn_blocking({
         let folder = folder.clone();
-        move || std::fs::remove_dir_all(folder)
+        move || remove_folder(&folder)
     })
     .await
     .map_err(io::Error::other)
     .and_then(|removed| removed);
+    log_left_folder(&folder, removed);
+}
+
+// Removes `folder` whole, once more where a write a killed process had in flight landed in it
+// during the first pass.
+fn remove_folder(folder: &Path) -> io::Result<()> {
+    match std::fs::remove_dir_all(folder) {
+        Err(error) if error.kind() == io::ErrorKind::DirectoryNotEmpty => {
+            std::fs::remove_dir_all(folder)
+        }
+        removed => removed,
+    }
+}
+
+fn log_left_folder(folder: &Path, removed: io::Result<()>) {
     if let Err(error) = removed {
         tracing::error!(
             error = &error as &(dyn std::error::Error + 'static),

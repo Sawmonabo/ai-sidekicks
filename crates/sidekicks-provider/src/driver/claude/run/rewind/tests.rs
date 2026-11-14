@@ -101,34 +101,49 @@ async fn a_refusal_claude_code_marks_sendable_is_sent_once_more_after_the_turn_s
     );
 }
 
-// Killed by sending again a refusal Claude Code marks final, by a third send, and by sending again
-// a word outside the set.
+// Killed by sending again a refusal Claude Code marks final, by a third send, by sending again a
+// word outside the set, and by a missing target answered as any other fallback, which the daemon
+// would never read its record for.
 #[rstest]
-#[case::final_code(&[json!({"rewound": false, "reason": "stale_target"})], 1, "stale_target")]
+#[case::final_code(
+    &[json!({"rewound": false, "reason": "stale_target"})],
+    1,
+    "stale_target",
+    false
+)]
 #[case::second_refusal(
     &[
         json!({"rewound": false, "reason": "turn_running"}),
         json!({"rewound": false, "reason": "turn_running"}),
     ],
     2,
-    "turn_running"
+    "turn_running",
+    false
 )]
 #[case::usage_limited_target_missing(
     &[json!({"rewound": false, "reason": "usage_limited", "target_not_found": true})],
     1,
-    "usage_limited"
+    "usage_limited",
+    true
 )]
 #[case::target_missing(
     &[json!({"rewound": false, "reason": "target_not_found"})],
     1,
-    "target_not_found"
+    "target_not_found",
+    true
 )]
-#[case::unknown_word(&[json!({"rewound": false, "reason": "cut_too_soon"})], 1, "cut_too_soon")]
+#[case::unknown_word(
+    &[json!({"rewound": false, "reason": "cut_too_soon"})],
+    1,
+    "cut_too_soon",
+    false
+)]
 #[tokio::test(start_paused = true)]
 async fn a_final_refusal_or_a_second_one_is_never_sent_again(
     #[case] answers: &[Value],
     #[case] sends: usize,
     #[case] reason: &str,
+    #[case] is_target_missing: bool,
 ) {
     let session = ScriptedSession::new().await;
     script_cut_answers(&session, answers);
@@ -138,10 +153,13 @@ async fn a_final_refusal_or_a_second_one_is_never_sent_again(
     let result = spawn_rewind(&session).await.expect("the undo's task ends");
 
     assert_eq!(cut_requests(&session).len(), sends);
+    let fallback_action = Some(format!("rewind-refused: {reason}"));
     assert_eq!(
         result,
-        RewindConversationResult::Degraded {
-            fallback_action: Some(format!("rewind-refused: {reason}")),
+        if is_target_missing {
+            RewindConversationResult::TargetNotHeld { fallback_action }
+        } else {
+            RewindConversationResult::Degraded { fallback_action }
         }
     );
 }

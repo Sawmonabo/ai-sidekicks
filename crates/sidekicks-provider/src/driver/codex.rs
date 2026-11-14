@@ -65,7 +65,7 @@ use crate::driver::mcp_server::write::{
 };
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{
-    RewindConversationParams, RewindConversationResult, RewindTargetPresence,
+    RewindConversationParams, RewindConversationResult, RewindTargetAsk, RewindTargetPresence,
 };
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
@@ -280,6 +280,12 @@ impl ProviderDriver for CodexDriver {
         params: RewindConversationParams,
     ) -> BoxFuture<'_, Result<RewindTargetPresence, DriverError>> {
         self.read_rewind_target(params).boxed()
+    }
+
+    // A Codex cut it cannot place answers a fallback, never a refusal for a message Codex no
+    // longer holds, so the ask goes first.
+    fn rewind_target_ask(&self) -> RewindTargetAsk {
+        RewindTargetAsk::BeforeCut
     }
 
     fn adopt_conversation_rewind(

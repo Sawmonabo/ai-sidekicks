@@ -1,14 +1,14 @@
 //! Claude Code's own record of one conversation, `<config folder>/projects/<project>/<id>.jsonl`:
 //! one JSON entry per line, each with its own `uuid`. Read to find where a resume lands, which
-//! message a fork keeps up to, which messages an ended process took and which command holds a
-//! message merged into it; titled anew at rest;
+//! message a fork keeps up to, which messages an ended process took, which command holds a
+//! message merged into it and whether a cut Claude Code made took a message; titled anew at rest;
 //! deleted on a purge with every other file Claude Code keeps for the conversation under the same
 //! config folder and the daemon's scratch folder, a batch of conversations of one home listing
 //! each folder it searches once.
 
+pub(crate) mod cut_rows;
 pub(crate) mod forks;
 pub(crate) mod lines;
-pub(crate) mod live_chain;
 pub(crate) mod peer_replies;
 pub(crate) mod title;
 
