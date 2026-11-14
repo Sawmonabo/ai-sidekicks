@@ -7,7 +7,6 @@
 // It takes every reading a view holds, so a served snapshot beside an unreadable tail cannot
 // render as exhaustive.
 
-import type { Refusal } from "./refusal/contract.js";
 import { formatCount } from "./wire/figures.js";
 
 /**
@@ -23,12 +22,7 @@ export type ReadingState =
    * Deliveries arrived that this build could not read. They changed no row, so the rows alone
    * cannot show it. `unreadableCount` is at least one; `unreadableDeliveryReading` holds that.
    */
-  | {
-      readonly kind: "partial";
-      readonly unreadableCount: number;
-      /** The newest unreadable delivery's own parse refusal, where one was kept. */
-      readonly newestRefusal: Refusal | undefined;
-    };
+  | { readonly kind: "partial"; readonly unreadableCount: number };
 
 /** What a reading that is not the whole of it says: a counted sentence, led by its figure. */
 export interface PartialReadNotice {
@@ -36,23 +30,18 @@ export interface PartialReadNotice {
   readonly figure: string;
   /** The rest of the sentence, which the figure leads. */
   readonly copy: string;
-  readonly refusal: Refusal | undefined;
 }
 
 /**
- * The reading a count of unreadable deliveries is: a running count and the newest parse refusal
- * kept. Zero is `served`, since nothing this producer received failed to parse; that is a claim
- * about the deliveries, not the read they follow, so a view holding both hands both to
- * `partialReadNotices`.
+ * The reading a running count of unreadable deliveries is. Zero is `served`, since nothing this
+ * producer received failed to parse; that is a claim about the deliveries, not the read they
+ * follow, so a view holding both hands both to `partialReadNotices`.
  */
-export function unreadableDeliveryReading(
-  unreadableCount: number,
-  newestRefusal: Refusal | undefined,
-): ReadingState {
+export function unreadableDeliveryReading(unreadableCount: number): ReadingState {
   if (!Number.isInteger(unreadableCount) || unreadableCount < 1) {
     return { kind: "served" };
   }
-  return { kind: "partial", unreadableCount, newestRefusal };
+  return { kind: "partial", unreadableCount };
 }
 
 /**
@@ -79,7 +68,6 @@ function readingNoticeFor(state: ReadingState): PartialReadNotice | "none" {
       return {
         figure: formatCount(state.unreadableCount),
         copy: `${state.unreadableCount === 1 ? "delivery" : "deliveries"} could not be read.`,
-        refusal: state.newestRefusal,
       };
   }
 }

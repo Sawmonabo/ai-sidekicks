@@ -9,9 +9,14 @@
 // session, and the composer's resting space held empty below them, so nothing moves when the store
 // opens. A pane another screen asked this session for (Review from a workflow run's page) opens
 // once the restore has landed. A save that failed raises one banner under the header, beside the
-// banners the session's standing notices raise; its code goes to the window's diagnostic capture, as does every part of a saved arrangement the restore left
-// closed. The screen is not remounted between two open sessions, so banners are scoped to (bridge,
-// session): the arriving session reads an empty column, and a bridge replacement clears it too.
+// banners the session's standing notices raise; its code goes to the window's diagnostic capture,
+// as does every part of a saved arrangement the restore left closed. The screen is not remounted
+// between two open sessions, so banners are scoped to (bridge, session): the arriving session reads
+// an empty column, and a bridge replacement clears it too.
+//
+// Each region draws under its own error boundary: the header, the banners, the catching-up line
+// and the composer here, the transcript and every pane in their pane bodies. A region that throws
+// while drawing reads as one line with `Retry` where it stood, and the rest keep drawing.
 //
 // The screen carries the height the transcript and the composer share as a custom property, so the
 // composer's draft can cap itself at a share of the conversation's. It is measured on resize only:
@@ -21,6 +26,8 @@
 import "./SessionScreen.css";
 
 import { useCallback, useMemo } from "react";
+
+import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
 
 import {
   diagnosticStampAt,
@@ -235,29 +242,35 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const conversation = (
     <div className="meridian-session-screen__conversation">
       <div className="meridian-session-screen__head">
-        <SessionHeader sessionId={sessionId} />
-        {banners.map((banner) => (
-          <SessionBannerRow
-            key={sessionBannerKey(banner)}
-            words={banner.words}
-            onDismiss={() => {
-              dismiss(sessionBannerKey(banner));
-            }}
-          />
-        ))}
-        {props.sessionStore === undefined ||
-        sessionId === undefined ||
-        dismissedNotices === undefined ? null : (
-          <SessionNoticeBanners
-            bridge={props.bridge}
-            sessionId={sessionId}
-            sessionStore={props.sessionStore}
-            dismissed={dismissedNotices}
-            onFolderReadRefused={folderReadRefused}
-          />
-        )}
+        <ErrorBoundary regionName="The session header" clock={clock}>
+          <SessionHeader sessionId={sessionId} />
+        </ErrorBoundary>
+        <ErrorBoundary regionName="The banners" clock={clock}>
+          {banners.map((banner) => (
+            <SessionBannerRow
+              key={sessionBannerKey(banner)}
+              words={banner.words}
+              onDismiss={() => {
+                dismiss(sessionBannerKey(banner));
+              }}
+            />
+          ))}
+          {props.sessionStore === undefined ||
+          sessionId === undefined ||
+          dismissedNotices === undefined ? null : (
+            <SessionNoticeBanners
+              bridge={props.bridge}
+              sessionId={sessionId}
+              sessionStore={props.sessionStore}
+              dismissed={dismissedNotices}
+              onFolderReadRefused={folderReadRefused}
+            />
+          )}
+        </ErrorBoundary>
         {props.sessionStore === undefined ? null : (
-          <SessionCatchUpLine sessionStore={props.sessionStore} onTryAgain={tryAgain} />
+          <ErrorBoundary regionName="The catching-up line" clock={clock}>
+            <SessionCatchUpLine sessionStore={props.sessionStore} onTryAgain={tryAgain} />
+          </ErrorBoundary>
         )}
       </div>
       <div className="meridian-session-screen__transcript">
@@ -276,13 +289,15 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
         </div>
       ) : (
         <div className="meridian-session-screen__composer">
-          {composer.open({
-            sessionStore: props.sessionStore,
-            bridge: props.bridge,
-            frameStore: props.frameStore,
-            draftStore: props.draftStore,
-            route: props.route,
-          })}
+          <ErrorBoundary regionName="The composer" clock={clock}>
+            {composer.open({
+              sessionStore: props.sessionStore,
+              bridge: props.bridge,
+              frameStore: props.frameStore,
+              draftStore: props.draftStore,
+              route: props.route,
+            })}
+          </ErrorBoundary>
         </div>
       )}
     </div>

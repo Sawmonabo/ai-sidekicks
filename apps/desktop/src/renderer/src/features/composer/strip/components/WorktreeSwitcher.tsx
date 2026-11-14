@@ -74,6 +74,16 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
     // A root picked before the read landed is named by that read, open or closed.
     pending !== undefined && pending.branchName === undefined,
   );
+  // A root picked before its branch was read takes that branch's name once a read gives it, so a
+  // fresh read on reopening leaves the chip on the name it last had.
+  if (
+    pending !== undefined &&
+    pending.branchName === undefined &&
+    reading.kind === "loaded" &&
+    pending.name !== reading.status.repoRoot.branchName
+  ) {
+    setPendingMove({ ...pending, name: reading.status.repoRoot.branchName });
+  }
   // `row` is the row pressed, where a refusal is said; `target` is the picked tree, or `undefined`
   // for a cancel, which leaves no move.
   const moveTo = (row: PickedRow, tree: MovedTree, target: MoveTarget | undefined): void => {
@@ -151,15 +161,15 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
       ) : null}
     </>
   );
-  // A root picked before the read landed is named by its branch once the read has it.
-  const pendingName =
-    pending !== undefined && pending.branchName === undefined && reading.kind === "loaded"
-      ? reading.status.repoRoot.branchName
-      : pending?.name;
   const chipWords =
-    pendingName === undefined
+    pending === undefined
       ? props.currentName
-      : `${props.currentName} → ${pendingName} when this run ends`;
+      : `${props.currentName} → ${pending.name} when this run ends`;
+  // A refused move's line stays on its row, and stands in for it once a later read drops the tree.
+  const unlistedRefusalRow =
+    moveRefusal !== undefined && reading.kind === "loaded"
+      ? unlistedRow(moveRefusal.row, reading.status)
+      : undefined;
   const rootPath =
     reading.kind === "loaded" ? reading.status.repoRoot.path : props.project.folderPath;
   return (
@@ -350,6 +360,9 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
                 </li>
               );
             })}
+            {unlistedRefusalRow === undefined ? null : (
+              <li className="meridian-composer-worktrees__row">{pickLines(unlistedRefusalRow)}</li>
+            )}
           </ul>
         ) : null}
         {refusal === undefined ? null : (
@@ -393,6 +406,14 @@ interface MoveRefusal {
   readonly row: PickedRow;
   readonly refusal: ExtendedRefusal;
   readonly words: string;
+}
+
+/** `row` when it names a tree `status` does not list, else `undefined`. */
+function unlistedRow(row: PickedRow, status: WorktreeStatusReadResponse): PickedRow | undefined {
+  const path = row.kind === "worktree" ? row.path : undefined;
+  return path !== undefined && !status.worktrees.some((record) => record.path === path)
+    ? row
+    : undefined;
 }
 
 function isSameRow(picked: PickedRow, row: PickedRow): boolean {

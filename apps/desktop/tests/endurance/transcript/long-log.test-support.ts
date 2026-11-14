@@ -14,10 +14,8 @@
 // alone (no `Math.random`, `Date.now` or hash iteration order), so a heap reading or frame
 // timing is comparable across runs and machines.
 //
-// The beats use the registered vocabulary the picker scenarios play (the census
-// `SESSION_EVENT_CATEGORY_BY_TYPE` and the strict layer `SessionEventSchema`, both in
-// `packages/contracts/src/event/session.ts`), so a reading is taken over rows the daemon
-// could send.
+// The beats use the registered vocabulary the picker scenarios play (`SessionEventType`, the
+// event types the contracts generate), so a reading is taken over rows the daemon could send.
 
 import { composeOpeningEntry, composeResolvedAgent } from "#fixtures/data/opening-entries.js";
 import {
@@ -192,7 +190,7 @@ export function createTranscriptEnduranceFixture(
     );
     const bodyCount = bodyPerRun + (runIndex === runCount - 1 ? lastRunExtraBody : 0);
     for (let bodyIndex = 0; bodyIndex < bodyCount; bodyIndex += 1) {
-      entries.push(enduranceBodyEntry(at(), runId, bodyIndex));
+      entries.push(enduranceBodyEntry(at(), runId, agent.driverName, bodyIndex));
     }
     entries.push(
       runTransitionEntry({
@@ -219,8 +217,13 @@ function enduranceRunId(runIndex: number): string {
   return `${ENDURANCE_ID_PREFIX}-740e-8110-${runIndex.toString(16).padStart(12, "0")}`;
 }
 
-/** One body beat, chosen from the cycle by its position within the run. */
-function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): ScriptEntry {
+/** One body beat of a run its `provider` drives, chosen from the cycle by its place in the run. */
+function enduranceBodyEntry(
+  atMs: number,
+  runId: string,
+  provider: string,
+  bodyIndex: number,
+): ScriptEntry {
   const callId = `call-endurance-${String(bodyIndex)}`;
   // Each output beat is a message of its own.
   const providerMessageId = `msg_${runId}_${String(bodyIndex)}`;
@@ -230,7 +233,7 @@ function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): Scr
         atMs,
         sessionId: SESSION_ID,
         runId,
-        kind: "assistant.thinking_update",
+        kind: "agent.thinking.updated",
         providerMessageId,
         contentType: "text/plain",
         body: enduranceBody(256 + (bodyIndex % 64)),
@@ -241,7 +244,7 @@ function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): Scr
         atMs,
         sessionId: SESSION_ID,
         runId,
-        kind: "assistant.message",
+        kind: "agent.message.sent",
         providerMessageId,
         contentType: "text/markdown",
         body: enduranceBody(512 + (bodyIndex % 512)),
@@ -252,7 +255,7 @@ function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): Scr
         atMs,
         sessionId: SESSION_ID,
         runId,
-        kind: "tool.invoked",
+        kind: "agent.toolCall.invoked",
         toolName: "edit_file",
         toolCallId: callId,
       });
@@ -261,7 +264,7 @@ function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): Scr
         atMs,
         sessionId: SESSION_ID,
         runId,
-        kind: "tool.result",
+        kind: "agent.toolCall.completed",
         toolName: "edit_file",
         toolCallId: `call-endurance-${String(bodyIndex - 1)}`,
         durationMs: 40 + (bodyIndex % 200),
@@ -272,7 +275,7 @@ function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): Scr
         atMs,
         sessionId: SESSION_ID,
         runId,
-        kind: "tool.error",
+        kind: "agent.toolCall.failed",
         toolName: "edit_file",
         toolCallId: `call-endurance-${String(bodyIndex - 1)}`,
         durationMs: 20 + (bodyIndex % 80),
@@ -281,11 +284,9 @@ function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): Scr
     default:
       return {
         atMs,
-        kind: "usage.context_compacted",
-        // The two members every run-scoped payload in the corpus carries. The
-        // boundary position a compaction seam would render is named nowhere in
-        // `packages/contracts`, so this beat does not claim one.
-        payload: { sessionId: SESSION_ID, runId },
+        kind: "agent.run.context.compacted",
+        // The bare seam: no token counts and no summary.
+        payload: { sessionId: SESSION_ID, runId, provider },
       };
   }
 }

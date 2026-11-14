@@ -71,7 +71,7 @@ export function sampleRunRow(overrides: SampleRowOverrides = {}): ProjectedTrans
     sequence: 1,
     cursor: "cursor-at-1" as EventCursor,
     category: "runLifecycle",
-    type: overrides.type ?? "assistant.message",
+    type: overrides.type ?? "agent.message.sent",
     timestamp: overrides.timestamp ?? SAMPLE_RUN_ROW_TIMESTAMP,
     payload: { ...overrides.payload },
     runId: (overrides.runId ?? SAMPLE_RUN_ID) as RunId,

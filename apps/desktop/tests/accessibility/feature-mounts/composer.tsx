@@ -10,7 +10,7 @@
 //
 //   • addressed at the session, before the lead has a run;
 //   • addressed at the lead's run while it is `running`;
-//   • addressed at the lead's run while it is `waiting_for_input`.
+//   • addressed at the lead's run while it is `waitingForInput`.
 //
 // Every store opens with the fold the window composes ({@link COMPOSED_ENTITY_PROJECTORS}), never
 // a registrar this file picked, which would decide which partitions its view can read.
@@ -21,6 +21,7 @@
 // in-flight phase. The settlement is asserted ({@link requireNoReadInFlight}) because an audit of
 // a skeleton is a green case.
 
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { ReactElement } from "react";
 
@@ -48,7 +49,7 @@ import { requireLabeledRegion, type MountedView } from "./queries.js";
  * A prefix rather than the whole log, because the three views differ only in how far the lead's
  * run has got.
  */
-function composerSessionStore(throughKind: string): SessionStore {
+function composerSessionStore(throughKind: SessionEventType): SessionStore {
   const store = new SessionStore({
     sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId,
     projectors: COMPOSED_ENTITY_PROJECTORS,
@@ -110,7 +111,7 @@ function requireNoReadInFlight(container: HTMLElement): void {
 }
 
 /** Mount the composer at one address, over a store fed to one point in the log. */
-async function mountComposerAt(throughKind: string): Promise<MountedView> {
+async function mountComposerAt(throughKind: SessionEventType): Promise<MountedView> {
   const fixture = createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO });
   const { bridge } = fixture;
   const container = await mountViewSettled(
@@ -133,10 +134,10 @@ export async function mountComposerOnSession(): Promise<MountedView> {
 
 /** The composer addressed at the lead's run while it works. */
 export async function mountComposerOnRunningLead(): Promise<MountedView> {
-  return mountComposerAt("run.running");
+  return mountComposerAt("agent.run.running");
 }
 
 /** The composer addressed at the lead's run while it waits on a person. */
 export async function mountComposerOnWaitingLead(): Promise<MountedView> {
-  return mountComposerAt("run.waiting_for_input");
+  return mountComposerAt("agent.run.waitingForInput");
 }

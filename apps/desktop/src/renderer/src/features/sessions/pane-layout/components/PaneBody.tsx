@@ -1,13 +1,17 @@
 // The registered body a pane resolves to, the refusal that says why it has none, or the pane's
 // frame alone while the session has not opened. Its own module so "address or refusal" is a named
 // predicate instead of a condition inside `SessionPaneSlot`. The refusal wears the pane's own
-// chrome, so it is dragged by its header like every pane and its words can be selected.
+// chrome, so it is dragged by its header like every pane and its words can be selected. A body
+// that throws while drawing reads as one line with `Retry` under the pane's own header, so the
+// pane can still be closed and every other region keeps drawing.
 
-import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
+import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
+import { PaneFrame, TITLE_BY_PANE_KIND } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { type PaneDescriptor } from "#renderer/registries/panes/registry.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 
 /**
  * The registered body, the refusal that says why this pane has no address, or, before the session
@@ -25,6 +29,7 @@ export function PaneBody(props: {
   readonly sessionId: string | undefined;
 }): React.ReactNode {
   const { context, descriptor } = props;
+  const clock = useClock();
   if (!isPaneContext(context)) {
     // No session: the address that would name one is what could not be read.
     return (
@@ -33,16 +38,23 @@ export function PaneBody(props: {
       </PaneFrame>
     );
   }
+  const entity = "entity" in context ? context.entity : undefined;
   if (!props.isSessionOpen) {
-    return (
-      <PaneFrame
-        kind={descriptor.kind}
-        sessionId={props.sessionId}
-        entity={"entity" in context ? context.entity : undefined}
-      />
-    );
+    return <PaneFrame kind={descriptor.kind} sessionId={props.sessionId} entity={entity} />;
   }
-  return descriptor.render(context);
+  return (
+    <ErrorBoundary
+      regionName={TITLE_BY_PANE_KIND[descriptor.kind]}
+      clock={clock}
+      frame={(line) => (
+        <PaneFrame kind={descriptor.kind} sessionId={props.sessionId} entity={entity}>
+          {line}
+        </PaneFrame>
+      )}
+    >
+      {descriptor.render(context)}
+    </ErrorBoundary>
+  );
 }
 
 /** Whether what the pane layout resolved for a pane is an address or a refusal. */

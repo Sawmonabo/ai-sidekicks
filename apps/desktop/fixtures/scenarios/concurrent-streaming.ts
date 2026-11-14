@@ -28,7 +28,7 @@
 // emits produces passing results about a wire that does not exist.
 //
 // The approval pair and the run-state pair are two records, not one: `approval_flow` records
-// what was asked, by whom and who granted it, and `run_lifecycle` records what the run did
+// what was asked, by whom and who granted it, and `runLifecycle` records what the run did
 // about it. Neither is derivable from the other.
 //
 // Ids are UUIDs, as the strict layer requires. `session.created` carries no title, because
@@ -396,7 +396,7 @@ export function composeConcurrentStreamingLanes(
 
     // The approval lands mid-stream: one lane blocks while the other three keep talking. Four
     // beats, not two: the request and grant are `approval_flow` rows, the block and release
-    // are `run_lifecycle` rows, and they are different facts about one moment.
+    // are `runLifecycle` rows, and they are different facts about one moment.
     approvalEntry(input.sessionId, {
       atMs: at(1_590),
       kind: "approval.requested",
@@ -542,8 +542,8 @@ export function composeConcurrentStreamingLanes(
       body: blockAt(PROSE_BLOCKS, 17),
     }),
 
-    // The thread between two runs: the child-run link members ride the birth beat (`run.queued`)
-    // only, and the shared builder enforces that.
+    // The thread between two runs: the child-run link members ride the birth beat
+    // (`agent.run.queued`) only, and the shared builder enforces that.
     lane.transition(RUN_ARCHITECT_HELPER, {
       atMs: at(2_400),
       runVersion: 1,

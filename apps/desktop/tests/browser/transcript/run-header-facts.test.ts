@@ -44,14 +44,14 @@ function runEventAt(index: number): ProjectedSessionEvent {
   if (index === 0) {
     return {
       ...common,
-      kind: "run.running",
+      kind: "agent.run.running",
       actorId: ACTOR,
       payload: { sessionId: PAGED_SESSION_ID, runId: RUN_ID, newState: "running" },
     };
   }
   return {
     ...common,
-    kind: "tool.invoked",
+    kind: "agent.toolCall.invoked",
     payload: {
       sessionId: PAGED_SESSION_ID,
       runId: RUN_ID,

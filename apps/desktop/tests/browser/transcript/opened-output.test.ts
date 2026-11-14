@@ -53,7 +53,7 @@ function eventAt(index: number): ProjectedSessionEvent {
   const contentLength = new TextEncoder().encode(PRINTED_OUTPUT).byteLength;
   return {
     ...event,
-    kind: "tool.result",
+    kind: "agent.toolCall.completed",
     payload: {
       sessionId: PAGED_SESSION_ID,
       toolName: isLarge ? LARGE_TOOL_NAME : HELD_TOOL_NAME,
@@ -109,7 +109,10 @@ describe("a call's output opened whole", () => {
       const readBody: TranscriptBodyRead = () =>
         new Promise((resolve) => {
           waitingReads.push(() => {
-            resolve({ status: "served", value: { status: "available", body: PRINTED_OUTPUT } });
+            resolve({
+              status: "served",
+              value: { status: "available", body: PRINTED_OUTPUT, offset: 0, nextOffset: null },
+            });
           });
         });
       const { scroller } = await mountTranscriptFeed(sessionStore, undefined, undefined, readBody);

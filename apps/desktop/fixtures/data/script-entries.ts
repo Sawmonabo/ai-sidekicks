@@ -11,10 +11,10 @@
 //   - `atMs` is non-decreasing: the engine delivers the contiguous due prefix, so a beat that
 //     goes back in time would be delivered late or never. The builder throws instead.
 //
-// The payload builders carry the registered shapes and nothing else. The run transitions,
-// `assistant.*`, `tool.*` and `subagent.*` have `.strict()` variants in `@ai-sidekicks/contracts`,
-// so an extra member is rejected on the wire.
+// The payload builders carry the registered shapes and nothing else, and each beat kind is one
+// of the event types the contracts generate, so a scenario plays only what the wire sends.
 
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { ResolvedAgent } from "@ai-sidekicks/contracts/run/queued";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
@@ -152,8 +152,7 @@ interface AssistantOutputInput {
   readonly atMs: number;
   readonly sessionId: string;
   readonly runId: string;
-  /** `assistant.message` or `assistant.thinking_update`. */
-  readonly kind: string;
+  readonly kind: Extract<SessionEventType, "agent.message.sent" | "agent.thinking.updated">;
   /** The provider's own id of the message this piece belongs to, shared by its other pieces. */
   readonly providerMessageId: string;
   /** Media type of the body, which the producer sets and the codec does not. */
@@ -167,8 +166,10 @@ interface ToolActivityInput {
   readonly atMs: number;
   readonly sessionId: string;
   readonly runId: string;
-  /** `tool.invoked`, `tool.result`, or `tool.error`. */
-  readonly kind: string;
+  readonly kind: Extract<
+    SessionEventType,
+    "agent.toolCall.invoked" | "agent.toolCall.completed" | "agent.toolCall.failed"
+  >;
   /** Required by the registered shape. */
   readonly toolName: string;
   /** Pairs an invocation with its settlement, which is what a tool card renders. */
@@ -183,8 +184,7 @@ interface SubagentActivityInput {
   readonly atMs: number;
   readonly sessionId: string;
   readonly runId: string;
-  /** `subagent.started` or `subagent.completed`. */
-  readonly kind: string;
+  readonly kind: Extract<SessionEventType, "agent.subagent.started" | "agent.subagent.completed">;
   /** The provider that minted the child; with `subagentId` it is the key a completion pairs on. */
   readonly provider: string;
   /** The provider-native child id. Unique only inside that provider's run scope. */

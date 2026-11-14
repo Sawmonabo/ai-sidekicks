@@ -28,7 +28,7 @@ export function coloredOutputEventAt(index: number, length: number): ProjectedSe
 export function toolOutputEventAt(index: number, body: string): ProjectedSessionEvent {
   return {
     ...pagedSessionEventAt(index),
-    kind: "tool.result",
+    kind: "agent.toolCall.completed",
     payload: {
       sessionId: PAGED_SESSION_ID,
       toolName: "build",

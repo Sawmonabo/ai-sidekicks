@@ -2,14 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { refuse } from "./refusal/contract.js";
 import { partialReadNotices, unreadableDeliveryReading } from "./partial-read.js";
-
-const PARSE_REFUSAL = refuse(
-  "session-queue",
-  "delivery-unreadable",
-  "A queue delivery did not match the registered row shape.",
-);
 
 describe("partial-read — a view hands over every reading it holds", () => {
   it("answers a notice per reading that is not the whole of it, even among served ones", () => {
@@ -17,21 +10,15 @@ describe("partial-read — a view hands over every reading it holds", () => {
     // site passes.
     const notices = partialReadNotices([
       { kind: "served" },
-      { kind: "partial", unreadableCount: 3, newestRefusal: PARSE_REFUSAL },
+      { kind: "partial", unreadableCount: 3 },
     ]);
-    expect(notices).toStrictEqual([
-      { figure: "3", copy: "deliveries could not be read.", refusal: PARSE_REFUSAL },
-    ]);
+    expect(notices).toStrictEqual([{ figure: "3", copy: "deliveries could not be read." }]);
   });
 });
 
 describe("partial-read — the producer shapes", () => {
-  it("makes a real unreadable count a partial reading that keeps its refusal", () => {
+  it("makes a real unreadable count a partial reading", () => {
     // A constructor answering `served` here would hide deliveries that could not be read.
-    expect(unreadableDeliveryReading(2, PARSE_REFUSAL)).toStrictEqual({
-      kind: "partial",
-      unreadableCount: 2,
-      newestRefusal: PARSE_REFUSAL,
-    });
+    expect(unreadableDeliveryReading(2)).toStrictEqual({ kind: "partial", unreadableCount: 2 });
   });
 });

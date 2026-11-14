@@ -85,7 +85,7 @@ export function composeSessionCreatedPayload(
 }
 
 /**
- * The agent a `run.queued` beat brings into the session, with the configuration it was
+ * The agent an `agent.run.queued` beat brings into the session, with the configuration it was
  * resolved from. Throws when the agent names no saved definition.
  *
  * The definition holds only empty defaults (no tool list, instructions or goal)

@@ -10,8 +10,8 @@
 //
 //   - `session.created` carries the lead, so the `agents` projection rebuilds from the log
 //     alone. The reviewer takes part only when a run names it.
-//   - A `run.*` beat is a state transition, `{sessionId, runId, runVersion, previousState,
-//     newState, ...}`, with `previousState` absent only on `run.queued`.
+//   - An `agent.run.*` beat is a state transition, `{sessionId, runId, runVersion,
+//     previousState, newState, ...}`, with `previousState` absent only on `agent.run.queued`.
 //   - Nothing scripts `session.list`, which is a subscription and not a call a view makes.
 //
 // A reply is scripted only when a composer control issues that call to a real daemon method,

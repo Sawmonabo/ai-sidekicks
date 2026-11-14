@@ -525,7 +525,7 @@ describe("browser — a long table drawn as a window over its rows", () => {
     const { scroller } = await mountTranscriptFeed(
       openPagedSessionStore(0, 0, undefined, (index) => ({
         ...pagedSessionEventAt(index),
-        kind: "assistant.message",
+        kind: "agent.message.sent",
         payload: { contentType: "text/markdown" },
         content: projectedContentOf({ status: "available", body: reply }),
       })),

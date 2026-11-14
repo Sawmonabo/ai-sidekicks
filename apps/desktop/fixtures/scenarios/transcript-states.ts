@@ -26,8 +26,9 @@
 //   - A cost or token reading. No meter is on the transcript frame, the run groups or the
 //     seams; `concurrent-streaming.ts` moves the meter.
 //
-// `assistant.*` and `tool.*` payloads describe their body and never carry it; the body is stored
-// beside the beat, as `content_payload` holds it, and a read returns it with its row.
+// `agent.message.*`, `agent.thinking.*` and `agent.toolCall.*` payloads describe their body and
+// never carry it; the body is stored beside the beat, as `content_payload` holds it, and a read
+// returns it with its row.
 
 import {
   composeScenarioInstant,

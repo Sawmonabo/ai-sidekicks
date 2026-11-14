@@ -124,7 +124,7 @@ describe("browser — a press on a run group header holds the header where it st
     // The control: a box that does not scroll has no scroll position for a hold to move.
     expect(scrollContainer.scrollHeight).toBeGreaterThan(scrollContainer.clientHeight);
 
-    for (const runState of ["run.completed", "run.running"]) {
+    for (const runState of ["agent.run.completed", "agent.run.running"]) {
       // The list mounts only the rows near the view, so the reader scrolls down from the top until
       // the header is drawn.
       await changeLayout(() => {
@@ -169,7 +169,7 @@ describe("browser — a press on a run group header holds the header where it st
   it("opens the group ending the log at the tail with its header where it stood", async () => {
     const mounted = await mountPane(openSessionStoreWithLiveRunAtTail());
     const { scrollContainer } = mounted;
-    await pressHeader(mounted, "run.running");
+    await pressHeader(mounted, "agent.run.running");
     await changeLayout(() => {
       readerScrollsTo(scrollContainer, scrollContainer.scrollHeight - scrollContainer.clientHeight);
     });
@@ -178,18 +178,20 @@ describe("browser — a press on a run group header holds the header where it st
       scrollContainer.scrollHeight - scrollContainer.clientHeight - scrollContainer.scrollTop,
     ).toBeLessThanOrEqual(HELD_TOLERANCE_PX);
     expect(scrollContainer.scrollTop).toBeGreaterThan(0);
-    const offsetAtTailPx = headerOffsetPx(mounted, "run.running");
+    const offsetAtTailPx = headerOffsetPx(mounted, "agent.run.running");
     const scrollHeightFoldedPx = scrollContainer.scrollHeight;
 
     // The open lays the group's rows out below its header at the end of the log; the list's anchor
     // at its end would lift the header by their height, and the press holds it instead.
-    await pressHeader(mounted, "run.running");
+    await pressHeader(mounted, "agent.run.running");
 
-    expect(headerButtonOf(mounted.pane, "run.running").getAttribute("aria-expanded")).toBe("true");
+    expect(headerButtonOf(mounted.pane, "agent.run.running").getAttribute("aria-expanded")).toBe(
+      "true",
+    );
     // The control: the open grew the list, so the end anchor had height to lift the header by.
     expect(scrollContainer.scrollHeight).toBeGreaterThan(scrollHeightFoldedPx);
-    expect(Math.abs(headerOffsetPx(mounted, "run.running") - offsetAtTailPx)).toBeLessThanOrEqual(
-      HELD_TOLERANCE_PX,
-    );
+    expect(
+      Math.abs(headerOffsetPx(mounted, "agent.run.running") - offsetAtTailPx),
+    ).toBeLessThanOrEqual(HELD_TOLERANCE_PX);
   });
 });

@@ -3,7 +3,7 @@
 // strict session event check (`beat/shape.ts`), so no leg here repeats it.
 //
 // - The run state machine's transition table: a self-transition passes every check.
-// - The projection `projection.fixture.ts` delivers to a `run.subscribeState` subscriber, called
+// - The projection `projection.fixture.ts` delivers to an `agent.run.subscribe` subscriber, called
 //   rather than copied.
 
 import { projectRunStateStreamDelivery } from "#renderer/services/run-streams/projection.fixture.js";

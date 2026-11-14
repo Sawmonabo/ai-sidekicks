@@ -164,7 +164,7 @@ function HeldToolOutput(props: {
       [
         sampleRunRow({
           id: rowKey,
-          type: "tool.result",
+          type: "agent.toolCall.completed",
           content: { status: "available", body: props.body },
         }),
       ],

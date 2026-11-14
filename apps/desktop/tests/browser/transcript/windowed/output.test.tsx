@@ -340,7 +340,7 @@ describe("browser — a long command output drawn as a window over its lines", (
     const body = printed.join("\n");
     const toolRow = sampleRunRow({
       id: ROW_KEY,
-      type: "tool.result",
+      type: "agent.toolCall.completed",
       content: { status: "available", body },
     });
     const { row } = await mountInRow(

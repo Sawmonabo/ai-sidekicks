@@ -7,17 +7,17 @@
 // "streaming".
 //
 // A run is streaming at a point in the script when both hold:
-//   - its latest `run_lifecycle` transition put it in `running`, and
-//   - at least one more `assistant_output` or `tool_activity` beat comes before it leaves
+//   - its latest `runLifecycle` transition put it in `running`, and
+//   - at least one more `agentOutput` or `toolActivity` beat comes before it leaves
 //     that state.
 // The second condition is the load-bearing one: a run in `running` with nothing left to say is
 // a lane the transcript draws and does not animate, and counting it would let four idle runs
 // satisfy a budget about four streaming ones.
 //
 // Categories are read from the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) rather than a
-// `kind.startsWith("run.")` test: the census is the wire's own answer, a prefix test a guess.
+// `kind.startsWith("agent.run.")` test: the census is the wire's own answer, a prefix test a guess.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/category-by-type";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { ScenarioBeat } from "#fixtures/scenario.js";
 
@@ -76,7 +76,7 @@ export function findStreamingStretch(
  */
 interface RunningSpan {
   readonly runId: string;
-  /** Index of the `run.running` beat that opened the span. */
+  /** Index of the `agent.run.running` beat that opened the span. */
   readonly startIndex: number;
   /** Index of the transition that closed it, or the script length if it never did. */
   endIndex: number;
@@ -111,11 +111,11 @@ function collectRunningSpans(beats: readonly ScenarioBeat[]): readonly RunningSp
       continue;
     }
     const category = categoryOf(beat);
-    if (category === "run_lifecycle") {
+    if (category === "runLifecycle") {
       const newState = readNewState(beat);
       if (newState === undefined) {
-        // A non-state run row (`run.rolled_back` and its siblings) reports no transition, so it
-        // neither opens nor closes a span.
+        // A non-state run row (`agent.run.rolledBack` and its siblings) reports no transition, so
+        // it neither opens nor closes a span.
         continue;
       }
       const openSpan = openSpanByRunId.get(runId);
@@ -135,7 +135,7 @@ function collectRunningSpans(beats: readonly ScenarioBeat[]): readonly RunningSp
       }
       continue;
     }
-    if (category === "assistant_output" || category === "tool_activity") {
+    if (category === "agentOutput" || category === "toolActivity") {
       openSpanByRunId.get(runId)?.outputIndices.push(beatIndex);
     }
   }

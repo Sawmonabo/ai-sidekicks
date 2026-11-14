@@ -13,13 +13,16 @@ import { RereadableRefusalError } from "#renderer/lib/refusal/contract.js";
 import { reportTripwire } from "#renderer/lib/tripwires/registry.js";
 import { wireRejectionToError } from "#renderer/lib/wire/errors.js";
 
-/** What a boundary wraps, what to call it when it fails, and an optional fallback. */
+/** What a boundary wraps, what to call it when it fails, and what its line stands in. */
 export interface ErrorBoundaryProps {
   /** What failed, in the person's words: "The transcript", "The inspector". */
   readonly regionName: string;
   readonly children: ReactNode;
-  /** Rendered instead of the default line, when a region wants its own. */
-  readonly fallback?: (error: Error, retry: () => void) => ReactNode;
+  /**
+   * Draws the region's own chrome around the line that stands in for it, so a pane that failed
+   * keeps its header and its close; absent, the line stands alone.
+   */
+  readonly frame?: (line: ReactNode) => ReactNode;
   /** The window's clock, from `useClock()`, which delays a read asked again's loading line. */
   readonly clock: Clock;
 }
@@ -67,13 +70,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         </div>
       );
     }
-    const retry = (): void => {
-      this.setState((previous) => ({ error: undefined, attempt: previous.attempt + 1 }));
-    };
-    if (this.props.fallback !== undefined) {
-      return this.props.fallback(error, retry);
-    }
-    // A read that failed is asked again, and the region drawn again once it has answered.
+    const line = this.#lineFor(error);
+    return this.props.frame === undefined ? line : this.props.frame(line);
+  }
+
+  // A read that failed is asked again, and the region drawn again once it has answered; any other
+  // throw reads as the region's failure line with its `Retry`.
+  #lineFor(error: Error): ReactNode {
     if (error instanceof RereadableRefusalError) {
       if (this.state.isReadingAgain) {
         return <LoadingNotice clock={this.props.clock} title={READING_AGAIN_WORDS} />;
@@ -88,7 +91,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         />
       );
     }
-    return <RenderFailureCard regionName={this.props.regionName} onRetry={retry} />;
+    return (
+      <RenderFailureCard
+        regionName={this.props.regionName}
+        onRetry={() => {
+          this.setState((previous) => ({ error: undefined, attempt: previous.attempt + 1 }));
+        }}
+      />
+    );
   }
 
   // One read asked again at a time; its answer draws the region again.

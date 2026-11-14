@@ -236,7 +236,7 @@ function toolRunEventAt(index: number): ProjectedSessionEvent {
   if (position === 0 || position === EVENTS_PER_RUN - 1) {
     return {
       ...common,
-      kind: position === 0 ? "run.running" : "run.completed",
+      kind: position === 0 ? "agent.run.running" : "agent.run.completed",
       payload: {
         sessionId: PAGED_SESSION_ID,
         runId,
@@ -246,7 +246,7 @@ function toolRunEventAt(index: number): ProjectedSessionEvent {
   }
   return {
     ...common,
-    kind: "tool.invoked",
+    kind: "agent.toolCall.invoked",
     payload: {
       sessionId: PAGED_SESSION_ID,
       runId,

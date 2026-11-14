@@ -155,5 +155,5 @@ export const ATTENTION_SUBJECT = "notifications";
  * attention read's own sentence. The still-reading and failed phases map to nothing.
  */
 export function answeredReadingStates(reading: AnsweredAttentionReading): readonly ReadingState[] {
-  return [unreadableDeliveryReading(reading.droppedCount, undefined)];
+  return [unreadableDeliveryReading(reading.droppedCount)];
 }
