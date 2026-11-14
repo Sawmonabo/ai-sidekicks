@@ -55,9 +55,10 @@ use crate::transcript::turn_attribution::{RunTurnReads, TurnAttributionError};
 
 /// The statements the cursors prepare on a pooled connection: a run's row, a session's run ids and
 /// their bindings for its leg, the run's rollbacks and its turn starts and steers its standing is
-/// read from, and a moved binding's row with the session's agents and the bindings they ride.
+/// read from, and a moved binding's row with the session's agents, the runs above them and the
+/// bindings they ride.
 pub const RUN_BINDING_CURSORS_STATEMENT_CAPACITY: usize =
-    3 + 2 + 2 + AGENT_TREE_SWEEP_STATEMENT_CAPACITY;
+    3 + 2 + 2 + 1 + AGENT_TREE_SWEEP_STATEMENT_CAPACITY;
 
 /// Why a binding was not recorded or its cursor not opened; a binding whose cursor did not open
 /// is not recorded, and one whose row was not written keeps no cursor.
@@ -543,14 +544,15 @@ impl RunBindingCursors {
         Ok(held)
     }
 
-    // The bindings of `binding_id`'s provider that a live or interrupted agent below its session's
-    // lead rides, other than `binding_id` and those already on `to`: a helper the binding of the
-    // run it runs under, which an earlier lead run may have left it on, and a bridged or workflow
-    // run its own. None for a binding with no row or a run no session holds.
+    // The bindings of `binding_id`'s provider on the account it leaves, other than `binding_id`,
+    // that its session's agents ride: each binding of its own run, which a copy asked on an older
+    // binding of it rides, and each binding of the run a live or interrupted agent below the lead
+    // runs under or of any run above that one, so a helper whose parent helper ended still finds
+    // the lead's. A run pinned to another account keeps its binding there. None for a binding
+    // with no row or a run no session holds.
     async fn read_riders(
         &self,
         binding_id: RuntimeBindingId,
-        to: ProviderAccountId,
     ) -> Result<Vec<RuntimeBindingId>, RunBindingCursorError> {
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
         self.pool
@@ -558,33 +560,47 @@ impl RunBindingCursors {
                 let Some(moved) = read_binding(reader, &binding_id)? else {
                     return Ok::<_, RunBindingCursorError>(Vec::new());
                 };
-                let Some(run) = RunStateReader::new(reader).read_run(&moved.run_id)? else {
+                let runs = RunStateReader::new(reader);
+                let Some(run) = runs.read_run(&moved.run_id)? else {
                     return Ok(Vec::new());
                 };
                 let read_bound =
                     session_read_bound(&*read_damaged_from_sequence, &run.session_id, None);
-                let ridden: HashSet<RunId> = read_descendants(
+                let mut ridden = HashSet::from([moved.run_id]);
+                for descendant in read_descendants(
                     reader,
                     &run.session_id,
                     &SweepRoot::Session,
                     None,
                     read_bound,
-                )?
-                .into_iter()
-                .map(|descendant| match descendant.stop {
-                    DescendantStop::Run { run_id } => run_id,
-                    DescendantStop::Helper {
-                        carrying_run_id, ..
-                    } => carrying_run_id,
-                })
-                .collect();
+                )? {
+                    // A bridged or workflow run rides its own binding; a helper the one its
+                    // nearest bound ancestor holds, found by the walk up.
+                    let mut walked = match descendant.stop {
+                        DescendantStop::Run { run_id } => {
+                            ridden.insert(run_id);
+                            None
+                        }
+                        DescendantStop::Helper {
+                            carrying_run_id, ..
+                        } => Some(carrying_run_id),
+                    };
+                    while let Some(run_id) = walked
+                        && ridden.insert(run_id)
+                    {
+                        walked = runs
+                            .read_run_parentage(&run_id)?
+                            .and_then(|parentage| parentage.parent_run_id);
+                    }
+                }
                 let ridden: Vec<RunId> = ridden.into_iter().collect();
+                let left = &moved.spawn_config.provider_account_id;
                 Ok(read_bindings_of_runs(reader, &ridden)?
                     .into_iter()
                     .filter(|rider| {
                         rider.id != binding_id
                             && rider.provider_name == moved.provider_name
-                            && rider.spawn_config.provider_account_id != to
+                            && rider.spawn_config.provider_account_id == *left
                     })
                     .map(|rider| rider.id)
                     .collect())
@@ -662,30 +678,31 @@ impl RuntimeBindingWriter for RunBindingCursors {
         self.store.keep_recovery_data(binding_id, runtime_metadata)
     }
 
-    /// Moves the binding and the bindings its session's helpers ride in one write, then their
-    /// cursors under one hold, so no usage is charged to the account the binding left between the
-    /// two. Fails with [`RuntimeBindingStoreError::NoRowToWrite`] when the binding has no row, and
-    /// as the helpers' read or the store's move fails, every cursor then left where it was.
+    /// Moves the binding and the bindings its session's agents ride on the account it leaves in
+    /// one write, then their cursors under one hold, so no usage is charged to the account the
+    /// binding left between the two. Fails with [`RuntimeBindingStoreError::NoRowToWrite`] when
+    /// the binding has no row, any rider found before its row went moving all the same, row and
+    /// cursor; fails as the riders' read or the store's move fails, every row and cursor then
+    /// left where it was.
     fn move_account(
         &self,
         binding_id: RuntimeBindingId,
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async move {
-            let riders = self
-                .read_riders(binding_id.clone(), provider_account_id.clone())
-                .await?;
-            if !self
+            let riders = self.read_riders(binding_id.clone()).await?;
+            let had_row = self
                 .store
                 .move_account(&binding_id, &riders, &provider_account_id)
-                .await?
-            {
+                .await?;
+            let mut epochs = lock(&self.epochs);
+            for rider in &riders {
+                epochs.move_account(rider, provider_account_id.clone());
+            }
+            if !had_row {
                 return Err(RuntimeBindingStoreError::NoRowToWrite { binding_id }.into());
             }
-            let mut epochs = lock(&self.epochs);
-            for moved in riders.iter().chain([&binding_id]) {
-                epochs.move_account(moved, provider_account_id.clone());
-            }
+            epochs.move_account(&binding_id, provider_account_id);
             Ok(())
         }
         .boxed()

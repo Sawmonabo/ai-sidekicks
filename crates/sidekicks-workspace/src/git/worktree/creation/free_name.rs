@@ -15,9 +15,9 @@ use sidekicks_contracts::place::Place;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 
+use super::undo::{delete_new_branch, undo_unrecorded_tree};
 use super::{
-    MadeTree, NameCollision, WorktreeCreationError, create_failed, delete_new_branch, refused,
-    undo_unrecorded_tree, with_undo_failures,
+    MadeTree, NameCollision, WorktreeCreationError, create_failed, refused, with_undo_failures,
 };
 use crate::git::branch_name_pattern::read_branch_name_refusal;
 use crate::git::process::{

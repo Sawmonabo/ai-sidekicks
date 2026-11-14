@@ -15,7 +15,8 @@ use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::stored_column::text_column;
 
-use super::{WorktreeCreationError, WorktreeCreator, remove_tree_without_git};
+use super::undo::remove_tree_without_git;
+use super::{WorktreeCreationError, WorktreeCreator};
 use crate::git::worktree::service::{RecordRetirementOptions, WorktreeServiceError};
 
 static SELECT_CREATING_WORKTREES_SQL: LazyLock<String> = LazyLock::new(|| {

@@ -107,13 +107,23 @@ pub enum RepoRefusal {
         /// The mount asked for; named in the message, not in the detail.
         repo_mount_id: RepoMountId,
     },
-    /// A move to a picked folder that does not hold the mount's repository, or of a mount whose
-    /// repository has no recorded first commit to know it by (`repoMount.repositoryDiffers`).
+    /// A move to a picked folder that does not hold the mount's repository
+    /// (`repoMount.repositoryDiffers`).
     #[error(
         "repo mount {} cannot move: the picked folder does not hold its repository",
         .repo_mount_id
     )]
     RepositoryDiffers {
+        /// The mount asked for; named in the message, not in the detail.
+        repo_mount_id: RepoMountId,
+    },
+    /// A move of a mount that recorded no first commit to know its repository by
+    /// (`repoMount.repositoryUnknown`).
+    #[error(
+        "repo mount {} cannot move: it recorded no first commit to know its repository by",
+        .repo_mount_id
+    )]
+    RepositoryUnknown {
         /// The mount asked for; named in the message, not in the detail.
         repo_mount_id: RepoMountId,
     },
@@ -250,6 +260,9 @@ impl From<RepoRefusal> for DomainError {
             ),
             RepoRefusal::RepositoryDiffers { repo_mount_id: _ } => {
                 (RefusalCode::RepoMountRepositoryDiffers, None)
+            }
+            RepoRefusal::RepositoryUnknown { repo_mount_id: _ } => {
+                (RefusalCode::RepoMountRepositoryUnknown, None)
             }
             RepoRefusal::ReattachConflict {
                 running_session_id,

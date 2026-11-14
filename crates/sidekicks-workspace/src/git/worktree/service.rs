@@ -315,7 +315,7 @@ impl WorktreeService {
                             id: text_column(row, 0, |text| RepoMountId::new(&text))?,
                             canonical_root: text_column(row, 1, FilesystemPath::new)?,
                             project_id: text_column(row, 2, |text| ProjectId::new(&text))?,
-                            place: place_of(row, 3)?,
+                            place: place_column(row, 3)?,
                         })
                     })
                     .optional()
@@ -555,7 +555,9 @@ impl WorktreeService {
             .read(ReadLength::Short, move |connection| {
                 connection
                     .prepare_cached(SELECT_WORKTREE_SQL.as_str())?
-                    .query_row([id], |row| Ok((worktree_row_of(row)?, place_of(row, 7)?)))
+                    .query_row([id], |row| {
+                        Ok((worktree_row_of(row)?, place_column(row, 7)?))
+                    })
                     .optional()
                     .map_err(WorktreeServiceError::from)
             })
@@ -743,12 +745,6 @@ pub(crate) fn worktree_row_of(row: &Row<'_>) -> rusqlite::Result<WorktreeRow> {
         fs_root: text_column(row, 5, FilesystemPath::new)?,
         state: text_column(row, 6, closed_word)?,
     })
-}
-
-/// A mount's `place` column at `index`, which holds the place's wire JSON. Fails when the column
-/// is missing or holds no place.
-pub(crate) fn place_of(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<Place>> {
-    place_column(row, index)
 }
 
 fn read_unreleased_runs(

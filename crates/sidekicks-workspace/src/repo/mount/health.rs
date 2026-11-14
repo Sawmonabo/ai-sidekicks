@@ -19,7 +19,11 @@
 //!   `healthy`, and leaves the verdict unchanged on a re-probe. A probe that ran out of time keeps
 //!   running, and the mount's next pass waits on it rather than start another beside it.
 //! - The stop ends every pass at once and nothing is sent after it.
+//! - A project mount that reads `healthy` with no first commit recorded, attached before one was
+//!   kept or while its repository had none, records it the first time its repository has one, so
+//!   a later move can know the repository wherever its folder goes.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -44,7 +48,9 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{StoredJsonFault, place_column, text_column};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -58,7 +64,8 @@ use crate::projector::{
 use crate::repo::errors::RepoRefusal;
 use crate::repo::root_resolver::RepoRootResolver;
 use crate::row_guards::{
-    CHECKOUT_ROOT_METADATA_PATH, COMMON_DIR_METADATA_PATH, probe_filesystem_path,
+    CHECKOUT_ROOT_METADATA_PATH, COMMON_DIR_METADATA_PATH, ROOT_COMMIT_METADATA_PATH,
+    probe_filesystem_path,
 };
 use crate::trust_envelope::{components_equal, is_contained_within};
 
@@ -68,9 +75,21 @@ pub const REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY: usize = 5;
 // What every attached-mount read selects, in the order `attached_mount_of` reads it.
 static ATTACHED_MOUNT_COLUMNS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT id, canonical_root, place, json_extract(metadata, '{COMMON_DIR_METADATA_PATH}')
+        "SELECT id, canonical_root, place, json_extract(metadata, '{COMMON_DIR_METADATA_PATH}'),
+        json_extract(metadata, '{ROOT_COMMIT_METADATA_PATH}') IS NOT NULL
    FROM repo_mounts
   WHERE state = '{}'",
+        <&'static str>::from(RepoMountState::Attached)
+    )
+});
+
+// The first commit of an attached mount that recorded none, written only while it has none.
+static RECORD_ROOT_COMMIT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE repo_mounts
+    SET metadata = json_set(metadata, '{ROOT_COMMIT_METADATA_PATH}', @root_commit)
+  WHERE id = @repo_mount_id AND state = '{}'
+    AND json_extract(metadata, '{ROOT_COMMIT_METADATA_PATH}') IS NULL",
         <&'static str>::from(RepoMountState::Attached)
     )
 });
@@ -215,6 +234,26 @@ pub enum MountPassFailure {
         #[source]
         source: JoinError,
     },
+    /// A healthy mount's first commit could not be read; the next pass that finds it healthy
+    /// reads it again.
+    #[error("repo mount {repo_mount_id}: its first commit could not be read")]
+    RootCommitRead {
+        /// The mount.
+        repo_mount_id: RepoMountId,
+        /// Why.
+        #[source]
+        source: RepoRefusal,
+    },
+    /// A healthy mount's first commit was read and not recorded; the next pass that finds it
+    /// healthy records it.
+    #[error("repo mount {repo_mount_id}: its first commit could not be recorded")]
+    RootCommitWrite {
+        /// The mount.
+        repo_mount_id: RepoMountId,
+        /// Why.
+        #[source]
+        source: WriteError,
+    },
     /// A changed verdict could not be sent to one or more sessions on the mount; each is sent
     /// again on the mount's next pass.
     #[error("repo mount {repo_mount_id}: a health change did not reach every session on it")]
@@ -277,6 +316,7 @@ struct AttachedMount {
     canonical_root: PathBuf,
     place: Option<Place>,
     common_dir_anchor: Option<PathBuf>,
+    has_root_commit: bool,
 }
 
 impl AttachedMount {
@@ -311,6 +351,7 @@ struct MountMemory {
 /// ([`reprobe_mounts_containing`](Self::reprobe_mounts_containing)). See the module doc.
 pub struct RepoMountHealthReprobe {
     reads: Arc<DatabaseReadPool>,
+    writer: Arc<DatabaseWriter>,
     events: Arc<WorkspaceEventEmitter>,
     resolver: RepoRootResolver,
     stop: CancellationToken,
@@ -320,16 +361,19 @@ pub struct RepoMountHealthReprobe {
 }
 
 impl RepoMountHealthReprobe {
-    /// The re-probe reading rows through `reads`, asking `resolver` for each root's repository and
-    /// sending each change through `events`; canceling `stop` ends every pass and every send.
+    /// The re-probe reading rows through `reads` and recording a healthy mount's first commit
+    /// through `writer`, asking `resolver` for each root's repository and sending each change
+    /// through `events`; canceling `stop` ends every pass and every send.
     pub fn new(
         reads: Arc<DatabaseReadPool>,
+        writer: Arc<DatabaseWriter>,
         events: Arc<WorkspaceEventEmitter>,
         resolver: RepoRootResolver,
         stop: CancellationToken,
     ) -> Self {
         Self {
             reads,
+            writer,
             events,
             resolver,
             stop,
@@ -543,9 +587,50 @@ impl RepoMountHealthReprobe {
                 }
             }
         }
-        settle_all(sends, "sending a repo mount's health change")
+        let sent = settle_all(sends, "sending a repo mount's health change")
             .map(|_sent| ())
             .map_err(|source| MountPassFailure::Send {
+                repo_mount_id,
+                source,
+            });
+        let recorded = if verdict == MountVerdict::Healthy {
+            self.record_root_commit(&mount).await
+        } else {
+            Ok(())
+        };
+        sent.and(recorded)
+    }
+
+    // Records the first commit of a healthy project mount that recorded none, once its repository
+    // has one; a managed mount has no repository identity to keep.
+    async fn record_root_commit(&self, mount: &AttachedMount) -> Result<(), MountPassFailure> {
+        if mount.has_root_commit || mount.common_dir_anchor.is_none() || self.stop.is_cancelled() {
+            return Ok(());
+        }
+        let repo_mount_id = mount.id;
+        let Some(root_commit) = self
+            .resolver
+            .read_root_commit(&mount.canonical_root)
+            .await
+            .map_err(|source| MountPassFailure::RootCommitRead {
+                repo_mount_id,
+                source,
+            })?
+        else {
+            return Ok(());
+        };
+        self.writer
+            .write(vec![WriteStatement {
+                sql: Cow::Borrowed(RECORD_ROOT_COMMIT_SQL.as_str()),
+                bindings: StatementBindings::Named(vec![
+                    text_binding("@repo_mount_id", repo_mount_id.text().as_str()),
+                    text_binding("@root_commit", &root_commit),
+                ]),
+                expected_row_count: None,
+            }])
+            .await
+            .map(drop)
+            .map_err(|source| MountPassFailure::RootCommitWrite {
                 repo_mount_id,
                 source,
             })
@@ -669,6 +754,7 @@ fn attached_mount_of(row: &Row<'_>) -> rusqlite::Result<AttachedMount> {
         canonical_root: PathBuf::from(row.get::<_, String>(1)?),
         place: place_column(row, 2)?,
         common_dir_anchor: row.get::<_, Option<String>>(3)?.map(PathBuf::from),
+        has_root_commit: row.get(4)?,
     })
 }
 

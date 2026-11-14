@@ -67,7 +67,7 @@ use tokio::runtime::Handle;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
-use crate::daemon::process::start_error::DaemonStartError;
+use crate::daemon::process::start::error::DaemonStartError;
 use crate::daemon::process::stop::{DaemonStopFailure, end_start_tasks};
 use crate::ipc::handlers::provider_account::ProviderAccountMethodSources;
 use crate::ipc::handlers::provider_account::notifications::ProviderAccountNotifications;

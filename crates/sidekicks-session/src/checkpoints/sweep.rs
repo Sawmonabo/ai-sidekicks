@@ -301,9 +301,9 @@ impl CheckpointSweep {
     /// One pass: the owed folders, the unused shadows, then every owner's capture folders, each
     /// part run whatever the one before it answered, its blocking work and reads charged to the
     /// meter of the metered run whose task calls, if any. A pass `stop` cuts answers its counts so
-    /// far; a pair under way when it fires is cut, and the next pass clears what the cut left. Answers its counts beside the first
-    /// part's read or write failure, once every part ran; a pair whose pass failed is logged and
-    /// the pass goes on.
+    /// far; a pair under way when it fires is cut, and the next pass clears what the cut left.
+    /// Answers its counts beside the first part's read or write failure, once every part ran; a
+    /// pair whose pass failed is logged and the pass goes on.
     pub async fn run_pass(
         &self,
         stop: &CancellationToken,

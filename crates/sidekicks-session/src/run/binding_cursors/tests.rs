@@ -11,6 +11,7 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::{EpochPosition, RUN_START_POSITION};
@@ -37,6 +38,7 @@ use sidekicks_store::events::session::insert::{
 
 use super::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursorError, RunBindingCursors};
 use crate::agent_tree::store::{NewAgentTreeNode, insert_node};
+use crate::agents::projection::test_fixture::write_log_row;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::test_fixture::insert_run;
 use crate::run::epochs::{ConfirmedCut, DeliveryAttribution, ExecutionEpochs};
@@ -85,22 +87,49 @@ impl Harness {
         run_id
     }
 
-    // The provider's helper `subagent_id`, running under `parent`, with its node in the tree.
-    fn running_helper(&self, parent: RunId, subagent_id: &str) {
+    // A run in `state` under `parent`, reached as `reached_by` names.
+    fn child_run(&self, parent: RunId, reached_by: ChildRunProvenance, state: &str) -> RunId {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        let reader = self.database.reader();
-        reader
+        self.database
+            .reader()
             .execute(
                 "INSERT INTO runs
                    (run_id, session_id, parent_run_id, reached_by, state, run_version)
-                 VALUES (?1, ?2, ?3, 'providerSubagent', 'running', 1)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, 1)",
                 params![
                     run_id.text().as_str(),
                     self.session_id.text().as_str(),
                     parent.text().as_str(),
+                    <&'static str>::from(reached_by),
+                    state,
                 ],
             )
-            .expect("the test writes the helper's run");
+            .expect("the test writes the child's run");
+        run_id
+    }
+
+    // A running bridged run under `parent`, queued for an agent of its own as its log says.
+    fn running_bridged_run(&self, parent: RunId) -> RunId {
+        let run_id = self.child_run(parent, ChildRunProvenance::BridgeRun, "running");
+        write_log_row(
+            &self.database.reader(),
+            self.session_id,
+            1,
+            (
+                SessionEventType::AgentRunQueued,
+                &json!({ "agentId": mint_uuid_v7().to_string() }),
+            ),
+            Some(run_id),
+            WireInstant::now().as_str(),
+        );
+        run_id
+    }
+
+    // The provider's helper `subagent_id` under `parent`, its own run in `state`, with its node in
+    // the tree; answers that own run.
+    fn helper(&self, parent: RunId, subagent_id: &str, state: &str) -> RunId {
+        let run_id = self.child_run(parent, ChildRunProvenance::ProviderSubagent, state);
+        let reader = self.database.reader();
         let node = NewAgentTreeNode {
             child_handle: ChildHandle::new(format!("handle-{subagent_id}"))
                 .expect("a child handle"),
@@ -120,6 +149,7 @@ impl Harness {
             started_at: WireInstant::now(),
         };
         run_statement(&reader, &insert_node(&node)).expect("the test writes the helper's node");
+        run_id
     }
 
     // The account binding `binding_id`'s row names.
@@ -142,8 +172,21 @@ impl Harness {
 
     // Records a binding of `run_id` through the cursors.
     async fn bind(&self, run_id: RunId) -> RuntimeBindingId {
+        self.bind_on(run_id, test_provider_account_id()).await
+    }
+
+    // Records a binding of `run_id` on `provider_account_id` through the cursors.
+    async fn bind_on(
+        &self,
+        run_id: RunId,
+        provider_account_id: ProviderAccountId,
+    ) -> RuntimeBindingId {
+        let input = CreateRuntimeBindingInput {
+            spawn_config: spawn_config_on(provider_account_id),
+            ..binding_of(run_id)
+        };
         self.cursors
-            .create(self.session_id, binding_of(run_id))
+            .create(self.session_id, input)
             .await
             .expect("the binding is recorded")
             .id
@@ -582,12 +625,15 @@ async fn a_binding_moved_onto_another_account_holds_a_live_turn_there() {
 // A lead's binding a driver moves onto another account carries, in the same write, the binding of
 // each run a live helper of its session runs under: the binding of an earlier lead run a helper
 // it left running still rides reads the new account in its row, and a usage frame on it is charged
-// to the new account the moment the lead's move returns, with no write of its own after; an ended
-// lead run's binding no helper rides stays. A helper charged to the old account between the two
-// writes spends the limit its lead left. Killed by the helpers' bindings moved in a later write or
-// not at all (both read the old account), by a helper's own run read in place of the run it runs
-// under (it has no binding, so nothing rides), by the cursors left on the old account, and by
-// every binding of the session moved (the ended one moves).
+// to the new account the moment the lead's move returns, with no write of its own after; so does
+// the lead binding a helper rides whose parent helper has ended, and an older binding of the
+// moved lead's own run, which a copy asked before its relaunch rides. An ended lead run's binding
+// no agent rides stays. A helper charged to the old account between the two writes spends the
+// limit its lead left. Killed by the helpers' bindings moved in a later write or not at all, by a
+// helper's own run read in place of the run it runs under (it has no binding, so nothing rides),
+// by the walk up the parent runs dropped (the nested helper's lead stays), by the moved run's
+// own older binding left out, by the cursors left on the old account, and by every binding of the
+// session moved (the ended one moves).
 #[tokio::test]
 async fn a_moved_binding_carries_the_bindings_its_helpers_ride_in_the_same_write() {
     let harness = Harness::new().await;
@@ -598,10 +644,15 @@ async fn a_moved_binding_carries_the_bindings_its_helpers_ride_in_the_same_write
     let ended = harness.bind(harness.run_in("completed")).await;
     let earlier = harness.run_in("completed");
     let left_running_on = harness.bind(earlier).await;
+    let nested_lead = harness.run_in("completed");
+    let nested_on = harness.bind(nested_lead).await;
+    let ended_parent = harness.helper(nested_lead, "helper-parent-ended", "completed");
+    harness.helper(ended_parent, "helper-nested", "running");
     let current = harness.run();
+    let before_relaunch = harness.bind(current).await;
     let current_binding = harness.bind(current).await;
-    harness.running_helper(earlier, "helper-left-running");
-    harness.running_helper(current, "helper-current");
+    harness.helper(earlier, "helper-left-running", "running");
+    harness.helper(current, "helper-current", "running");
 
     harness
         .cursors
@@ -609,10 +660,43 @@ async fn a_moved_binding_carries_the_bindings_its_helpers_ride_in_the_same_write
         .await
         .expect("the binding moves");
 
-    assert_eq!(harness.charged_account(&left_running_on), to);
-    assert_eq!(harness.charged_account(&current_binding), to);
-    assert_eq!(harness.stored_account(&left_running_on), to);
-    assert_eq!(harness.stored_account(&current_binding), to);
+    for moved in [
+        &left_running_on,
+        &nested_on,
+        &before_relaunch,
+        &current_binding,
+    ] {
+        assert_eq!(harness.stored_account(moved), to);
+        assert_eq!(harness.charged_account(moved), to);
+    }
     assert_eq!(harness.stored_account(&ended), old);
     assert_eq!(harness.charged_account(&ended), old);
+}
+
+// A bridged run pinned to another account keeps its binding there when its lead moves, and so
+// does the binding its helper rides: pinned means pinned. Killed by the riders read off the
+// account the lead moves to (the pinned run's binding, not on it, moves) and by every rider moved
+// whatever its account.
+#[tokio::test]
+async fn a_run_pinned_to_another_account_stays_on_it_when_its_lead_moves() {
+    let harness = Harness::new().await;
+    let (pinned, to) = (
+        ProviderAccountId::new("account-pinned".to_owned()).expect("the test's account id"),
+        ProviderAccountId::new("account-2".to_owned()).expect("the test's account id"),
+    );
+    let lead = harness.run();
+    let lead_binding = harness.bind(lead).await;
+    let bridged = harness.running_bridged_run(lead);
+    let pinned_binding = harness.bind_on(bridged, pinned.clone()).await;
+    harness.helper(bridged, "helper-of-the-pinned-run", "running");
+
+    harness
+        .cursors
+        .move_account(lead_binding.clone(), to.clone())
+        .await
+        .expect("the binding moves");
+
+    assert_eq!(harness.stored_account(&lead_binding), to);
+    assert_eq!(harness.stored_account(&pinned_binding), pinned);
+    assert_eq!(harness.charged_account(&pinned_binding), pinned);
 }

@@ -597,8 +597,7 @@ impl CodexSwitchingAccount {
 
 // Carries `provider_account_id` on `sign_in` in `carried`, noting the change in `switches`,
 // keeping the token its home could not renew while the account stays the same on its tokens and
-// forgetting it otherwise. Answers the
-// account carried before, `None` where none was.
+// forgetting it otherwise. Answers the account carried before, `None` where none was.
 fn carry(
     carried: &Mutex<Option<CarriedAccount>>,
     switches: &AccountSwitches,

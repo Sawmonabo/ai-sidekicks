@@ -291,12 +291,17 @@ impl RepoRootResolver {
     }
 
     /// Points the linked worktrees of the repository whose main checkout is `root` back at it, as
-    /// git's own `worktree repair` does once the main checkout has moved; a tree git cannot repair
-    /// stays unlisted. Fails as the git call fails, a tree it could not repair among them.
-    pub(crate) async fn repair_working_trees(&self, root: &Path) -> Result<(), GitError> {
-        let call = GitCall::read(in_folder(root, &["worktree", "repair"]))
+    /// git's own `worktree repair` does once the main checkout has moved. Fails with `notReadable`
+    /// when the call passes its bound, and `vcsError` when git could not start or did not repair
+    /// every tree, the cause kept in the service log.
+    pub(crate) async fn repair_working_trees(&self, root: &Path) -> Result<(), RepoRefusal> {
+        let call = GitCall::write(in_folder(root, &["worktree", "repair"]))
             .with_timeout(Some(ROOT_RESOLUTION_GIT_TIMEOUT));
-        self.git.run(None, call).await.map(drop)
+        self.git
+            .run(None, call)
+            .await
+            .map(drop)
+            .map_err(|error| vcs_refusal(&error))
     }
 
     // The list's first record, each link resolved, when git asked from inside it names it as its

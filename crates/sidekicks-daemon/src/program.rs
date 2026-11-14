@@ -39,7 +39,7 @@ use crate::daemon::start::{ServiceStart, run_service};
 use crate::data_acts::erase::mode::run_data_erase_mode;
 use crate::data_acts::secrets_move::{run_keychain_check_mode, run_secrets_move_mode};
 
-pub use crate::daemon::process::start_options::ISOLATED_SERVICE_MODE;
+pub use crate::daemon::process::start::options::ISOLATED_SERVICE_MODE;
 
 /// SQLite's own shell, run with C arguments, its first the program's name; it answers the shell's
 /// exit code. `main` supplies it, since the shell is a C function only `main` may call.

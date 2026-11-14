@@ -589,6 +589,9 @@ refusal_codes! {
     /// `repoMount.move` refused, writing nothing, because the picked folder does not hold the
     /// lost mount's repository; the screen attaches that folder as its own project instead.
     RepoMountRepositoryDiffers = "repoMount.repositoryDiffers" (FailedPrecondition, 409);
+    /// `repoMount.move` refused, writing nothing, because the lost mount recorded no first commit
+    /// to know its repository by, so no picked folder can be checked against it.
+    RepoMountRepositoryUnknown = "repoMount.repositoryUnknown" (FailedPrecondition, 409);
     /// A path's canonical repository root could not be resolved, or a folder a request named
     /// (a mount, a clone's parent) names no complete location, does not exist or cannot be read.
     RepoMountRootResolutionFailed = "repoMount.rootResolutionFailed" (InvalidArgument, 422);

@@ -249,13 +249,14 @@ pub(crate) fn build_repo_services(
     let worktrees = Arc::new(WorktreeService::new(WorktreeServiceDeps {
         git: git.clone(),
         reads: Arc::clone(&reads),
-        writer,
+        writer: Arc::clone(&writer),
         events: Arc::clone(&worktree_events),
         occupancy: occupancy.clone(),
         worktrees_folder: worktrees_folder.clone(),
     }));
     let mount_health = Arc::new(RepoMountHealthReprobe::new(
         Arc::clone(&reads),
+        writer,
         Arc::clone(&workspace_events),
         RepoRootResolver::new(git.clone()),
         stop.clone(),

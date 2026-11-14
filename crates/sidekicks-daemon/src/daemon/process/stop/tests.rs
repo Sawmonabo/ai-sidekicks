@@ -5,7 +5,7 @@ use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 
 use super::DaemonStopReason::{self, Erase, Restart, Stop};
 use crate::daemon::process::database::DatabaseFileOpenError;
-use crate::daemon::process::start_error::DaemonStartError;
+use crate::daemon::process::start::error::DaemonStartError;
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
 
 // Each ask's reason and the intent the drivers are told for it: the person's stop replaces a

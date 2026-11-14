@@ -11,10 +11,11 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::worktree::lifecycle::{RemovedWorktreeId, WorktreeId};
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, place_column, text_column,
+};
 
 use crate::git::worktree::rows::{WorktreeRow, live_worktree_state_predicate};
-use crate::git::worktree::service::place_of;
 
 /// The statements `read_unfinished_discards` runs: the one listing read.
 pub const UNFINISHED_DISCARD_STATEMENT_CAPACITY: usize = 1;
@@ -75,7 +76,7 @@ fn unfinished_kept_worktree_of(row: &Row<'_>) -> rusqlite::Result<UnfinishedKept
         removed_worktree_id: text_column(row, 0, |text| RemovedWorktreeId::new(&text))?,
         kept_folder: text_column(row, 3, FilesystemPath::new)?,
         canonical_root: text_column(row, 5, FilesystemPath::new)?,
-        place: place_of(row, 11)?,
+        place: place_column(row, 11)?,
         record_folder: optional_text_column(row, 4, FilesystemPath::new)?,
         worktree: live_tree_of(row, &original_path)?,
         original_path,

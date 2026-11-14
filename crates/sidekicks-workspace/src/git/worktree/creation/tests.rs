@@ -21,9 +21,10 @@ use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use tempfile::TempDir;
 
 use super::test_sources::{FixedNaming, NoSetupSteps, ScriptedLiveRuns, title_only_pattern};
+use super::undo::undo_unrecorded_tree;
 use super::{
     CreateWorktreeInput, LiveRunFolder, NameCollision, WorktreeCreationError, WorktreeCreator,
-    WorktreeCreatorDeps, WorktreeNameRequest, undo_unrecorded_tree,
+    WorktreeCreatorDeps, WorktreeNameRequest,
 };
 use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::process::{GitRunner, test_git_runner};

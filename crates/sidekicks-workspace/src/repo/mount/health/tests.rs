@@ -53,7 +53,7 @@ async fn a_changed_mount_health_reaches_each_session_once_and_a_failed_send_is_s
     let refused: Arc<Mutex<Option<SessionId>>> = Arc::default();
     let refusing = Arc::clone(&refused);
     let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
-        writer,
+        writer: Arc::clone(&writer),
         pool: Arc::clone(&reads),
         followers: Arc::new(SessionEventFollowers::default()),
         projection_statements: None,
@@ -112,6 +112,7 @@ async fn a_changed_mount_health_reaches_each_session_once_and_a_failed_send_is_s
     }
     let reprobe = RepoMountHealthReprobe::new(
         reads,
+        writer,
         Arc::new(WorkspaceEventEmitter::new(event_log)),
         RepoRootResolver::new(test_git_runner()),
         CancellationToken::new(),

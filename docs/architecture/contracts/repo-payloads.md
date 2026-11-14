@@ -113,8 +113,10 @@ interface RepoMountReattachResponse {
 // row at the picked root: git's `worktree repair` points the daemon's worktrees at the moved
 // repository, and the project's folder and every workspace path inside the old root follow the new
 // root. Refused with repoMount.repositoryDiffers when the folder holds another repository (the
-// screen then attaches it as its own project), repoMount.reattachRefused (reason identityMatches)
-// on a healthy mount, repoMount.rootResolutionFailed, repoMount.distributionNotFound,
+// screen then attaches it as its own project), repoMount.repositoryUnknown when the mount recorded
+// no first commit, repoMount.reattachRefused (reason identityMatches) on a healthy mount,
+// repoMount.rootResolutionFailed (also when git's worktree repair does not finish),
+// repoMount.distributionNotFound,
 // repoMount.alreadyAttached when another mount holds the repository or the folder, or
 // repoMount.reattachConflict while a run is live anywhere in the project. Answers a
 // `RepoMountReattachResponse`.

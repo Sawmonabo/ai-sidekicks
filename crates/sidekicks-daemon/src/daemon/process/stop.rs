@@ -29,7 +29,7 @@ use crate::daemon::process::database::{
     DatabaseFileCloseFailure, DatabaseFileOpenError, close_database_file,
 };
 use crate::daemon::process::providers::{ProvidersRegistrationStopFailure, shut_down_drivers};
-use crate::daemon::process::start_error::DaemonStartError;
+use crate::daemon::process::start::error::DaemonStartError;
 use crate::daemon::process::stop::mcp::{stop_mcp_settle, stop_mcp_sign_ins};
 use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess};
 use crate::daemon::stop_drain::describe_drain;

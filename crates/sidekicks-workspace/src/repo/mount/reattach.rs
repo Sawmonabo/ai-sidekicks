@@ -361,20 +361,12 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         self.refuse_identity_holder(repo_mount_id, &common_dir, &canonical_root)
             .await?;
         if !components_equal(&target.canonical_root, &mount.canonical_root) {
-            // A tree git cannot repair stays unlisted, so it is retired below and its workspace
-            // turns `rootLost`, as a re-attach leaves it; the move goes on.
-            if let Err(error) = self
-                .resolver
+            // A repair that did not finish refuses the move before its write, so no tree is
+            // retired over a failure that would pass; a tree the new folder's repository never
+            // held stays unlisted and is retired below.
+            self.resolver
                 .repair_working_trees(&target.canonical_root)
-                .await
-            {
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    %repo_mount_id,
-                    "git could not repair every worktree of a moved repository; each it left is \
-                     retired"
-                );
-            }
+                .await?;
         }
         let bindings = ReattachBindings {
             repo_mount_id,

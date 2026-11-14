@@ -26,10 +26,11 @@ use sidekicks_std::file::remove_tree_awaited;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::place_column;
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    RecordRetirementOptions, WORKTREE_ROW_COLUMNS, WorktreeService, WorktreeServiceError, place_of,
+    RecordRetirementOptions, WORKTREE_ROW_COLUMNS, WorktreeService, WorktreeServiceError,
     worktree_row_of,
 };
 use crate::folder::canonical_path::canonical_folder_path;
@@ -491,7 +492,7 @@ fn read_uncleaned_retired(
         .query_map([], |row| {
             Ok(RetiredFolderRow {
                 row: worktree_row_of(row)?,
-                place: place_of(row, 7)?,
+                place: place_column(row, 7)?,
                 retired_risk_digest: row.get(8)?,
                 is_cleanup_started: row.get::<_, Option<String>>(9)?.is_some(),
                 is_mount_attached: row.get(10)?,

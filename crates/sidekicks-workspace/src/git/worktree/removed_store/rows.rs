@@ -24,13 +24,12 @@ use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::{
-    optional_text_column, safe_int_column, text_column,
+    optional_text_column, place_column, safe_int_column, text_column,
 };
 
 use crate::git::worktree::kept_copy::KeptWorktreeState;
 use crate::git::worktree::put_back::{PutBackBranch, PutBackMark};
 use crate::git::worktree::rows::{WorktreeRow, live_worktree_state_predicate};
-use crate::git::worktree::service::place_of;
 use crate::row_guards::COMMON_DIR_METADATA_PATH;
 
 // Written before anything it lists is made, so it names no `removed_at` until the retirement sets
@@ -507,7 +506,10 @@ pub(crate) fn query_live_tree(
     connection
         .prepare_cached(&SELECT_LIVE_TREE_SQL)?
         .query_row(params![worktree_id.text().as_str()], |row| {
-            Ok((text_column(row, 0, FilesystemPath::new)?, place_of(row, 1)?))
+            Ok((
+                text_column(row, 0, FilesystemPath::new)?,
+                place_column(row, 1)?,
+            ))
         })
         .optional()
 }
@@ -573,7 +575,7 @@ fn removed_worktree_of(row: &Row<'_>) -> rusqlite::Result<RemovedWorktreeRow> {
         size_read_at: optional_text_column(row, 14, WireInstant::try_from)?,
         restored_worktree_id: optional_text_column(row, 15, |text| WorktreeId::new(&text))?,
         put_back_mark,
-        place: place_of(row, 20)?,
+        place: place_column(row, 20)?,
     })
 }
 
@@ -582,7 +584,7 @@ fn mount_of(row: &Row<'_>) -> rusqlite::Result<KeptCopyMount> {
         id: text_column(row, 0, |text| RepoMountId::new(&text))?,
         canonical_root: text_column(row, 1, FilesystemPath::new)?,
         common_folder: row.get::<_, Option<String>>(2)?.map(PathBuf::from),
-        place: place_of(row, 3)?,
+        place: place_column(row, 3)?,
     })
 }
 

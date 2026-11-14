@@ -100,6 +100,7 @@ methods! {
                 RepoMountRootResolutionFailed,
                 RepoMountAlreadyAttached,
                 RepoMountRepositoryDiffers,
+                RepoMountRepositoryUnknown,
                 RepoMountDistributionNotFound,
             ],
         },

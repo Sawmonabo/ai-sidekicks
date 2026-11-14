@@ -63,10 +63,12 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
     /// for a chat's managed workspace, `repoMount.reattachRefused` when the mount reads `healthy`,
     /// `repoMount.distributionNotFound` for a folder in a WSL distribution,
     /// `repoMount.rootResolutionFailed` for a folder attach would refuse,
-    /// `repoMount.repositoryDiffers` when the folder does not hold the mount's repository or the
-    /// mount recorded no first commit to know it by, `repoMount.reattachConflict` while a run is
-    /// live in the project, and `repoMount.alreadyAttached` when another mount holds the
-    /// repository or the folder. Fails as [`Self::reattach`] fails after its write.
+    /// `repoMount.repositoryUnknown` when the mount recorded no first commit to know its
+    /// repository by, `repoMount.repositoryDiffers` when the folder does not hold the mount's
+    /// repository, `repoMount.reattachConflict` while a run is live in the project,
+    /// `repoMount.alreadyAttached` when another mount holds the repository or the folder, and
+    /// `repoMount.rootResolutionFailed` when git's repair of the moved checkout's worktrees does
+    /// not finish. Fails as [`Self::reattach`] fails after its write.
     pub async fn move_to_folder(
         &self,
         request: &RepoMountMoveRequest,
@@ -96,7 +98,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             })
             .await?;
         let Some(root_commit) = root_commit else {
-            return Err(RepoRefusal::RepositoryDiffers { repo_mount_id }.into());
+            return Err(RepoRefusal::RepositoryUnknown { repo_mount_id }.into());
         };
         if !self
             .resolver

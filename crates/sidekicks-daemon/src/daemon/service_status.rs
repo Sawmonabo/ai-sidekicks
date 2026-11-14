@@ -17,7 +17,7 @@ use sidekicks_platforms::{DaemonRunFolder, RUN_FOLDER_FILE_MODE};
 use sidekicks_std::file::atomic_write::{AtomicWriteError, write_and_flush, write_without_flush};
 
 use crate::daemon::process::database::DatabaseFileOpenError;
-use crate::daemon::process::start_error::DaemonStartError;
+use crate::daemon::process::start::error::DaemonStartError;
 
 /// Writes `status`, a failed start or a failed stop, to the run folder's status file, replacing it
 /// whole and flushed to disk, readable by the person alone; on Linux the file is sticky, so a

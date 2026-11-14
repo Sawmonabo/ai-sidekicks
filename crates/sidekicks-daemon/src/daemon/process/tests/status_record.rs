@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 use super::{STOP_WAIT, TestHome};
 use crate::daemon::process::DAEMON_STOP_DRAIN_BOUND;
 use crate::daemon::process::database::DatabaseFileOpenError;
-use crate::daemon::process::start_error::DaemonStartError;
+use crate::daemon::process::start::error::DaemonStartError;
 use crate::daemon::process::stop::{
     DaemonStopFailure, DaemonStopReason, close_data_folder, stop_work,
 };

@@ -67,12 +67,12 @@ use tokio_util::sync::CancellationToken;
 
 use super::DaemonProcess;
 use super::database::DatabaseFileOpenError;
-use super::start_error::{DaemonStartError, DaemonStartFailure};
+use super::start::error::{DaemonStartError, DaemonStartFailure};
 use super::stop::DaemonStopReason;
 use crate::daemon::crash::monitor::{
     CRASH_DUMPS_FOLDER_NAME, CRASH_MONITOR_MODE, crash_monitor_socket_path, serve_crash_monitor,
 };
-use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
+use crate::daemon::process::start::options::{DaemonStartOptions, ProviderBaseEnvironment};
 use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::schema::schema_parts;
 use crate::daemon::service_log::open_service_log;
