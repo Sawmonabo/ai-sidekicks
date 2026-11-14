@@ -48,12 +48,13 @@ pub(crate) async fn read_session(
     caller: &SessionId,
     arguments: SessionReadArguments,
 ) -> Result<String, AgentToolError> {
-    let entries = directory
+    let listing = directory
         .read_entries()
         .await
         .map_err(AgentToolError::failed)?;
     let target = resolve_session_reference(
-        &entries,
+        &listing.entries,
+        &listing.unread,
         caller,
         &arguments.session,
         CallerReference::AnySession,
@@ -326,10 +327,14 @@ impl SessionReading<'_> {
                 }
                 length += piece.len();
                 let is_over_page = piece.len() > READ_PAGE_MAX_BYTES;
-                pieces.push(cut_to_page(piece));
+                let piece = cut_to_page(piece);
+                // The row's line the cut fell in, its last shown: a row's text opens on its
+                // body's first line.
+                let cut_line = piece.lines().count();
+                pieces.push(piece);
                 if is_over_page {
                     // A row no page holds goes on by its lines, read under its own id.
-                    pieces.push(rest_of_row(parts.id));
+                    pieces.push(rest_of_row(parts.id, cut_line));
                 }
             }
             taken = Some(row_cursor(row));
@@ -427,7 +432,7 @@ impl SessionReading<'_> {
             TranscriptRowContent::Large { .. } => {
                 let mut body = String::new();
                 let read = self
-                    .read_body_parts(parts.id, |part| {
+                    .read_body_parts(parts.id, 0, |part| {
                         body.push_str(part);
                         if body.len() > READ_PAGE_MAX_BYTES {
                             ControlFlow::Break(())
@@ -441,14 +446,15 @@ impl SessionReading<'_> {
         }
     }
 
-    // Hands a row's body to `each` part by part until `each` breaks, answering how the read
-    // ended; `None` for a row the session does not hold or one with no body.
+    // Hands a row's body from its byte `offset` to `each` part by part until `each` breaks,
+    // answering how the read ended; `None` for a row the session does not hold or one with no
+    // body.
     async fn read_body_parts(
         &self,
         row_id: &str,
+        mut offset: u64,
         mut each: impl FnMut(&str) -> ControlFlow<()>,
     ) -> Result<Option<ControlFlow<()>>, AgentToolError> {
-        let mut offset = 0;
         loop {
             let part = self
                 .sessions
@@ -477,12 +483,15 @@ impl SessionReading<'_> {
     async fn count_body_lines(&self, row_id: &str) -> Result<Option<u64>, AgentToolError> {
         let mut lines = BodyLines::default();
         let read = self
-            .read_body_parts(row_id, |part| lines.take(part, &mut |_: u64, _: &str| true))
+            .read_body_parts(row_id, 0, |part| {
+                lines.take(part, &mut |_: u64, _: u64, _: &str| true)
+            })
             .await?;
         Ok(read.map(|_| lines.count()))
     }
 
-    // One output's numbered lines: the range or matches asked for, from the cursor's line on.
+    // One output's numbered lines: the range or matches asked for, from the cursor's line on, read
+    // from where that line starts.
     async fn read_output(
         &self,
         output: &str,
@@ -490,9 +499,9 @@ impl SessionReading<'_> {
         search: Option<&str>,
         cursor: Option<&PageCursor>,
     ) -> Result<String, AgentToolError> {
-        let from_line: u64 = match cursor {
-            None => 1,
-            Some(cursor) => cursor.as_str().parse().map_err(|_not_a_line| {
+        let (from_line, from_offset) = match cursor {
+            None => (1, 0),
+            Some(cursor) => read_line_cursor(cursor.as_str()).ok_or_else(|| {
                 AgentToolError::Refused(position_unknown(cursor.as_str(), &self.name))
             })?,
         };
@@ -509,7 +518,7 @@ impl SessionReading<'_> {
         let mut pieces: Vec<String> = Vec::new();
         let mut length = 0;
         // Takes one numbered line, answering whether the read goes on.
-        let mut each = |number: u64, line: &str| {
+        let mut each = |number: u64, start: u64, line: &str| {
             if number > last {
                 return false;
             }
@@ -519,16 +528,18 @@ impl SessionReading<'_> {
             }
             let piece = format!("{number}: {line}");
             if !pieces.is_empty() && length + piece.len() > READ_PAGE_MAX_BYTES {
-                pieces.push(more_trailer(&number.to_string()));
+                pieces.push(more_trailer(&format!(
+                    "{number}{LINE_CURSOR_SEPARATOR}{start}"
+                )));
                 return false;
             }
             length += piece.len();
             pieces.push(cut_to_page(piece));
             true
         };
-        let mut body_lines = BodyLines::default();
+        let mut body_lines = BodyLines::from_line(from_line, from_offset);
         let read = self
-            .read_body_parts(output, |part| body_lines.take(part, &mut each))
+            .read_body_parts(output, from_offset, |part| body_lines.take(part, &mut each))
             .await?;
         match read.ok_or_else(not_found)? {
             ControlFlow::Continue(()) => body_lines.finish(&mut each),
@@ -544,30 +555,66 @@ impl SessionReading<'_> {
     }
 }
 
+// The `next_cursor` of an output page: the line it goes on at and that line's byte offset in the
+// body, joined by this.
+const LINE_CURSOR_SEPARATOR: char = '@';
+
+// The line and its byte offset an output page's `cursor` names; `None` for text that names none.
+fn read_line_cursor(cursor: &str) -> Option<(u64, u64)> {
+    let (line, offset) = cursor.split_once(LINE_CURSOR_SEPARATOR)?;
+    Some((
+        line.parse().ok().filter(|&line| line > 0)?,
+        offset.parse().ok()?,
+    ))
+}
+
 // A body's numbered lines as it is read part by part, split where `str::lines` splits it, each
-// held only up to `LINE_KEPT_MAX_BYTES`.
+// held only up to `LINE_KEPT_MAX_BYTES`, with where each starts in the body.
 #[derive(Default)]
 struct BodyLines {
     ended: u64,
     line: String,
+    // The body's bytes taken so far, from its start.
+    taken: u64,
+    // Where the line being read starts in the body.
+    line_start: u64,
 }
 
 impl BodyLines {
-    // Takes the body's next part, handing each line it ends to `each` with its number until
-    // `each` answers that the read stops.
-    fn take(&mut self, part: &str, each: &mut impl FnMut(u64, &str) -> bool) -> ControlFlow<()> {
+    // The lines of a body read from `offset`, where its line `line` starts.
+    fn from_line(line: u64, offset: u64) -> Self {
+        Self {
+            ended: line - 1,
+            line: String::new(),
+            taken: offset,
+            line_start: offset,
+        }
+    }
+
+    // Takes the body's next part, handing each line it ends to `each` with its number and where
+    // it starts until `each` answers that the read stops.
+    fn take(
+        &mut self,
+        part: &str,
+        each: &mut impl FnMut(u64, u64, &str) -> bool,
+    ) -> ControlFlow<()> {
         let mut segments = part.split('\n').peekable();
         while let Some(segment) = segments.next() {
             self.keep(segment);
+            self.taken += u64::try_from(segment.len()).expect("a part's length fits 64 bits");
             if segments.peek().is_none() {
                 break;
             }
+            // The line feed ending the line.
+            self.taken += 1;
             self.ended += 1;
             let is_reading_on = each(
                 self.ended,
+                self.line_start,
                 self.line.strip_suffix('\r').unwrap_or(&self.line),
             );
             self.line.clear();
+            self.line_start = self.taken;
             if !is_reading_on {
                 return ControlFlow::Break(());
             }
@@ -576,11 +623,11 @@ impl BodyLines {
     }
 
     // Hands `each` the body's last line where no newline ends it.
-    fn finish(&mut self, each: &mut impl FnMut(u64, &str) -> bool) {
+    fn finish(&mut self, each: &mut impl FnMut(u64, u64, &str) -> bool) {
         if !self.line.is_empty() {
             self.ended += 1;
             // The body's last line, so whether `each` would read on changes nothing.
-            each(self.ended, &self.line);
+            each(self.ended, self.line_start, &self.line);
         }
     }
 
@@ -800,7 +847,7 @@ mod tests {
             .split('"')
             .nth(1)
             .expect("the line names the answer's id");
-        assert_eq!(rest, rest_of_row(output));
+        assert_eq!(rest, rest_of_row(output, shown.lines().count()));
 
         let mut read_lines: Vec<String> = Vec::new();
         let mut cursor: Option<String> = None;

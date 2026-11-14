@@ -428,15 +428,9 @@ fn packed(starts: impl Iterator<Item = u32>) -> Result<Option<BlockStarts>, Bloc
         .ok_or(BlockCutError::OverPage { count })
 }
 
-/// UTF-16 offsets as the wire's `u32`s.
-fn wire_offsets(starts: Vec<u64>) -> impl Iterator<Item = u32> {
-    starts
-        .into_iter()
-        .map(|start| u32::try_from(start).expect("a body's UTF-16 offset fits 32 bits"))
-}
-
-/// A row's cut while its pieces stream in: the drawn text after its last frozen start, and that
-/// start as a UTF-16 offset into the row's drawn body. Frozen starts never move.
+/// A row's cut while its pieces stream in: the drawn text after its last frozen start, that start
+/// as a UTF-16 offset into the row's drawn body, and where the text's kept runs sit in the stored
+/// body. Frozen starts never move.
 #[derive(Debug)]
 pub(crate) struct StreamingBlockCut {
     /// How the row's body is drawn as markdown.
@@ -448,6 +442,10 @@ pub(crate) struct StreamingBlockCut {
     stripper: EscapeSequenceStripper,
     /// The row's drawn text from its last frozen start on.
     tail: String,
+    /// Each kept run of the tail: its start in the tail and in the stored body, ascending.
+    tail_runs: Vec<(usize, usize)>,
+    /// The stored bytes received so far.
+    stored_length: usize,
     /// The last frozen start.
     frozen_utf16: u64,
     /// Whether the row's first start went out.
@@ -462,6 +460,8 @@ impl StreamingBlockCut {
             parse,
             stripper: EscapeSequenceStripper::default(),
             tail: String::new(),
+            tail_runs: Vec::new(),
+            stored_length: 0,
             frozen_utf16: 0,
             has_started: false,
         }
@@ -489,21 +489,22 @@ impl StreamingBlockCut {
     /// or the starts take more than one page.
     pub(crate) fn push(&mut self, text: &str) -> Result<Option<BlockStarts>, BlockCutError> {
         let starts = self.advance(text)?;
-        packed(wire_offsets(starts))
+        packed(starts.iter().map(|start| start.drawn_offset))
     }
 
-    /// Adds `text` and answers the UTF-16 starts it froze.
-    fn advance(&mut self, text: &str) -> Result<Vec<u64>, BlockCutError> {
+    /// Adds `text` and answers the starts it froze.
+    fn advance(&mut self, text: &str) -> Result<Vec<BodyBlockStart>, BlockCutError> {
         let mut starts = Vec::new();
-        let mut drawn = String::with_capacity(text.len());
-        for (_, run) in self.stripper.kept_runs(text) {
-            drawn.push_str(run);
+        for (stored_start, run) in self.stripper.kept_runs(text) {
+            self.tail_runs
+                .push((self.tail.len(), self.stored_length + stored_start));
+            self.tail.push_str(run);
         }
-        if !self.has_started && !drawn.is_empty() {
-            starts.push(0);
+        self.stored_length += text.len();
+        if !self.has_started && !self.tail.is_empty() {
+            starts.push(self.start_at(0, 0));
             self.has_started = true;
         }
-        self.tail.push_str(&drawn);
         let ends = block_ends_of(
             &self.tail,
             false,
@@ -512,16 +513,55 @@ impl StreamingBlockCut {
             self.parse,
         )?;
         if let Some(&last_end) = ends.last() {
-            starts.extend(utf16_offsets_of(&self.tail, &ends, self.frozen_utf16));
-            self.frozen_utf16 = *starts.last().expect("a frozen end was just added");
-            self.tail.drain(..last_end);
+            let utf16_ends = utf16_offsets_of(&self.tail, &ends, self.frozen_utf16);
+            starts.extend(
+                ends.iter()
+                    .zip(&utf16_ends)
+                    .map(|(&end, &utf16)| self.start_at(end, utf16)),
+            );
+            self.frozen_utf16 = *utf16_ends.last().expect("a frozen end was just added");
+            self.drain_tail(last_end);
         }
         Ok(starts)
     }
 
+    // The start at `drawn`, a byte offset into the tail, whose UTF-16 offset in the drawn body is
+    // `utf16`.
+    fn start_at(&self, drawn: usize, utf16: u64) -> BodyBlockStart {
+        let run = self
+            .tail_runs
+            .partition_point(|&(drawn_start, _)| drawn_start <= drawn)
+            .checked_sub(1)
+            .map(|index| self.tail_runs[index]);
+        BodyBlockStart {
+            stored_offset: run.map_or(self.stored_length, |(drawn_start, stored_start)| {
+                stored_start + drawn - drawn_start
+            }),
+            drawn_offset: u32::try_from(utf16).expect("a body's UTF-16 offset fits 32 bits"),
+        }
+    }
+
+    // Drops the tail's text before `end`, a frozen start, and the runs that held only it.
+    fn drain_tail(&mut self, end: usize) {
+        self.tail.drain(..end);
+        let first_kept = self
+            .tail_runs
+            .partition_point(|&(drawn_start, _)| drawn_start <= end)
+            .saturating_sub(1);
+        self.tail_runs.drain(..first_kept);
+        for (drawn_start, stored_start) in &mut self.tail_runs {
+            if *drawn_start < end {
+                *stored_start += end - *drawn_start;
+                *drawn_start = 0;
+            } else {
+                *drawn_start -= end;
+            }
+        }
+    }
+
     /// The starts the row's whole text leaves unsent once it ends. Fails when the cut does not
-    /// advance or the starts take more than one page.
-    pub(crate) fn finish(&self) -> Result<Option<BlockStarts>, BlockCutError> {
+    /// advance.
+    fn final_starts(&self) -> Result<Vec<BodyBlockStart>, BlockCutError> {
         let ends = block_ends_of(
             &self.tail,
             true,
@@ -533,11 +573,64 @@ impl StreamingBlockCut {
             .into_iter()
             .filter(|&end| end < self.tail.len())
             .collect();
-        packed(wire_offsets(utf16_offsets_of(
-            &self.tail,
-            &inner,
-            self.frozen_utf16,
-        )))
+        let utf16_starts = utf16_offsets_of(&self.tail, &inner, self.frozen_utf16);
+        Ok(inner
+            .iter()
+            .zip(utf16_starts)
+            .map(|(&start, utf16)| self.start_at(start, utf16))
+            .collect())
+    }
+
+    /// The starts the row's whole text leaves unsent once it ends. Fails when the cut does not
+    /// advance or the starts take more than one page.
+    pub(crate) fn finish(&self) -> Result<Option<BlockStarts>, BlockCutError> {
+        packed(self.final_starts()?.iter().map(|start| start.drawn_offset))
+    }
+}
+
+/// The cut of an ended reply's body handed in a stretch at a time, so the body is never held
+/// whole: the starts [`body_block_starts`] gives the whole text once it is final, or not cut where
+/// a stretch keeps the body from being drawn as markdown.
+pub(crate) struct EndedBodyCut {
+    cut: StreamingBlockCut,
+    starts: Vec<BodyBlockStart>,
+    is_drawn_as_markdown: bool,
+}
+
+impl EndedBodyCut {
+    /// The cut by `parse` of a body drawn as `prose`, handed nothing yet.
+    pub(crate) fn new(prose: ProseBody, parse: BlockParse) -> Self {
+        Self {
+            cut: StreamingBlockCut::new(prose, parse),
+            starts: Vec::new(),
+            is_drawn_as_markdown: true,
+        }
+    }
+
+    /// Adds the body's next stretch, `text`. Fails when the cut does not advance.
+    pub(crate) fn push(&mut self, text: &str) -> Result<(), BlockCutError> {
+        if !self.is_drawn_as_markdown {
+            return Ok(());
+        }
+        if !self.cut.prose().admits(text) {
+            self.is_drawn_as_markdown = false;
+            self.starts = Vec::new();
+            return Ok(());
+        }
+        let starts = self.cut.advance(text)?;
+        self.starts.extend(starts);
+        Ok(())
+    }
+
+    /// Every start of the whole body, ascending; `None` where it is not drawn as markdown. Fails
+    /// when the cut does not advance.
+    pub(crate) fn finish(mut self) -> Result<Option<Vec<BodyBlockStart>>, BlockCutError> {
+        if !self.is_drawn_as_markdown {
+            return Ok(None);
+        }
+        let last = self.cut.final_starts()?;
+        self.starts.extend(last);
+        Ok(Some(self.starts))
     }
 }
 

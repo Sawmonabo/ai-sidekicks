@@ -74,8 +74,8 @@ pub struct ToolServerRouteEntry {
     pub url: String,
     /// The headers every request to the server carries, the secret's among them.
     pub http_headers: Vec<(String, String)>,
-    /// The bytes of the largest input schema the server lists, which the provider is told to
-    /// keep whole.
+    /// The bytes of the largest session tool's input schema plus a margin for the provider's own
+    /// count of it, which the provider is told to keep every schema within whole.
     pub tool_input_schema_max_bytes: usize,
 }
 

@@ -77,6 +77,7 @@ pub(crate) fn compose_codex_wake_up_text(
         SessionWaitEnd::NeedsPerson { what } => {
             format!("{name} needs the person (you were waiting on it): {what}")
         }
+        SessionWaitEnd::Failed { notice } => format!("{name} failed · {notice}"),
     }
 }
 

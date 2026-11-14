@@ -31,7 +31,7 @@ use crate::driver::codex::session::owed_turn_ends::{
 use crate::driver::codex::session::side_questions::copy_turn::{CopyFrameReading, CopyTurnMeter};
 use crate::driver::codex::thread::settings::CodexTurnStartParams;
 use crate::driver::codex::thread::view::{TURN_START_METHOD, read_steered_turn_id, read_turn_id};
-use crate::driver::codex::transport::connection::read_codex_object;
+use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
 
 /// An agent's message to a Codex session typed in a terminal.
@@ -235,34 +235,73 @@ fn compose_message_input(message: &CodexTerminalMessage, moment: CodexArrivalMom
 /// seat's connection ended before it did: from the conversation's stored turn list on the
 /// daemon's own connection where the turn ended, whether or not a terminal still holds the
 /// conversation, its reply read from its items only where it answered, else on a new seat until
-/// it ends. A turn the list does not hold, which the service's stop lost from its record, failed
-/// as one that stop cut off. `None` where that seat's connection ended first too. Fails as the
-/// reads fail.
+/// it ends; a turn the seat's resume shows ended is answered from that and the seat let go. A
+/// turn the list does not hold, which the service's stop lost from its record, failed as one that
+/// stop cut off. `None` where that seat's connection ended first too. Fails as the reads fail.
 pub(super) async fn reread_turn_end(
     service: &CodexService,
     thread_id: &str,
     turn_id: &str,
 ) -> Result<Option<CodexTerminalTurnEnd>, CodexError> {
     let connection = service.connection()?;
-    let Some(listed) = read_codex_turn(&connection, thread_id, turn_id).await? else {
+    if let Some(end) = read_stored_turn_end(&connection, thread_id, turn_id).await? {
+        return Ok(Some(end));
+    }
+    let claim = service.terminal_conversations().claim_seat(thread_id);
+    let mut seat = TerminalSeat::open(service, thread_id, claim).await?;
+    let resumed = request_bare_thread_resume(&seat.connection, thread_id, None).await?;
+    match read_codex_resumed_newest_turn(&resumed).filter(|newest| newest.id == turn_id) {
+        Some(newest) if is_codex_turn_in_progress(&newest.turn) => {
+            Ok(read_turn_end(&mut seat, turn_id).await)
+        }
+        // The turn ended between the list and the seat's subscription, so no end reaches the seat.
+        Some(newest) => {
+            let_go(seat).await;
+            read_ended_turn(&connection, thread_id, turn_id, &newest.turn)
+                .await
+                .map(Some)
+        }
+        None => {
+            let_go(seat).await;
+            read_stored_turn_end(&connection, thread_id, turn_id).await
+        }
+    }
+}
+
+// The end of the turn `turn_id` of `thread_id` as the conversation's stored turn list holds it:
+// failed as cut off where the list lacks it, `None` while it is still in progress.
+async fn read_stored_turn_end(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+    turn_id: &str,
+) -> Result<Option<CodexTerminalTurnEnd>, CodexError> {
+    let Some(listed) = read_codex_turn(connection, thread_id, turn_id).await? else {
         return Ok(Some(CodexTerminalTurnEnd::Failed {
             notice: CODEX_TURN_CUT_OFF_NOTICE.to_owned(),
         }));
     };
-    if !is_codex_turn_in_progress(&listed.turn) {
-        return Ok(Some(
-            match CodexTerminalTurnEnd::of(Some(&*listed.turn), None) {
-                CodexTerminalTurnEnd::Answered { .. } => CodexTerminalTurnEnd::Answered {
-                    reply: read_codex_turn_reply(&connection, thread_id, turn_id).await?,
-                },
-                failed @ CodexTerminalTurnEnd::Failed { .. } => failed,
-            },
-        ));
+    if is_codex_turn_in_progress(&listed.turn) {
+        return Ok(None);
     }
-    let claim = service.terminal_conversations().claim_seat(thread_id);
-    let mut seat = TerminalSeat::open(service, thread_id, claim).await?;
-    request_bare_thread_resume(&seat.connection, thread_id, None).await?;
-    Ok(read_turn_end(&mut seat, turn_id).await)
+    read_ended_turn(connection, thread_id, turn_id, &listed.turn)
+        .await
+        .map(Some)
+}
+
+// How the ended turn `turn`, `turn_id` of `thread_id`, ended, its reply read from its items only
+// where it answered.
+async fn read_ended_turn(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+    turn_id: &str,
+    turn: &RawValue,
+) -> Result<CodexTerminalTurnEnd, CodexError> {
+    Ok(match CodexTerminalTurnEnd::of(Some(turn), None) {
+        CodexTerminalTurnEnd::Answered { .. } => CodexTerminalTurnEnd::Answered {
+            reply: read_codex_turn_reply(connection, thread_id, turn_id).await?,
+        },
+        failed @ CodexTerminalTurnEnd::Failed { .. } => failed,
+    })
 }
 
 // Reads the seat's frames until the turn `turn_id` ended, its last reply kept; `None` once the

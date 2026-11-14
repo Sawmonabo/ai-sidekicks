@@ -1,10 +1,11 @@
 //! How long a service has been away, anything but up since it last was: a terminal joined to the
 //! service retries for a window of its own and then never rejoins, so the time away says whether
-//! that terminal gave up on it; and whether a service away comes back up or is left down.
+//! that terminal gave up on it; and the watch a wait follows a service's comings and goings on.
 
 use std::time::Duration;
 
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::watch;
 use tokio::time::Instant;
 
 use super::CodexService;
@@ -42,18 +43,64 @@ impl CodexService {
             .await;
     }
 
-    /// Answers whether the service came up, waiting for as long as it is on its way back however
-    /// long that takes; `false` once it is left down for good: stopped, its start failed, its
-    /// restarts spent in a crash loop, or shut down with the daemon.
-    pub(crate) async fn comes_back_up(&self) -> bool {
-        let mut availability = self.availability.subscribe();
-        // A stop under way may still end in a start, so only where it ends counts.
-        availability
+    /// A watch on where the service stands, for a wait that reads the service between its
+    /// changes: what it reads is marked seen, so a change made while a read runs is not missed.
+    /// The caller holds the service for as long as it waits on the watch.
+    pub(crate) fn watch_availability(&self) -> CodexAvailabilityWatch {
+        CodexAvailabilityWatch {
+            availability: self.availability.subscribe(),
+        }
+    }
+}
+
+/// Where a service a wait follows has come to rest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CodexServiceRest {
+    /// It runs and its connection is open.
+    Up,
+    /// It was shut down with the daemon, which may keep it running for the next start.
+    ShutDown,
+    /// It is down and nothing brings it back by itself: stopped, its ordinary start failed, or its
+    /// restarts are spent in a crash loop.
+    Down,
+}
+
+/// One wait's watch on a service's availability, held across the wait's reads; each wait on it
+/// panics where the service was dropped, which the caller holding the service rules out.
+pub(crate) struct CodexAvailabilityWatch {
+    availability: watch::Receiver<CodexServiceAvailability>,
+}
+
+impl CodexAvailabilityWatch {
+    /// Waits, however long it takes, until the service is no longer on its way back, and answers
+    /// where it came to rest; a stop under way waits too, since it may still end in a start.
+    pub(crate) async fn rest(&mut self) -> CodexServiceRest {
+        let rested = self
+            .availability
             .wait_for(|availability| {
                 !availability.is_coming_back()
                     && !matches!(availability, CodexServiceAvailability::Stopping)
             })
+            .await;
+        match &*rested.expect("the service outlives its watch") {
+            CodexServiceAvailability::Up => CodexServiceRest::Up,
+            CodexServiceAvailability::ShutDown => CodexServiceRest::ShutDown,
+            CodexServiceAvailability::Stopped
+            | CodexServiceAvailability::StartFailed(_)
+            | CodexServiceAvailability::CrashLoop => CodexServiceRest::Down,
+            // The wait above passes none of these.
+            CodexServiceAvailability::Starting
+            | CodexServiceAvailability::Reconnecting
+            | CodexServiceAvailability::Restarting
+            | CodexServiceAvailability::Stopping => unreachable!("the service is at rest"),
+        }
+    }
+
+    /// Waits for the service's next publish after the last one this watch read.
+    pub(crate) async fn changed(&mut self) {
+        self.availability
+            .changed()
             .await
-            .is_ok_and(|settled| matches!(*settled, CodexServiceAvailability::Up))
+            .expect("the service outlives its watch");
     }
 }

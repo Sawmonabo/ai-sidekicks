@@ -8,6 +8,7 @@ use tokio::sync::oneshot;
 
 use super::exchanges::{CodexTerminalTurnEnd, reread_turn_end};
 use super::{TERMINAL_RECONNECT_WINDOW, TerminalReadings, publish_turn_end};
+use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_terminal_service,
 };
@@ -22,6 +23,9 @@ const TURN: &str = "turn-1";
 
 /// The message that opened the turn.
 const MESSAGE: &str = "message-1";
+
+/// The stored turn's reply.
+const REPLY: &str = "The checks pass.";
 
 /// How long a test gives the daemon to send a request it must not send.
 const QUIET: Duration = Duration::from_millis(200);
@@ -147,15 +151,18 @@ fn recorded_readings() -> (Arc<RecordedQueue>, TerminalReadings) {
     (recorded, readings)
 }
 
-// Publishes the end of the turn whose seat's connection ended before it did, on `scripted`.
+// Publishes the end of the turn whose seat's connection ended before it did, on `followed`, the
+// wait resolving the home's service again in `registry`.
 fn publish_unread_turn_end(
-    scripted: &ScriptedCodexService,
+    registry: &Arc<CodexServiceRegistry>,
+    followed: &ScriptedCodexService,
     readings: &TerminalReadings,
 ) -> tokio::task::JoinHandle<()> {
     let (seat_end, ended) = oneshot::channel();
     drop(seat_end);
     tokio::spawn(publish_turn_end(
-        Arc::clone(&scripted.service),
+        Arc::clone(registry),
+        Arc::clone(&followed.service),
         THREAD.to_owned(),
         TURN.to_owned(),
         MESSAGE.to_owned(),
@@ -172,20 +179,18 @@ fn publish_unread_turn_end(
 async fn an_unread_turn_end_past_the_window_is_answered_from_the_stored_turn() {
     let mut scripted = start_scripted_terminal_service();
     let (recorded, readings) = recorded_readings();
+    let registry = CodexServiceRegistry::holding(&scripted);
     let connection = scripted.publish_reconnecting();
 
-    let publishing = publish_unread_turn_end(&scripted, &readings);
+    let publishing = publish_unread_turn_end(&registry, &scripted, &readings);
     tokio::task::yield_now().await;
     tokio::time::advance(TERMINAL_RECONNECT_WINDOW * 3).await;
     let while_away = lock(&recorded.readings).clone();
     scripted.publish_up(connection);
     let turn = json!({"id": TURN, "status": "completed", "completedAt": 1_767_000_000});
     answer_turn_list(&mut scripted, &turn).await;
-    answer_reply(&mut scripted, "The checks pass.").await;
-    tokio::time::timeout(DEADLOCK_BOUND, publishing)
-        .await
-        .expect("the turn's end is published")
-        .expect("the publishing task ends");
+    answer_reply(&mut scripted, REPLY).await;
+    await_publishing(publishing).await;
 
     assert!(while_away.is_empty(), "the wait stays open: {while_away:?}");
     assert_eq!(
@@ -193,33 +198,109 @@ async fn an_unread_turn_end_past_the_window_is_answered_from_the_stored_turn() {
         [SessionMessageReading::Answered {
             message_id: MESSAGE.to_owned(),
             turn_record: MESSAGE.to_owned(),
-            answer: Some("The checks pass.".to_owned()),
+            answer: Some(REPLY.to_owned()),
         }]
     );
 }
 
-// Kills: a turn end on a service its crash loop left down read as anything but not reachable
-// with the reopen line, a wait left open on a service that never comes back, and a service left
-// down that is still asked.
-#[tokio::test(start_paused = true)]
-async fn an_unread_turn_end_on_a_service_left_down_reads_not_reachable_with_the_reopen_line() {
-    let mut scripted = start_scripted_terminal_service();
-    let (recorded, readings) = recorded_readings();
-    let _connection = scripted.publish_crash_loop();
+// What the home's service does while a wait on an unread turn end is open.
+#[derive(Debug, Clone, Copy)]
+enum ServiceWhileWaiting {
+    // Its connection drops and the wait reads before the away state is published.
+    DropsBeforeAway,
+    // Another service took its home over and it ended.
+    Replaced,
+    // It is shut down with the daemon.
+    ShutDown,
+    // Its restarts are spent.
+    RestartsSpent,
+}
 
-    let publishing = publish_unread_turn_end(&scripted, &readings);
+// The readings a wait on an unread turn end publishes while the home's service does `row`, the
+// stored turn answered with `REPLY` wherever it is read.
+async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Vec<SessionMessageReading> {
+    let mut followed = start_scripted_terminal_service();
+    let (recorded, readings) = recorded_readings();
+    let turn = json!({"id": TURN, "status": "completed", "completedAt": 1_767_000_000});
+    // The followed service's connection, set aside, is kept open to the end so the last check
+    // reads what it sent.
+    let _set_aside = match row {
+        ServiceWhileWaiting::DropsBeforeAway => {
+            let registry = CodexServiceRegistry::holding(&followed);
+            let connection = followed.take_connection();
+            let publishing = publish_unread_turn_end(&registry, &followed, &readings);
+            tokio::time::sleep(QUIET).await;
+            let in_the_gap = lock(&recorded.readings).clone();
+            assert!(in_the_gap.is_empty(), "the wait stays open: {in_the_gap:?}");
+            followed.publish_reconnecting();
+            followed.publish_up(connection);
+            answer_turn_list(&mut followed, &turn).await;
+            answer_reply(&mut followed, REPLY).await;
+            await_publishing(publishing).await;
+            None
+        }
+        ServiceWhileWaiting::Replaced => {
+            let mut replacement = start_scripted_terminal_service();
+            let registry = CodexServiceRegistry::holding(&replacement);
+            let set_aside = followed.publish_stopped();
+            let publishing = publish_unread_turn_end(&registry, &followed, &readings);
+            answer_turn_list(&mut replacement, &turn).await;
+            answer_reply(&mut replacement, REPLY).await;
+            await_publishing(publishing).await;
+            set_aside
+        }
+        ServiceWhileWaiting::ShutDown => {
+            let registry = CodexServiceRegistry::holding(&followed);
+            let set_aside = followed.publish_shut_down();
+            await_publishing(publish_unread_turn_end(&registry, &followed, &readings)).await;
+            set_aside
+        }
+        ServiceWhileWaiting::RestartsSpent => {
+            let registry = CodexServiceRegistry::holding(&followed);
+            let set_aside = followed.publish_crash_loop();
+            await_publishing(publish_unread_turn_end(&registry, &followed, &readings)).await;
+            set_aside
+        }
+    };
+    let asked = followed.script.next_sent_within(QUIET).await;
+    assert!(
+        asked.is_none(),
+        "nothing more reaches the service: {asked:?}"
+    );
+    lock(&recorded.readings).clone()
+}
+
+// Waits for the publishing task to end.
+async fn await_publishing(publishing: tokio::task::JoinHandle<()>) {
     tokio::time::timeout(DEADLOCK_BOUND, publishing)
         .await
-        .expect("the turn's end is published")
+        .expect("the wait ends")
         .expect("the publishing task ends");
+}
 
-    assert_eq!(
-        *lock(&recorded.readings),
-        [SessionMessageReading::NotReachable {
-            message_id: MESSAGE.to_owned(),
-            reopen: format!("Reopen it in a terminal: codex resume {THREAD}"),
-        }]
-    );
-    let asked = scripted.script.next_sent_within(QUIET).await;
-    assert!(asked.is_none(), "nothing reaches the service: {asked:?}");
+// Kills: a failed read in the gap before the away state is published read as not reachable, a
+// wait that holds on to a service another took the home over from, a shutdown with the daemon
+// answered at all, and a service whose restarts are spent left open, asked again or read as
+// anything but not reachable with the reopen line.
+#[tokio::test(start_paused = true)]
+async fn an_unread_turn_end_reads_not_reachable_only_once_the_homes_service_is_down_for_good() {
+    let answered = SessionMessageReading::Answered {
+        message_id: MESSAGE.to_owned(),
+        turn_record: MESSAGE.to_owned(),
+        answer: Some(REPLY.to_owned()),
+    };
+    let not_reachable = SessionMessageReading::NotReachable {
+        message_id: MESSAGE.to_owned(),
+        reopen: format!("Reopen it in a terminal: codex resume {THREAD}"),
+    };
+    let rows = [
+        (ServiceWhileWaiting::DropsBeforeAway, vec![answered.clone()]),
+        (ServiceWhileWaiting::Replaced, vec![answered]),
+        (ServiceWhileWaiting::ShutDown, Vec::new()),
+        (ServiceWhileWaiting::RestartsSpent, vec![not_reachable]),
+    ];
+
+    for (row, expected) in rows {
+        assert_eq!(read_unread_turn_end(row).await, expected, "{row:?}");
+    }
 }

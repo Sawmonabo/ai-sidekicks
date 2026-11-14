@@ -1,5 +1,6 @@
 //! What a session wait answers on Claude Code, where the call is held until an awaited session
-//! finishes its turn or needs the person: that session's answer or its question.
+//! finishes its turn, needs the person or fails: that session's answer, its question or the
+//! failure's cause.
 
 use crate::driver::session_messages::SessionWaitEnd;
 
@@ -8,5 +9,6 @@ pub(crate) fn compose_claude_wait_end_text(name: &str, end: &SessionWaitEnd) -> 
     match end {
         SessionWaitEnd::Finished { answer } => format!("{name} finished: {answer}"),
         SessionWaitEnd::NeedsPerson { what } => format!("{name} needs the person: {what}"),
+        SessionWaitEnd::Failed { notice } => format!("{name} failed · {notice}"),
     }
 }

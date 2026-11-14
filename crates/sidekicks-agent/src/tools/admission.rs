@@ -2,17 +2,20 @@
 //! when the live spawn entry its path names admits its secret, and an `Mcp-Session-Id` it carries
 //! was minted on that same entry or is held by no one. The secret is checked on every request, so
 //! a replaced or dropped spawn is refused at once, and each MCP session is closed when the spawn it
-//! was minted for ends.
+//! was minted for ends. Each admitted request carries word of when its answer's event stream
+//! closes, which rmcp itself does not give a call on a session.
 
 use std::error::Error;
 use std::sync::Arc;
 
+use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::header::AUTHORIZATION;
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use axum::http::{HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
-use rmcp::transport::common::http_header::HEADER_SESSION_ID;
+use futures::StreamExt as _;
+use rmcp::transport::common::http_header::{EVENT_STREAM_MIME_TYPE, HEADER_SESSION_ID};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{SessionId, SessionManager as _};
 use tokio_util::sync::CancellationToken;
@@ -23,6 +26,18 @@ use crate::tools::server::ToolServerPath;
 /// What a request no live spawn admits is answered with, beside a 401 that carries no
 /// `WWW-Authenticate`, so a provider reads a failed call and never starts a sign-in.
 const NOT_ADMITTED: &str = "No live session admits this request here.";
+
+/// Ends once the event stream an admitted request is answered on is dropped: its caller closed it,
+/// or it was written whole.
+#[derive(Clone)]
+pub(super) struct AnswerStream(CancellationToken);
+
+impl AnswerStream {
+    /// Answers once the stream is gone.
+    pub(super) async fn closed(&self) {
+        self.0.cancelled().await;
+    }
+}
 
 /// The entries every request is admitted against, and the MCP sessions rmcp keeps for them.
 pub(super) struct ToolServerAdmission {
@@ -87,10 +102,11 @@ impl ToolServerAdmission {
 /// `Mcp-Session-Id` it carries is that entry's or held by no one, which rmcp answers 404 so the
 /// client opens a new session; a refusal is 401 with no `WWW-Authenticate`, and a path naming no
 /// tool server is 404. A session rmcp mints on the way back is admitted for that entry alone, and
-/// one its client closes is forgotten.
+/// one its client closes is forgotten. The request carries an [`AnswerStream`] that ends once its
+/// answer's event stream is dropped.
 pub(super) async fn admit(
     State(admission): State<Arc<ToolServerAdmission>>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let Some(path) = ToolServerPath::parse(request.uri().path()) else {
@@ -119,7 +135,11 @@ pub(super) async fn admit(
         }
     };
     let is_close = request.method() == Method::DELETE;
-    let response = next.run(request).await;
+    let answer_stream = CancellationToken::new();
+    request
+        .extensions_mut()
+        .insert(AnswerStream(answer_stream.clone()));
+    let response = guard_event_stream(next.run(request).await, answer_stream);
     match mcp_session {
         Some(mcp_session) if is_close && response.status().is_success() => {
             entry.forget_mcp_session(&mcp_session);
@@ -136,6 +156,25 @@ pub(super) async fn admit(
         }
     }
     response
+}
+
+// `response`, its body ending `answer_stream` once dropped where it is an event stream, which
+// hyper drops as soon as it reads its connection closed.
+fn guard_event_stream(response: Response, answer_stream: CancellationToken) -> Response {
+    let is_event_stream = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .is_some_and(|content_type| content_type == EVENT_STREAM_MIME_TYPE);
+    if !is_event_stream {
+        return response;
+    }
+    response.map(|body| {
+        let closed_with_body = answer_stream.drop_guard();
+        Body::from_stream(body.into_data_stream().map(move |frame| {
+            let _held = &closed_with_body;
+            frame
+        }))
+    })
 }
 
 // The answer to a request no live entry admits.

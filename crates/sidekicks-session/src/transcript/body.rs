@@ -2,9 +2,9 @@
 //! stands at, its body the pieces the provider sent it in, joined through the read's head. A body
 //! is read only through the stored pieces one part covers, and of a compressed piece only the
 //! frames it covers, so a long body read part by part is decoded once. A reply that may be drawn
-//! as markdown needs its whole text to be cut: an ended one is cut once and its cut kept, so its
-//! later parts read only their frames, and one still taking pieces is read whole for each part.
-//! Each part carries the block starts that fall in it.
+//! as markdown is cut over its whole text: an ended one is cut once, a frame at a time, and its cut
+//! kept, so every part reads only its frames, and one still taking pieces is read whole for each
+//! part. Each part carries the block starts that fall in it.
 
 pub(crate) mod starts_cache;
 
@@ -20,7 +20,9 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::session::read::SessionEventReads;
 use sidekicks_store::transcript::rejoin::{RowReads, joined_body_of};
 
-use crate::transcript::block_cut::{BlockParse, body_block_starts, prose_body_of};
+use crate::transcript::block_cut::{
+    BlockCutError, BlockParse, EndedBodyCut, ProseBody, body_block_starts, prose_body_of,
+};
 use crate::transcript::body::starts_cache::{BlockCutKey, BlockCuts, EndedBlockCut};
 use crate::transcript::window::{TranscriptReadError, read_transcript_head};
 
@@ -52,7 +54,7 @@ impl From<BodyReadError> for HandlerError {
 }
 
 /// Whether the body of the event `row_id` of `session_id` is cut into blocks, so that a read of it
-/// loads it whole: a reply that may be drawn as markdown. Reads the event alone, not its body, on
+/// may load it whole while it still takes pieces: a reply that may be drawn as markdown. Reads the event alone, not its body, on
 /// `reader`; `read_damaged_from_sequence` answers where a damaged session's reads stop. Fails with
 /// [`TranscriptReadError`]'s faults when the read fails.
 pub(crate) fn is_body_cut_into_blocks<DamagedFrom>(
@@ -74,8 +76,8 @@ where
 /// The part from `offset` of the body of `session_id`'s row standing at the event `row_id`, read
 /// on `reader`, a reply's cut into blocks by `parse` and an ended reply's cut kept in
 /// `block_cuts`, or `None` when no row of the session stands there; `read_damaged_from_sequence`
-/// answers where a damaged session's reads stop. A reply drawn as markdown is loaded whole, which
-/// [`is_body_cut_into_blocks`] tells before the read. Fails
+/// answers where a damaged session's reads stop. A reply drawn as markdown that still takes pieces
+/// is loaded whole, which [`is_body_cut_into_blocks`] tells before the read. Fails
 /// with [`TranscriptReadError::Refused`] (`session.notFound`) for a session this daemon holds no
 /// events for, with [`BodyReadError::Offset`] for an offset that is no place to resume from, and
 /// with [`TranscriptReadError`]'s faults when a read fails.
@@ -144,64 +146,102 @@ where
         body_length,
     };
     let kept_cut = prose.and_then(|_| block_cuts.kept_block_cut(&cut_key));
-    let part = if let Some(prose) = prose.filter(|_| kept_cut.is_none()) {
-        let all_sequences: Vec<i64> = piece_bounds.iter().map(|(sequence, _)| *sequence).collect();
-        let whole = rows_of
-            .piece_texts(&all_sequences)
-            .map_err(TranscriptReadError::from)?;
-        let pending: Vec<(i64, i64)> = last_piece
-            .map(|last_piece| (sequence, last_piece))
-            .into_iter()
-            .collect();
-        // A reply still arriving is cut as the stream seeds it, so no start it sends moves.
-        let is_final = rows_of
-            .unended_rows(&pending, head)
+    let uncut = prose.filter(|_| kept_cut.is_none());
+    // A reply still arriving is cut as the stream seeds it, so no start it sends moves.
+    let is_arriving = match (uncut, last_piece) {
+        (Some(_), Some(last_piece)) => !rows_of
+            .unended_rows(&[(sequence, last_piece)], head)
             .map_err(TranscriptReadError::from)?
-            .is_empty();
-        let starts;
-        let block_cut = if prose.admits(&whole) {
-            match body_block_starts(&whole, is_final, parse) {
-                Ok(cut) => {
-                    starts = cut;
-                    if is_final {
-                        block_cuts.keep_block_cut(
-                            cut_key,
-                            EndedBlockCut::Starts(starts.as_slice().into()),
-                        );
+            .is_empty(),
+        (None, _) | (_, None) => false,
+    };
+    let part = match uncut {
+        Some(prose) if is_arriving => {
+            let all_sequences: Vec<i64> =
+                piece_bounds.iter().map(|(sequence, _)| *sequence).collect();
+            let whole = rows_of
+                .piece_texts(&all_sequences)
+                .map_err(TranscriptReadError::from)?;
+            let starts;
+            let block_cut = if prose.admits(&whole) {
+                match body_block_starts(&whole, false, parse) {
+                    Ok(cut) => {
+                        starts = cut;
+                        BodyBlockCut::Starts(&starts)
                     }
-                    BodyBlockCut::Starts(&starts)
+                    Err(error) => BodyBlockCut::Failed(error.logged()),
                 }
-                Err(error) => BodyBlockCut::Failed(error.logged()),
-            }
-        } else {
-            if is_final {
-                block_cuts.keep_block_cut(cut_key, EndedBlockCut::NotCut);
-            }
-            BodyBlockCut::NotCut
-        };
-        stored_body_content_of(
-            Some(&joined.facts()),
-            Some(BodyWindow::whole(&whole)),
-            offset,
-            block_cut,
-        )?
-    } else {
-        let (text, window_start) = read_part_window(&rows_of, &piece_bounds, offset)?;
-        stored_body_content_of(
-            Some(&joined.facts()),
-            Some(BodyWindow {
-                text: &text,
-                start: window_start.unwrap_or(body_length),
-                body_length,
-            }),
-            offset,
-            kept_cut
-                .as_ref()
-                .map_or(BodyBlockCut::NotCut, EndedBlockCut::as_block_cut),
-        )?
+            } else {
+                BodyBlockCut::NotCut
+            };
+            stored_body_content_of(
+                Some(&joined.facts()),
+                Some(BodyWindow::whole(&whole)),
+                offset,
+                block_cut,
+            )?
+        }
+        uncut => {
+            let ended_cut = match uncut {
+                Some(prose) => match cut_ended_reply(&rows_of, &piece_bounds, prose, parse)? {
+                    Ok(cut) => {
+                        block_cuts.keep_block_cut(cut_key, cut.clone());
+                        Ok(cut)
+                    }
+                    Err(error) => Err(error.logged()),
+                },
+                None => Ok(kept_cut.unwrap_or(EndedBlockCut::NotCut)),
+            };
+            let (text, window_start) = read_part_window(&rows_of, &piece_bounds, offset)?;
+            stored_body_content_of(
+                Some(&joined.facts()),
+                Some(BodyWindow {
+                    text: &text,
+                    start: window_start.unwrap_or(body_length),
+                    body_length,
+                }),
+                offset,
+                ended_cut.as_ref().map_or_else(
+                    |failure| BodyBlockCut::Failed(*failure),
+                    EndedBlockCut::as_block_cut,
+                ),
+            )?
+        }
     };
     snapshot.commit().map_err(TranscriptReadError::from)?;
     Ok(Some(part))
+}
+
+// The cut of the ended reply drawn as `prose` whose pieces are `piece_bounds`, each `(sequence,
+// length)` in order, by `parse`, read a stored frame at a time so the body is never held whole.
+// Fails as a read fails; the inner error is a cut that did not advance.
+fn cut_ended_reply<DamagedFrom>(
+    rows_of: &RowReads<'_, '_, DamagedFrom>,
+    piece_bounds: &[(i64, usize)],
+    prose: ProseBody,
+    parse: BlockParse,
+) -> Result<Result<EndedBlockCut, BlockCutError>, TranscriptReadError>
+where
+    DamagedFrom: Fn(&SessionId) -> Option<i64>,
+{
+    let mut cut = EndedBodyCut::new(prose, parse);
+    let mut failure = None;
+    for &(piece_sequence, _) in piece_bounds {
+        rows_of.piece_frames(piece_sequence, |text| {
+            if failure.is_none()
+                && let Err(error) = cut.push(text)
+            {
+                failure = Some(error);
+            }
+        })?;
+    }
+    if let Some(error) = failure {
+        return Ok(Err(error));
+    }
+    Ok(cut.finish().map(|starts| match starts {
+        Some(starts) => EndedBlockCut::Starts(starts.into()),
+        None => EndedBlockCut::NotCut,
+    }))
 }
 
 // The text of the stored pieces, each `(sequence, length)` of `piece_bounds` in order, that the

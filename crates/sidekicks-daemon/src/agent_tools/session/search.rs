@@ -23,7 +23,9 @@ use sidekicks_session::search::index::live::LiveIndex;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use crate::agent_tools::AgentToolError;
-use crate::agent_tools::session::list::{ListedSession, SessionLineReads, read_listed_sessions};
+use crate::agent_tools::session::list::{
+    ListedSession, ListedSessions, SessionLineReads, read_listed_sessions,
+};
 use crate::orchestration::session_directory::{
     CallerReference, SessionDirectory, resolve_session_reference,
 };
@@ -57,7 +59,10 @@ pub(crate) async fn search_sessions(
     caller: &SessionId,
     arguments: SessionSearchArguments,
 ) -> Result<String, AgentToolError> {
-    let listed = read_listed_sessions(
+    let ListedSessions {
+        sessions: listed,
+        unread,
+    } = read_listed_sessions(
         sources.directory,
         sources.line_reads,
         sources.providers,
@@ -68,9 +73,14 @@ pub(crate) async fn search_sessions(
         None => None,
         Some(reference) => {
             let entries: Vec<_> = listed.iter().map(|session| session.entry.clone()).collect();
-            let target =
-                resolve_session_reference(&entries, caller, reference, CallerReference::AnySession)
-                    .map_err(AgentToolError::Refused)?;
+            let target = resolve_session_reference(
+                &entries,
+                &unread,
+                caller,
+                reference,
+                CallerReference::AnySession,
+            )
+            .map_err(AgentToolError::Refused)?;
             let target = SessionId::new(&target.id).map_err(AgentToolError::failed)?;
             let relevance = arguments.relevance.unwrap_or_default();
             let list = sources

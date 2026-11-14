@@ -38,9 +38,10 @@ use crate::driver::claude::session::scripted::{ScriptedSession, settle};
 use crate::driver::claude::session::transport::inbound::{
     ClaudeHookCallback, ClaudeInboundRequest, ClaudeInboundRequestBody, ClaudeInboundRequestEvent,
 };
-use crate::driver::hook_pauses::{HELD_TARGET_REASON, PAUSED_REASON, target_unread_reason};
+use crate::driver::hook_pauses::{HELD_TARGET_REASON, PAUSED_REASON};
 use crate::driver::run_control::HelperStopReason;
 use crate::driver::session_control::{CreateSessionParams, SubagentPolicy};
+use crate::driver::session_messages::target_unread_reason;
 use crate::driver::test_registry::fixed_session_id;
 use crate::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
 use crate::run::posture::{compose_execution_posture, resolve_posture};

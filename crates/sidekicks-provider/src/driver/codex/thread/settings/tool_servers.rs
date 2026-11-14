@@ -17,8 +17,9 @@ use crate::callback_tools::spawn_binding::{
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::hooks::tools::CodexHookTools;
 use crate::driver::codex::mcp::config::server_entry::{
-    DEFAULT_TOOLS_APPROVAL_MODE_MEMBER, HTTP_HEADERS_MEMBER, OMIT_TOOLS_FROM_MEMBER,
-    REQUIRED_MEMBER, TOOL_INPUT_SCHEMA_MAX_BYTES_MEMBER, TOOL_TIMEOUT_SEC_MEMBER, URL_MEMBER,
+    CODEX_DEFAULT_TOOL_INPUT_SCHEMA_MAX_BYTES, DEFAULT_TOOLS_APPROVAL_MODE_MEMBER,
+    HTTP_HEADERS_MEMBER, OMIT_TOOLS_FROM_MEMBER, REQUIRED_MEMBER,
+    TOOL_INPUT_SCHEMA_MAX_BYTES_MEMBER, TOOL_TIMEOUT_SEC_MEMBER, URL_MEMBER,
 };
 use crate::driver::codex::service::command_line::CODEX_HOOK_TIMEOUT;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -204,8 +205,10 @@ pub(crate) fn insert_codex_daemon_tool_servers(
             DEFAULT_TOOLS_APPROVAL_MODE_MEMBER: "approve",
             TOOL_TIMEOUT_SEC_MEMBER: CODEX_DAEMON_TOOL_TIMEOUT_SECONDS,
             // Codex compacts a schema past this, its field descriptions first, so the route's
-            // largest keeps every one whole for the model.
-            TOOL_INPUT_SCHEMA_MAX_BYTES_MEMBER: entry.tool_input_schema_max_bytes,
+            // bound keeps every one whole for the model, never under Codex's own default.
+            TOOL_INPUT_SCHEMA_MAX_BYTES_MEMBER: entry
+                .tool_input_schema_max_bytes
+                .max(CODEX_DEFAULT_TOOL_INPUT_SCHEMA_MAX_BYTES),
         });
         if entry.server_name == DAEMON_TOOL_SERVER_NAME {
             members[OMIT_TOOLS_FROM_MEMBER] = json!([DEFERRED_SURFACE]);

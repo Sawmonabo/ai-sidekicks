@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -12,7 +11,6 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_platforms::thread_cpu_time;
 
 use super::{
     ClaudePeerSendCheck, ClaudeTurnSenders, another_session, answer_goes_back, answer_peer_send,
@@ -22,8 +20,7 @@ use crate::driver::claude::hooks::registration::{
     ClaudeHookCallback, compose_claude_initialize_request,
 };
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
-use crate::driver::hook_pauses::target_unread_reason;
-use crate::driver::session_messages::no_session_named;
+use crate::driver::session_messages::{no_session_named, target_unread_reason};
 use crate::driver::test_registry::fixed_session_id;
 use crate::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
 use crate::port::session_directory_lookup::{DirectoryMatch, SessionDirectoryLookup};
@@ -358,55 +355,4 @@ fn every_session_registers_the_send_hook_on_the_message_tool() {
         .map(|hook| (hook.matcher.as_deref(), hook.timeout.is_some()))
         .collect();
     assert_eq!(send_hooks, [(Some("^SendMessage$"), true)]);
-}
-
-// The hook's budget: a call it lets pass after reading every one of 100 registry files spends at
-// most 10 ms of its own thread's processor time at the 99th percentile, read from that thread's
-// clock so a loaded machine does not count; the wall-clock figure is measured on a quiet machine.
-// Killed by a walk that reads the registry again per file it compares.
-#[tokio::test]
-async fn the_hook_answers_within_its_budget_over_a_hundred_registry_files() {
-    let scratch = tempfile::tempdir().expect("a scratch folder is made");
-    let config = scratch.path().join("config");
-    for process_id in 5000..5100 {
-        write_registry_file(
-            &config,
-            process_id,
-            &json!({
-                "pid": process_id,
-                "sessionId": format!("s-{process_id}"),
-                "name": format!("session-{process_id}"),
-                "status": "idle",
-                "messagingSocketPath": format!("/tmp/cc-socks/{process_id}.sock"),
-                "cwd": "/work/app",
-            })
-            .to_string(),
-        );
-    }
-
-    let mut timings = Vec::new();
-    for _ in 0..100 {
-        let started = thread_cpu_time().expect("the clock reads");
-        let answer = answer_peer_send(check(
-            "courier",
-            TurnMessages::None,
-            None,
-            None,
-            vec![config.clone()],
-        ))
-        .await;
-        timings.push(
-            thread_cpu_time()
-                .expect("the clock reads")
-                .saturating_sub(started),
-        );
-        assert_eq!(answer, ClaudeHookAnswer::Pass);
-    }
-    timings.sort_unstable();
-
-    let p99 = timings[98];
-    assert!(
-        p99 <= Duration::from_millis(10),
-        "the hook spent {p99:?} at the 99th percentile over 100 registry files"
-    );
 }

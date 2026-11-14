@@ -142,13 +142,30 @@ impl ScriptedCodexService {
         self.publish_disconnected(CodexServiceAvailability::CrashLoop)
     }
 
+    /// Publishes the service stopped, as a service another took its home over from ends, its
+    /// connection set aside.
+    pub(crate) fn publish_stopped(&self) -> Option<Arc<CodexAppServerConnection>> {
+        self.publish_disconnected(CodexServiceAvailability::Stopped)
+    }
+
+    /// Publishes the service shut down with the daemon, its connection set aside.
+    pub(crate) fn publish_shut_down(&self) -> Option<Arc<CodexAppServerConnection>> {
+        self.publish_disconnected(CodexServiceAvailability::ShutDown)
+    }
+
+    /// Sets the service's connection aside while it still reads up, as a drop leaves it until the
+    /// away state is published.
+    pub(crate) fn take_connection(&self) -> Option<Arc<CodexAppServerConnection>> {
+        self.service.lock_live().connection.take()
+    }
+
     // Publishes the service as `availability`, one it is not up in, its connection set aside so
     // the script stays open.
     fn publish_disconnected(
         &self,
         availability: CodexServiceAvailability,
     ) -> Option<Arc<CodexAppServerConnection>> {
-        let connection = self.service.lock_live().connection.take();
+        let connection = self.take_connection();
         self.service.publish_availability(availability);
         connection
     }

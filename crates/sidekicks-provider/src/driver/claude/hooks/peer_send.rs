@@ -16,8 +16,7 @@ use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
 use crate::driver::claude::live_sessions::{
     ClaudeLiveSession, by_name, by_socket, names_socket, read_live_sessions,
 };
-use crate::driver::hook_pauses::target_unread_reason;
-use crate::driver::session_messages::no_session_named;
+use crate::driver::session_messages::{no_session_named, target_unread_reason};
 use crate::port::agent_tree_lookup::AgentTreeLookup;
 use crate::port::session_directory_lookup::{DirectoryMatch, SessionDirectoryLookup};
 use crate::port::session_message_reading_publisher::SessionMessageArrival;

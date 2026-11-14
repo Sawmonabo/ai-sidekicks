@@ -17,6 +17,10 @@ use crate::tools::session;
 /// The header a spawn's secret travels in.
 const AUTHORIZATION_HEADER: &str = "Authorization";
 
+/// The bytes the schema bound adds over the largest session tool's compact schema, since a
+/// provider counts the schema in its own form, which may run longer.
+const SCHEMA_BOUND_MARGIN_BYTES: usize = 1_024;
+
 /// The route to the tool servers on the listener at `127.0.0.1:<port>`, adding each spawn's entry
 /// to the table every request is admitted against.
 pub struct AgentToolServerRoute {
@@ -26,8 +30,8 @@ pub struct AgentToolServerRoute {
     port: u16,
     /// The key every entry's secret is derived from.
     key: Arc<ToolServerSecretKey>,
-    /// The bytes of the largest input schema the session tools list.
-    largest_schema_bytes: usize,
+    /// The bytes of the largest input schema the session tools list, plus the margin.
+    schema_bound_bytes: usize,
 }
 
 impl AgentToolServerRoute {
@@ -48,7 +52,7 @@ impl AgentToolServerRoute {
             entries,
             port,
             key,
-            largest_schema_bytes,
+            schema_bound_bytes: largest_schema_bytes + SCHEMA_BOUND_MARGIN_BYTES,
         }
     }
 
@@ -80,7 +84,7 @@ impl AgentToolServerRoute {
                     AUTHORIZATION_HEADER.to_owned(),
                     (*token.header_value()).clone(),
                 )],
-                tool_input_schema_max_bytes: self.largest_schema_bytes,
+                tool_input_schema_max_bytes: self.schema_bound_bytes,
             });
             guards.push(self.entries.insert(
                 path.clone(),

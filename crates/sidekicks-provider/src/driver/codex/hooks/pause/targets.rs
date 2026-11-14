@@ -23,7 +23,8 @@ use super::CodexRunPauses;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::hooks::server::{CodexHookAnswer, CodexHookInput};
 use crate::driver::codex::transport::connection::read_codex_object;
-use crate::driver::hook_pauses::{HELD_TARGET_REASON, PausedRole, target_unread_reason};
+use crate::driver::hook_pauses::{HELD_TARGET_REASON, PausedRole};
+use crate::driver::session_messages::target_unread_reason;
 use crate::port::agent_tree_lookup::AgentTreeLookup;
 
 /// The tool Codex names a message to another agent by at its hooks.

@@ -389,6 +389,24 @@ where
         read().map_err(|error| payload_damage_of(self.reader, self.session_id, error))
     }
 
+    /// Hands `each` the body of the piece at `sequence` in order, one stored frame decoded at a
+    /// time; nothing where the piece has no body or no row. Fails as [`RowReads::piece_texts`]
+    /// does.
+    pub fn piece_frames(&self, sequence: i64, each: impl FnMut(&str)) -> rusqlite::Result<()> {
+        self.reader
+            .prepare_cached(&PIECE_BODY_SQL)?
+            .query_row(
+                named_params! {
+                    "@session_id": self.session_id.text().as_str(),
+                    "@sequence": sequence,
+                },
+                |row| StoredBodyColumns::read(row, 0)?.decode_each_frame(0, each),
+            )
+            .optional()
+            .map(|_read| ())
+            .map_err(|error| payload_damage_of(self.reader, self.session_id, error))
+    }
+
     /// The stretch covering `from..to` of the body of the piece at `sequence`, decoding only the
     /// frames it falls in; `None` when the piece has no body. Fails as [`RowReads::piece_texts`]
     /// does.

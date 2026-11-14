@@ -7,7 +7,7 @@
 //! up; a service the daemon started that answers nothing for two minutes is ended as a crash; a
 //! service draining toward its exit refuses new work while its turns run on.
 
-mod away;
+pub(crate) mod away;
 pub(crate) mod connection_events;
 pub(crate) mod drain;
 pub(crate) mod events;

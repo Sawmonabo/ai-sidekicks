@@ -25,8 +25,9 @@ use sidekicks_provider::driver::contract::params_and_results::{
     StandaloneTerminalActivity, StandaloneTerminalSession,
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::session_messages::no_session_named;
+use sidekicks_provider::driver::session_messages::{no_session_named, target_unread_reason};
 use sidekicks_session::run::agent::read_session_lead;
+use sidekicks_std::error_description::describe_error;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -127,6 +128,23 @@ pub(crate) struct SessionDirectoryEntry {
     pub(crate) origin: SessionOrigin,
 }
 
+/// Every session the directory could read, and each provider whose sessions typed in a terminal
+/// could not be read, so a session missing from the entries is never read as gone.
+#[derive(Debug)]
+pub(crate) struct SessionDirectoryListing {
+    /// The sessions, in the directory's order.
+    pub(crate) entries: Vec<SessionDirectoryEntry>,
+    /// The providers whose terminal list failed, in the drivers' order.
+    pub(crate) unread: Vec<UnreadTerminalSessions>,
+}
+
+/// A provider whose sessions typed in a terminal could not be read.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct UnreadTerminalSessions {
+    /// Why, in words naming the provider by the name its driver gives itself.
+    pub(crate) cause: String,
+}
+
 /// How a tool reads a reference to the session calling it.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(
@@ -165,11 +183,12 @@ impl SessionDirectory {
     /// each driver's sessions typed in a terminal in the drivers' order, those its shared service
     /// holds before those that run on their own. A hosted session whose readable log names no lead
     /// is bound to no provider here and is left out. A driver's terminal list that cannot be read
-    /// is logged and left out, so a provider's service that is starting or failing leaves every
-    /// hosted session reachable. Fails when a read of the daemon's own rows fails.
+    /// is named among the unread beside the entries, so a provider's failing service leaves every
+    /// hosted session reachable; a service on its way back lists none of its own accord. Fails
+    /// when a read of the daemon's own rows fails.
     pub(crate) async fn read_entries(
         &self,
-    ) -> Result<Vec<SessionDirectoryEntry>, SessionDirectoryError> {
+    ) -> Result<SessionDirectoryListing, SessionDirectoryError> {
         let (machine, hosted, terminal) = tokio::join!(
             async {
                 read_local_machine(&self.pool)
@@ -196,12 +215,15 @@ impl SessionDirectory {
                 origin: SessionOrigin::Hosted,
             })
             .collect();
+        let mut unread = Vec::new();
         for DriverTerminalSessions {
             provider,
             in_service,
             standalone,
         } in terminal
         {
+            let in_service = self.listed_or_unread(provider, in_service, &mut unread);
+            let standalone = self.listed_or_unread(provider, standalone, &mut unread);
             entries.extend(
                 in_service
                     .into_iter()
@@ -246,7 +268,44 @@ impl SessionDirectory {
                     }),
             );
         }
-        Ok(entries)
+        Ok(SessionDirectoryListing { entries, unread })
+    }
+
+    // The sessions `listed` holds; where `provider`'s list failed, none, the failure logged and
+    // pushed on `unread` named by its driver's name.
+    fn listed_or_unread<Session>(
+        &self,
+        provider: &ProviderId,
+        listed: Result<Vec<Session>, DriverError>,
+        unread: &mut Vec<UnreadTerminalSessions>,
+    ) -> Vec<Session> {
+        match listed {
+            Ok(sessions) => sessions,
+            Err(error) => {
+                unread.push(self.unread_cause(provider, &error));
+                Vec::new()
+            }
+        }
+    }
+
+    // Why `provider`'s terminal list failed with `error`, logged, named by its driver's name.
+    fn unread_cause(&self, provider: &ProviderId, error: &DriverError) -> UnreadTerminalSessions {
+        tracing::warn!(
+            %provider,
+            error = error as &(dyn std::error::Error + 'static),
+            "a provider's sessions typed in a terminal could not be read for the directory"
+        );
+        let name = self
+            .providers
+            .descriptor(provider)
+            .expect("each listed driver's provider is registered")
+            .name();
+        UnreadTerminalSessions {
+            cause: format!(
+                "{name}'s sessions typed in a terminal could not be read: {}",
+                describe_error(error)
+            ),
+        }
     }
 
     /// The sessions typed in a terminal that a provider's shared service holds, each driver's in
@@ -264,8 +323,7 @@ impl SessionDirectory {
         Ok(lists.into_iter().flatten().collect())
     }
 
-    // Each driver's sessions typed in a terminal in the drivers' order, read together; a list that
-    // cannot be read is logged and read as empty.
+    // Each driver's sessions typed in a terminal in the drivers' order, read together.
     async fn read_terminal_sessions(&self) -> Vec<DriverTerminalSessions<'_>> {
         join_all(
             self.providers
@@ -277,8 +335,8 @@ impl SessionDirectory {
                     );
                     DriverTerminalSessions {
                         provider,
-                        in_service: listed_or_none(provider, in_service),
-                        standalone: listed_or_none(provider, standalone),
+                        in_service,
+                        standalone,
                     }
                 }),
         )
@@ -322,33 +380,18 @@ impl SessionDirectory {
     }
 }
 
-// The sessions `listed` holds, or none where `provider`'s list could not be read, logged.
-fn listed_or_none<Session>(
-    provider: &ProviderId,
-    listed: Result<Vec<Session>, DriverError>,
-) -> Vec<Session> {
-    listed.unwrap_or_else(|error| {
-        tracing::warn!(
-            %provider,
-            error = &error as &(dyn std::error::Error + 'static),
-            "a provider's sessions typed in a terminal could not be read for the directory"
-        );
-        Vec::new()
-    })
-}
-
 // The project name a session typed in a terminal in `folder` reads under, as a project there would
 // be named.
 fn folder_project_name(folder: &Path) -> String {
     project_name_of(folder).as_str().to_owned()
 }
 
-// One driver's sessions typed in a terminal: those its shared service holds and those that run on
-// their own.
+// One driver's sessions typed in a terminal as its two lists read: those its shared service holds
+// and those that run on their own.
 struct DriverTerminalSessions<'registry> {
     provider: &'registry ProviderId,
-    in_service: Vec<TerminalProviderSession>,
-    standalone: Vec<StandaloneTerminalSession>,
+    in_service: Result<Vec<TerminalProviderSession>, DriverError>,
+    standalone: Result<Vec<StandaloneTerminalSession>, DriverError>,
 }
 
 // One hosted session's directory facts as its row and its lead's binding give them.
@@ -364,14 +407,16 @@ struct HostedSession {
 /// The session `reference` names for a tool `caller` calls, by the first rule that matches: the
 /// caller itself where the tool refuses it, an id, `"this"` where it names the caller, a name one
 /// session has; a name several share is refused with each holder, and anything else, an address
-/// among it, is a name no session has. An id is matched before any name, and a name is never
-/// guessed among several. The error is the refusal's text for the model.
+/// among it, is a name no session has, or one a provider in `unread` may hold, refused as unread.
+/// An id is matched before any name, and a name is never guessed among several. The error is the
+/// refusal's text for the model.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the session tools' handlers resolve a reference")
 )]
 pub(crate) fn resolve_session_reference<'directory>(
     entries: &'directory [SessionDirectoryEntry],
+    unread: &[UnreadTerminalSessions],
     caller: &SessionId,
     reference: &SessionReference,
     caller_reference: CallerReference,
@@ -405,7 +450,11 @@ pub(crate) fn resolve_session_reference<'directory>(
     }
     match named.as_slice() {
         [only] => Ok(only),
-        [] => Err(no_session_named(reference)),
+        [] if unread.is_empty() => Err(no_session_named(reference)),
+        [] => {
+            let causes: Vec<&str> = unread.iter().map(|unread| unread.cause.as_str()).collect();
+            Err(target_unread_reason(&causes.join(", and ")))
+        }
         several => {
             let holders: Vec<SharedNameHolder<'_>> = several
                 .iter()
@@ -463,7 +512,7 @@ mod tests {
 
     use super::{
         CallerReference, SessionDirectory, SessionDirectoryEntry, SessionOrigin, SessionState,
-        caller_unlisted, resolve_session_reference,
+        UnreadTerminalSessions, caller_unlisted, resolve_session_reference,
     };
     use crate::daemon::schema::schema_parts;
 
@@ -504,7 +553,7 @@ mod tests {
             entry("s-9e10", &builder_id, "docs"),
         ];
         let resolve = |text: &str, caller_reference| {
-            resolve_session_reference(&entries, &caller, &reference(text), caller_reference)
+            resolve_session_reference(&entries, &[], &caller, &reference(text), caller_reference)
                 .map(|entry| entry.id.clone())
         };
         let waits = CallerReference::Refused(not_waiting_self);
@@ -531,6 +580,7 @@ mod tests {
         assert_eq!(
             resolve_session_reference(
                 &entries,
+                &[],
                 &unlisted,
                 &reference("this"),
                 CallerReference::ThisNamesCaller,
@@ -611,7 +661,8 @@ mod tests {
             )
             .expect("the test marks the session purged");
 
-        // Killed by a failed terminal list failing the lookup, or dropping the driver's other list.
+        // Killed by a failed terminal list failing the lookup, read as empty and left untold, or
+        // dropping the driver's other list.
         let mut first = MockProviderDriver::new();
         first.expect_list_terminal_sessions().returning(|| {
             async {
@@ -664,8 +715,19 @@ mod tests {
             read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
         };
 
-        let entries = directory.read_entries().await.expect("the directory reads");
-        let facts: Vec<_> = entries
+        let listing = directory.read_entries().await.expect("the directory reads");
+        assert_eq!(
+            listing.unread,
+            [UnreadTerminalSessions {
+                cause: format!(
+                    "{}'s sessions typed in a terminal could not be read: the provider driver \
+                     failed: starting",
+                    PROVIDERS[0].name()
+                ),
+            }]
+        );
+        let facts: Vec<_> = listing
+            .entries
             .iter()
             .map(|entry| {
                 (

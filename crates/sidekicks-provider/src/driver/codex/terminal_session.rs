@@ -21,6 +21,7 @@ use self::exchanges::{
 };
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::away::CodexServiceRest;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_messages::{
@@ -66,7 +67,7 @@ impl CodexServiceRegistry {
     /// once the terminal gave the service up or where no terminal holds the conversation. Fails
     /// for a wake-up or a reminder and as the exchange's requests fail.
     pub(crate) async fn deliver_session_message_to_terminal(
-        &self,
+        self: &Arc<Self>,
         thread_id: &str,
         delivery: SessionMessageDelivery,
         readings: &TerminalReadings,
@@ -87,7 +88,7 @@ impl CodexServiceRegistry {
             return Ok(given_up(thread_id));
         };
         let Some(away) = service.away_for() else {
-            return deliver_and_publish(&service, thread_id, &message, readings, tasks).await;
+            return deliver_and_publish(self, &service, thread_id, &message, readings, tasks).await;
         };
         let window_left = TERMINAL_RECONNECT_WINDOW.saturating_sub(away);
         if window_left.is_zero() {
@@ -103,12 +104,21 @@ impl CodexServiceRegistry {
         let readings = Arc::clone(readings);
         let thread_id = thread_id.to_owned();
         let later_tasks = tasks.clone();
+        let registry = Arc::clone(self);
         tasks.spawn(async move {
             let is_back = tokio::time::timeout(window_left, service.when_up())
                 .await
                 .is_ok();
             let sent = if is_back {
-                deliver_and_publish(&service, &thread_id, &message, &readings, &later_tasks).await
+                deliver_and_publish(
+                    &registry,
+                    &service,
+                    &thread_id,
+                    &message,
+                    &readings,
+                    &later_tasks,
+                )
+                .await
             } else {
                 Ok(given_up(&thread_id))
             };
@@ -144,11 +154,12 @@ fn given_up(thread_id: &str) -> SessionMessageSent {
     }
 }
 
-// Delivers `message` into `thread_id` on `service`, which is up, and publishes to `readings` that
-// it was delivered and, for a turn it opened, that turn's answer or its failure once it ends, on
-// `tasks`. Answers `Refused` with the reopen line where no terminal holds the conversation; fails
-// as the exchange's requests fail.
+// Delivers `message` into `thread_id` on `service`, which is up and the terminal home's in
+// `registry`, and publishes to `readings` that it was delivered and, for a turn it opened, that
+// turn's answer or its failure once it ends, on `tasks`. Answers `Refused` with the reopen line
+// where no terminal holds the conversation; fails as the exchange's requests fail.
 async fn deliver_and_publish(
+    registry: &Arc<CodexServiceRegistry>,
     service: &Arc<CodexService>,
     thread_id: &str,
     message: &CodexTerminalMessage,
@@ -176,6 +187,7 @@ async fn deliver_and_publish(
     );
     if let CodexTerminalDelivery::Started { turn_id, ended } = delivered {
         tasks.spawn(publish_turn_end(
+            Arc::clone(registry),
             Arc::clone(service),
             thread_id.to_owned(),
             turn_id,
@@ -187,10 +199,12 @@ async fn deliver_and_publish(
     Ok(SessionMessageSent::Sent)
 }
 
-// Publishes to `readings` how the turn `turn_id` of `thread_id` on `service`, which the message
-// `message_id` opened, ended: as `ended` hands it back, else, where the seat's connection ended
-// first, as it is read again, or not reachable once the service is left down for good.
+// Publishes to `readings` how the turn `turn_id` of `thread_id` on `service`, the terminal home's
+// in `registry`, which the message `message_id` opened, ended: as `ended` hands it back, else,
+// where the seat's connection ended first, as it is read again; not reachable once the home's
+// service is down for good, and nothing once it is shut down with the daemon.
 async fn publish_turn_end(
+    registry: Arc<CodexServiceRegistry>,
     service: Arc<CodexService>,
     thread_id: String,
     turn_id: String,
@@ -199,54 +213,91 @@ async fn publish_turn_end(
     readings: TerminalReadings,
 ) {
     let end = match ended.await {
-        Ok(end) => Some(end),
+        Ok(end) => end,
         // A seat whose connection ended before the turn did leaves the turn's end unread.
-        Err(_unread) => await_turn_end_again(&service, &thread_id, &turn_id).await,
+        Err(_unread) => {
+            match await_turn_end_again(&registry, service, &thread_id, &turn_id).await {
+                TurnEndReread::Ended(end) => end,
+                // The stored turn is read at the daemon's next start.
+                TurnEndReread::ShutDown => return,
+                TurnEndReread::DownForGood => {
+                    let reopen = CodexTerminalExchangeError::GivenUp { thread_id }.to_string();
+                    let reading = SessionMessageReading::NotReachable { message_id, reopen };
+                    publish_terminal_reading(&readings, reading);
+                    return;
+                }
+            }
+        }
     };
     let reading = match end {
-        Some(CodexTerminalTurnEnd::Answered { reply }) => SessionMessageReading::Answered {
+        CodexTerminalTurnEnd::Answered { reply } => SessionMessageReading::Answered {
             // The message opened the turn, so its id names the turn's record.
             turn_record: message_id.clone(),
             message_id,
             answer: reply,
         },
-        Some(CodexTerminalTurnEnd::Failed { notice }) => {
+        CodexTerminalTurnEnd::Failed { notice } => {
             SessionMessageReading::Failed { message_id, notice }
         }
-        None => SessionMessageReading::NotReachable {
-            message_id,
-            reopen: CodexTerminalExchangeError::GivenUp { thread_id }.to_string(),
-        },
     };
     publish_terminal_reading(&readings, reading);
 }
 
-// The end of the turn `turn_id` of `thread_id` on `service`, read again after the seat's connection
-// ended before it: at once while the service is up, else once it is back however long it was
-// away, past the terminal's reconnect window too, the wait staying open meanwhile; a read the
-// service's going away cuts short waits again. `None` once the service is left down for good, or
-// where the read fails while it is up.
+// What became of a turn whose end is read again.
+enum TurnEndReread {
+    // The turn ended, or Codex refused the read in its own words.
+    Ended(CodexTerminalTurnEnd),
+    // The home's service was shut down with the daemon, which may keep it running.
+    ShutDown,
+    // The home's service is down and nothing brings it back: its restarts are spent, it was
+    // switched off, or its ordinary start failed.
+    DownForGood,
+}
+
+// The end of the turn `turn_id` of `thread_id`, read again after the seat's connection ended
+// before it, following the terminal home's service in `registry` from `service` on: at once
+// while the service is up, else once it is back however long it was away. A read that fails, or
+// whose own seat ends, waits for the service's next change before it reads again; a service
+// another took the home over from hands the wait to that one. Codex's own refusal of a read
+// ends the turn failed in its words.
 async fn await_turn_end_again(
-    service: &Arc<CodexService>,
+    registry: &CodexServiceRegistry,
+    mut service: Arc<CodexService>,
     thread_id: &str,
     turn_id: &str,
-) -> Option<CodexTerminalTurnEnd> {
-    loop {
-        if !service.comes_back_up().await {
-            return None;
-        }
-        match reread_turn_end(service, thread_id, turn_id).await {
-            Ok(Some(end)) => return Some(end),
-            Ok(None) | Err(_) if service.away_for().is_some() => {}
-            Ok(None) => return None,
-            Err(error) => {
-                tracing::warn!(
-                    thread_id,
-                    error = &error as &(dyn std::error::Error + 'static),
-                    "a terminal session's turn could not be read again"
-                );
-                return None;
+) -> TurnEndReread {
+    'service: loop {
+        let mut availability = service.watch_availability();
+        loop {
+            match availability.rest().await {
+                CodexServiceRest::Up => {}
+                CodexServiceRest::ShutDown => return TurnEndReread::ShutDown,
+                CodexServiceRest::Down => match registry.terminal_home_service() {
+                    Some(next) if !Arc::ptr_eq(&next, &service) => {
+                        service = next;
+                        continue 'service;
+                    }
+                    Some(_) | None => return TurnEndReread::DownForGood,
+                },
             }
+            match reread_turn_end(&service, thread_id, turn_id).await {
+                Ok(Some(end)) => return TurnEndReread::Ended(end),
+                // The seat's own connection ended before the turn did.
+                Ok(None) => {}
+                Err(error) => {
+                    if let Some(words) = error.provider_refusal_words() {
+                        return TurnEndReread::Ended(CodexTerminalTurnEnd::Failed {
+                            notice: words.to_owned(),
+                        });
+                    }
+                    tracing::debug!(
+                        thread_id,
+                        error = &error as &(dyn std::error::Error + 'static),
+                        "a terminal session's turn is read again once its service changes"
+                    );
+                }
+            }
+            availability.changed().await;
         }
     }
 }

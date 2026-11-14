@@ -1,6 +1,6 @@
 //! The block cuts of ended replies, kept in memory so a later part of a long reply decodes only
-//! the frames it covers. An ended reply's cut never changes, so it is cut once from its whole text;
-//! a reply still taking pieces is cut whole on each part and never kept. The cache holds at most
+//! the frames it covers. An ended reply's cut never changes, so it is cut once over its whole text,
+//! read a frame at a time; a reply still taking pieces is cut whole on each part and never kept. The cache holds at most
 //! 8 MiB of starts, letting go of the oldest first, and a purged session's cuts with it; the
 //! session service that reads bodies owns it.
 

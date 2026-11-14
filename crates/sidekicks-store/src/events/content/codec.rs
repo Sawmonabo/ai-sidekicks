@@ -617,6 +617,42 @@ impl StoredBodyColumns {
             .transpose()
     }
 
+    /// Hands `each` the body's text in order, one frame decoded at a time, so a long body is never
+    /// held decoded whole; a body stored as it is is handed whole, and a row with no body hands
+    /// nothing. Fails as [`StoredBodyColumns::decode`] does.
+    pub fn decode_each_frame(
+        self,
+        index: usize,
+        mut each: impl FnMut(&str),
+    ) -> rusqlite::Result<()> {
+        let Some(stored) = self.stored else {
+            return Ok(());
+        };
+        let Some(ContentEncoding::Zstd) = self.encoding else {
+            let text = decode_body(stored, self.encoding, self.content_length)
+                .map_err(|error| decode_failure(index, error))?;
+            each(&text);
+            return Ok(());
+        };
+        let stated = self
+            .content_length
+            .ok_or_else(|| decode_failure(index, BodyDecodeError::NoLength))?;
+        let mut frames = Vec::new();
+        walk_frames(&stored, stated, |text, frame| {
+            frames.push((frame, text.end - text.start));
+        })
+        .map_err(|error| decode_failure(index, error))?;
+        for (frame, text_length) in frames {
+            let capacity = usize::try_from(text_length).expect("a frame holds at most a page");
+            // The writer cuts frames at characters, so each decodes to UTF-8 alone.
+            let text = decompress_frames(&stored[frame], capacity)
+                .and_then(|decoded| String::from_utf8(decoded).map_err(BodyDecodeError::Utf8))
+                .map_err(|error| decode_failure(index, error))?;
+            each(&text);
+        }
+        Ok(())
+    }
+
     /// The stretch of the body covering `from..to`, `None` for a row with no body; fails as
     /// [`StoredBodyColumns::decode`] does.
     pub fn decode_stretch(

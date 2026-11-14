@@ -355,6 +355,17 @@ impl CodexError {
         )
     }
 
+    /// Codex's own words where this is its JSON-RPC error answer, the service not draining toward
+    /// its exit; `None` for every other failure, a connection's among them.
+    pub(crate) fn provider_refusal_words(&self) -> Option<&str> {
+        if let Self::ProviderRequest { message, .. } = self
+            && !self.is_service_draining()
+        {
+            return Some(message.as_str());
+        }
+        None
+    }
+
     /// Codex's own refusal of a request, the service neither overloaded nor draining, as the
     /// refusal `code` in `message` with Codex's words bounded as its failure detail; any other
     /// error is returned unchanged.

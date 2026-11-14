@@ -63,6 +63,8 @@ pub(crate) const DEFAULT_TOOLS_APPROVAL_MODE_MEMBER: &str = "default_tools_appro
 pub(crate) const OMIT_TOOLS_FROM_MEMBER: &str = "omit_tools_from";
 /// The member of a server entry past which Codex compacts a tool's input schema, in bytes.
 pub(crate) const TOOL_INPUT_SCHEMA_MAX_BYTES_MEMBER: &str = "tool_input_schema_max_bytes";
+/// The bytes past which Codex compacts a tool's input schema where its entry sets no bound.
+pub(crate) const CODEX_DEFAULT_TOOL_INPUT_SCHEMA_MAX_BYTES: usize = 5_000;
 // The header Codex sends a bearer token in.
 const AUTHORIZATION_HEADER: &str = "Authorization";
 // The approval mode Codex gives a server's tools when its entry sets none.

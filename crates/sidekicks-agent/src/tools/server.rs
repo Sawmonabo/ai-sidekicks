@@ -39,6 +39,7 @@ use sidekicks_provider::tool_server_name::{
 use tokio::time::{Instant, interval_at};
 use tokio_util::sync::CancellationToken;
 
+use crate::tools::admission::AnswerStream;
 use crate::tools::entries::{ToolServerEntries, ToolServerEntry};
 use crate::tools::group::{AgentTool, AgentToolGroup, ToolGroupLoading};
 use crate::tools::session::rules::SHARED_RULES;
@@ -123,11 +124,23 @@ pub struct AgentToolServer {
     host: Arc<CallbackToolHost>,
 }
 
-// A request's route: where it came, and the spawn entry its secret admits there.
+// A request's route: where it came, the spawn entry its secret admits there, and the event
+// stream it is answered on, which a request carried in process has none of.
 struct AdmittedRoute {
     path: ToolServerPath,
     entry: Arc<ToolServerEntry>,
     descriptor: &'static ProviderDescriptor,
+    answer_stream: Option<AnswerStream>,
+}
+
+impl AdmittedRoute {
+    // Answers once the event stream the request is answered on closes; never without one.
+    async fn answer_stream_closed(&self) {
+        match &self.answer_stream {
+            Some(answer_stream) => answer_stream.closed().await,
+            None => std::future::pending().await,
+        }
+    }
 }
 
 impl AgentToolServer {
@@ -170,6 +183,7 @@ impl AgentToolServer {
             path,
             entry,
             descriptor,
+            answer_stream: parts.extensions.get::<AnswerStream>().cloned(),
         })
     }
 
@@ -347,7 +361,8 @@ impl AgentToolServer {
 
     // Holds `answer` until it settles, telling the caller every 45 s it still runs where the
     // request carries a progress token; a cancelable call ends early once its caller canceled it,
-    // its stream is gone or its spawn's process is gone, dropping the answer's work.
+    // the stream it is answered on closed or its spawn's process is gone, dropping the answer's
+    // work.
     async fn hold_call(
         route: &AdmittedRoute,
         context: &RequestContext<RoleServer>,
@@ -368,24 +383,21 @@ impl AgentToolServer {
                 () = route.entry.ended(), if is_cancelable => {
                     return Err(McpError::internal_error("the caller's process is gone", None));
                 }
+                () = route.answer_stream_closed(), if is_cancelable => {
+                    return Err(McpError::internal_error("the caller's stream is gone", None));
+                }
                 answer = &mut answer => return answer.map(CallToolResponse::from),
                 _ = progress.tick(), if progress_token.is_some() => {
                     beats += 1;
                     let token = progress_token.clone().expect("the arm runs only with a token");
                     let beat = ProgressNotificationParam::new(token, f64::from(beats));
-                    // A beat that cannot be sent means the stream is gone: a cancelable call ends
-                    // there, and any other keeps running to its answer.
+                    // A beat that cannot be sent leaves the call running: the stream's own close
+                    // ends a cancelable call, and any other runs to its answer.
                     if let Err(error) = context.peer.notify_progress(beat).await {
                         tracing::debug!(
                             error = &error as &(dyn Error + 'static),
                             "a held call's progress did not reach its caller"
                         );
-                        if is_cancelable {
-                            return Err(McpError::internal_error(
-                                "the caller's stream is gone",
-                                None,
-                            ));
-                        }
                     }
                 }
             }

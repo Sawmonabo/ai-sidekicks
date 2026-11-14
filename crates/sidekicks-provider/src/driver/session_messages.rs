@@ -16,6 +16,16 @@ pub fn no_session_named(name: &str) -> String {
     format!("No session named \"{name}\". Call session_list to see the sessions.")
 }
 
+/// The words a message to another session is refused with when the daemon could not read whether
+/// that session can take messages, `cause` saying why, which the session tools and a driver's
+/// send hook both answer with.
+pub fn target_unread_reason(cause: &str) -> String {
+    format!(
+        "Not sent: the daemon could not read whether this agent can take messages, because \
+         {cause}. Continue with what you can, or tell the person."
+    )
+}
+
 /// A text the daemon delivers into a session: another session's message, the wake-up of a wait,
 /// or a reminder coming due.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,6 +92,11 @@ pub enum SessionWaitEnd {
     NeedsPerson {
         /// What it is asking the person.
         what: String,
+    },
+    /// The turn the wait was on failed, or the read of how it ended was refused.
+    Failed {
+        /// The cause, a plain sentence: the provider's own words where it gave them.
+        notice: String,
     },
 }
 

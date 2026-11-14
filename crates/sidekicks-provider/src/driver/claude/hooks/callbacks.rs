@@ -45,8 +45,8 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-use crate::driver::hook_pauses::target_unread_reason;
 use crate::driver::run_control::HelperStopReason;
+use crate::driver::session_messages::target_unread_reason;
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
 use crate::port::edit_checkpoint::{EditCheckpoint, EditCheckpointRequest};

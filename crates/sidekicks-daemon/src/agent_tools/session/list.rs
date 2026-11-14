@@ -18,6 +18,7 @@ use sidekicks_contracts::session::directory::SessionActivity;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::contract::params_and_results::StandaloneTerminalActivity;
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::session_messages::target_unread_reason;
 use sidekicks_session::directory::run_activity::{WORKING_RUN_STATES, session_activity_sql};
 use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
@@ -28,7 +29,8 @@ use sidekicks_store::transcript::rejoin::row_condition_sql;
 
 use crate::agent_tools::AgentToolError;
 use crate::orchestration::session_directory::{
-    SessionDirectory, SessionDirectoryEntry, SessionOrigin,
+    SessionDirectory, SessionDirectoryEntry, SessionDirectoryListing, SessionOrigin,
+    UnreadTerminalSessions,
 };
 
 /// The one read of the hosted sessions' list facts, its statement composed once with the
@@ -36,6 +38,15 @@ use crate::orchestration::session_directory::{
 pub(crate) struct SessionLineReads {
     pool: Arc<DatabaseReadPool>,
     facts_sql: String,
+}
+
+/// The sessions the reading tools name, and each provider whose sessions typed in a terminal could
+/// not be read.
+pub(crate) struct ListedSessions {
+    /// The sessions, in the directory's order.
+    pub(crate) sessions: Vec<ListedSession>,
+    /// The providers whose terminal list failed.
+    pub(crate) unread: Vec<UnreadTerminalSessions>,
 }
 
 /// One session as the reading tools name it: its directory entry, its group, and its line.
@@ -169,14 +180,15 @@ impl SessionLineReads {
 }
 
 /// Every session in `directory` as it is now, in its order, each with its line for a call
-/// `caller` makes. Fails as the directory's read, a provider's lookup or the facts' read fails.
+/// `caller` makes, beside the providers whose terminal list could not be read. Fails as the
+/// directory's read, a provider's lookup or the facts' read fails.
 pub(crate) async fn read_listed_sessions(
     directory: &SessionDirectory,
     line_reads: &SessionLineReads,
     providers: &ProviderRegistry,
     caller: &SessionId,
-) -> Result<Vec<ListedSession>, AgentToolError> {
-    let entries = directory
+) -> Result<ListedSessions, AgentToolError> {
+    let SessionDirectoryListing { entries, unread } = directory
         .read_entries()
         .await
         .map_err(AgentToolError::failed)?;
@@ -187,7 +199,7 @@ pub(crate) async fn read_listed_sessions(
         .collect();
     let mut facts = line_reads.read_facts(hosted_ids).await?;
     let caller_id = caller.to_string();
-    entries
+    let sessions = entries
         .into_iter()
         .map(|entry| {
             let provider = providers
@@ -203,7 +215,8 @@ pub(crate) async fn read_listed_sessions(
             };
             Ok(ListedSession { entry, group, line })
         })
-        .collect()
+        .collect::<Result<_, AgentToolError>>()?;
+    Ok(ListedSessions { sessions, unread })
 }
 
 // A session's line from its entry and, for a hosted one, its facts.
@@ -296,7 +309,9 @@ fn one_line(message: &str) -> String {
 }
 
 /// `session_list` for a call `caller` makes: the sessions `arguments` narrows to, one line each,
-/// or [`EMPTY`] when none is listed but the caller's. Fails as [`read_listed_sessions`] does.
+/// then a line for each provider whose sessions typed in a terminal could not be read, or
+/// [`EMPTY`] when none is listed but the caller's and every list was read. Fails as
+/// [`read_listed_sessions`] does.
 pub(crate) async fn list_sessions(
     directory: &SessionDirectory,
     line_reads: &SessionLineReads,
@@ -310,19 +325,24 @@ pub(crate) async fn list_sessions(
     let is_named = |name: Option<&str>, wanted: Option<&str>| {
         wanted.is_none_or(|wanted| name.is_some_and(|name| fold_name(name) == wanted))
     };
-    let listed: Vec<ListedSession> = read_listed_sessions(directory, line_reads, providers, caller)
-        .await?
+    let ListedSessions { sessions, unread } =
+        read_listed_sessions(directory, line_reads, providers, caller).await?;
+    let listed: Vec<ListedSession> = sessions
         .into_iter()
         .filter(|session| session.entry.is_archived == is_archived)
         .filter(|session| is_named(session.group.as_deref(), group.as_deref()))
         .filter(|session| is_named(session.entry.project.as_deref(), project.as_deref()))
         .collect();
-    if listed.iter().all(|session| session.line.is_calling_session) {
+    let unread_lines = unread
+        .iter()
+        .map(|unread| target_unread_reason(&unread.cause));
+    if listed.iter().all(|session| session.line.is_calling_session) && unread.is_empty() {
         return Ok(EMPTY.to_owned());
     }
     let lines: Vec<String> = listed
         .iter()
         .map(|session| session.line.to_string())
+        .chain(unread_lines)
         .collect();
     Ok(lines.join("\n"))
 }

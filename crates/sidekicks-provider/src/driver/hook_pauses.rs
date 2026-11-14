@@ -16,15 +16,6 @@ pub(crate) const HELD_TARGET_REASON: &str = "The person paused this agent from t
     will not take messages on any channel until they resume it. Do not retry another way; \
     continue with what you can, or wait.";
 
-/// The reason a tool call aimed at a helper is denied with when the daemon could not read whether
-/// that helper takes messages, `cause` saying why.
-pub(crate) fn target_unread_reason(cause: &str) -> String {
-    format!(
-        "Not sent: the daemon could not read whether this agent can take messages, because \
-         {cause}. Continue with what you can, or tell the person."
-    )
-}
-
 /// Whose conversation a pause is on: the session's lead or one of its helpers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PausedRole {
