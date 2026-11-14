@@ -94,7 +94,7 @@ Worktree lifecycle:
 
 ## Edge Cases
 
-- A folder that is not a git repository is refused at attach (`Could not attach: not a git repository`): a project is a repository, and a chat's own folder is one from its first byte.
+- A folder that is not a git repository is refused at attach (`Couldn't attach · not a git repository`): a project is a repository, and a chat's own folder is one from its first byte.
 - Two sessions may work in one worktree, or in the project's checkout, at the same time: nothing holds a folder for one session's turn, and `Undo` puts back only its own session's changes, naming a file another session also changed and leaving it unless the person includes it.
 - A `rootLost` workspace can remain historically linked to completed runs even after the filesystem path is no longer usable.
 
