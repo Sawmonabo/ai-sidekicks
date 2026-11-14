@@ -302,8 +302,8 @@ pub(crate) struct SettlementWriteFailure {
 
 /// What a committed turn answers: each event's sequence, in write order, the readying sequence of
 /// each step whose `pending` row the write stored, the run's step counts and person-wait columns
-/// after the turn, which the tick keeps for the run's next turn, the artifacts of the kept values
-/// the write replaced, which the tick deletes, and the id of the run's ending event, where the
+/// after the turn, which the tick keeps for the run's next turn, the kept-value artifacts the write
+/// left no record naming, which the tick deletes, and the id of the run's ending event, where the
 /// write ended the run.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -317,8 +317,9 @@ pub(crate) struct RunTurnCommitted {
     pub(crate) counts: RunStepCounts,
     /// The run's person-wait columns after the turn.
     pub(crate) person_wait: RunPersonWait,
-    /// Each artifact a kept value the write replaced named, which no record names now, for the
-    /// tick to delete through the payload store.
+    /// Each artifact no record names now, for the tick to delete through the payload store: one a
+    /// kept value the write replaced named, and one the write stored for a value it could not keep,
+    /// its workflow deleted meanwhile.
     pub(crate) dropped_kept_artifact_ids: Vec<ArtifactId>,
     /// The id of the run's ending event, where the write ended the run.
     pub(crate) ending_event_id: Option<SessionEventId>,

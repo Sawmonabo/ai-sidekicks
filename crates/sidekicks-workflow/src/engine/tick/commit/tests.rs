@@ -549,7 +549,7 @@ async fn a_turn_is_one_write_in_report_order() {
 /// Mutations: drop `reused_from_json` from `insert_skipped_step`'s statement; keep the reused
 /// input's or output's artifact among the turn's.
 #[tokio::test]
-async fn a_reused_skip_names_its_source_and_never_drops_its_output() {
+async fn a_reused_skip_names_its_source_and_never_drops_its_payloads() {
     let harness = TurnHarness::new().await;
     let from = WorkflowReusedStep {
         step: WorkflowStepKey {

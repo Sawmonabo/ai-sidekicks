@@ -359,7 +359,10 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     }}),
     AttentionChange::Nothing
 )]
-#[case::workflow_run_waiting(workflow_run_event("workflow.run.waiting", json!({})), AttentionChange::Nothing)]
+#[case::workflow_run_waiting(
+    workflow_run_event("workflow.run.waiting", json!({})),
+    AttentionChange::Nothing
+)]
 #[case::step_waits_on_an_approval(
     step_event("workflow.phase.suspended", json!({
         "waitCause": "approval", "waitId": WAIT, "logRef": {"kind": "inline", "items": []},
