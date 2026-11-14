@@ -49,7 +49,7 @@ export function UpdateReadOut(props: {
     lastCheckedAt === undefined ? [] : [lastCheckedAt],
   );
   if (reading.kind === "not-read") {
-    return <LoadingNotice clock={clock} placement="inline" title="Loading update status…" />;
+    return <LoadingNotice clock={clock} placement="inline" title="Loading…" />;
   }
   if (reading.kind === "failed") {
     return (

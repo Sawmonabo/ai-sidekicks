@@ -30,21 +30,30 @@ export interface ComposerRefusedResolution {
   readonly refusal: Refusal;
 }
 
+/** The empty arm: a message with no words and no staged file, which does nothing. */
+export interface ComposerEmptyResolution {
+  readonly outcome: "empty";
+}
+
 /** What a message resolves to once no slash rule applies: a wire call, or a refusal. */
 export type ComposerMessageResolution = ComposerQueueResolution | ComposerRefusedResolution;
 
-/** What Send resolves to: one of the three arms. */
-export type ComposerSendResolution = ComposerMessageResolution | ComposerConsoleCommandResolution;
+/** What Send resolves to: one of the four arms. */
+export type ComposerSendResolution =
+  | ComposerMessageResolution
+  | ComposerConsoleCommandResolution
+  | ComposerEmptyResolution;
 
 /** What a message dispatch settled as: it reached the wire, or it was refused. */
 export type ComposerMessageOutcome =
   | { readonly status: "sent" }
   | { readonly status: "refused"; readonly refusal: Refusal };
 
-/** What a send settled as. The composer renders exactly one of these. */
+/** What a send settled as. The composer renders exactly one of these; `empty` draws nothing. */
 export type ComposerSendOutcome =
   | ComposerMessageOutcome
-  | { readonly status: "intercepted"; readonly commandName: string };
+  | { readonly status: "intercepted"; readonly commandName: string }
+  | { readonly status: "empty" };
 
 /**
  * Whether a name is a console command that runs here. A port, since the composer has no command

@@ -135,7 +135,8 @@ export function matchKeybindingRows(
   convention: KeyboardConvention = HOST_KEYBOARD_CONVENTION,
 ): readonly KeybindingRow[] {
   const trimmedQuery = query.trim();
-  if (trimmedQuery === "") {
+  // Before the matcher holds its module the rows stand unranked, in their own order.
+  if (trimmedQuery === "" || !appFuzzyMatcher.isReady) {
     return rows;
   }
   const candidateRows: KeybindingRow[] = [];

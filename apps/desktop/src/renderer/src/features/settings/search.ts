@@ -5,7 +5,8 @@
 // same text in both places. A page is found the same way in its name or the words it declares. A
 // hit ranks by the weakest field any of its words needed (label, then heading, then hint; a
 // page's name counts as a label and its words as a hint), equal ranks fall in page order, and a
-// page sits ahead of its own controls at an equal rank.
+// page sits ahead of its own controls at an equal rank. Until the matcher holds its module every
+// page and control is listed, unranked, in page order.
 
 import { SETTINGS_PAGE_LABELS } from "./pages/labels.js";
 import type { SettingsPageDescriptor } from "./pages/registry.js";
@@ -92,6 +93,9 @@ function rankOf(
   fieldTexts: Readonly<Record<SearchField, readonly string[]>>,
 ): number | undefined {
   let rank = 0;
+  if (!appFuzzyMatcher.isReady) {
+    return rank;
+  }
   for (const word of words) {
     const wordRank = SEARCH_FIELDS.findIndex((field) =>
       fieldTexts[field].some((text) => appFuzzyMatcher.score(text, word) !== undefined),

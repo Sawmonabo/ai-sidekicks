@@ -1,8 +1,9 @@
-// What one read puts in the mount list, and a row's way out to the diff pane. The list is drawn
+// What one read puts in the mount list, a failed read's way to read again, and a row's way out to
+// the diff pane. The list is drawn
 // from the real reader over scripted daemon calls; a hand-built reading would pin a shape the
 // reader could stop producing.
 
-import { fireEvent, render, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
@@ -73,5 +74,46 @@ describe("MountList — the mounts the read found", () => {
       within(container).getByLabelText(`Open the changes of workspace ${HEALTHY_WORKSPACE_ID}`),
     );
     expect(onOpenDiff).toHaveBeenCalledWith({ kind: "workspace", id: HEALTHY_WORKSPACE_ID });
+  });
+});
+
+describe("MountList — a read that failed", () => {
+  it("says it could not load the repositories, and reads them again on Try again", async () => {
+    const clock = new ManualClock();
+    const { bridge } = bridgeOnClock("repos", clock);
+    const healthy = sessionOperations();
+    let isAnswering = false;
+    const operations = sessionOperations({
+      listWorkspaces: (...request) =>
+        isAnswering
+          ? healthy.listWorkspaces(...request)
+          : Promise.reject(new Error("The background service is not answering.")),
+    });
+    const reader = openReader(operations, clock);
+    reader.start();
+    await settle(clock, reader);
+    const list = () => (
+      <LiveAnnouncerProvider clock={new ManualClock()}>
+        <MountList
+          reading={reader.snapshot}
+          bridge={bridge}
+          operations={operations}
+          onCopy={() => undefined}
+          onRequestRead={() => {
+            reader.requestRead("user-request");
+          }}
+          onOpenDiff={() => undefined}
+        />
+      </LiveAnnouncerProvider>
+    );
+    const { container, rerender } = render(list(), { wrapper: bridgeWrapper(bridge, clock) });
+    expect(screen.getByText("Couldn't load repositories")).toBeDefined();
+
+    isAnswering = true;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await settle(clock, reader);
+    rerender(list());
+
+    expect(container.querySelectorAll(MOUNT_CARD_SELECTOR)).toHaveLength(3);
   });
 });

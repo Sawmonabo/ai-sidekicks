@@ -3,7 +3,7 @@
 // it is pressed while out, and × puts a banner away without a daemon call, held on the open
 // session's entry so it stays away when the screen is mounted again. A lost folder's banner
 // re-attaches a folder holding another repository, naming what refuses it, and attaches the folder
-// picked in place of one holding none.
+// picked in place of one holding none, saying in place why an attach was refused.
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -255,7 +255,8 @@ describe("the lost folder's banner", () => {
 
     renderLostFolder({ status: "unreachable" }, () => ({}));
     expect(await screen.findByText(`${LOST_FOLDER} can't be reached`)).toBeTruthy();
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open folder…" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Re-attach" })).toBeNull();
   });
 
   it("sends the re-attach for the lost mount and draws nothing once it is served", async () => {
@@ -284,14 +285,14 @@ describe("the lost folder's banner", () => {
     renderLostFolder(MISMATCHED_REPOSITORY, refusedBy("beacon"));
     await press("Re-attach");
     expect(
-      await screen.findByText(`Could not re-attach: ${LOST_FOLDER} is already attached to beacon`),
+      await screen.findByText(`Couldn't re-attach · ${LOST_FOLDER} is already attached to beacon`),
     ).toBeTruthy();
     cleanup();
 
     renderLostFolder(MISMATCHED_REPOSITORY, refusedBy());
     await press("Re-attach");
     expect(
-      await screen.findByText(`Could not re-attach: ${LOST_FOLDER} is already attached to a chat`),
+      await screen.findByText(`Couldn't re-attach · ${LOST_FOLDER} is already attached to a chat`),
     ).toBeTruthy();
   });
 
@@ -304,9 +305,7 @@ describe("the lost folder's banner", () => {
     });
     await press("Re-attach");
 
-    expect(
-      await screen.findByText("Could not re-attach while Reviewer is running. Stop the run first."),
-    ).toBeTruthy();
+    expect(await screen.findByText("Couldn't re-attach · Reviewer is running")).toBeTruthy();
     expect(banner.agentListsOpened).toStrictEqual([{ sessionId: RUNNING_SESSION_ID }]);
   });
 
@@ -335,5 +334,18 @@ describe("the lost folder's banner", () => {
     );
     await press("Open folder…");
     expect(canceled.daemonCalls.map((call) => call.method)).toStrictEqual(["repoMount.read"]);
+  });
+
+  it("says in place that the folder picked under Open folder… is no git repository", async () => {
+    renderLostFolder(
+      { status: "identityMismatch", isRepository: false },
+      () => {
+        throw daemonRefusal("repoMount.rootResolutionFailed", { reason: "notARepository" });
+      },
+      { ref: PICKED_FOLDER_REF, name: "picked" },
+    );
+    await press("Open folder…");
+
+    expect(refusalLine()?.textContent).toBe("Couldn't attach · not a git repository");
   });
 });

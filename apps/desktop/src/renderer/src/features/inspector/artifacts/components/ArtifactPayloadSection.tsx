@@ -4,6 +4,7 @@
 
 import "./ArtifactPayloadSection.css";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { NO_PREVIEW_LINE } from "#renderer/lib/no-preview.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import type { ArtifactPayloadReading } from "#renderer/store/artifact-payload.js";
 
@@ -30,9 +31,9 @@ export function ArtifactPayloadSection({
 function renderPayloadArm(payload: ArtifactPayloadReading): React.JSX.Element {
   switch (payload.status) {
     case "fetching":
-      return <Nothing kind="not-loaded" placement="inline" title="Loading payload…" />;
+      return <Nothing kind="not-loaded" placement="inline" title="Loading…" />;
     case "opaque":
-      return <p className="meridian-artifact-payload__note">binary — contents not shown</p>;
+      return <p className="meridian-artifact-payload__note">{NO_PREVIEW_LINE}</p>;
     case "text":
       return (
         <>

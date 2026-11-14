@@ -50,7 +50,7 @@ describe("the mounts list — a refused read is not the end of it", () => {
         rejectionCount: 1,
       }),
     );
-    expect(page.textContent ?? "").toContain("that folder is not attached");
+    expect(page.textContent ?? "").toContain("Couldn't load folders");
 
     await act(async () => {
       within(page).getByRole("button", { name: "Try again" }).click();
@@ -59,7 +59,7 @@ describe("the mounts list — a refused read is not the end of it", () => {
     await settle();
 
     expect(page.querySelectorAll(".meridian-mount-list__item")).toHaveLength(1);
-    expect(page.textContent ?? "").not.toContain("that folder is not attached");
+    expect(page.textContent ?? "").not.toContain("Couldn't load folders");
   });
 
   it("negative control: a refusal that has not cleared refuses the re-read too", async () => {
@@ -78,6 +78,6 @@ describe("the mounts list — a refused read is not the end of it", () => {
     });
     await settle();
 
-    expect(page.textContent ?? "").toContain("that folder is not attached");
+    expect(page.textContent ?? "").toContain("Couldn't load folders");
   });
 });

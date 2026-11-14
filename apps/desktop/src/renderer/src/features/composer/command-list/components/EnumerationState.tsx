@@ -34,7 +34,7 @@ export function EnumerationState(props: {
     case "not-loaded":
       return (
         <div className="meridian-command-discovery__state">
-          <Nothing kind="not-loaded" title="Loading commands and skills…" />
+          <Nothing kind="not-loaded" title="Loading…" />
         </div>
       );
     case "refused":

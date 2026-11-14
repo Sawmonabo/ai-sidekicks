@@ -268,7 +268,7 @@ function FolderPicker(
 const FOLDER_CHOOSER_FAILED = refuse(
   "workflows",
   "folder-chooser-failed",
-  "Could not open the folder chooser.",
+  "Couldn't open folder chooser",
 );
 
 function MultiselectChoices(props: ParamLeafFieldProps): React.JSX.Element {

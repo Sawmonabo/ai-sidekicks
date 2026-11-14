@@ -73,7 +73,7 @@ describe("ProvidersMount", () => {
     const fixture = fixtureRefusingFirstRegistryRead();
     const container = renderProvidersPage(fixture);
     // The read is in flight, but its line waits out the short delay; the refusal lands inside it.
-    expect(container.textContent).not.toContain("Loading accounts…");
+    expect(container.textContent).not.toContain("Loading…");
 
     await settleScheduledRead(fixture.scenarioEngine.clock);
     expect(container.textContent).toContain("Couldn't load accounts");

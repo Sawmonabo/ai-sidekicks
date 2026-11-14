@@ -37,7 +37,7 @@ const END_OFFSET = 3;
 /** Rows in a page cut short; a copy of the let-go rows reads several. */
 const CUT_PAGE_LIMIT = 4;
 /** What a copy that fails says. */
-const COPY_FAILED = "Could not copy";
+const COPY_FAILED = "Couldn't copy";
 /** The case scrolls about nine screens one real-time gesture at a time, past the default. */
 const CASE_TIMEOUT_MS = 60_000;
 

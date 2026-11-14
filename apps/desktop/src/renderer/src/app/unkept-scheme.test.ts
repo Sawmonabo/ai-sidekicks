@@ -31,7 +31,7 @@ describe("a View-menu scheme main could not keep", () => {
     report();
 
     expect(usedLast.getState().banners).toMatchObject([
-      { code: "scheme-not-kept", detail: "Could not save the color scheme, so it did not change." },
+      { code: "scheme-not-kept", detail: "Couldn't save the color scheme, so it did not change." },
     ]);
     expect(other.getState().banners).toEqual([]);
 

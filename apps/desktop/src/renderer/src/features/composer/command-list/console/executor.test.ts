@@ -1,11 +1,12 @@
-// A recognized command settles before the line is cleared: a failure is a refusal, and a command
-// that reads its line gets the line. Driven through the real
-// `commandRegistry` a person's `/name` reaches.
+// A recognized command settles before the line is cleared: a failure is stated on the window's
+// banner in the command's own name, and a command that reads its line gets the line. Driven
+// through the real `commandRegistry` a person's `/name` reaches.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
-import { COMMAND_FAILED_DETAIL } from "#renderer/registries/commands/refusal.js";
+import { RefusalError, refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import { publishCommandRefusalSink } from "#renderer/registries/commands/refusal.js";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
 import { createConsoleCommandExecutor } from "./executor.js";
@@ -22,18 +23,30 @@ const registeredIds: string[] = [];
 
 function registerCommand(command: {
   readonly id: string;
+  readonly title?: string;
+  readonly isTitleVerbPhrase?: false;
   readonly when?: string;
   readonly run: () => void | Promise<void>;
 }): void {
   commandRegistry.register({
     id: command.id,
-    title: "Executor test command",
+    title: command.title ?? "Run the executor test",
     group: "Test",
+    ...(command.isTitleVerbPhrase === undefined ? {} : { isTitleVerbPhrase: false }),
     ...(command.when === undefined ? {} : { when: command.when }),
     run: command.run,
   });
   registeredIds.push(command.id);
 }
+
+/** The window's banner as a list of what it was handed, published until the case ends. */
+function bannerSink(): Refusal[] {
+  const stated: Refusal[] = [];
+  withdrawals.push(publishCommandRefusalSink((refusal) => stated.push(refusal)));
+  return stated;
+}
+
+const withdrawals: (() => void)[] = [];
 
 function executorOverConsoleRegistry(
   handlers: ComposerCommandLineHandlers = noComposerCommandLineHandlers(),
@@ -51,6 +64,9 @@ function commandLine(commandName: string) {
 }
 
 afterEach(() => {
+  for (const withdraw of withdrawals.splice(0)) {
+    withdraw();
+  }
   for (const commandId of registeredIds.splice(0)) {
     commandRegistry.unregister(commandId);
   }
@@ -58,28 +74,56 @@ afterEach(() => {
 });
 
 describe("createConsoleCommandExecutor", () => {
-  it("refuses a command that rejects rather than reporting it applied", async () => {
+  it("states a command that rejects in its own name, its cause captured, never applied", async () => {
     registerCommand({
       id: FAILING_COMMAND_ID,
       run: () => Promise.reject(new Error("the act did not complete")),
     });
-    const executor = executorOverConsoleRegistry();
+    const banner = bannerSink();
     const recorded = vi.spyOn(windowDiagnosticCapture, "record");
 
-    const outcome = await executor(commandLine(FAILING_COMMAND_ID));
+    const outcome = await executorOverConsoleRegistry()(commandLine(FAILING_COMMAND_ID));
 
-    expect(outcome.status).toBe("refused");
-    if (outcome.status !== "refused") {
-      throw new Error("a rejected command must not report applied");
-    }
-    expect(outcome.refusal.code).toBe("command-failed");
-    // Fixed words on screen; the cause goes only to the window's diagnostic capture.
-    expect(outcome.refusal.detail).toBe(COMMAND_FAILED_DETAIL);
+    // The line stays as typed and the composer draws nothing; the window's banner says it.
+    expect(outcome).toStrictEqual({ status: "not-run" });
+    expect(banner.map((refusal) => refusal.detail)).toStrictEqual([
+      "Couldn't run the executor test",
+    ]);
     expect(recorded).toHaveBeenCalledWith(
       expect.objectContaining({
         detail: `${FAILING_COMMAND_ID}: the act did not complete`,
       }),
     );
+  });
+
+  it("names a refused command and the refusal's words, or the act that failed", async () => {
+    const cause = "The run already ended";
+    registerCommand({
+      id: "test.stopRun",
+      title: "Stop run",
+      run: () => {
+        throw new RefusalError(refuse("runs", "run.notRunning", cause));
+      },
+    });
+    registerCommand({
+      id: "test.undo",
+      title: "Undo",
+      isTitleVerbPhrase: false,
+      run: () => Promise.reject(refuse("daemon", "session.restoreFailed", cause)),
+    });
+    const banner = bannerSink();
+    const recorded = vi.spyOn(windowDiagnosticCapture, "record");
+    const executor = executorOverConsoleRegistry();
+
+    await executor(commandLine("test.stopRun"));
+    await executor(commandLine("test.undo"));
+
+    expect(banner.map((refusal) => refusal.detail)).toStrictEqual([
+      `Couldn't stop run · ${cause}`,
+      `Undo failed · ${cause}`,
+    ]);
+    // A cause drawn in words is not captured as a defect.
+    expect(recorded).not.toHaveBeenCalled();
   });
 });
 
@@ -108,19 +152,16 @@ describe("a command handler that fails", () => {
   // The executor never throws to report a failure, and a command handler is reached through
   // it; the send controller awaits under a `finally` with no `catch`, so an escaping rejection
   // would leave the line unexplained.
-  it("settles a handler that returns a rejected promise as a refusal", async () => {
+  it("states a handler that returns a rejected promise on the banner", async () => {
     registerCommand({ id: "test.rejectingHandler", run: vi.fn() });
+    const banner = bannerSink();
     const executor = executorOverConsoleRegistry(
       new Map([["test.rejectingHandler", () => Promise.reject(new Error("the wire went away"))]]),
     );
 
     const outcome = await executor(commandLine("test.rejectingHandler"));
 
-    expect(outcome.status).toBe("refused");
-    if (outcome.status !== "refused") {
-      throw new Error("a failed handler must not report applied");
-    }
-    expect(outcome.refusal.code).toBe("command-failed");
-    expect(outcome.refusal.detail).toBe(COMMAND_FAILED_DETAIL);
+    expect(outcome).toStrictEqual({ status: "not-run" });
+    expect(banner.map((refusal) => refusal.code)).toStrictEqual(["command-failed"]);
   });
 });

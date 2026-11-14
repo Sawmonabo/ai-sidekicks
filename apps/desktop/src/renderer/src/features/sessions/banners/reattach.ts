@@ -55,11 +55,11 @@ type ReattachRefusal =
 function reattachRefusalWords(refusal: ReattachRefusal): string {
   switch (refusal.code) {
     case "repoMount.alreadyAttached":
-      return `Could not re-attach: ${refusal.folder} is already attached to ${
+      return `Couldn't re-attach · ${refusal.folder} is already attached to ${
         refusal.projectName ?? "a chat"
       }`;
     case "repoMount.reattachConflict":
-      return `Could not re-attach while ${refusal.runnerName} is running. Stop the run first.`;
+      return `Couldn't re-attach · ${refusal.runnerName} is running`;
   }
 }
 

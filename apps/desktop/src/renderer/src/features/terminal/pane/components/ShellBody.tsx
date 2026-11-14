@@ -38,7 +38,7 @@ import { useOpenOutputFocused } from "../hooks/useOpenOutputFocused.js";
 import { useShellOutput } from "../hooks/useShellOutput.js";
 
 /** The shell body's accessible name. */
-const TERMINAL_OUTPUT_LABEL = "Shell output";
+const TERMINAL_OUTPUT_LABEL = "Terminal output";
 
 /** The shell to show, the bridge its streams ride, the stores its lease is read from. */
 export interface ShellBodyProps {
@@ -61,7 +61,7 @@ export function ShellBody(props: ShellBodyProps): React.JSX.Element {
       <Nothing
         kind="error"
         placement="block"
-        title={`The shell did not start · ${shell.status.cause}`}
+        title={`Couldn't start terminal · ${shell.status.cause}`}
         action={<TryAgainButton onPress={onTryAgain} />}
       />
     );

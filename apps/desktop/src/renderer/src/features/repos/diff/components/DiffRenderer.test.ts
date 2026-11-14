@@ -288,7 +288,7 @@ describe("diff renderer — the file header carries what the extended headers sa
     const container = renderDiff({ model: EXTENDED_HEADER_DIFF, shownFilePath: path });
     const rows = [...container.querySelectorAll<HTMLElement>('[role="row"]')];
     // The file keeps its header, path and all, and the reason stands alone in the row under it.
-    expect(rows.map((row) => row.textContent)).toStrictEqual([path, "binary — contents not shown"]);
+    expect(rows.map((row) => row.textContent)).toStrictEqual([path, "No preview for this file"]);
     expect(rows[0]?.classList).toContain("meridian-diff__row--file");
   });
 });

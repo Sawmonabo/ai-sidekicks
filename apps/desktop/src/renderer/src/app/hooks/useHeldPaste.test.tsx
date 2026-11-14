@@ -139,7 +139,7 @@ describe("a paste while a copy is being written", () => {
         <XtermMountPoint
           terminalId="terminal-1"
           isWriteEnabled
-          label="Shell output"
+          label="Terminal output"
           onKeystroke={onKeystroke}
         />
       </>,

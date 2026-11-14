@@ -106,15 +106,18 @@ export interface UndrawnRowsAnswer {
   readonly rows: readonly string[];
 }
 
-/** The page's ask, once something first needs the workflow checks, to compile their module. */
-export interface WorkflowChecksCompileRequest {
-  readonly kind: "compile-workflow-checks";
-}
+/**
+ * The page's ask to compile one page module's WebAssembly while a worker runs: the workflow checks
+ * once something first needs them, the fuzzy matcher again after its load failed.
+ */
+export type PageModuleCompileRequest =
+  | { readonly kind: "compile-workflow-checks" }
+  | { readonly kind: "compile-fuzzy-matcher" };
 
 /** What the page sends the markdown worker. */
 export type MarkdownWorkerMessage =
   | MarkdownParserLoad
-  | WorkflowChecksCompileRequest
+  | PageModuleCompileRequest
   | MarkdownParseRequest
   | MarkdownCutRequest
   | MarkdownWorkerRequest

@@ -168,7 +168,7 @@ describe("SessionScreen — the pane sizes kept for this install", () => {
     frameStore.paneOpenRequests.request({ sessionId: SESSION_ID, address: { kind: "browser" } });
     await waitFor(() => {
       expect(container.textContent).toContain(
-        "Could not read what you last set here, so this view starts from its defaults.",
+        "Couldn't read what you last set here, so this view starts from its defaults.",
       );
     });
     await waitFor(() => {

@@ -27,7 +27,8 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
-import { useIsFuzzyMatcherReady } from "#renderer/hooks/useIsFuzzyMatcherReady.js";
+import { useFuzzyMatcher } from "#renderer/hooks/useFuzzyMatcher.js";
+import { SearchFailed } from "#renderer/components/SearchFailed/SearchFailed.js";
 import { settingsControlAnchor } from "../../control/anchor.js";
 import { CHORDS_HEADING, KEYBOARD_CONTROLS } from "./controls.js";
 import { KeybindingRowBody } from "./components/KeybindingRowBody.js";
@@ -51,9 +52,9 @@ export function KeyboardPage(): ReactNode {
   const [recordingCommandId, setRecordingCommandId] = useState<string | undefined>(undefined);
   const [report, setReport] = useState<KeyboardActReport | undefined>(undefined);
   const announce = useAnnounce();
-  // Called for its re-render once the matcher starts to score, so a filter typed before then
-  // narrows the rows again.
-  useIsFuzzyMatcherReady();
+  // Read for its re-render once the matcher starts to score, so a filter typed before then
+  // narrows the rows, and for the line its failed load draws under the filter.
+  const matcher = useFuzzyMatcher();
 
   // The effective table and whether the app keyboard is suspended, read through the same
   // accessor as the frame so the page cannot draw a different keyboard.
@@ -159,6 +160,7 @@ export function KeyboardPage(): ReactNode {
             }}
           />
         </div>
+        <SearchFailed matcher={matcher} />
         {rows.length > 0 && visibleRows.length === 0 ? (
           <Nothing kind="empty" placement="block" title="No shortcut matches that." />
         ) : (

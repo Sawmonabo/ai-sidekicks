@@ -44,6 +44,7 @@ import type {
 } from "#shared/daemon/status-topic.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
 import { describeFailure } from "#shared/failure-message.js";
+import { signalWords } from "#shared/signal-words.js";
 import {
   DaemonRefusal,
   ServiceAskFailed,
@@ -721,7 +722,7 @@ function isNoService(refusal: JsonRpcError): boolean {
 
 function describeExit(exit: ServiceExit): string {
   if (exit.signal !== null) {
-    return `ended by ${exit.signal}`;
+    return signalWords(exit.signal);
   }
   return exit.code === null ? "how it ended is unknown" : `exit code ${String(exit.code)}`;
 }

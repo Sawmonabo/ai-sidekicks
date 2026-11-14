@@ -42,5 +42,5 @@ const COPY_BUTTON_CLASSES: Readonly<Record<CopyButtonLook, string>> = {
 
 const OUTCOME_LABELS: Readonly<Record<Exclude<ClipboardCopyStatus, "rest">, string>> = {
   copied: "Copied",
-  failed: "Could not copy",
+  failed: "Couldn't copy",
 };

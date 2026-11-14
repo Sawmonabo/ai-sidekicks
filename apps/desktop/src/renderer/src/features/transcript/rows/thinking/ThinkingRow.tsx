@@ -7,6 +7,7 @@
 // and a disabled control would claim an action that exists but is not permitted.
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import type {
   ReasoningEntry,
   TranscriptReasoningReadResponse,
@@ -41,7 +42,7 @@ export function ThinkingRow(props: ThinkingRowProps): React.JSX.Element {
   return (
     <div className="meridian-reasoning-surface">
       {renderReasoningTail(tailText)}
-      {renderReasoningReading(props.reading)}
+      {renderReasoningReading(props.reading, props.onExpand)}
       {renderExpandControl(props.runId, props.reading, props.onExpand)}
     </div>
   );
@@ -75,20 +76,22 @@ function renderReasoningTail(tailText: PublishedText | undefined): React.ReactNo
 }
 
 /** Whatever the read has said so far, in the shape that fact takes. */
-function renderReasoningReading(reading: ReasoningReading): React.ReactNode {
+function renderReasoningReading(reading: ReasoningReading, onExpand: () => void): React.ReactNode {
   switch (reading.status) {
     case "not-asked":
       return null;
     case "reading":
-      return <Nothing kind="not-loaded" placement="block" title="Loading reasoning…" />;
+      return <Nothing kind="not-loaded" placement="block" title="Loading…" />;
     case "refused":
-      // The daemon's own sentence; its code goes to no screen.
+      // The cause went to the diagnostic capture when the read was refused; `Try again` asks again,
+      // since a briefly down transport is among its causes.
       return (
         <Nothing
           kind="error"
           placement="block"
-          title={reading.refusal.detail}
+          title="Couldn't load reasoning"
           attempt={reading.refusal}
+          action={<TryAgainButton onPress={onExpand} />}
         />
       );
     case "read":
@@ -132,18 +135,18 @@ function renderReasoningEntries(entries: readonly ReasoningEntry[]): React.React
 }
 
 /**
- * The one offer this row makes.
+ * The one offer this row makes before it asks.
  *
- * Absent where the read cannot address the row, and once the read has answered: a second press
- * would re-ask an answered question, and this row holds no continuation cursor. A refusal keeps
- * the control so a briefly down transport can be retried; the label says which press it is.
+ * Absent where the read cannot address the row, and once the read is asked: a second press would
+ * re-ask an answered question, this row holds no continuation cursor, and a refusal carries its
+ * own `Try again`.
  */
 function renderExpandControl(
   runId: RunId | undefined,
   reading: ReasoningReading,
   onExpand: () => void,
 ): React.ReactNode {
-  if (runId === undefined || reading.status === "reading" || reading.status === "read") {
+  if (runId === undefined || reading.status !== "not-asked") {
     return null;
   }
   return (
@@ -154,7 +157,7 @@ function renderExpandControl(
         onExpand();
       }}
     >
-      {reading.status === "refused" ? "Try the read again" : "Show reasoning"}
+      Show reasoning
     </button>
   );
 }

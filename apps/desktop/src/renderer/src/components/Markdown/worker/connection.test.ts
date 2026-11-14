@@ -5,7 +5,8 @@
 // fails every text it holds with the reason, so a copy waiting on it says it could not copy, and
 // the next text starts a new worker that answers; a worker asking for rows the copy holds no table
 // for fails the copy; a cut the worker could not make fails that cut alone, and the worker goes on
-// with the texts it holds.
+// with the texts it holds; a matcher whose load failed is asked of the running worker again, and
+// the module it then compiles is handed over.
 
 import type { Table, TableCell } from "mdast";
 import { expect, it, vi } from "vitest";
@@ -27,7 +28,7 @@ import type {
 import { MarkdownWorkerConnection, type MarkdownWorkerPort } from "./connection.js";
 import { inThreadParserModule } from "./connection.test-support.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
-import { appFuzzyMatcherLoad, appWorkflowChecks } from "./page-module-load.js";
+import { appFuzzyMatcherLoad, appWorkflowChecks, PageModuleLoad } from "./page-module-load.js";
 
 /** A stand-in worker that keeps the requests to make a copy it is sent and answers only when told. */
 class StandInWorker implements MarkdownWorkerPort {
@@ -39,12 +40,19 @@ class StandInWorker implements MarkdownWorkerPort {
 
   /** The parser each load handed it, `undefined` where it was asked to compile one. */
   public readonly loads: (WebAssembly.Module | undefined)[] = [];
+  /** Each page module it was asked to compile while it ran. */
+  public readonly compiles: string[] = [];
 
   public postMessage(message: MarkdownWorkerMessage): void {
     if (message.kind === "html" || message.kind === "drawn-text") {
       this.requests.push(message);
     } else if (message.kind === "load") {
       this.loads.push(message.parser);
+    } else if (
+      message.kind === "compile-fuzzy-matcher" ||
+      message.kind === "compile-workflow-checks"
+    ) {
+      this.compiles.push(message.kind);
     }
   }
 
@@ -315,4 +323,41 @@ it.each([
     new Error("The markdown worker asked for rows no copied table holds"),
   );
   expect(worker.isEnded).toBe(true);
+});
+
+it("asks the running worker for a matcher whose load failed, and hands over what it compiles", () => {
+  const handedOver: WebAssembly.Module[] = [];
+  const matcherLoad = new PageModuleLoad(
+    {
+      isProvided: () => handedOver.length > 0,
+      provide: (module) => {
+        handedOver.push(module);
+      },
+      subscribe: () => () => undefined,
+    },
+    "fuzzy-matcher-not-started",
+  );
+  const worker = new StandInWorker();
+  const connection = new MarkdownWorkerConnection(
+    () => worker,
+    idleTasksView().view,
+    new PageParser(loadMarkdownParserCalls),
+    appTextCompression,
+    matcherLoad,
+    appWorkflowChecks,
+  );
+  connection.wake();
+  worker.say({ status: "fuzzy-matcher", fuzzyMatcher: { status: "absent", reason: "no module" } });
+  expect(matcherLoad.state).toBe("failed");
+
+  connection.wantFuzzyMatcher();
+  expect(worker.compiles).toStrictEqual(["compile-fuzzy-matcher"]);
+  expect(matcherLoad.state).toBe("loading");
+  // The smallest valid module: the magic number and the version, nothing else.
+  const compiled = new WebAssembly.Module(new Uint8Array([0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0]));
+  worker.say({ status: "fuzzy-matcher", fuzzyMatcher: { status: "compiled", module: compiled } });
+
+  expect(handedOver).toHaveLength(1);
+  expect(handedOver[0]).toBe(compiled);
+  expect(matcherLoad.state).toBe("ready");
 });

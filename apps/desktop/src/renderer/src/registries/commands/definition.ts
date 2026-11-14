@@ -15,8 +15,9 @@ export interface CommandDefinition {
   /** Extra words a person might type for this command. Matched below the title. */
   readonly keywords?: readonly string[];
   /**
-   * Performs the act. The registry never awaits it; the palette and a chord state a rejection on
-   * the window (see `reportCommandFailure`), so a command that can fail may throw its refusal.
+   * Performs the act. The registry never awaits it; the palette, a chord and the `/` list state a
+   * rejection on the window (see `stateCommandFailure`), so a command that can fail may throw its
+   * refusal, whose words become the failure's cause.
    */
   readonly run: () => void | Promise<void>;
   /**
@@ -38,4 +39,9 @@ export interface CommandDefinition {
    * Absent for every other command.
    */
   readonly takesChord?: false;
+  /**
+   * `false` for a title that is no verb phrase, whose failure reads `<Title> failed` rather than
+   * `Couldn't <title>`. Absent for every command whose title starts with its verb.
+   */
+  readonly isTitleVerbPhrase?: false;
 }

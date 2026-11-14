@@ -1,5 +1,6 @@
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { MountCard } from "./MountCard.js";
 import { type OpenDiffSubject } from "./OpenDiffControl.js";
 import { type RepoMountsReading } from "../reading.js";
@@ -52,19 +53,21 @@ function renderMounts(props: MountListProps): React.JSX.Element {
       </>
     );
   }
-  if (reading.status === "reading") {
-    return <Nothing kind="computing" placement="block" title="Loading repositories…" />;
+  switch (reading.status) {
+    case "not-read":
+    case "reading":
+      return <Nothing kind="computing" placement="block" title="Loading…" />;
+    case "read":
+      // An answered read that found none is `empty`, never `not-checked`.
+      return <Nothing kind="empty" placement="block" title="No repository attached" />;
+    case "failed":
+      return (
+        <Nothing
+          kind="error"
+          placement="block"
+          title="Couldn't load repositories"
+          action={<TryAgainButton onPress={props.onRequestRead} />}
+        />
+      );
   }
-  if (reading.status === "read") {
-    // An answered read that found none is `empty`, never `not-checked`.
-    return (
-      <Nothing
-        kind="empty"
-        placement="block"
-        title="No repository attached"
-        detail="Nothing is attached automatically"
-      />
-    );
-  }
-  return <Nothing kind="not-checked" placement="block" title="Repositories not read" />;
 }

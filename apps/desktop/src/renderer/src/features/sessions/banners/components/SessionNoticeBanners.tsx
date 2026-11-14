@@ -11,6 +11,7 @@ import { useMemo, useReducer } from "react";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { PickedFolder } from "#shared/preload-api.js";
+import { attachRefusalLine } from "#renderer/lib/attach-refusal.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
@@ -199,5 +200,7 @@ async function openFolder(bridge: PlatformBridge): Promise<string | undefined> {
     return undefined;
   }
   const reply = await callDaemon(bridge, "repoMount.attach", { localPath: picked.ref });
-  return reply.status === "refused" ? refusedLine(reply.refusal) : undefined;
+  return reply.status === "refused"
+    ? (attachRefusalLine(reply.refusal, picked.name) ?? refusedLine(reply.refusal))
+    : undefined;
 }

@@ -14,6 +14,7 @@ import { useCallback, useId, useState } from "react";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { useGoneSessionRaise } from "#renderer/store/window/hooks/useGoneSessionRaise.js";
 import { MissingTargetLine } from "#renderer/components/MissingTargetLine/MissingTargetLine.js";
+import { SearchFailed } from "#renderer/components/SearchFailed/SearchFailed.js";
 import { useMainProcessState } from "#renderer/store/window/hooks/useMainProcessState.js";
 import { useOpenSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import { settingsRoute, settingsSelection } from "#renderer/routing/readers.js";
@@ -167,6 +168,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
               : undefined
           }
         />
+        <SearchFailed matcher={search.matcher} />
         {search.isSearching ? (
           <SettingsSearchResults
             hitsId={hitsId}

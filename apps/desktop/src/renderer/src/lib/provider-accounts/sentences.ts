@@ -34,7 +34,7 @@ export const PROVIDER_READINESS_STATE_WORDS: Readonly<
  * page and on every account picker, which lists accounts as that page does.
  */
 export const ACCOUNT_LIST_READ_WORDS = {
-  reading: "Loading accounts…",
+  reading: "Loading…",
   refused: "Couldn't load accounts",
 } as const;
 

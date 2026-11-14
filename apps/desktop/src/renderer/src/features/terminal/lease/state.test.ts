@@ -114,7 +114,7 @@ describe("the lease fold — what the wire said, and only that", () => {
       projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: OTHER_DEVICE_ID }).holder,
     ).toBe("held-by-this-device");
     // Before this device's id is known a device's hold is unread: no live body, and no
-    // `Take the shell` offered against a hold that may be this device's own.
+    // `Take the terminal` offered against a hold that may be this device's own.
     expect(
       projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: undefined }).holder,
     ).toBe("not-checked");

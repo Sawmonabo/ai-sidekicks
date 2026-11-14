@@ -1,4 +1,4 @@
-// `Take the shell` and its confirm: whether the confirm is open, whether the take is out, and why
+// `Take the terminal` and its confirm: whether the confirm is open, whether the take is out, and why
 // the last one was refused. The hook never derives the holder; the fold in `state.ts` owns it, so
 // a served take closes the confirm and the line moves only when the change reaches the fold. The
 // take is always forced, since it is offered only while another device holds the shell, and it is
@@ -29,7 +29,7 @@ export type TakeShellTarget = Pick<
 
 /** Where the take stands, and the presses that move it. */
 export interface UseTakeShellResult {
-  /** Whether the confirm is open in place of `Take the shell`. */
+  /** Whether the confirm is open in place of `Take the terminal`. */
   readonly isConfirming: boolean;
   /**
    * Whether a take is out; meanwhile the confirm's buttons say they are unavailable, and their
@@ -58,7 +58,7 @@ const CONFIRMING_TAKE_SHELL: TakeShellPhase = {
 };
 
 /**
- * Drive `Take the shell`, its confirm and the forced `terminal.control.take` it sends, against the
+ * Drive `Take the terminal`, its confirm and the forced `terminal.control.take` it sends, against the
  * shell's holder as the fold read it (`holderDeviceId`, `null` while nobody holds it). A served
  * take closes the confirm and sets no holder: the daemon accepting a take is not this device now
  * holding the shell. A refused take keeps the confirm open with the refusal beside it.

@@ -4,7 +4,8 @@
 //
 // Resolution is pure and separate from dispatch. Ids are read through the wire readers, so an
 // unreadable id is a rendered refusal that names it, and a rejected call propagates. A message
-// with no words still goes when it carries a staged file. Trimming only decides blankness; the
+// with no words still goes when it carries a staged file; one carrying nothing does nothing and
+// draws no line. Trimming only decides blankness; the
 // wire gets the user's bytes, and slash rules read the raw text, so indented text starting with
 // `/` is prose. What rides with the words, the held draft's files, skill picks, turn speed and
 // repository, goes on the request as the draft holds it.
@@ -20,11 +21,10 @@ import type {
   ConsoleCommandPredicate,
   ComposerMessageOutcome,
   ComposerMessageResolution,
-  ComposerRefusedResolution,
   ComposerSendOutcome,
   ComposerSendResolution,
 } from "./resolutions.js";
-import { composerRefusal, unparsableIdentifier, type ComposerRefusalCode } from "./refusals.js";
+import { unparsableIdentifier } from "./refusals.js";
 import { dispatchQueuedMessage, type ComposerSendCalls } from "./dispatch.js";
 
 /** Options for the router; only `calls` is required. */
@@ -59,7 +59,7 @@ export class ComposerSendRouter {
     extras: SessionDraftExtras,
   ): ComposerSendResolution {
     if (carriesNothing(text, extras)) {
-      return refused("empty-message", "Nothing to send");
+      return { outcome: "empty" };
     }
     const slashOutcome = this.#resolveSlashPrefix(text);
     if (slashOutcome !== undefined) {
@@ -78,10 +78,15 @@ export class ComposerSendRouter {
     extras: SessionDraftExtras,
   ): Promise<ComposerSendOutcome> {
     const resolution = this.resolve(text, target, extras);
-    if (resolution.outcome === "console-command") {
-      return { status: "intercepted", commandName: resolution.commandName };
+    switch (resolution.outcome) {
+      case "empty":
+        return { status: "empty" };
+      case "console-command":
+        return { status: "intercepted", commandName: resolution.commandName };
+      case "refused":
+      case "queue":
+        return await this.#dispatchMessage(resolution);
     }
-    return await this.#dispatchMessage(resolution);
   }
 
   /**
@@ -149,9 +154,4 @@ export class ComposerSendRouter {
  */
 export function carriesNothing(text: string, extras: SessionDraftExtras): boolean {
   return text.trim().length === 0 && (extras.attachments ?? []).length === 0;
-}
-
-/** One composer-side refusal, already wrapped in the resolution's refused arm. */
-function refused(code: ComposerRefusalCode, detail: string): ComposerRefusedResolution {
-  return { outcome: "refused", refusal: composerRefusal(code, detail) };
 }

@@ -20,6 +20,7 @@ import { PendingItemCalls, type QueueItemCall } from "./pending-calls.js";
 import { QueueOrder } from "./order.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { readQueueItemCreateRequest } from "#renderer/services/daemon/wire/requests.js";
 import { type ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { type WireReadPhase, type WireReadState } from "#renderer/lib/reads/wire-state.js";
@@ -68,6 +69,8 @@ export interface QueueFeed extends WireReadState {
   readonly pendingRetryIds: ReadonlySet<string>;
   /** Sends one not-delivered item again; a second ask while one is in flight does nothing. */
   readonly retryItem: (queueItemId: string) => Promise<void>;
+  /** Reads the queue again on a person's press, as `Try again` on a failed read asks. */
+  readonly readAgain: () => void;
 }
 
 /**
@@ -100,6 +103,9 @@ export class SessionQueueReading implements ReadTriggerTarget {
   #readRefusal: ExtendedRefusal | undefined = undefined;
   #items: readonly QueueItemSummary[] = EMPTY_ITEMS;
   #feed: QueueFeed;
+  readonly #readAgain = (): void => {
+    this.requestRead("user-request");
+  };
 
   /** The reading as it stands. One object for every watcher, stable between changes. */
   public snapshot = (): QueueFeed => this.#feed;
@@ -185,8 +191,10 @@ export class SessionQueueReading implements ReadTriggerTarget {
     try {
       items = await this.#calls.list(this.#sessionId);
     } catch (rejection) {
-      // The rows already folded stay; only the read failed, and the view says so.
+      // The rows already folded stay; only the read failed, and the view says so. Its cause goes
+      // to the diagnostic capture, since the view's line names none.
       round.settle(() => {
+        recordRejectedRequest(QUEUE_LIST_ORIGIN, "queue-not-read", rejection);
         this.#phase = "refused";
         this.#readRefusal = coerceToRefusal(rejection, QUEUE_LIST_ORIGIN);
         this.#publish();
@@ -230,6 +238,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
       cancelItem: cancels.ask,
       pendingRetryIds: retries.pendingIds,
       retryItem: retries.ask,
+      readAgain: this.#readAgain,
       phase: this.#phase,
       readRefusal: this.#readRefusal,
       items: this.#items,

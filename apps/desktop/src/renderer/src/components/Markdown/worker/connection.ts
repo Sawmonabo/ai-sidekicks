@@ -4,7 +4,7 @@
 // handed to the page's own parser too, at an idle moment, which parses the blocks a body mounts,
 // and the compression module, the fuzzy matcher and the workflow checks a worker compiles while the
 // page's text codec, matcher or checks want one go to them, the checks' only once something first
-// asks for them; the worker parses what the page does not: a streaming tail, a block too long to
+// asks for them and the matcher's again when a list asks after its load failed; the worker parses what the page does not: a streaming tail, a block too long to
 // parse on the page, a long table's pieces, and every block while the page's parser could not
 // start. It sends each text to parse and hands back the parser's binary tree; a reply's markdown as
 // the UTF-8 bytes of its pieces, moved to the worker, or a drawn part's tree as a copy, to be made
@@ -46,6 +46,7 @@ import type {
   MarkdownWorkerMessage,
   MarkdownWorkerReply,
   MarkdownWorkerRequest,
+  PageModuleCompileRequest,
 } from "./messages.js";
 
 /** What a drawn part copies as: its text, and its HTML when the worker made it with the text. */
@@ -159,21 +160,15 @@ export class MarkdownWorkerConnection {
    * way, starting one if none runs; a worker that cannot start leaves the checks failed.
    */
   public wantWorkflowChecks(): void {
-    if (!this.workflowChecks.want()) {
-      return;
-    }
-    this.#lastUseMs = performance.now();
-    const port = this.#port;
-    if (port !== undefined) {
-      port.postMessage({ kind: "compile-workflow-checks" });
-      return;
-    }
-    try {
-      // The new worker's load asks for the checks, which are wanted now.
-      this.#open();
-    } catch (error: unknown) {
-      this.workflowChecks.fail(error);
-    }
+    this.#want(this.workflowChecks, "compile-workflow-checks");
+  }
+
+  /**
+   * Asks a worker to compile the fuzzy matcher's module again where its load failed, starting one
+   * if none runs; a worker that cannot start leaves the matcher failed.
+   */
+  public wantFuzzyMatcher(): void {
+    this.#want(this.fuzzyMatcher, "compile-fuzzy-matcher");
   }
 
   /**
@@ -340,6 +335,25 @@ export class MarkdownWorkerConnection {
     return setTimeout(() => {
       this.#fail(port, "The markdown worker did not answer in time");
     }, deadlineMs);
+  }
+
+  /** Asks for `load`'s module with `kind` where it is neither in hand nor on its way. */
+  #want(load: PageModuleLoad, kind: PageModuleCompileRequest["kind"]): void {
+    if (!load.want()) {
+      return;
+    }
+    this.#lastUseMs = performance.now();
+    const port = this.#port;
+    if (port !== undefined) {
+      port.postMessage({ kind });
+      return;
+    }
+    try {
+      // The new worker's load asks for the module, which is wanted now.
+      this.#open();
+    } catch (error: unknown) {
+      load.fail(error);
+    }
   }
 
   #open(): MarkdownWorkerPort {

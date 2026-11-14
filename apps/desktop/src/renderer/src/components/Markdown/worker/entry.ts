@@ -124,6 +124,13 @@ function compileWorkflowChecks(): void {
   });
 }
 
+/** Compiles the fuzzy matcher's module and sends what that came to. */
+function compileFuzzyMatcher(): void {
+  void compilePageModule(fuzzyMatcherModuleUrl).then((fuzzyMatcher) => {
+    workerScope.postMessage({ status: "fuzzy-matcher", fuzzyMatcher }, []);
+  });
+}
+
 /**
  * Where the blocks of the text `request` holds end, cut a window at a time. The parser frees what a
  * window's parse held from finalizers, which run only once the worker's event loop turns, so it
@@ -160,9 +167,7 @@ const parserLoad = new Promise<MarkdownParserCalls | undefined>((resolve) => {
       });
     }
     if (event.data.shouldCompileFuzzyMatcher) {
-      void compilePageModule(fuzzyMatcherModuleUrl).then((fuzzyMatcher) => {
-        workerScope.postMessage({ status: "fuzzy-matcher", fuzzyMatcher }, []);
-      });
+      compileFuzzyMatcher();
     }
     if (event.data.shouldCompileWorkflowChecks) {
       compileWorkflowChecks();
@@ -210,6 +215,10 @@ workerScope.addEventListener("message", (event) => {
   }
   if (message.kind === "compile-workflow-checks") {
     compileWorkflowChecks();
+    return;
+  }
+  if (message.kind === "compile-fuzzy-matcher") {
+    compileFuzzyMatcher();
     return;
   }
   if (message.kind === "cut") {

@@ -74,7 +74,7 @@ describe("the updates block — a call main does not answer is drawn in the bloc
     expect(requestCheck).toHaveBeenCalledTimes(1);
     const refusal = block.querySelector("[data-refusal-code]");
     expect(refusal?.getAttribute("data-refusal-code")).toBe("updater-control-failed");
-    expect(refusal?.textContent).toBe("Could not check for updates.");
+    expect(refusal?.textContent).toBe("Couldn't check for updates");
     expect(block.textContent).not.toContain("update.requestCheck");
     const labels = [...block.querySelectorAll("button")].map((button) => button.textContent);
     expect(labels).toContain("Check for updates");

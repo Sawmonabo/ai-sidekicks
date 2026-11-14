@@ -16,7 +16,7 @@ export interface SessionListDegradation {
 const NOT_DEGRADED: SessionListDegradation = { headerLine: undefined };
 
 /** Any standing cause: whichever it is, the header names no cause. */
-const DEGRADED: SessionListDegradation = { headerLine: "Could not refresh" };
+const DEGRADED: SessionListDegradation = { headerLine: "Couldn't refresh" };
 
 /**
  * The header line one standing cause produces, or none. Pure, since the fold that yields the

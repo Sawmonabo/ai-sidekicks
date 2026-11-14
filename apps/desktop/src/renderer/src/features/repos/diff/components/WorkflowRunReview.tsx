@@ -13,7 +13,7 @@ import type { WorkflowRunDiffRequest } from "../workflow-run-read.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
 
 /** The loading line of a run's Review, drawn once its read has run past the short delay. */
-export const RUN_DIFF_LOADING_TITLE = "Loading changes…";
+export const RUN_DIFF_LOADING_TITLE = "Loading…";
 
 /** What the run's Review is drawn from: the daemon and the comparison to read. */
 export interface WorkflowRunReviewProps {

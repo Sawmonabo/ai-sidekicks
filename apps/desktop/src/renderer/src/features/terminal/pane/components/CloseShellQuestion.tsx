@@ -59,5 +59,5 @@ function questionOf(heldShells: readonly TerminalListEntry[]): string {
   const [onlyShell] = heldShells;
   return heldShells.length === 1 && onlyShell !== undefined
     ? `Another device holds ${onlyShell.title}. Close it?`
-    : `Another device holds ${String(heldShells.length)} of these shells. Close them?`;
+    : `Another device holds ${String(heldShells.length)} of these terminals. Close them?`;
 }

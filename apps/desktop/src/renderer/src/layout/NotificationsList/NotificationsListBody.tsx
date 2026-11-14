@@ -19,13 +19,7 @@ export function NotificationsListBody(props: {
 }): React.JSX.Element | null {
   const { reading } = props;
   if (reading.phase === "reading") {
-    return (
-      <LoadingNotice
-        clock={props.clock}
-        placement="block"
-        title={`Loading ${ATTENTION_SUBJECT}…`}
-      />
-    );
+    return <LoadingNotice clock={props.clock} placement="block" title="Loading…" />;
   }
   if (reading.phase === "failed") {
     return (

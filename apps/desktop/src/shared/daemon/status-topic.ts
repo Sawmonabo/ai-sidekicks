@@ -109,7 +109,7 @@ export type WhileSignedOut =
   | "turnedOffInLoginItems";
 
 /**
- * Why the person's last `Stop` did not happen, which Runtime reads as `Could not stop.`: the
+ * Why the person's last `Stop` did not happen, which Runtime reads as `Couldn't stop.`: the
  * service's status file says it could not save that it was stopped (`stopIntent`), or that a step
  * of its stop was still running (`stillStopping`); or the client's own ending failed with `error`,
  * verbatim (`notEnded`).

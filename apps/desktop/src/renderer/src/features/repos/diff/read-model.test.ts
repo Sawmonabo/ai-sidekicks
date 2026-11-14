@@ -58,7 +58,7 @@ describe("diffModelFromRead", () => {
     // A binary file has no patch to read a mode change from, and the flow still writes both.
     expect(new DiffFlowRowsByFile(model).rowsOf(2).bodyNotes).toStrictEqual([
       "mode changed",
-      "binary — contents not shown",
+      "No preview for this file",
     ]);
   });
 });

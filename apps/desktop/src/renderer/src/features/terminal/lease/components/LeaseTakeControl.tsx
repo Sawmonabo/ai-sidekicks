@@ -1,6 +1,6 @@
-// The lease line's take control: `Take the shell`, which opens the confirm in place, and the
+// The lease line's take control: `Take the terminal`, which opens the confirm in place, and the
 // confirm's `Cancel` and `Take it`. `Take it` takes focus when the confirm opens and Escape
-// cancels it, and once it closes focus goes back to `Take the shell`. It never derives the holder
+// cancels it, and once it closes focus goes back to `Take the terminal`. It never derives the holder
 // from the take: the line moves when a `terminal.control.changed` transition reaches the fold.
 
 import { useEffect, useRef } from "react";
@@ -14,7 +14,7 @@ export interface LeaseTakeControlProps {
   readonly questionId: string;
 }
 
-/** `Take the shell`, or the confirm's two buttons while it is open. */
+/** `Take the terminal`, or the confirm's two buttons while it is open. */
 export function LeaseTakeControl(props: LeaseTakeControlProps): React.JSX.Element {
   const { takeShell, questionId } = props;
   const takeShellButton = useRef<HTMLButtonElement>(null);
@@ -37,7 +37,7 @@ export function LeaseTakeControl(props: LeaseTakeControlProps): React.JSX.Elemen
       className="meridian-action-button meridian-action-button--regular meridian-terminal-lease-line__take"
       onClick={takeShell.openConfirm}
     >
-      Take the shell
+      Take the terminal
     </button>
   );
 }

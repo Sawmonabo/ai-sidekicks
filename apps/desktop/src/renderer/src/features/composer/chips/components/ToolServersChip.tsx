@@ -79,7 +79,7 @@ export function ToolServersChip(props: ToolServersChipProps): React.JSX.Element 
       <Popover.Trigger className="meridian-composer-chip">{chip.label}</Popover.Trigger>
       <OverlayPopoverPopup className="meridian-composer-tool-servers" sideOffset={4}>
         {frame === undefined ? (
-          <LoadingNotice title="Loading tool servers…" placement="block" clock={clock} />
+          <LoadingNotice title="Loading…" placement="block" clock={clock} />
         ) : frame.kind === "lost" ? (
           <p className="meridian-composer-tool-servers__empty">
             Couldn't load tool servers <TryAgainButton onPress={readAgain} />

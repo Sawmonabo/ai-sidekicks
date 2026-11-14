@@ -203,7 +203,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
         )}
         <div role="separator" className="meridian-composer-worktrees__rule" />
         {reading.kind === "loading" ? (
-          <LoadingNotice title="Loading worktrees…" placement="block" clock={clock} />
+          <LoadingNotice title="Loading…" placement="block" clock={clock} />
         ) : null}
         {reading.kind === "failed" ? (
           <p className="meridian-composer-worktrees__failed">

@@ -187,6 +187,11 @@ export class ComposerHeldDraft {
     });
   }
 
+  /** Whether a file's copy to the daemon is still on its way, which the next send waits for. */
+  public get isCopying(): boolean {
+    return this.#copies.size > 0;
+  }
+
   /** Settle once every copy tracked so far, and any tracked while waiting, has settled. */
   public async whenCopied(): Promise<void> {
     while (this.#copies.size > 0) {

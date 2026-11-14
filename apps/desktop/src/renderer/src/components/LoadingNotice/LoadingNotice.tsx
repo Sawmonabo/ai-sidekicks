@@ -18,7 +18,7 @@ export const LOADING_NOTICE_DELAY_MS = 800;
 
 /** Props for `LoadingNotice`. */
 export interface LoadingNoticeProps {
-  /** The loading line, such as `Loading run…`. */
+  /** The loading line: `Loading…`, or `Loading pending runs…` where nothing on screen names it. */
   readonly title: string;
   /** `block` stands in for a region's content as a line of its own; `inline` sits in a line. */
   readonly placement?: NothingPlacement;

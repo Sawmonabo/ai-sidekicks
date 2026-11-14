@@ -23,7 +23,7 @@ export interface LeaseHolderSentenceProps {
 export function LeaseHolderSentence(props: LeaseHolderSentenceProps): React.JSX.Element {
   const { id, holder, holderName, isConfirming } = props;
   const rest =
-    holder === "held-by-run" ? "'s running command holds the shell." : " holds the shell.";
+    holder === "held-by-run" ? "'s running command holds the terminal." : " holds the terminal.";
   useAnnounceWhenChanged(`${holderName}${rest}`, "polite");
   return (
     <span id={id} className="meridian-terminal-lease-line__sentence">

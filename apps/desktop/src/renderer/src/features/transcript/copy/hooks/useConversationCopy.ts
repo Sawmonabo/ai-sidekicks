@@ -138,7 +138,7 @@ type CopyFinish = (
   onText: (text: PiecedText) => void,
 ) => Promise<PiecedTextClipboardContent | undefined>;
 
-const COPY_FAILED_ANNOUNCEMENT = "Could not copy";
+const COPY_FAILED_ANNOUNCEMENT = "Couldn't copy";
 
 /** Where a copy's failures are recorded from in the window's diagnostics. */
 const CONVERSATION_COPY_SOURCE = "features/transcript/useConversationCopy";

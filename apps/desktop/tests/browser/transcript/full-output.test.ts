@@ -49,7 +49,7 @@ const LARGE_BODY = `## ${BODY_HEADING}\n\n${Array.from(
 /** The whole body's UTF-8 size, as its row carries it. */
 const LARGE_BODY_BYTES = new TextEncoder().encode(LARGE_BODY).byteLength;
 /** What a copy that fails says. */
-const COPY_FAILED = "Could not copy";
+const COPY_FAILED = "Couldn't copy";
 /** The case scrolls about nine screens one real-time gesture at a time, past the default. */
 const CASE_TIMEOUT_MS = 60_000;
 
@@ -237,7 +237,7 @@ describe("a reply whose body is too large to travel with its row", () => {
       // Pressed: one read of the row, and the control says it is out until it is refused.
       await pressControl();
       expect(bodyReads.slice(copyReadCount)).toStrictEqual([largeReplyRead]);
-      expect(control()?.textContent).toBe("Loading full output…");
+      expect(control()?.textContent).toBe("Loading…");
       await answerRead(false);
       expect(control()?.textContent).toBe("Couldn't load full output · Retry");
       expect(drawsWholeBody()).toBe(false);
@@ -255,7 +255,7 @@ describe("a reply whose body is too large to travel with its row", () => {
       expect(isReplyStored()).toBe(false);
       expect(drawsWholeBody()).toBe(false);
       await scrollBackToControl();
-      expect(control()?.textContent).toBe("Loading full output…");
+      expect(control()?.textContent).toBe("Loading…");
       expect(bodyReads).toHaveLength(copyReadCount + 3);
       await answerRead(true);
       expect(control()).toBe(null);

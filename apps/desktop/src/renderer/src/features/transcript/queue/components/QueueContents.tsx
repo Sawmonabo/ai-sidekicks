@@ -6,10 +6,10 @@
 
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { useRelativeTimesNow } from "#renderer/hooks/useRelativeTimesNow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import { refusalWords } from "#renderer/lib/code-words.js";
 import { findReadRefusal } from "#renderer/lib/reads/wire-state.js";
 import type { QueueFeed } from "../reading.js";
 import { QueueRow } from "./QueueRow.js";
@@ -41,12 +41,15 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   }
   const readRefusal = findReadRefusal(feed);
   if (readRefusal !== undefined) {
-    // A refusal the app wrote has no words of its own, so its sentence is the whole line.
-    const words = refusalWords(readRefusal.code, readRefusal.reason);
-    return words === undefined ? (
-      <Nothing kind="error" placement="block" title={readRefusal.detail} />
-    ) : (
-      <Nothing kind="error" placement="block" title={words} detail={readRefusal.detail} />
+    // The reading sent the cause to the diagnostic capture; the line names none.
+    return (
+      <Nothing
+        kind="error"
+        placement="block"
+        title="Couldn't load queue"
+        attempt={readRefusal}
+        action={<TryAgainButton onPress={feed.readAgain} />}
+      />
     );
   }
 

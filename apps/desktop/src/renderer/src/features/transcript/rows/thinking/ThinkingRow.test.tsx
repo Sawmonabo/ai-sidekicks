@@ -1,8 +1,8 @@
-// The availability arms, the tail, and the one control — each rendered as itself.
+// The availability arms, the tail, and a refused read — each rendered as itself.
 
 import type { TranscriptReasoningReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { publishedTextOf } from "#renderer/lib/text/published.js";
@@ -85,10 +85,9 @@ describe("the stored tail", () => {
   });
 });
 
-describe("the expand control", () => {
-  it("survives a refusal and says which press it is", () => {
-    // A control drawn on `not-asked` alone would leave a briefly down transport's refusal on
-    // screen with no way to ask again.
+describe("a refused read", () => {
+  it("says it couldn't load the reasoning, never the daemon's words, and asks again", () => {
+    // A row with no way to ask again would leave a briefly down transport's refusal on screen.
     const onExpand = vi.fn();
     const container = renderThinkingRow({
       onExpand,
@@ -97,24 +96,11 @@ describe("the expand control", () => {
         refusal: { code: "agent.run.notFound", detail: "No such run.", origin: "daemon" },
       },
     });
-    const control = container.querySelector<HTMLButtonElement>(
-      ".meridian-reasoning-surface__expand",
-    );
-    expect(control?.textContent).toBe("Try the read again");
-    control?.click();
-    expect(onExpand).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("the states around the read", () => {
-  it("renders a refusal as the daemon's own sentence, never its code", () => {
-    const container = renderThinkingRow({
-      reading: {
-        status: "refused",
-        refusal: { code: "agent.run.notFound", detail: "No such run.", origin: "daemon" },
-      },
-    });
-    expect(drawnText(container)).toContain("No such run.");
+    expect(drawnText(container)).toContain("Couldn't load reasoning");
+    expect(drawnText(container)).not.toContain("No such run.");
     expect(drawnText(container)).not.toContain("agent.run.notFound");
+
+    screen.getByRole("button", { name: "Try again" }).click();
+    expect(onExpand).toHaveBeenCalledTimes(1);
   });
 });

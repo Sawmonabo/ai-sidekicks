@@ -102,15 +102,15 @@ describe("a message's Copy control", () => {
     expect(screen.getByRole("button").textContent).toBe("Copy");
   });
 
-  it("reads Could not copy when the host rejects", async () => {
+  it("reads Couldn't copy when the host rejects", async () => {
     await pressCopy(bridgeCopyingWith(() => Promise.reject(new Error("clipboard refused"))));
 
-    expect(screen.getByRole("button").textContent).toBe("Could not copy");
+    expect(screen.getByRole("button").textContent).toBe("Couldn't copy");
   });
 });
 
 describe("a Copy control whose content is built after the press", () => {
-  it("writes content once built, and reads Could not copy when it cannot be built", async () => {
+  it("writes content once built, and reads Couldn't copy when it cannot be built", async () => {
     const copied: ClipboardContent[] = [];
     const bridge = bridgeCopyingWith(async (content) => {
       copied.push(content);
@@ -131,7 +131,7 @@ describe("a Copy control whose content is built after the press", () => {
     });
 
     expect(copied).toHaveLength(1);
-    expect(screen.getByRole("button").textContent).toBe("Could not copy");
+    expect(screen.getByRole("button").textContent).toBe("Couldn't copy");
   });
 
   it("writes nothing and says nothing once a newer copy took the clipboard", async () => {

@@ -77,7 +77,7 @@ export interface RunPageProps {
 }
 
 /**
- * A run's page. While it is being read it reads `Loading run…`; a read that fails reads
+ * A run's page. While it is being read it reads `Loading…`; a read that fails reads
  * `Couldn't load run` with `Try again`. Escape closes the step panel first and, with no
  * panel open, goes back to the runs list; a press inside a text field is the field's own.
  */
@@ -109,7 +109,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
     isPartOfDayShown: false,
   });
   if (runState.kind === "not-loaded") {
-    return <LoadingNotice clock={clock} placement="block" title="Loading run…" />;
+    return <LoadingNotice clock={clock} placement="block" title="Loading…" />;
   }
   if (runState.kind === "failed") {
     return (

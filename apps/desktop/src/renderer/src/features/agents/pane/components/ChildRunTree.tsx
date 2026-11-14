@@ -37,7 +37,7 @@ export function ChildRunTree(props: ChildRunTreeProps): React.JSX.Element {
   );
 
   if (state.kind === "not-loaded") {
-    return <Nothing kind="not-loaded" placement="block" title="Loading sidekicks…" />;
+    return <Nothing kind="not-loaded" placement="block" title="Loading…" />;
   }
   if (state.kind === "failed") {
     return (

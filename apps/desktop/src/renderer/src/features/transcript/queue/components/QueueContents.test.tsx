@@ -17,6 +17,7 @@ function readFeed(items: QueueFeed["items"]): QueueFeed {
     cancelItem: () => Promise.resolve(),
     pendingRetryIds: new Set(),
     retryItem: () => Promise.resolve(),
+    readAgain: () => undefined,
   };
 }
 

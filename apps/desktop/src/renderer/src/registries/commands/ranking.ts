@@ -1,7 +1,7 @@
 // How a query becomes ranked rows. `appFuzzyMatcher` is the matcher shared with settings
 // search; this module is the policy above it: field weights, recency, and the total order.
 // It is a pure function of a command list, a query and a recents list, once the matcher holds its
-// module; before then nothing matches.
+// module; before then the registry lists the rows unranked and asks it nothing.
 
 import { compareCodeUnits } from "#renderer/lib/compare-code-units.js";
 import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";

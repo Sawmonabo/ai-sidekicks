@@ -154,6 +154,26 @@ describe("useSendController — an intercepted command awaits its executor", () 
   });
 });
 
+describe("useSendController — a message carrying nothing", () => {
+  it("draws nothing and reaches no wire, after an earlier refusal too", async () => {
+    const refusal = refuse("commands", "not-here", "That command needs an open repo.");
+    const driven = driveController(async () => ({ status: "refused", refusal }));
+    driven.draftStore.write(driven.draftKey, "/clear the history");
+    await act(async () => {
+      await driven.latest().send();
+    });
+
+    driven.draftStore.write(driven.draftKey, "   ");
+    await act(async () => {
+      await driven.latest().send();
+    });
+
+    // The calls fail the case if anything reaches the wire; the earlier line stands as it was.
+    expect(driven.latest().status).toBe("idle");
+    expect(driven.latest().refusal).toStrictEqual(refusal);
+  });
+});
+
 describe("useSendController — a line its command does not act on", () => {
   afterEach(() => {
     commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);

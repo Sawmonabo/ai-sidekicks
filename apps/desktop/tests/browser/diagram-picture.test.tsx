@@ -377,9 +377,9 @@ it("shows the parser's reason above the source of a diagram it refuses", async (
       <DiagramBlock source={REFUSED_SOURCE} isSettled renderCopy={undefined} />
     </DiagramPicturesContext.Provider>,
   );
-  const line = await block.findByText(/^Could not draw this diagram · /u, {}, PICTURE_WAIT);
+  const line = await block.findByText(/^Couldn't draw diagram · /u, {}, PICTURE_WAIT);
   // The parser's own reason, not a failure of the library or its worker.
-  expect(line.textContent).toMatch(/^Could not draw this diagram · Diagram parse error/u);
+  expect(line.textContent).toMatch(/^Couldn't draw diagram · Diagram parse error/u);
   expect(block.container.querySelector("code")?.textContent).toBe(REFUSED_SOURCE);
   expect(block.container.querySelector("img")).toBeNull();
 });

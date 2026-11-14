@@ -82,7 +82,7 @@ export function BrowserPage(props: BrowserPageProps): React.JSX.Element {
   if (reading !== undefined) {
     content = BROWSER_SWITCH_ROWS.map((row) => renderSwitchRow(row, preferences));
   } else if (readRefusal === undefined) {
-    content = <LoadingNotice clock={clock} placement="inline" title="Loading settings…" />;
+    content = <LoadingNotice clock={clock} placement="inline" title="Loading…" />;
   } else {
     content = (
       <InlineRefusal

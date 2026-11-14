@@ -20,7 +20,7 @@ import { ActionButton } from "#renderer/features/workflows/components/ActionButt
 /**
  * A step blocked on a form, answered in the step panel: the node's prompt over one field per
  * entry of its input, and `Submit`, which is what `Answer this run` presses. Until the form is
- * read it reads `Loading form…`; a read that fails reads `Couldn't load form` with
+ * read it reads `Loading…`; a read that fails reads `Couldn't load form` with
  * `Try again`. A press the field checks hold is sent once they answer, under the form's own line.
  */
 export function StepForm(props: {
@@ -41,7 +41,7 @@ export function StepForm(props: {
     read.kind === "read",
   );
   if (read.kind === "reading") {
-    return <LoadingNotice clock={clock} placement="block" title="Loading form…" />;
+    return <LoadingNotice clock={clock} placement="block" title="Loading…" />;
   }
   if (read.kind === "failed") {
     return (

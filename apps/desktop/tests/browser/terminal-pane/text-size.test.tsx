@@ -25,7 +25,7 @@ describe("the terminal's type step", () => {
     installMeridianTokens(document);
     applyAppearance(document, DEFAULT_APPEARANCE_RECORD);
     const { container } = await renderSettledMountPoint(
-      <XtermMountPoint terminalId="text-size" isWriteEnabled={false} label="Shell output" />,
+      <XtermMountPoint terminalId="text-size" isWriteEnabled={false} label="Terminal output" />,
     );
 
     expect(gridFontSizeOf(container)).toBe(terminalStepPx(DEFAULT_APPEARANCE_RECORD.textSize));

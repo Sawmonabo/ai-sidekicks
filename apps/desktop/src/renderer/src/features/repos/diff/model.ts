@@ -8,6 +8,8 @@ import type {
   DiffFileUnreadableReason,
 } from "@ai-sidekicks/contracts/git/local";
 
+import { NO_PREVIEW_LINE } from "#renderer/lib/no-preview.js";
+
 /** The three things a line in a unified diff can be. Closed. */
 export const DIFF_LINE_KINDS = ["context", "insert", "delete"] as const;
 
@@ -188,7 +190,7 @@ export function diffFileChangeNotes(file: DiffFile, place: DiffFileNotePlace): r
  */
 export function diffFileUnshownReason(file: DiffFile): string | undefined {
   if (file.binary === true) {
-    return "binary — contents not shown";
+    return NO_PREVIEW_LINE;
   }
   if (file.unreadable !== undefined) {
     return UNREADABLE_REASON_COPY[file.unreadable];

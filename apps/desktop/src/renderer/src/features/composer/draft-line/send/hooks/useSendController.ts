@@ -22,7 +22,7 @@ import { useSettlementIdentities } from "../../hooks/useSettlementIdentities.js"
 import { composerRefusal, DAEMON_REFUSAL_ORIGIN } from "../refusals.js";
 import { useSentMessageRecall } from "../../hooks/useSentMessageRecall.js";
 import { visitOperationKey } from "../settlement.js";
-import { ComposerSendRouter } from "../router.js";
+import { ComposerSendRouter, carriesNothing } from "../router.js";
 import type { SendController, SendControllerDependencies } from "../controller-contract.js";
 
 /** What a recognized command with nowhere to run says; the text is still in the line. */
@@ -75,6 +75,11 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
 
   const send = useCallback(async () => {
     const body = readDraftText();
+    // A message carrying nothing does nothing and draws nothing, not even the sending state; one
+    // whose file is still copying waits for the copy, and the router answers what is left.
+    if (!heldDraft.isCopying && carriesNothing(body, heldDraft.extrasFor(body))) {
+      return;
+    }
     // Claimed for this session's draft, so a send from another session does not block this one.
     // A second press here is silent: the message is already going.
     const latchKey = visitOperationKey(draftKey, visit, "send");
@@ -90,6 +95,11 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       await heldDraft.whenCopied();
       const extras = heldDraft.extrasFor(body);
       const routed = await router.send(body, target, extras);
+      if (routed.status === "empty") {
+        // Nothing to send: Send is already dimmed, and no line is drawn for the press.
+        settle(identity, undefined);
+        return;
+      }
       if (routed.status === "intercepted") {
         if (commandExecutor === undefined) {
           settle(identity, composerRefusal("command-unexecutable", NO_EXECUTOR_DETAIL));

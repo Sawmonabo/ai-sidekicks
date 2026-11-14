@@ -3,7 +3,7 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/rec
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
-import { signalWords } from "#renderer/lib/signal-words.js";
+import { signalWords } from "#shared/signal-words.js";
 
 /**
  * The Error tab's table view: the failure's code in words with its reason, the item it failed on,

@@ -144,7 +144,7 @@ function RunsList(
 ): React.JSX.Element {
   const { listState } = props;
   if (listState.kind === "not-loaded") {
-    return <LoadingNotice clock={props.clock} placement="block" title="Loading runs…" />;
+    return <LoadingNotice clock={props.clock} placement="block" title="Loading…" />;
   }
   if (listState.kind === "failed") {
     return (

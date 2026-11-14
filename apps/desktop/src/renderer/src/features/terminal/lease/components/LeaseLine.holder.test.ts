@@ -1,5 +1,5 @@
 // The holder line's words, and where it draws nothing: another device's hold names the device
-// beside `Take the shell`, a free shell draws nothing because the first keystroke takes it, and a
+// beside `Take the terminal`, a free shell draws nothing because the first keystroke takes it, and a
 // device whose name has not been read draws nothing either, so the line never speaks for a holder
 // it cannot name. A running command's hold, named by its run's agent, is `LeaseLine.run.test.tsx`.
 
@@ -22,12 +22,12 @@ const HELD_BY_THE_MAC_MINI = leaseState({
 });
 
 describe("the holder line", () => {
-  it("names another device's hold beside `Take the shell`", () => {
+  it("names another device's hold beside `Take the terminal`", () => {
     renderLease(HELD_BY_THE_MAC_MINI, "Mac mini");
     expect(screen.getByRole("group", { name: "Terminal lease" }).textContent).toBe(
-      "Mac mini holds the shell.Take the shell",
+      "Mac mini holds the terminal.Take the terminal",
     );
-    expect(screen.getByRole("button", { name: "Take the shell" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Take the terminal" })).toBeTruthy();
   });
 
   it("draws nothing while nobody holds the shell, since the first keystroke takes it", () => {
@@ -49,7 +49,7 @@ describe("the holder line", () => {
     // The line the pane opened with stands, a re-read in the same words says nothing, and the
     // confirm's question is the person's own act, read where focus lands.
     view.rerender(leaseLineWithTake(HELD_BY_THE_MAC_MINI, "Mac mini", takes.bridge));
-    fireEvent.click(screen.getByRole("button", { name: "Take the shell" }));
+    fireEvent.click(screen.getByRole("button", { name: "Take the terminal" }));
     expect(view.said.spoken()).toStrictEqual([]);
 
     const heldByTheIpad = leaseState({
@@ -67,8 +67,8 @@ describe("the holder line", () => {
     );
     view.rerender(leaseLineWithTake(heldByTheIpad, "iPad", takes.bridge));
     expect(view.said.spokenOn("polite")).toStrictEqual([
-      "iPad holds the shell.",
-      "iPad holds the shell.",
+      "iPad holds the terminal.",
+      "iPad holds the terminal.",
     ]);
   });
 });

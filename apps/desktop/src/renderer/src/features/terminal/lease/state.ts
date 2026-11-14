@@ -189,7 +189,7 @@ function readListedLease(listed: ListedTerminalLease): LeaseReading {
 
 // A run's hold comes before the device comparison because the run's machine may be this device,
 // yet only the run writes. A device's hold read before this device's id is known stays unread,
-// so neither a live body nor `Take the shell` is shown for a hold that may be this device's.
+// so neither a live body nor `Take the terminal` is shown for a hold that may be this device's.
 function readHolder(state: {
   readonly hasReadHolder: boolean;
   readonly holderDeviceId: DeviceId | null;

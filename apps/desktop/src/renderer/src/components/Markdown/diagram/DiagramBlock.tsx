@@ -40,9 +40,7 @@ export function DiagramBlock(props: DiagramBlockProps): React.JSX.Element {
     <figure ref={frame} className="meridian-diagram" data-state={drawing.status}>
       {drawing.status === "failed" ? (
         <>
-          <p className="meridian-diagram__failure">
-            Could not draw this diagram · {drawing.reason}
-          </p>
+          <p className="meridian-diagram__failure">Couldn't draw diagram · {drawing.reason}</p>
           {source}
         </>
       ) : (

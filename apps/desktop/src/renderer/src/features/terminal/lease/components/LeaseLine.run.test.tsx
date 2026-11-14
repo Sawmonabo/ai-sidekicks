@@ -1,5 +1,5 @@
 // A running command's hold, named by its run's agent: the session store's run names the agent and
-// the session's agent list names it, the line reads `<agent>'s running command holds the shell.`
+// the session's agent list names it, the line reads `<agent>'s running command holds the terminal.`
 // beside `Stop the run` and no take, and the stop is the holding command's. Until the list has
 // delivered that agent the line draws nothing, never a name it made up. Driven on a fake bridge,
 // so it carries no scenario.
@@ -146,7 +146,7 @@ describe("a running command's hold", () => {
     deliverAgents(agentListAcknowledgment([agentEntry(AGENT_ID, "Reviewer")]));
 
     expect(screen.getByRole("group", { name: "Terminal lease" }).textContent).toBe(
-      "Reviewer's running command holds the shell.Stop the run",
+      "Reviewer's running command holds the terminal.Stop the run",
     );
     expect(screen.getAllByRole("button").map((button) => button.textContent)).toStrictEqual([
       "Stop the run",

@@ -21,6 +21,7 @@ export function createWorkflowCommands(
     {
       id: "workflows.nextWaiting",
       title: "Next waiting",
+      isTitleVerbPhrase: false,
       group: WORKFLOWS_COMMAND_GROUP,
       when: WHEN_ON_WORKFLOWS,
       keywords: ["run", "approval", "blocked"],

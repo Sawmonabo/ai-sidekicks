@@ -131,6 +131,7 @@ export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly Comman
     {
       id: OPEN_INSPECTOR_COMMAND_ID,
       title: "Inspector",
+      isTitleVerbPhrase: false,
       group: PANE_LAYOUT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
       keywords: ["pane", "workspace", "details", "facts"],

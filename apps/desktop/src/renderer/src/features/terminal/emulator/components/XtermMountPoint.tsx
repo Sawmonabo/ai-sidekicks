@@ -1,6 +1,6 @@
 // The emulator's mount point: a DOM box and the lifetime of one `XtermTerminalAdapter` against it.
 // The emulator's code arrives a commit after the mount (`loader.ts`), so the box reads
-// `Loading terminal…` until it lands, or `Couldn't load terminal` with `Retry`. This
+// `Loading…` until it lands, or `Couldn't load terminal` with `Retry`. This
 // component names the region and leaves the live text to xterm's own `aria-live` region, since
 // announcing the grid again would read every cell twice.
 
@@ -206,7 +206,7 @@ function renderEmulatorAbsence(
   attempt: number,
 ): React.JSX.Element {
   return emulator.status === "loading" ? (
-    <Nothing kind="not-loaded" placement="block" title="Loading terminal…" />
+    <Nothing kind="not-loaded" placement="block" title="Loading…" />
   ) : (
     <Nothing
       kind="error"

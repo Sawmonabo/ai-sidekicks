@@ -47,6 +47,7 @@ export function createTranscriptCommands(acts: TranscriptActs): readonly Command
     {
       id: "transcript.findNext",
       title: "Next match",
+      isTitleVerbPhrase: false,
       group: TRANSCRIPT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
       run: acts.stepFindNext,
@@ -54,6 +55,7 @@ export function createTranscriptCommands(acts: TranscriptActs): readonly Command
     {
       id: "transcript.findPrevious",
       title: "Previous match",
+      isTitleVerbPhrase: false,
       group: TRANSCRIPT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
       run: acts.stepFindPrevious,

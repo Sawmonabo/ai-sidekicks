@@ -116,7 +116,7 @@ describe("the account axis — how it names an account", () => {
       ...pinned,
       registry: { phase: "reading", readRefusal: undefined, accounts: [], readiness: [] },
     });
-    expect(unread.textContent).toContain("Loading accounts…");
+    expect(unread.textContent).toContain("Loading…");
     // Unread is not removed: nothing says the registry lacks the pinned account.
     expect(unread.textContent).not.toContain("does not carry");
 

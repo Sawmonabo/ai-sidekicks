@@ -214,7 +214,7 @@ describe("browser — the transcript's diff card", () => {
       {
         header: "assets/logo.png",
         rows: 1,
-        note: "added, binary — contents not shown",
+        note: "added, No preview for this file",
         footer: undefined,
       },
       {

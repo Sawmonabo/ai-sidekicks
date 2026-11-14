@@ -109,9 +109,7 @@ describe("a diagram block", () => {
     await settleQueue();
     await answer(workers.latest(), { kind: "failed", reason: "Diagram parse error on line 3" });
 
-    expect(
-      screen.getByText("Could not draw this diagram · Diagram parse error on line 3"),
-    ).toBeTruthy();
+    expect(screen.getByText("Couldn't draw diagram · Diagram parse error on line 3")).toBeTruthy();
     expect(container.querySelector("code")?.textContent).toBe(source);
     expect(container.querySelector("img")).toBeNull();
   });

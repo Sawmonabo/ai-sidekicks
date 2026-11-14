@@ -66,9 +66,9 @@ describe("a path field", () => {
     await pressBrowse();
 
     expect(container.querySelector(".meridian-refusal")?.textContent).toBe(
-      "Could not open the folder chooser.",
+      "Couldn't open folder chooser",
     );
-    expect(liveRegionText(container, "assertive")).toBe("Could not open the folder chooser.");
+    expect(liveRegionText(container, "assertive")).toBe("Couldn't open folder chooser");
   });
 });
 

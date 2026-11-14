@@ -11,7 +11,7 @@ import {
   movedRowIndex,
   type WindowedRowMove,
 } from "#renderer/hooks/useWindowedRovingIndex.js";
-import { useIsFuzzyMatcherReady } from "#renderer/hooks/useIsFuzzyMatcherReady.js";
+import { useFuzzyMatcher, type FuzzyMatcherLoad } from "#renderer/hooks/useFuzzyMatcher.js";
 import type { SettingsPageRegistry } from "../pages/registry.js";
 import { findSettings, type SettingsSearchHit } from "../search.js";
 
@@ -25,6 +25,8 @@ export interface SettingsSearch {
   readonly highlightedIndex: number | undefined;
   readonly setQuery: (query: string) => void;
   readonly onFieldKeyDown: (keyEvent: React.KeyboardEvent) => void;
+  /** The matcher the hits rank with, whose failed load the box says under its field. */
+  readonly matcher: FuzzyMatcherLoad;
 }
 
 /** Hold the search for one mount of the screen; `openHit` is what Enter on a hit does. */
@@ -34,10 +36,10 @@ export function useSettingsSearch(
 ): SettingsSearch {
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState<SearchHighlight>({ query: "", index: 0 });
-  const isMatcherReady = useIsFuzzyMatcherReady();
+  const matcher = useFuzzyMatcher();
   // Memoized because the registry is fixed while a window is open; found again once the matcher
   // starts to score, the one dependency the body does not read.
-  const hits = useMemo(() => findSettings(pages.entries(), query), [pages, query, isMatcherReady]);
+  const hits = useMemo(() => findSettings(pages.entries(), query), [pages, query, matcher.state]);
   const highlightedIndex =
     hits.length === 0
       ? undefined
@@ -76,6 +78,7 @@ export function useSettingsSearch(
     highlightedIndex,
     setQuery,
     onFieldKeyDown,
+    matcher,
   };
 }
 

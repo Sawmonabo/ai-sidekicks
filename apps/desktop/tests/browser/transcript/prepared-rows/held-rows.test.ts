@@ -128,7 +128,7 @@ describe("a reply read back with a finished formula and diagram", () => {
       await waitFor(
         () => {
           expect(decodes.heldCount()).toBeGreaterThan(0);
-          expect(recorder.rowOf(refusedId)?.textContent).toContain("Could not draw this diagram");
+          expect(recorder.rowOf(refusedId)?.textContent).toContain("Couldn't draw diagram");
         },
         { timeout: CASE_TIMEOUT_MS / 2 },
       );
@@ -140,7 +140,7 @@ describe("a reply read back with a finished formula and diagram", () => {
           expect(recorder.rowOf(replyId)?.querySelector(".meridian-diagram__picture")).not.toBe(
             null,
           );
-          expect(recorder.rowOf(refusedId)?.textContent).toContain("Could not draw this diagram");
+          expect(recorder.rowOf(refusedId)?.textContent).toContain("Couldn't draw diagram");
         },
         { timeout: CASE_TIMEOUT_MS / 2 },
       );

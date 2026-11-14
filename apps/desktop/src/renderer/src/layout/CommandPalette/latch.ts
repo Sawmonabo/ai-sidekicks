@@ -71,7 +71,7 @@ export function runLatchedCommand(
 ): PaletteInvocationRefusal | undefined {
   const outcome = registry.invoke(commandId, latchedContext);
   if (outcome.status === "ran") {
-    reportCommandFailure(commandId, outcome.completion);
+    reportCommandFailure(outcome.command, outcome.completion);
     return undefined;
   }
   const detail = outcome.status === "unavailable" ? outcome.reason : REFUSAL_DETAIL[outcome.status];

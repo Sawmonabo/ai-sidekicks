@@ -3,18 +3,14 @@
 // spends `completion` and answers with a settlement rather than a start. Every arm settles and
 // none throws, including a rejecting command handler: the send controller awaits under
 // a `finally` with no `catch`, so an escaping rejection would show no refusal. A command that
-// does not run here settles as `send-as-typed`, so the provider answers the line, not the console.
+// fails is stated on the window's banner, as one run from the palette or a chord is, and the line
+// stays as typed. A command that does not run here settles as `send-as-typed`, so the provider
+// answers the line, not the console.
 
-import {
-  COMMAND_FAILED_DETAIL,
-  recordCommandFailure,
-} from "#renderer/registries/commands/refusal.js";
+import type { CommandDefinition } from "#renderer/registries/commands/definition.js";
+import { stateCommandFailure } from "#renderer/registries/commands/refusal.js";
 import type { CommandExecutor, CommandOutcome, ComposerCommandLine } from "../../types.js";
-import {
-  CONSOLE_COMMAND_REFUSAL_ORIGIN,
-  consoleCommandRefusal,
-  recognizeConsoleCommand,
-} from "./recognizer.js";
+import { CONSOLE_COMMAND_REFUSAL_ORIGIN } from "./recognizer.js";
 import { type ComposerCommands } from "../registry-view.js";
 import { type ComposerCommandLineHandlers } from "../line-handlers.js";
 
@@ -34,14 +30,16 @@ export function createConsoleCommandExecutor(options: {
 }): CommandExecutor {
   return async (line: ComposerCommandLine): Promise<CommandOutcome> => {
     const commands = options.readCommands();
-    const commandId = line.commandName;
-    if (!recognizeConsoleCommand(commandId, { runnableCommandIds: commands.runnableCommandIds })) {
+    const command = commands.runnableCommands.find(
+      (candidate) => candidate.id === line.commandName,
+    );
+    if (command === undefined) {
       // The registry changed since the router claimed the name or the list was drawn.
       return { status: "send-as-typed" };
     }
-    // Preferred over the argument-free `invoke`, and only after the recognizer claimed the
-    // name: an argument-reading command run through `invoke` would drop the line.
-    const handler = options.readCommandLineHandlers().get(commandId);
+    // Preferred over the argument-free `invoke`, and only after the name was found: an
+    // argument-reading command run through `invoke` would drop the line.
+    const handler = options.readCommandLineHandlers().get(command.id);
     if (handler !== undefined) {
       try {
         // Called inside the boundary so a handler that throws synchronously and one that
@@ -50,22 +48,22 @@ export function createConsoleCommandExecutor(options: {
       } catch (cause) {
         // A handler is reached through an executor that never throws to report a failure, so
         // it settles here as a registered command's own failure would.
-        return commandFailureRefusal(commandId, cause);
+        return commandFailure(command, cause);
       }
     }
-    if (options.lineReadingCommandIds.includes(commandId)) {
+    if (options.lineReadingCommandIds.includes(command.id)) {
       return { status: "not-run" };
     }
-    return await settleInvocation(commands, commandId);
+    return await settleInvocation(commands, command);
   };
 }
 
 /** One invocation, resolved into exactly one settlement. Never throws. */
 async function settleInvocation(
   composerCommands: ComposerCommands,
-  commandId: string,
+  command: CommandDefinition,
 ): Promise<CommandOutcome> {
-  const outcome = composerCommands.invoke(commandId);
+  const outcome = composerCommands.invoke(command.id);
   switch (outcome.status) {
     case "unknown-command":
     case "hidden-in-context":
@@ -76,19 +74,16 @@ async function settleInvocation(
         await outcome.completion;
         return { status: "applied" };
       } catch (cause) {
-        return commandFailureRefusal(commandId, cause);
+        return commandFailure(command, cause);
       }
   }
 }
 
 /**
- * The report a console command's own failure takes from either path into an act, so a failure
- * reads the same under the same code: the fixed failed line, its cause in the diagnostic capture.
+ * A console command's own failure from either path into an act, stated on the window's banner;
+ * the line stays as typed and the composer draws nothing beside it.
  */
-function commandFailureRefusal(commandId: string, cause: unknown): CommandOutcome {
-  recordCommandFailure(CONSOLE_COMMAND_REFUSAL_ORIGIN, commandId, cause);
-  return {
-    status: "refused",
-    refusal: consoleCommandRefusal("command-failed", COMMAND_FAILED_DETAIL),
-  };
+function commandFailure(command: CommandDefinition, cause: unknown): CommandOutcome {
+  stateCommandFailure(CONSOLE_COMMAND_REFUSAL_ORIGIN, command, cause);
+  return { status: "not-run" };
 }

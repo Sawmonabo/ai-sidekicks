@@ -67,7 +67,7 @@ export function ParamForm(props: ParamFormProps): React.JSX.Element {
           action={<TryAgainButton onPress={checks.loadAgain} />}
         />
       ) : (
-        <LoadingNotice clock={clock} placement="block" title="Loading fields…" />
+        <LoadingNotice clock={clock} placement="block" title="Loading…" />
       )}
     </div>
   );

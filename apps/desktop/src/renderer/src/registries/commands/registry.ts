@@ -9,6 +9,7 @@
 
 import { lossyStringify } from "#renderer/lib/wire/errors.js";
 
+import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 import { KeyedRegistry } from "#renderer/lib/keyed-registry.js";
 import type { CommandDefinition } from "./definition.js";
 import {
@@ -22,7 +23,13 @@ import { type WhenClauseContext } from "./when-clause/semantics.js";
 
 /** What happened when a caller asked the registry to run a command. */
 export type CommandInvocationOutcome =
-  | { readonly status: "ran"; readonly commandId: string; readonly completion: Promise<void> }
+  | {
+      readonly status: "ran";
+      readonly commandId: string;
+      /** The command that ran, whose title its failure line reads. */
+      readonly command: CommandDefinition;
+      readonly completion: Promise<void>;
+    }
   | { readonly status: "unknown-command"; readonly commandId: string }
   | { readonly status: "hidden-in-context"; readonly commandId: string }
   | {
@@ -131,12 +138,13 @@ export class CommandRegistry {
         error instanceof Error ? error : new Error(lossyStringify(error)),
       );
     }
-    return { status: "ran", commandId, completion };
+    return { status: "ran", commandId, command, completion };
   }
 
   /**
-   * Ranks the visible commands against a query. An empty query returns recents first and then
-   * the rest in category order. Eligibility is settled by `commandsFor`, order by the ranking.
+   * Ranks the visible commands against a query. An empty query, or any query before the matcher
+   * holds its module, returns recents first and then the rest in category order, unranked.
+   * Eligibility is settled by `commandsFor`, order by the ranking.
    */
   public search(query: string, context: WhenClauseContext): readonly CommandSearchResult[] {
     const trimmedQuery = query.trim();
@@ -146,7 +154,7 @@ export class CommandRegistry {
       recentRankById.set(commandId, rank);
     });
 
-    return trimmedQuery.length === 0
+    return trimmedQuery.length === 0 || !appFuzzyMatcher.isReady
       ? rankCommandsForEmptyQuery(visibleCommands, recentRankById)
       : rankCommandsForQuery(visibleCommands, trimmedQuery, recentRankById);
   }

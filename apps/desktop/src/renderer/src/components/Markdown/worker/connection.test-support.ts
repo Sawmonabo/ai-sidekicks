@@ -89,6 +89,10 @@ export class InThreadMarkdownWorker implements MarkdownWorkerPort {
       this.#say({ status: "workflow-checks", workflowChecks: IN_THREAD_WORKFLOW_CHECKS });
       return;
     }
+    if (message.kind === "compile-fuzzy-matcher") {
+      this.#say({ status: "fuzzy-matcher", fuzzyMatcher: IN_THREAD_FUZZY_MATCHER });
+      return;
+    }
     if (message.kind !== "parse") {
       const received = structuredClone(message, { transfer });
       queueMicrotask(() => {

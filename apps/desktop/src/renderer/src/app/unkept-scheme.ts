@@ -40,5 +40,5 @@ export function discloseUnkeptMenuSchemes(
 const UNKEPT_SCHEME = refuse(
   "appearance",
   "scheme-not-kept",
-  "Could not save the color scheme, so it did not change.",
+  "Couldn't save the color scheme, so it did not change.",
 );

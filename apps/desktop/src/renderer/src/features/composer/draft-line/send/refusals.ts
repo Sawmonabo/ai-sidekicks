@@ -13,11 +13,7 @@ export const DAEMON_REFUSAL_ORIGIN = "daemon";
 /**
  * Why the composer refused before reaching the wire. Closed: each code carries its own sentence.
  */
-export const COMPOSER_REFUSAL_CODES = [
-  "empty-message",
-  "identifier-unparsable",
-  "command-unexecutable",
-] as const;
+export const COMPOSER_REFUSAL_CODES = ["identifier-unparsable", "command-unexecutable"] as const;
 
 /** One composer refusal code, derived from `COMPOSER_REFUSAL_CODES`. */
 export type ComposerRefusalCode = (typeof COMPOSER_REFUSAL_CODES)[number];

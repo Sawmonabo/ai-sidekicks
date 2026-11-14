@@ -264,7 +264,7 @@ export function McpServersPage(props: {
   const observedStamps = observedStampsOf(servers);
   const nowMilliseconds = useRelativeTimesNow(clock, observedStamps);
   if (state.kind === "not-loaded") {
-    return <LoadingNotice clock={clock} placement="block" title="Loading MCP servers…" />;
+    return <LoadingNotice clock={clock} placement="block" title="Loading…" />;
   }
   if (state.kind === "failed") {
     return (

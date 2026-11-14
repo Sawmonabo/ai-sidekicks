@@ -22,7 +22,7 @@ export function usePayloadJsonCopy(stored: unknown, label: string): ClipboardCop
       if (outcome === "copied") {
         announce(`${label} copied as JSON`);
       } else {
-        announce(`Could not copy ${label}`, "assertive");
+        announce(`Couldn't copy ${label}`, "assertive");
       }
     },
   );

@@ -1,8 +1,9 @@
-// How a process a signal ended reads on screen, so a signal's name stays in the daemon's log. The
-// daemon names any signal the system has; one no entry words reads as a system signal.
+// How a process a signal ended reads on screen, in the renderer and in main alike, so a signal's
+// name stays in the logs. Any signal the system has can arrive; one no entry words reads as a
+// system signal.
 
 /**
- * A signal's words in lower case, as they follow a middle dot, by its name as the daemon sends it
+ * A signal's words in lower case, as they follow a middle dot, by its name as the system spells it
  * (`SIGKILL` reads `killed by the system`).
  */
 export function signalWords(signal: string): string {

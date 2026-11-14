@@ -1,4 +1,4 @@
-// `Take the shell` asks once, in place on the line: `<device> holds the shell. Take it?` under
+// `Take the terminal` asks once, in place on the line: `<device> holds the terminal. Take it?` under
 // `Cancel` and `Take it`, which takes focus, and Escape cancels. Only `Take it` sends, one forced
 // take of this shell bound to the pane's output subscription, and the line never derives the
 // holder from it: a served take closes the confirm and the line moves only when the change reaches
@@ -23,12 +23,12 @@ const HELD_BY_THE_MAC_MINI = leaseState({
   holderDeviceId: OTHER_DEVICE_ID,
 });
 
-const QUESTION = "Mac mini holds the shell. Take it?";
+const QUESTION = "Mac mini holds the terminal. Take it?";
 
 /** Open the confirm on a line held by the Mac mini, over the given takes. */
 function openConfirm(takes: HeldTakes): RenderedLease {
   const view = renderLease(HELD_BY_THE_MAC_MINI, "Mac mini", takes.bridge);
-  fireEvent.click(screen.getByRole("button", { name: "Take the shell" }));
+  fireEvent.click(screen.getByRole("button", { name: "Take the terminal" }));
   return view;
 }
 
@@ -41,18 +41,18 @@ describe("taking the shell from another device", () => {
       Array.from(confirm.querySelectorAll("button"), (button) => button.textContent),
     ).toStrictEqual(["Cancel", "Take it"]);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Take it" }));
-    expect(screen.queryByRole("button", { name: "Take the shell" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Take the terminal" })).toBeNull();
     expect(takes.takes).toStrictEqual([]);
   });
 
-  it("cancels on Escape, sending nothing and handing focus back to `Take the shell`", () => {
+  it("cancels on Escape, sending nothing and handing focus back to `Take the terminal`", () => {
     const takes = new HeldTakes();
     openConfirm(takes);
     fireEvent.keyDown(screen.getByRole("button", { name: "Take it" }), { key: "Escape" });
     expect(screen.queryByRole("group", { name: QUESTION })).toBeNull();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Take the shell" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Take the terminal" }));
     expect(screen.getByRole("group", { name: "Terminal lease" }).textContent).toBe(
-      "Mac mini holds the shell.Take the shell",
+      "Mac mini holds the terminal.Take the terminal",
     );
     expect(takes.takes).toStrictEqual([]);
   });
@@ -89,7 +89,7 @@ describe("taking the shell from another device", () => {
     // Served is not held: the line still names the Mac mini until the change reaches the fold.
     expect(screen.queryByRole("group", { name: QUESTION })).toBeNull();
     expect(screen.getByRole("group", { name: "Terminal lease" }).textContent).toBe(
-      "Mac mini holds the shell.Take the shell",
+      "Mac mini holds the terminal.Take the terminal",
     );
     expect(takes.takes).toHaveLength(1);
   });
@@ -123,7 +123,7 @@ describe("taking the shell from another device", () => {
   it("closes an open confirm when the holder changes, so it never asks about a device that let go", () => {
     const takes = new HeldTakes();
     const view = renderLease(HELD_BY_THE_MAC_MINI, "Mac mini", takes.bridge);
-    fireEvent.click(screen.getByRole("button", { name: "Take the shell" }));
+    fireEvent.click(screen.getByRole("button", { name: "Take the terminal" }));
     // The Mac mini lets go and the shell is free; then the iPad takes it.
     view.rerender(
       leaseLineWithTake(
@@ -140,7 +140,7 @@ describe("taking the shell from another device", () => {
       ),
     );
     expect(screen.getByRole("group", { name: "Terminal lease" }).textContent).toBe(
-      "iPad holds the shell.Take the shell",
+      "iPad holds the terminal.Take the terminal",
     );
     expect(document.activeElement).not.toBe(screen.queryByRole("button", { name: "Take it" }));
     expect(takes.takes).toStrictEqual([]);

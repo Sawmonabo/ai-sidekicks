@@ -13,10 +13,10 @@ import type {
 } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionNoticePostedPayload } from "@ai-sidekicks/contracts/session/controls/events";
 import type { FilePathRef } from "#shared/preload-api.js";
+import { signalWords } from "#shared/signal-words.js";
 
 import { refusalSentence } from "#renderer/lib/code-words.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
-import { signalWords } from "#renderer/lib/signal-words.js";
 import { formatWholeDuration, formatWireString } from "#renderer/lib/wire/figures.js";
 import { readRepoMountHealthChangedPayload } from "#renderer/services/daemon/payload/repo-mount-health-changed.js";
 import { readSessionNoticePostedPayload } from "#renderer/services/daemon/payload/session-notice-posted.js";

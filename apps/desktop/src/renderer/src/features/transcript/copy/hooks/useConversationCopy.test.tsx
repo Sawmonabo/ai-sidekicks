@@ -444,7 +444,7 @@ describe("⌘C in a session", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect([clipboard.text, copied, formatted]).toStrictEqual(["another app's copy", [], []]);
-    expect(sessionDocument.body.textContent).not.toContain("Could not copy");
+    expect(sessionDocument.body.textContent).not.toContain("Couldn't copy");
   });
 
   it("leaves a selection in the message box to the platform's own copy", () => {

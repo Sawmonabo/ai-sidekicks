@@ -118,7 +118,7 @@ describe("a shell's status lines", () => {
     expect(await screen.findByText("Exited with code 3")).toBeDefined();
 
     fireEvent.click(screen.getByText("zsh terminal-2"));
-    expect(await screen.findByText("The shell did not start · no such file")).toBeDefined();
+    expect(await screen.findByText("Couldn't start terminal · no such file")).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => {
       expect(wire.paramsOf("terminal.open")).toHaveLength(1);

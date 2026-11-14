@@ -22,6 +22,7 @@ import "./CommandPalette.css";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { OverlayDialogPopup } from "#renderer/components/OverlayPopups/OverlayDialogPopup.js";
+import { SearchFailed } from "#renderer/components/SearchFailed/SearchFailed.js";
 import { PaletteEmptyState } from "./PaletteEmptyState.js";
 import { PaletteResultList } from "./PaletteResultList.js";
 import { useCommandPalette, type CommandPaletteProps } from "./hooks/useCommandPalette.js";
@@ -47,6 +48,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
     runResult,
     highlightResult,
     resultCountLabel,
+    matcher,
   } = useCommandPalette(props);
 
   return (
@@ -84,6 +86,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
             placeholder="Search commands"
             aria-label="Search commands"
           />
+          <SearchFailed matcher={matcher} />
 
           {/* The captured context, so a printed chord is the one that would run that row. */}
           <PaletteResultList

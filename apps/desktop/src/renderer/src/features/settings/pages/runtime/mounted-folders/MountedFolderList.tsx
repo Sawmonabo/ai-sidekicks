@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
@@ -84,9 +85,16 @@ export function MountedFolderList(props: {
   // differently. The focus refresh re-reads on every return, so the sentence names counts
   // and nothing that moves on its own.
   useAnnounceWhenChanged(mountSettlementSentence(state), "polite", { isReadSettlement: true });
+  // The failed line names no cause, so the cause goes to the diagnostic capture, once per refusal.
+  const failedRefusal = state.kind === "failed" ? state.refusal : undefined;
+  useEffect(() => {
+    if (failedRefusal !== undefined) {
+      recordRejectedRequest(MOUNTED_FOLDERS_SOURCE, "folders-not-read", failedRefusal);
+    }
+  }, [failedRefusal]);
 
   if (state.kind === "not-loaded") {
-    return <LoadingNotice clock={clock} placement="block" title="Loading folders…" />;
+    return <LoadingNotice clock={clock} placement="block" title="Loading…" />;
   }
   if (state.kind === "failed") {
     // The control is the way back. A failed read recovers when the event stream pushes
@@ -94,12 +102,18 @@ export function MountedFolderList(props: {
     // read asks for no snapshot then rather than render an inventory behind a channel that
     // has stopped listening.
     return (
-      <InlineRefusal
-        code={state.refusal.code}
-        detail={state.refusal.detail}
-        onTryAgain={() => {
-          setOpeningOrdinal((held) => held + 1);
-        }}
+      <Nothing
+        kind="error"
+        placement="block"
+        title="Couldn't load folders"
+        attempt={state.refusal}
+        action={
+          <TryAgainButton
+            onPress={() => {
+              setOpeningOrdinal((held) => held + 1);
+            }}
+          />
+        }
       />
     );
   }
@@ -126,6 +140,9 @@ export function MountedFolderList(props: {
     </>
   );
 }
+
+// The subsystem a refused folder read is recorded under.
+const MOUNTED_FOLDERS_SOURCE = "settings/runtime/mounted-folders";
 
 /**
  * The one sentence this list announces, `undefined` while the read is in flight, or `null` where it

@@ -223,7 +223,7 @@ describe("a listed reply whose large body is opened", () => {
         { timeout: CASE_TIMEOUT_MS / 2 },
       );
       await letFramesPass(2);
-      expect(recorder.rowOf(replyId)?.textContent).toContain("Loading full output…");
+      expect(recorder.rowOf(replyId)?.textContent).toContain("Loading…");
       decodes.release();
       await waitFor(
         () => {

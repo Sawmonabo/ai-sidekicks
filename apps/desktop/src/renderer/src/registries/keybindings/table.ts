@@ -216,7 +216,7 @@ export class KeybindingTable {
       // Only a press that ran something is consumed; a refused binding leaves the key to others.
       return false;
     }
-    reportCommandFailure(prepared.binding.commandId, outcome.completion);
+    reportCommandFailure(outcome.command, outcome.completion);
     event.preventDefault();
     event.stopPropagation();
     return true;

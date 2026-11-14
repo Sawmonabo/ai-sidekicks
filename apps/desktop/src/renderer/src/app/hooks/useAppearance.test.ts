@@ -152,7 +152,7 @@ describe("the app's appearance", () => {
       expect(frameStore.getState().banners).toMatchObject([
         {
           code: "scheme-not-kept",
-          detail: "Could not save the color scheme, so it did not change.",
+          detail: "Couldn't save the color scheme, so it did not change.",
         },
       ]);
     });

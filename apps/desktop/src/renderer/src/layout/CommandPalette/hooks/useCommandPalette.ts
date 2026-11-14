@@ -5,7 +5,7 @@
 import type { Combobox } from "@base-ui/react/combobox";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useIsFuzzyMatcherReady } from "#renderer/hooks/useIsFuzzyMatcherReady.js";
+import { useFuzzyMatcher, type FuzzyMatcherLoad } from "#renderer/hooks/useFuzzyMatcher.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import type { RowWindow } from "#renderer/hooks/useRowWindow.js";
 import type { KeyboardConvention } from "#renderer/lib/chord/convention/contract.js";
@@ -73,6 +73,8 @@ export interface CommandPaletteState {
     details: Combobox.Root.HighlightEventDetails,
   ) => void;
   readonly resultCountLabel: string;
+  /** The matcher the rows rank with, whose failed load the palette says under its field. */
+  readonly matcher: FuzzyMatcherLoad;
 }
 
 /** Owns the palette's state, effects and derivations; the component only renders the result. */
@@ -105,14 +107,14 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
   const capturedScopeLabel = open ? latchedScope.scopeLabel : undefined;
   const capturedContext = latchedScope.context;
 
-  const isMatcherReady = useIsFuzzyMatcherReady();
+  const matcher = useFuzzyMatcher();
   const results = useMemo(
     // Gated on `open`: a closed palette ranks nothing and returns one frozen array, so route
     // changes cost nothing while it is closed. Searches the captured context, which does not move.
     () => (open ? registry.search(query, capturedContext) : NO_RESULTS),
-    // `revision` and `isMatcherReady` are dependencies with no use in the body: the signals that
-    // the registry changed and that the matcher started to score.
-    [open, registry, query, capturedContext, revision, isMatcherReady],
+    // `revision` and the matcher's state are dependencies with no use in the body: the signals
+    // that the registry changed and that the matcher started to score.
+    [open, registry, query, capturedContext, revision, matcher.state],
   );
   const groups = useMemo(() => groupResults(results), [results]);
   const { rows, rowIndexByItemIndex } = useMemo(() => paletteRowsFromGroups(groups), [groups]);
@@ -211,6 +213,7 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
     runResult,
     highlightResult,
     resultCountLabel,
+    matcher,
   };
 }
 

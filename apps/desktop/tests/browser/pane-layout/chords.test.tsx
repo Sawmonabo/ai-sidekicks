@@ -63,7 +63,7 @@ function registryWithShell(onKeystroke: (data: string) => void): PaneRegistry {
         <XtermMountPoint
           terminalId={TERMINAL_ID}
           isWriteEnabled
-          label="Shell output"
+          label="Terminal output"
           onKeystroke={onKeystroke}
         />
       </PaneFrame>

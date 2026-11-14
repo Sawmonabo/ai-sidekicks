@@ -38,12 +38,13 @@ export interface WireRefusalRemedy {
 }
 
 /**
- * Who stands in the way of a refused act, by id alone: the mount that holds a repository, or the
- * session whose run is live there and that run's agent or workflow run. A view names them from
- * its own reads.
+ * Who stands in the way of a refused act, by id alone: the mount that holds a repository and its
+ * project (absent for a chat's own workspace), or the session whose run is live there and that
+ * run's agent or workflow run. A view names them from its own reads.
  */
 export interface RefusalHolder {
   readonly repoMountId?: string;
+  readonly projectId?: string;
   readonly sessionId?: string;
   readonly agentId?: string;
   readonly workflowRunId?: string;
@@ -83,6 +84,7 @@ export function wireDetailsExtension(source: unknown): RefusalExtensions {
   const runningHolder = readGuardedProperty(source, "runningHolder");
   const holder = readHolder({
     repoMountId: readGuardedProperty(source, "conflictingRepoMountId"),
+    projectId: readGuardedProperty(source, "conflictingProjectId"),
     sessionId: readGuardedProperty(source, "runningSessionId"),
     agentId: readGuardedProperty(runningHolder, "agentId"),
     workflowRunId: readGuardedProperty(runningHolder, "runId"),
@@ -148,9 +150,10 @@ function readCause(cause: unknown): string | undefined {
 function readHolder(
   ids: Readonly<Record<keyof RefusalHolder, unknown>>,
 ): RefusalHolder | undefined {
-  const { repoMountId, sessionId, agentId, workflowRunId } = ids;
+  const { repoMountId, projectId, sessionId, agentId, workflowRunId } = ids;
   const holder = {
     ...(isId(repoMountId) ? { repoMountId } : {}),
+    ...(isId(projectId) ? { projectId } : {}),
     ...(isId(sessionId) ? { sessionId } : {}),
     ...(isId(agentId) ? { agentId } : {}),
     ...(isId(workflowRunId) ? { workflowRunId } : {}),
@@ -168,6 +171,7 @@ function carriedHolder(candidate: unknown): RefusalHolder | undefined {
   const carried = readGuardedProperty(candidate, "holder");
   return readHolder({
     repoMountId: readGuardedProperty(carried, "repoMountId"),
+    projectId: readGuardedProperty(carried, "projectId"),
     sessionId: readGuardedProperty(carried, "sessionId"),
     agentId: readGuardedProperty(carried, "agentId"),
     workflowRunId: readGuardedProperty(carried, "workflowRunId"),

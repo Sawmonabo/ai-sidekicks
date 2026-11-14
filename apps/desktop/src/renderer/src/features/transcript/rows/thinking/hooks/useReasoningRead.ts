@@ -1,10 +1,12 @@
 // The read a reasoning row makes on demand, and the state it holds.
 // It is issued only when a reader asks: one call per rendered reasoning row would put a call on
 // every row in a scrolled window. `callDaemon` answers `served` or `refused`; the hook holds
-// either, so a refusal can be shown and asked again.
+// either, so a refusal can be shown and asked again, and sends a refusal's cause to the window's
+// diagnostic capture, since the row's line names none.
 
 import { useCallback, useState } from "react";
 
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useReadScope } from "#renderer/hooks/useReadScope.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
@@ -43,6 +45,9 @@ export function useReasoningRead(runId: RunId | undefined): ReasoningRead {
     void callDaemon(bridge, "transcript.reasoning.read", { runId }, { signal: round.signal }).then(
       (reply) => {
         round.settle(() => {
+          if (reply.status === "refused") {
+            recordRejectedRequest(REASONING_READ_SOURCE, "reasoning-not-read", reply.refusal);
+          }
           setReading(
             reply.status === "served"
               ? { status: "read", response: reply.value }
@@ -55,3 +60,6 @@ export function useReasoningRead(runId: RunId | undefined): ReasoningRead {
 
   return { reading, expand };
 }
+
+// The subsystem a refused reasoning read is recorded under.
+const REASONING_READ_SOURCE = "transcript/reasoning";

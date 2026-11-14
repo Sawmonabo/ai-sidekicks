@@ -35,16 +35,19 @@ export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavig
   sessions: {
     commandId: "frame.goToSessions",
     title: RAIL_ENTRY_TEMPLATES.sessions.label,
+    isTitleVerbPhrase: false,
     keywords: ["home"],
   },
   sidekicks: {
     commandId: "frame.goToSidekicks",
     title: RAIL_ENTRY_TEMPLATES.sidekicks.label,
+    isTitleVerbPhrase: false,
     keywords: ["agents", "definitions", "plugins"],
   },
   skills: {
     commandId: "frame.goToSkills",
     title: RAIL_ENTRY_TEMPLATES.skills.label,
+    isTitleVerbPhrase: false,
     keywords: ["instructions", "folders"],
   },
   workflows: {
@@ -114,6 +117,9 @@ export function buildNavigationCommands(
   return RAIL_DESTINATIONS.map((destination) => ({
     id: RAIL_NAVIGATION_DETAILS[destination].commandId,
     title: RAIL_NAVIGATION_DETAILS[destination].title,
+    ...(RAIL_NAVIGATION_DETAILS[destination].isTitleVerbPhrase === false
+      ? { isTitleVerbPhrase: false }
+      : {}),
     group: CONSOLE_COMMAND_GROUP,
     keywords: RAIL_NAVIGATION_DETAILS[destination].keywords,
     run: () => {
@@ -136,6 +142,7 @@ export function buildRailControlCommands(acts: RailControlActs): readonly FrameC
     {
       id: SESSIONS_LIST_COMMAND.commandId,
       title: SESSIONS_LIST_COMMAND.title,
+      isTitleVerbPhrase: false,
       group: SESSIONS_COMMAND_GROUP,
       keywords: ["sidebar", "flyout"],
       run: acts.toggleSessionsList,
@@ -143,6 +150,7 @@ export function buildRailControlCommands(acts: RailControlActs): readonly FrameC
     {
       id: "frame.toggleNotifications",
       title: RAIL_CONTROL_LABELS.notifications,
+      isTitleVerbPhrase: false,
       group: CONSOLE_COMMAND_GROUP,
       keywords: ["attention", "waiting", "bell"],
       run: acts.toggleNotificationsList,
@@ -150,6 +158,7 @@ export function buildRailControlCommands(acts: RailControlActs): readonly FrameC
     {
       id: "frame.cycleColorScheme",
       title: RAIL_CONTROL_LABELS.colorScheme,
+      isTitleVerbPhrase: false,
       group: CONSOLE_COMMAND_GROUP,
       keywords: ["dark", "light", "system"],
       run: acts.chooseNextColorScheme,
@@ -160,6 +169,8 @@ export function buildRailControlCommands(acts: RailControlActs): readonly FrameC
 interface RailNavigationDetail {
   readonly commandId: string;
   readonly title: string;
+  /** `false` for a destination titled with its rail label, which is no verb phrase. */
+  readonly isTitleVerbPhrase?: false;
   /** tinykeys syntax, single press; absent while the destination ships with no chord. */
   readonly chord?: string;
   /** Extra words a person might type for this destination in the palette. */

@@ -169,9 +169,10 @@ export class RepoMountsReader implements ReadTriggerTarget {
   }
 
   /**
-   * One pass, which never rejects: a refused call puts the reading back to the status it had
-   * before the pass, so the section never says it is reading after the pass has ended, records
-   * the cause in the window's diagnostic capture, and marks this read failed on the session.
+   * One pass, which never rejects: a refused call keeps a reading that already answered, or
+   * settles `failed` where none has, so the section never says it is reading after the pass has
+   * ended; it records the cause in the window's diagnostic capture and marks this read failed on
+   * the session.
    */
   async #performRead(round: ReadRound): Promise<void> {
     const statusBeforePass = this.#reading.status;
@@ -191,7 +192,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
         detail: `session ${this.#sessionId}: ${refusal.code}: ${refusal.detail}`,
       });
       this.#sessionStore.failedDependentReads.markFailed(this);
-      this.#publish({ ...this.#reading, status: statusBeforePass });
+      this.#publish({ ...this.#reading, status: statusBeforePass === "read" ? "read" : "failed" });
     }
   }
 

@@ -188,7 +188,7 @@ function renderAutomaticCheck(
   const { reading, readRefusal } = preferences.snapshot;
   if (reading === undefined) {
     return readRefusal === undefined ? (
-      <LoadingNotice clock={clock} placement="inline" title="Loading settings…" />
+      <LoadingNotice clock={clock} placement="inline" title="Loading…" />
     ) : (
       <InlineRefusal
         code={readRefusal.code}

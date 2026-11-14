@@ -226,7 +226,7 @@ export function isUnreadableRecordRefusal(refusal: Refusal): boolean {
 /** What a view says when its saved record could not be read. */
 const UNREADABLE_RECORD_REFUSAL = refusePersistence(
   "adapter-unavailable",
-  "Could not read what you last set here, so this view starts from its defaults.",
+  "Couldn't read what you last set here, so this view starts from its defaults.",
 );
 
 /**

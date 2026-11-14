@@ -62,7 +62,7 @@ describe("RepoMountsReader — the read", () => {
     ]);
   });
 
-  it("returns to where it stood when a call is refused, rather than reading forever", async () => {
+  it("settles failed when the first read is refused, rather than reading forever", async () => {
     const clock = new ManualClock();
     const reader = openReader(
       sessionOperations({
@@ -73,7 +73,7 @@ describe("RepoMountsReader — the read", () => {
     reader.start();
     await settle(clock, reader);
 
-    expect(reader.snapshot.status).toBe("not-read");
+    expect(reader.snapshot.status).toBe("failed");
   });
 
   it("reads a mount two workspaces share once, and lists it once", async () => {
