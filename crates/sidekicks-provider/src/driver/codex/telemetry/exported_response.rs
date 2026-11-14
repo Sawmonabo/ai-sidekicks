@@ -16,6 +16,7 @@ use crate::usage_delta_accountant::UsageAxisCounts;
 /// One completed response the export or a rollout file stated, or a search a rollout file stated
 /// riding on a response of no counts, with the account it ran on, and where the drain placed it
 /// when no session streams its thread.
+#[derive(Clone)]
 pub(crate) struct CodexExportedResponse {
     /// The response, carrying the account it ran on.
     pub(crate) response: CodexCompletedResponse,

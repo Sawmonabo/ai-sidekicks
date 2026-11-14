@@ -1,5 +1,6 @@
 //! Applying what a session's frame delivery reported, in delivery order, its spend attributed to
-//! the binding it files on.
+//! the binding it files on, and a reading no binding takes charged as its account's spend outside
+//! any session.
 
 use std::sync::Arc;
 
@@ -17,8 +18,11 @@ use crate::driver::codex::notification_routing::{CodexContextWindowReading, Code
 use crate::driver::codex::run::control::CodexRunControl;
 use crate::driver::codex::run::routes::CodexRunRoutes;
 use crate::driver::codex::run::steer::{remember_codex_prompt_hook_run, take_blocked_codex_steers};
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::state::CodexSessionRecord;
+use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
+use crate::driver::codex::telemetry::placement::{read_launch_region, refuse_unplaced};
 use crate::driver::ports::DriverPorts;
 use crate::port::run_host::RunHost;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
@@ -48,8 +52,9 @@ pub(crate) struct CodexRoutedFramesIntake<'parts> {
 /// Codex echoed, which its frame already landed, each prompt's hook runs remembered, each turn's
 /// task list published, and for each ended turn its blocked steers refused and those a pause or a
 /// retry dropped given back, its end recorded where no run moved, its route retired, its pause or
-/// continue acted on and its owed fork let go. Answers the spend it metered, for the session's task
-/// to record.
+/// continue acted on and its owed fork let go. A reading with no binding to file on is charged as
+/// its account's spend outside any session, with its stream sighting. Answers the spend it
+/// metered, for the session's task to record.
 pub(crate) async fn apply_codex_routed_frames(
     intake: &CodexRoutedFramesIntake<'_>,
     record: &mut CodexSessionRecord,
@@ -61,20 +66,18 @@ pub(crate) async fn apply_codex_routed_frames(
         file_context_window(intake, record, reading).await;
     }
     let mut metered_usage = Vec::with_capacity(routed.metered_usage.len());
+    let mut unbound = Vec::new();
     for delta in routed.metered_usage {
         publish_turn_usage(intake, record, &delta);
         let owner_thread = delta.thread_id.clone();
         // The stream's reading ran on the account the record carries at its place in the frames.
         let ran_on = Some(record.provider_account_id.clone());
-        metered_usage.extend(attribute_codex_usage(
-            intake,
-            record,
-            &owner_thread,
-            delta,
-            None,
-            ran_on,
-        ));
+        match attribute_codex_usage(intake, record, &owner_thread, delta, None, ran_on.clone()) {
+            Ok(usage) => metered_usage.push(usage),
+            Err(delta) => unbound.push((*delta, ran_on)),
+        }
     }
+    charge_unbound_readings(&record.service, unbound).await;
     for dispatch in routed.dispatches {
         if let Some(publisher) = intake.ports.turn_readings.port() {
             for tasks in dispatch.turn_tasks {
@@ -181,7 +184,7 @@ fn publish_turn_usage(
 /// `provider_account_id`, the account its turn ran on: a helper's conversation's on its child
 /// run's binding as that helper's own, any other on the binding of `filing_run` where one is known,
 /// else of the run its turn belongs to, else the session's. One with no binding to file on is
-/// logged and left unrecorded.
+/// logged and handed back, for its caller to charge outside any session.
 pub(super) fn attribute_codex_usage(
     intake: &CodexRoutedFramesIntake<'_>,
     record: &CodexSessionRecord,
@@ -189,9 +192,9 @@ pub(super) fn attribute_codex_usage(
     delta: MeteredUsageDelta,
     filing_run: Option<RunId>,
     provider_account_id: Option<ProviderAccountId>,
-) -> Option<MeteredUsage> {
+) -> Result<MeteredUsage, Box<MeteredUsageDelta>> {
     if let Some(child) = record.delivery.child_run_by_thread_id.get(owner_thread) {
-        return Some(MeteredUsage {
+        return Ok(MeteredUsage {
             session_id: record.session_id,
             binding_id: child.binding_id.clone(),
             owner: MeteredUsageOwner::Helper(child.subagent_id.clone()),
@@ -204,16 +207,67 @@ pub(super) fn attribute_codex_usage(
         None => find_filing_binding(intake, record, delta.attributed_turn_id.as_deref()),
     };
     let Some(binding_id) = binding_id else {
-        tracing::warn!("a codex usage reading has no binding to file on");
-        return None;
+        tracing::warn!(
+            "a codex usage reading has no binding to file on; it is charged outside any session"
+        );
+        return Err(Box::new(delta));
     };
-    Some(MeteredUsage {
+    Ok(MeteredUsage {
         session_id: record.session_id,
         binding_id,
         owner: MeteredUsageOwner::Run,
         delta,
         provider_account_id,
     })
+}
+
+// Charges each of `unbound`, a stream reading no binding takes, with the account it ran on, as its
+// account's spend outside any session with its stream sighting, through the charge of
+// `service`'s newest launch, at the region of its settings for no folder, read once. A reading
+// that names no model, or a hosted web search, which no spend outside a session prices, is
+// refused, naming its thread.
+async fn charge_unbound_readings(
+    service: &CodexService,
+    unbound: Vec<(MeteredUsageDelta, Option<ProviderAccountId>)>,
+) {
+    if unbound.is_empty() {
+        return;
+    }
+    let charge = service.dependencies().exports.launch_charge(service.id());
+    read_launch_region(service, &charge).await;
+    let mut sighted = Vec::with_capacity(unbound.len());
+    for (delta, provider_account_id) in unbound {
+        if delta
+            .request
+            .web_search_requests
+            .is_some_and(|searches| searches > 0)
+        {
+            refuse_unplaced(
+                &delta.thread_id,
+                provider_account_id,
+                "no session took the web search it states",
+            );
+            continue;
+        }
+        let Some(model_id) = delta.request.model_id else {
+            refuse_unplaced(
+                &delta.thread_id,
+                provider_account_id,
+                "its reading names no model",
+            );
+            continue;
+        };
+        let response = CodexCompletedResponse {
+            conversation_id: delta.thread_id,
+            model_id,
+            service_tier: delta.request.speed,
+            counts: delta.axis_deltas,
+            observed_at_ms: 0,
+            provider_account_id,
+        };
+        sighted.push((response, delta.sighting));
+    }
+    charge.charge_sighted(sighted);
 }
 
 // The run a frame of the session's own conversation naming `turn_id` belongs to, and the binding

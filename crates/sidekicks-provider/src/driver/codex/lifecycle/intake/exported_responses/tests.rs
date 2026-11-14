@@ -150,9 +150,9 @@ fn rollout_response(is_root_tier: bool) -> CodexExportedResponse {
 
 // A rollout response is filed on the run the stored rows name at its record's time, a spawned
 // helper's at the root tier those rows carry then and any other at its own; a record that cannot
-// be read refuses it. Killed by reading the run or the tier at any time but the record's (the
-// helper's own start reads the standard tier), by keeping a helper's own tier, by dropping the
-// run read, and by pricing past a failed read.
+// be read leaves it unfiled, for its caller to charge outside any session. Killed by reading the
+// run or the tier at any time but the record's (the helper's own start reads the standard tier),
+// by keeping a helper's own tier, by dropping the run read, and by pricing past a failed read.
 #[rstest]
 #[case::helper_at_the_root_tier(true, false, true, Some("priority"))]
 #[case::own_thread_at_its_own_tier(false, false, true, Some("flex"))]

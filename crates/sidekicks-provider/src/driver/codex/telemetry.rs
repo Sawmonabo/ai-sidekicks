@@ -2,8 +2,9 @@
 //! from, each completed response its records state, the sighting each source's reading of a
 //! request carries, the exported response a session prices, where a response on a thread no
 //! session streams belongs, the copies' threads, the drain that takes each response where it
-//! belongs, and the charge of a response no session holds as its account's spend; a one-shot exec's export, collected for its caller; and each launch's read of its
-//! rollout files while its export is absent.
+//! belongs, and the charge of a response no session holds as its account's spend; a one-shot
+//! exec's export, collected for its caller; and each launch's read of its rollout files while its
+//! export is absent.
 
 pub(crate) mod completed_response;
 pub(crate) mod copy_threads;

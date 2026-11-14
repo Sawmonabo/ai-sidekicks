@@ -92,6 +92,7 @@ use crate::driver::codex::session::recovery::{
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
 use crate::driver::codex::telemetry::exported_response::CodexExportedResponse;
+use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
@@ -480,7 +481,7 @@ impl TestCodexTask {
             }
             CodexSessionInbound::HeldThread { .. }
             | CodexSessionInbound::SideQuestionReleased { .. }
-            | CodexSessionInbound::ExportedResponses(_) => {}
+            | CodexSessionInbound::ExportedResponses(..) => {}
             // A let-go is kept and answered; the record stays for the test to read.
             CodexSessionInbound::Lifecycle(CodexLifecycleCall::LetGo { exit, reply }) => {
                 self.let_go_exits.push(exit);
@@ -784,8 +785,12 @@ impl CodexSessionInboundHandler for ItemsToTest {
         async {}.boxed()
     }
 
-    fn exported_responses(&mut self, responses: Vec<CodexExportedResponse>) -> BoxFuture<'_, ()> {
-        self.hand(CodexSessionInbound::ExportedResponses(responses));
+    fn exported_responses(
+        &mut self,
+        responses: Vec<CodexExportedResponse>,
+        charge: CodexLaunchCharge,
+    ) -> BoxFuture<'_, ()> {
+        self.hand(CodexSessionInbound::ExportedResponses(responses, charge));
         async {}.boxed()
     }
 

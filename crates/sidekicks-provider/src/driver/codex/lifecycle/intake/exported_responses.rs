@@ -1,9 +1,11 @@
 //! The completed responses Codex's export or a rollout file states that reach a session, one
 //! hand-over at a time, each priced on the turn live then, with its sighting, which the usage
 //! record passes over where another sighting of the same request was priced first; a hand-over's
-//! sightings are recorded together, so they take one commit. One its rollout file stated
-//! is filed on the run the stored rows name at its record's time, and a spawned helper's takes its
-//! root thread's tier from the stored rows then.
+//! sightings are recorded together, so they take one commit. One its rollout file stated is filed
+//! on the run the stored rows name at its record's time, and a spawned helper's takes its root
+//! thread's tier from the stored rows then. One the session cannot file, since its record was let
+//! go, its time or stored rows do not read, or it has no binding to file on, is charged through
+//! the hand-over's launch charge as its account's spend outside any session, with its sighting.
 
 use std::sync::Arc;
 
@@ -17,27 +19,44 @@ use crate::driver::codex::lifecycle::intake::routed_frames::attribute_codex_usag
 use crate::driver::codex::telemetry::exported_response::{
     CodexExportedResponse, CodexOffStreamPlacement, CodexRolloutLine,
 };
-use crate::driver::codex::telemetry::placement::refuse_response;
+use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
 use crate::driver::codex::telemetry::sighting::compose_codex_sighting;
 use crate::driver::codex::web_search::CodexWebSearch;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 
 impl CodexSessionIntake {
     /// Prices `hand_over`, the completed responses the drain or the rollout fallback pushed onto
-    /// the session together, each with its sighting, recorded as one batch.
-    pub(super) async fn price_exported_responses(&mut self, hand_over: Vec<CodexExportedResponse>) {
+    /// the session together, each with its sighting, recorded as one batch; those the session
+    /// cannot file are charged through `charge` as their accounts' spend outside any session.
+    pub(super) async fn price_exported_responses(
+        &mut self,
+        hand_over: Vec<CodexExportedResponse>,
+        charge: CodexLaunchCharge,
+    ) {
         let sink = self.parts.ports.usage.port().map(Arc::clone);
         let mut usage = Vec::with_capacity(hand_over.len());
+        let mut unfiled = Vec::new();
         for mut exported in hand_over {
-            // With no record registered, nothing is recorded, so nothing is read.
-            if let Some(sink) = &sink
-                && !read_rollout_filing(&**sink, self.session_id, &mut exported).await
+            // With no usage record registered, nothing is recorded, so nothing is read.
+            let is_filed = self.record.is_some()
+                && match &sink {
+                    Some(sink) => {
+                        read_rollout_filing(&**sink, self.session_id, &mut exported).await
+                    }
+                    None => true,
+                };
+            match is_filed
+                .then(|| self.meter_exported_response(&exported))
+                .flatten()
             {
-                continue;
+                Some(metered) => usage.push(metered),
+                None => unfiled.push(exported),
             }
-            usage.extend(self.meter_exported_response(&exported));
         }
         self.record_usage(usage).await;
+        if !unfiled.is_empty() {
+            charge.charge_exported(unfiled);
+        }
     }
 
     // `exported`'s spend with its sighting, filed as its owner thread's on the turn it is filed on,
@@ -48,10 +67,7 @@ impl CodexSessionIntake {
     // rollout one's run read by its record's time.
     fn meter_exported_response(&self, exported: &CodexExportedResponse) -> Option<MeteredUsage> {
         let response = &exported.response;
-        let Some(record) = &self.record else {
-            refuse_response(response, "it reached a session already let go");
-            return None;
-        };
+        let record = self.record.as_ref()?;
         let turn_id = match &exported.placed {
             _ if exported.rollout.is_some() => None,
             Some(CodexOffStreamPlacement::OnTurn { turn_id }) => Some(turn_id.clone()),
@@ -101,7 +117,8 @@ impl CodexSessionIntake {
             delta,
             filing_run,
             response.provider_account_id.clone(),
-        );
+        )
+        .ok();
         // A live side question's copy's spend is the session's own beside its runs.
         if record
             .service
@@ -110,15 +127,19 @@ impl CodexSessionIntake {
         {
             usage.owner = MeteredUsageOwner::Session;
         }
-        response.log_read_for_price();
+        // One with no binding is logged by the charge that takes it.
+        if usage.is_some() {
+            response.log_read_for_price();
+        }
         usage
     }
 }
 
-// Reads what `exported` is filed on where its rollout file stated it, answering whether it is still
-// to be priced on `session_id`: the run of the session's stored rows at its record's time, and for
-// a spawned helper's the thread tier those rows carry then, the standard rates where none carries
-// one. One the record cannot be read for is refused; any other answers at once.
+// Reads what `exported` is filed on where its rollout file stated it, answering whether it is to
+// be priced on `session_id`: the run of the session's stored rows at its record's time, and for a
+// spawned helper's the thread tier those rows carry then, the standard rates where none carries
+// one. One whose record cannot be read for is logged and answers `false`, for its caller to
+// charge outside any session; any other answers at once.
 async fn read_rollout_filing(
     sink: &dyn UsageSink,
     session_id: SessionId,
@@ -133,7 +154,10 @@ async fn read_rollout_filing(
         .and_then(|at_ms| jiff::Timestamp::from_millisecond(at_ms).ok())
         .and_then(WireInstant::from_timestamp);
     let Some(at) = at else {
-        refuse_response(response, "its record's time does not read");
+        tracing::warn!(
+            conversation_id = response.conversation_id.as_str(),
+            "a codex rollout response's time does not read; it is charged outside any session"
+        );
         return false;
     };
     match sink.read_run_at(session_id, at.clone()).await {
@@ -141,9 +165,9 @@ async fn read_rollout_filing(
         Err(error) => {
             tracing::warn!(
                 error = &*error as &(dyn std::error::Error + 'static),
-                "the run a codex rollout response ran in could not be read"
+                "the run a codex rollout response ran in could not be read; it is charged outside \
+                 any session"
             );
-            refuse_response(response, "the run that held its turn could not be read");
             return false;
         }
     }
@@ -165,9 +189,9 @@ async fn read_rollout_filing(
         Err(error) => {
             tracing::warn!(
                 error = &*error as &(dyn std::error::Error + 'static),
-                "a codex helper's root thread tier could not be read"
+                "a codex helper's root thread tier could not be read; its response is charged \
+                 outside any session"
             );
-            refuse_response(response, "its root thread's tier could not be read");
             false
         }
     }

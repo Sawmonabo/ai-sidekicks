@@ -40,7 +40,9 @@ use crate::driver::codex::session::side_questions::test_copies::{
 use crate::driver::codex::session::test_fixture::TEST_THREAD;
 use crate::driver::codex::telemetry::exported_response::CodexExportedResponse;
 use crate::driver::codex::telemetry::rollouts::file::CodexRolloutFile;
-use crate::driver::ports::{HeldRequest, RequestHeldListener, SessionlessRequest};
+use crate::driver::ports::{
+    HeldRequest, RequestHeldListener, SessionlessOutcome, SessionlessRequest,
+};
 use crate::driver::session_control::ExportHandoverBriefParams;
 use crate::driver::test_registry::{TestProviderAccounts, new_session_id};
 use crate::driver::{CurrentProviderAccount, ProviderAccountReader};
@@ -123,7 +125,7 @@ impl GatedUsage {
             if is_passed_over {
                 let marked = record
                     .writer
-                    .write(Vec::from(mark_sighting_statements(sighting, None)))
+                    .write(Vec::from(mark_sighting_statements(sighting, None, None)))
                     .await
                     .expect("the sighting's mark writes");
                 if is_sighting_passed_over(&marked) {
@@ -281,25 +283,31 @@ impl RequestHeldListener for GatedUsage {
     fn sessionless_requests_held(
         &self,
         requests: Vec<SessionlessRequest>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<Vec<SessionlessOutcome>, Box<dyn Error + Send + Sync>>> {
         async move {
             let record = self.sightings.get_or_init(SightingRecord::open).await;
+            let mut outcomes = Vec::with_capacity(requests.len());
             for request in requests {
                 if let Some(sighting) = &request.sighting {
-                    let statements =
-                        sessionless_sighting_statements(sighting, &request.provider_account_id);
+                    let statements = sessionless_sighting_statements(
+                        sighting,
+                        &request.provider_account_id,
+                        &request.spend,
+                    );
                     let written = record
                         .writer
                         .write(Vec::from(statements))
                         .await
                         .expect("the sighting's statements write");
                     if written.first().is_none_or(|opened| opened.row_count == 0) {
+                        outcomes.push(SessionlessOutcome::PassedOver);
                         continue;
                     }
                 }
                 lock(&self.sessionless).push(request);
+                outcomes.push(SessionlessOutcome::Written);
             }
-            Ok(())
+            Ok(outcomes)
         }
         .boxed()
     }
@@ -549,10 +557,19 @@ async fn each_billed_search_is_charged_once_on_a_key_and_never_on_a_plan(
         CodexExportedResponse::from_rollout(TEST_THREAD, request, None, provider_account_id)
     })
     .collect();
-    assert!(live.scripted.service.push_session_item(
-        &live.session_id,
-        CodexSessionInbound::ExportedResponses(hand_over)
-    ));
+    assert!(
+        live.scripted.service.push_session_item(
+            &live.session_id,
+            CodexSessionInbound::ExportedResponses(
+                hand_over,
+                live.scripted
+                    .service
+                    .dependencies()
+                    .exports
+                    .launch_charge(live.scripted.service.id())
+            )
+        )
+    );
 
     let (charged, expected) = if is_plan {
         // The recorder takes the session's spend in order, so a token row after the searches lands

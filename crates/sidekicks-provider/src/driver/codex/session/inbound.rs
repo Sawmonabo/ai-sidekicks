@@ -45,6 +45,7 @@ use crate::driver::codex::session::recovery::CodexDroppedTurns;
 use crate::driver::codex::session::recovery::in_place_resume::CodexInPlaceResumeCall;
 use crate::driver::codex::session::rewind::CodexMessageTurn;
 use crate::driver::codex::telemetry::exported_response::CodexExportedResponse;
+use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::account::FirstRequestAfterMove;
 use crate::driver::contract::error::DriverError;
@@ -101,8 +102,9 @@ pub(crate) enum CodexSessionInbound {
     /// the frames, so the spend metered before it stays on the account it left.
     AccountMoved(CodexAccountMove),
     /// The completed responses one hand-over stated on the session's threads: an export's, or a
-    /// rollout file's one read, priced together.
-    ExportedResponses(Vec<CodexExportedResponse>),
+    /// rollout file's one read, priced together, with the charge of the launch that read them,
+    /// which charges what the session cannot file.
+    ExportedResponses(Vec<CodexExportedResponse>, CodexLaunchCharge),
 }
 
 /// A session's move onto another account, queued at the place among its frames where the service
@@ -415,8 +417,13 @@ pub(crate) trait CodexSessionInboundHandler: Send {
     fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()>;
 
     /// Takes the completed responses one hand-over stated, each passed over where another source
-    /// priced its request first, and prices the rest together.
-    fn exported_responses(&mut self, responses: Vec<CodexExportedResponse>) -> BoxFuture<'_, ()>;
+    /// priced its request first, and prices the rest together; what the session cannot file is
+    /// charged through `charge`.
+    fn exported_responses(
+        &mut self,
+        responses: Vec<CodexExportedResponse>,
+        charge: CodexLaunchCharge,
+    ) -> BoxFuture<'_, ()>;
 
     /// When timed work next comes due, `None` when none waits.
     fn next_deadline(&self) -> Option<Instant>;
@@ -465,8 +472,8 @@ pub(crate) async fn drain_codex_session_inbound(
             CodexSessionInbound::AccountMoved(account_move) => {
                 handler.account_moved(account_move).await;
             }
-            CodexSessionInbound::ExportedResponses(responses) => {
-                handler.exported_responses(responses).await;
+            CodexSessionInbound::ExportedResponses(responses, charge) => {
+                handler.exported_responses(responses, charge).await;
             }
         }
     }

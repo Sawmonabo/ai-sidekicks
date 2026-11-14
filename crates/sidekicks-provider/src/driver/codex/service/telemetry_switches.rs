@@ -69,20 +69,23 @@ pub(crate) struct TelemetrySwitches {
 }
 
 /// What a launch exporting to the daemon holds for as long as its process exports: its place in
-/// the driver's export register and the guard of its own token.
+/// the driver's export register, the guard of its own token and the port its exports go to.
 pub(crate) struct CodexLaunchTelemetry {
     /// The launch's tag, whose drop takes the launch out of the register.
     pub(crate) tag: CodexExportTag,
     /// The guard of the token its exports present.
     pub(crate) bearer: TelemetryBearer,
+    /// The receiver's loopback port its process exports to, fixed at its launch.
+    pub(crate) export_port: u16,
 }
 
 impl CodexLaunchTelemetry {
-    /// The token and tag the service's record keeps for a later daemon to admit again.
+    /// The token, tag and port the service's record keeps for a later daemon to admit again.
     pub(crate) fn kept(&self) -> KeptLaunchTelemetry {
         KeptLaunchTelemetry {
             token: self.bearer.token_text().to_owned(),
             resource_tag: self.tag.resource_tag(),
+            export_port: self.export_port,
         }
     }
 }
@@ -147,7 +150,11 @@ fn compose_daemon_export(
     Ok(TelemetrySwitches {
         config_overrides: compose_daemon_export_overrides(target),
         environment,
-        launch: Some(CodexLaunchTelemetry { tag, bearer }),
+        launch: Some(CodexLaunchTelemetry {
+            tag,
+            bearer,
+            export_port: target.port(),
+        }),
     })
 }
 
@@ -212,7 +219,11 @@ pub(crate) fn restore_daemon_export(
         tracing::warn!("a joined codex service's record keeps no token its exports can present");
         return None;
     };
-    Some(CodexLaunchTelemetry { tag, bearer })
+    Some(CodexLaunchTelemetry {
+        tag,
+        bearer,
+        export_port: kept.export_port,
+    })
 }
 
 fn exporters_off() -> TelemetrySwitches {

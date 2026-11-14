@@ -1,11 +1,11 @@
 //! Where a daemon keeps the record of each lasting Codex service on a Codex folder, the person's
 //! own or an account's home, so a later daemon finds the same processes again: one JSON file per
 //! service, named for the socket it listens on, holding its process, the home's own socket, where
-//! its socket really is, whether it was asked to drain and the token and tag it exports its
-//! telemetry under, readable by the user alone, in a folder per Codex folder under the
-//! daemon's data folder, never in the Codex folder itself; each is replaced whole through a
-//! temporary file and read or written only under the one lock of its Codex folder's records, so two
-//! daemons never start two services on one socket. The lock's file is never removed: a lock follows
+//! its socket really is, whether it was asked to drain and the token, tag and port it exports its
+//! telemetry under, readable by the user alone, in a folder per Codex folder under the daemon's
+//! data folder, never in the Codex folder itself; each is replaced whole through a temporary file
+//! and read or written only under the one lock of its Codex folder's records, so two daemons never
+//! start two services on one socket. The lock's file is never removed: a lock follows
 //! the open file, so removing a file someone waits on would hand the next taker a lock on another
 //! file.
 
@@ -49,13 +49,14 @@ pub(crate) struct LastingServiceRecord {
     /// Whether the service was asked to drain, so it ends by itself once its running replies
     /// finish; such a service is never joined, nor is the home's link pointed at it.
     pub(crate) is_draining: bool,
-    /// The token and tag the service exports its telemetry to the daemon under, which a later
-    /// daemon that joins it admits; `None` for a service that exports nowhere.
+    /// The token, tag and port the service exports its telemetry to the daemon under, which a
+    /// later daemon that joins it admits; `None` for a service that exports nowhere.
     pub(crate) telemetry: Option<KeptLaunchTelemetry>,
 }
 
-/// The token a lasting service presents with its telemetry exports and the tag its resource
-/// carries, both fixed in its environment at its launch.
+/// The token a lasting service presents with its telemetry exports, the tag its resource carries
+/// and the receiver's port it exports to, all fixed at its launch, so a later daemon that joins it
+/// reads whether it still exports to that daemon's receiver.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct KeptLaunchTelemetry {
@@ -63,6 +64,8 @@ pub(crate) struct KeptLaunchTelemetry {
     pub(crate) token: String,
     /// The number the launch's resource attributes carry as its tag.
     pub(crate) resource_tag: u64,
+    /// The loopback port of the receiver its exporter was set to.
+    pub(crate) export_port: u16,
 }
 
 impl std::fmt::Debug for KeptLaunchTelemetry {
@@ -72,6 +75,7 @@ impl std::fmt::Debug for KeptLaunchTelemetry {
             .debug_struct("KeptLaunchTelemetry")
             .field("token", &"<redacted>")
             .field("resource_tag", &self.resource_tag)
+            .field("export_port", &self.export_port)
             .finish()
     }
 }
@@ -334,6 +338,7 @@ mod tests {
             telemetry: Some(KeptLaunchTelemetry {
                 token: "a".repeat(64),
                 resource_tag: 7,
+                export_port: 4_318,
             }),
         };
         let file = LastingServiceRecordFile::of_socket(

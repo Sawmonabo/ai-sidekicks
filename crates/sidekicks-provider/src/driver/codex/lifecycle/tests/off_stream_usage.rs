@@ -2,7 +2,7 @@
 //! charged once while the export arrives, a search copied into a fork's file never, a thread no
 //! session will ever hold charged to its account, a held response counted on its session once its
 //! thread is listed, its file found wherever Codex keeps it, and a response kept as its launch ends
-//! charged to its account once, its file's line passed over.
+//! or handed to a session as it closes charged to its account once, its file's line passed over.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -10,19 +10,30 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::unix_time::read_unix_time_ms;
+use tokio::sync::oneshot;
 
-use super::TEST_TURN;
 use super::export_usage::{
     ExportingSession, SECOND_TURN, counts, rollout_line, rollout_record, stamped_record,
     turn_context, wire_counts,
 };
 use super::usage::{answer_region_read, token_usage_frame};
+use super::{TEST_TURN, answer_stopping_request};
 use crate::bounded_poll::poll_until;
+use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
 use crate::driver::codex::service::supervisor::test_service::ScriptedCodexService;
+use crate::driver::codex::session::inbound::CodexSessionInbound;
+use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed, turn_started};
+use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
+use crate::driver::codex::telemetry::drain::push_exported_responses;
+use crate::driver::codex::telemetry::exported_response::{
+    CodexExportedResponse, CodexOffStreamPlacement,
+};
 use crate::driver::codex::telemetry::exports::tests::refused;
+use crate::driver::codex::telemetry::rollouts::file::CodexRolloutFile;
 use crate::driver::diagnostics::RecordedEvents;
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::usage_delta_accountant::UsageAxisCounts;
@@ -218,7 +229,6 @@ async fn a_response_no_session_will_ever_hold_is_charged_to_its_account_once() {
         "id": read["id"],
         "error": {"code": -32600, "message": format!("thread not loaded: {WORKER_THREAD}")},
     }));
-    answer_region_read(&mut session.live.scripted).await;
     poll_until(|| sessionless(&session).len(), |handed| *handed >= 1).await;
     session
         .export_records(vec![stamped_record(
@@ -400,5 +410,93 @@ async fn a_response_kept_as_its_launch_ends_is_charged_once_to_its_account() {
             .iter()
             .all(|request| request.provider_account_id == test_provider_account_id())
     );
+    assert_eq!(refused(&recorded), 0);
+}
+
+// An off-stream response whose hand-over the session's queue accepted, handled once the session's
+// record was let go, is charged once to its account as its spend outside any session; the thread's
+// rollout file read later, which no session takes, passes that response's line over and charges
+// the line after it. Killed by refusing a hand-over that reaches a record let go (nothing handed),
+// and by a charge that leaves its sighting off or a line charged past it (three handed).
+#[tokio::test]
+async fn a_hand_over_a_closing_session_accepted_is_charged_once_to_its_account() {
+    let recorded = RecordedEvents::default();
+    let _recording = recorded.record_until_dropped();
+    let mut session = ExportingSession::start(&[TEST_TURN]).await;
+    session.register_repricing();
+    let service = Arc::clone(&session.live.scripted.service);
+    let session_id = session.live.session_id;
+    let charge = service.dependencies().exports.launch_charge(service.id());
+    let now = read_unix_time_ms();
+    let exported = CodexExportedResponse {
+        response: CodexCompletedResponse {
+            conversation_id: TEST_THREAD.to_owned(),
+            model_id: FreeFormText::new("gpt-5".to_owned()).expect("the model fits"),
+            service_tier: None,
+            counts: counts(300, 20),
+            observed_at_ms: now,
+            provider_account_id: Some(test_provider_account_id()),
+        },
+        placed: Some(CodexOffStreamPlacement::OnTurn {
+            turn_id: TEST_TURN.to_owned(),
+        }),
+        rollout: None,
+    };
+
+    // The let-go is queued ahead of the hand-over, so the hand-over is handled once it is done.
+    let (reply, let_go) = oneshot::channel();
+    let let_go_call = CodexLifecycleCall::LetGo {
+        exit: CodexRecordExit::SessionClosed,
+        reply,
+    };
+    assert!(service.push_session_item(&session_id, CodexSessionInbound::Lifecycle(let_go_call)));
+    assert!(service.push_session_item(
+        &session_id,
+        CodexSessionInbound::ExportedResponses(vec![exported], charge.clone()),
+    ));
+    tokio::pin!(let_go);
+    let script = &mut session.live.scripted.script;
+    loop {
+        tokio::select! {
+            gone = &mut let_go => {
+                gone.expect("the record is let go");
+                break;
+            }
+            sent = script.next_sent() => answer_stopping_request(script, &sent),
+        }
+    }
+    poll_until(|| sessionless(&session).len(), |handed| *handed >= 1).await;
+
+    let mut file = CodexRolloutFile::default();
+    let read: Vec<CodexExportedResponse> = [
+        rollout_line(
+            now,
+            "session_meta",
+            &json!({"id": TEST_THREAD, "source": "cli"}),
+        ),
+        turn_context(now, TEST_TURN),
+        rollout_record(now, TEST_TURN, "response-closed", 300, 20),
+        rollout_record(now, TEST_TURN, "response-after", 40, 4),
+    ]
+    .iter()
+    .filter_map(|line| file.read_line(line.as_bytes(), 0))
+    .filter_map(|request| {
+        CodexExportedResponse::from_rollout(
+            TEST_THREAD,
+            request,
+            None,
+            Some(test_provider_account_id()),
+        )
+    })
+    .collect();
+    push_exported_responses(&service, session_id, read, &charge);
+    poll_until(|| sessionless(&session).len(), |handed| *handed >= 2).await;
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    assert_eq!(
+        sessionless(&session),
+        [(Some(300), Some(20)), (Some(40), Some(4))]
+    );
+    assert!(lock(&session.usage.metered).is_empty());
     assert_eq!(refused(&recorded), 0);
 }

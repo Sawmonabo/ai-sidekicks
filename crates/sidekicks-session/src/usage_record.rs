@@ -307,7 +307,7 @@ impl UsageRecord {
 
     // Writes `prepared`'s row or its sighting's mark, deciding again where its request's record
     // moved, then holds its run to its token limit with what it counted: its row's tokens, or the
-    // tokens of the session's row its mark counted toward the run.
+    // tokens of the row, the session's or no session's, its mark counted toward the run.
     async fn write_prepared(
         &self,
         prepared: PreparedReading,
@@ -338,7 +338,7 @@ impl UsageRecord {
                 .write_sighted_row(
                     payload.sighting.as_ref(),
                     is_passed_over,
-                    target.run_id,
+                    (payload.session_id, target.run_id),
                     delivery,
                 )
                 .await?;
@@ -373,16 +373,16 @@ impl UsageRecord {
     }
 
     // Writes a usage row's sighting in one write, as the store was read: one `is_passed_over`
-    // writes only its mark, seen on `run_id` where the row goes on one, passed over where it marked
-    // the request's record or its source's id was recorded already; any other writes the row
-    // `delivery` builds with its record opened in the row's own write, which the row's prelude
-    // refuses where the record holds the request by now. Either answers moved where the store
-    // changed since it was read.
+    // writes only its mark, seen on the session's run where the row goes on one, passed over where
+    // it marked the request's record or its source's id was recorded already; any other writes
+    // the row `delivery` builds with its record opened in the row's own write, which the row's
+    // prelude refuses where the record holds the request by now. Either answers moved where the
+    // store changed since it was read.
     async fn write_sighted_row<'key>(
         &self,
         sighting: Option<&UsageSighting>,
         is_passed_over: bool,
-        run_id: Option<RunId>,
+        (session_id, run_id): (SessionId, Option<RunId>),
         delivery: impl FnOnce() -> InboundDelivery<'key>,
     ) -> Result<SightingWrite, UsageRecordError> {
         if let Some(sighting) = sighting
@@ -390,7 +390,11 @@ impl UsageRecord {
         {
             let marked = self
                 .writer
-                .write(Vec::from(mark_sighting_statements(sighting, run_id)))
+                .write(Vec::from(mark_sighting_statements(
+                    sighting,
+                    Some(session_id),
+                    run_id,
+                )))
                 .await?;
             return Ok(if is_sighting_passed_over(&marked) {
                 SightingWrite::PassedOver {

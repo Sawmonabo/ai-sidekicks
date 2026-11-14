@@ -5,8 +5,12 @@ use rstest::rstest;
 use sidekicks_contracts::event::usage::UsageSighting;
 use sidekicks_contracts::event::usage::UsageSightingSource;
 use sidekicks_contracts::event::usage::UsageSightingSource::{Export, File, Stream};
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::BoundedText;
-use sidekicks_provider::account::usage_turns::sightings::release_account_sightings_statement;
+use sidekicks_provider::account::usage_turns::sightings::{
+    release_account_sightings_statement, sessionless_sighting_statements,
+};
+use sidekicks_provider::driver::contract::account::WindowTurnSpend;
 use sidekicks_provider::port::usage_sink::{MeteredUsageOwner, UsageSink};
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, named_bindings};
@@ -62,17 +66,21 @@ impl Harness {
             .map_or(0, |tally| tally.token_count)
     }
 
-    // Runs `statement` on the store as its write would.
+    // Runs `statement` on the store as its write would, reading through any rows it returns.
     fn run(&self, statement: &WriteStatement) {
         let bindings = match &statement.bindings {
             StatementBindings::Named(bindings) => Some(bindings),
             StatementBindings::None | StatementBindings::Positional(_) => None,
         }
         .expect("the statement binds by name");
-        self.database
-            .reader()
-            .execute(&statement.sql, named_bindings(bindings).as_slice())
+        let connection = self.database.reader();
+        let mut prepared = connection
+            .prepare(&statement.sql)
+            .expect("the statement prepares");
+        let mut rows = prepared
+            .query(named_bindings(bindings).as_slice())
             .expect("the statement runs");
+        while rows.next().expect("the statement's rows read").is_some() {}
     }
 
     // How many sightings the store keeps.
@@ -197,6 +205,41 @@ async fn a_hand_over_of_several_responses_takes_one_commit() {
     );
     assert_eq!(*harness.commits.borrow() - commits_before, 1);
     assert_eq!(harness.priced_rows(), 3);
+}
+
+// A request of the run's own thread charged first as its account's spend outside any session, as a
+// response a closed session or a gone service left is, then seen on the stream, counts toward the
+// run once, live and rebuilt from the store, and the stream's sighting only marks its record,
+// pricing no row on the session beside the charge. Killed by a mark that counts only a session's
+// row toward a run (the run at 0), by a record that keeps no tokens (the run at 0) and by the
+// stream's sighting priced again (one row).
+#[tokio::test]
+async fn a_request_charged_outside_its_session_first_counts_toward_its_run_once() {
+    let harness = Harness::new(Some(1_000_000), true).await;
+    let sighting = UsageSighting {
+        match_key: BoundedText::new(MATCH_KEY.to_owned()).expect("the key fits"),
+        source: Export,
+        sighting_key: None,
+    };
+    let spend = WindowTurnSpend {
+        model_id: None,
+        speed: None,
+        input_tokens: SafeInt::new(100),
+        output_tokens: SafeInt::new(10),
+        cache_read_tokens: None,
+        cache_write_tokens: None,
+        reasoning_tokens: None,
+    };
+    for statement in sessionless_sighting_statements(&sighting, &account(), &spend) {
+        harness.run(&statement);
+    }
+
+    harness.see(S).await;
+
+    assert_eq!(harness.priced_rows(), 0);
+    assert_eq!(harness.sightings(), 2);
+    assert_eq!(harness.run_tokens().await, 110);
+    assert_eq!(harness.seeded_run_tokens(), 110);
 }
 
 // An account's removal while the run is interrupted keeps the record the run counts, so once the

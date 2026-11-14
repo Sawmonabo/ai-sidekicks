@@ -9,7 +9,9 @@
 //! again with no usage when its model or window changed. The driver's own calls on the record take
 //! their place among the frames too. Each completed response the export or a rollout file states
 //! is priced as it arrives, with its sighting, which the usage record passes over where another
-//! sighting of the same request was priced first.
+//! sighting of the same request was priced first; one the session cannot file, its record let go
+//! or no run's binding to file on, is charged through its launch's charge as its account's spend
+//! outside any session.
 //!
 //! A full usage queue holds the task until the sink takes a batch, so no spend is lost: while the
 //! database writer stalls, this session's frames, asks and calls wait behind it, as every other
@@ -68,6 +70,7 @@ use crate::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_sessi
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::session::thread_turns::{CodexSettledTurn, CodexThreadTurns, TurnFrame};
 use crate::driver::codex::telemetry::exported_response::CodexExportedResponse;
+use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
 use crate::driver::codex::thread::permission_profiles;
 use crate::driver::codex::transport::connection::{CodexForgottenRequest, read_codex_object};
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
@@ -621,8 +624,12 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
         self.move_account(account_move).boxed()
     }
 
-    fn exported_responses(&mut self, exported: Vec<CodexExportedResponse>) -> BoxFuture<'_, ()> {
-        self.price_exported_responses(exported).boxed()
+    fn exported_responses(
+        &mut self,
+        exported: Vec<CodexExportedResponse>,
+        charge: CodexLaunchCharge,
+    ) -> BoxFuture<'_, ()> {
+        self.price_exported_responses(exported, charge).boxed()
     }
 
     fn next_deadline(&self) -> Option<Instant> {

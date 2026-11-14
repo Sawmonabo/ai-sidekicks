@@ -20,6 +20,7 @@ use crate::bounded_queue::remember;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::telemetry::placement::CodexOffStreamThread;
 use crate::driver::codex::telemetry::rollouts::file::CodexRolloutFile;
+use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
 use crate::driver::codex::thread::view::{CodexThreadFile, request_thread_file};
 
 /// How many placed threads Codex names no rollout file for one launch remembers, so the next
@@ -32,14 +33,16 @@ const DAY_S: i64 = 86_400;
 impl CodexRolloutFallback {
     /// Reads on the rollout file of `placed`'s thread, a thread no session streams that an
     /// export's response was just placed on, handing each charge it states since the launch
-    /// registered to the session the response went to, at its placement; the file is then kept
-    /// among the files let go. A file a stop's reading follows is left to that reading's passes,
+    /// registered to the session the response went to, at its placement, or through `charge`, the
+    /// launch's, where that session no longer takes it; the file is then kept among the files let
+    /// go. A file a stop's reading follows is left to that reading's passes,
     /// which the export named it to; a file neither day folder holds is looked up by its thread,
     /// and a thread Codex names no file for is not looked for again.
     pub(crate) async fn read_placed(
         &mut self,
         service: &Arc<CodexService>,
         placed: CodexOffStreamThread,
+        charge: &CodexLaunchCharge,
     ) {
         let thread_id = placed.thread_id;
         if self.fileless.contains(&thread_id)
@@ -115,6 +118,7 @@ impl CodexRolloutFallback {
                 &mut followed,
                 since_ms,
                 Some(target.clone()),
+                charge,
             )
             .await;
             if !(is_read && is_thread_unknown && followed.file.thread().is_some()) {

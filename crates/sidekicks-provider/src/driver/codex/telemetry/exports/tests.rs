@@ -241,7 +241,7 @@ impl TwoLaunches {
     async fn next_exported(&mut self) -> CodexExportedResponse {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                if let CodexSessionInbound::ExportedResponses(exported) =
+                if let CodexSessionInbound::ExportedResponses(exported, _charge) =
                     self.b_session.task.next_item().await
                     && let Some(first) = exported.into_iter().next()
                 {
@@ -262,17 +262,19 @@ enum ForeignRecord {
     OtherLaunchThread,
 }
 
-// Each foreign record is counted once and reaches no session: a response B's own token posts
-// next is the first B's session takes. Killed by the launch found by the resource's tag alone and
-// by a forged tag only logged (the foreign response reaches B's session first), and by a thread
-// of another launch's service joined onto A's own placement (the drain walks A's unanswered
-// service and the count never comes).
+// A foreign record reaches no session: a forged tag is refused and counted once, and a response
+// on a thread B streams that A never streamed is charged to A's account outside any session,
+// refused nowhere; a response B's own token posts next is the first B's session takes, which the
+// drain routes after A's. Killed by the launch found by the resource's tag alone, by a forged tag
+// only logged, and by a thread of another launch's service filed on that launch's session (the
+// foreign response reaches B's session first).
 #[rstest]
-#[case::other_launch_tag(ForeignRecord::OtherLaunchTag)]
-#[case::other_launch_thread(ForeignRecord::OtherLaunchThread)]
+#[case::other_launch_tag(ForeignRecord::OtherLaunchTag, 1)]
+#[case::other_launch_thread(ForeignRecord::OtherLaunchThread, 0)]
 #[tokio::test]
-async fn a_record_under_one_launch_s_token_naming_another_launch_is_dropped_and_counted(
+async fn a_record_under_one_launch_s_token_naming_another_launch_reaches_no_session(
     #[case] foreign: ForeignRecord,
+    #[case] expected_refused: usize,
 ) {
     let recorded = RecordedEvents::default();
     let _recording = recorded.record_until_dropped();
@@ -287,7 +289,7 @@ async fn a_record_under_one_launch_s_token_naming_another_launch_is_dropped_and_
             export_tagged(tag, vec![response_on(TEST_THREAD, 111)]),
         )
         .await;
-    poll_until(|| refused(&recorded), |count| *count >= 1).await;
+    poll_until(|| refused(&recorded), |count| *count >= expected_refused).await;
     assert_eq!(
         export_checks(&two.scheduler),
         1,
@@ -302,7 +304,7 @@ async fn a_record_under_one_launch_s_token_naming_another_launch_is_dropped_and_
         .await;
     let first = two.next_exported().await;
     assert_eq!(first.response.counts.input, Some(222));
-    assert_eq!(refused(&recorded), 1);
+    assert_eq!(refused(&recorded), expected_refused);
 }
 
 // A thread A's service streamed for a session, released there and registered on B for the same

@@ -6,24 +6,22 @@
 //!
 //! Every response a launch takes is placed on a session, kept or held until it is, or charged:
 //! a response kept or held is charged when its launch ends, when the daemon stops, or when the
-//! bound pushes it out, each through [`CodexSessionlessSpend`], whose sighting passes over a
-//! session's later read of the same response from its thread's file. A placement awaits Codex
-//! first and acts last, so a stop that abandons it acts on nothing it did.
+//! bound pushes it out, each through the launch's [`CodexLaunchCharge`], whose sighting passes
+//! over a session's later read of the same response from its thread's file. A placement awaits
+//! Codex first and acts last, so a stop that abandons it acts on nothing it did.
 
 use std::collections::VecDeque;
 use std::mem;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, json};
-use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::pricing::{read_region_word, unknown_host_region};
+use crate::driver::codex::pricing::read_region_word;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::telemetry::completed_response::{CodexCompletedResponse, SSE_EVENT_NAME};
 use crate::driver::codex::telemetry::copy_threads::CodexCopyThreads;
@@ -32,7 +30,7 @@ use crate::driver::codex::telemetry::exported_response::{
     CodexExportedResponse, CodexOffStreamPlacement,
 };
 use crate::driver::codex::telemetry::exports::CODEX_EXPORT_INTERVAL;
-use crate::driver::codex::telemetry::sessionless_spend::CodexSessionlessSpend;
+use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
 use crate::driver::codex::thread::ancestry::{
     CodexThreadPlacement, CodexUnplacedThread, place_codex_thread,
 };
@@ -58,9 +56,9 @@ pub(crate) const KEPT_RESPONSES: usize = 1_000;
 /// One launch's placement state: where its off-stream threads were found or joined, the threads
 /// whose walk failed lately, the threads whose file Codex's lookup answered, the responses it
 /// keeps until the launch's next export retries them, the responses it holds until their filed
-/// thread is placed, its sessions' review windows and turns, its copies' threads, and the region
-/// its responses no session owns are charged at. Its kept and held responses are charged when it
-/// closes, as its launch ends or the daemon stops.
+/// thread is placed, its sessions' review windows and turns, its copies' threads, and the charge
+/// its responses no session owns take. Its kept and held responses are charged when it closes, as
+/// its launch ends or the daemon stops.
 pub(crate) struct CodexLaunchPlacement {
     // Oldest first, as `kept`, `held`, `failed_walks` and `looked_up` are, each thread once.
     placements: VecDeque<CodexPlacedThread>,
@@ -72,16 +70,8 @@ pub(crate) struct CodexLaunchPlacement {
     held: VecDeque<CodexKeptResponse>,
     joins: CodexJoinTargets,
     copies: CodexCopyThreads,
-    sessionless_region: CodexSessionlessRegion,
-    sessionless: Arc<CodexSessionlessSpend>,
+    charge: CodexLaunchCharge,
     is_closed: bool,
-}
-
-// The region a launch's responses no session owns are charged at, read once, at the first charge
-// placement makes.
-enum CodexSessionlessRegion {
-    Unread,
-    Read(Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>),
 }
 
 // A thread placed off the stream and where: below a held thread, joined to a session's turn, or
@@ -127,8 +117,8 @@ enum CodexUnjoinedThread {
 
 impl CodexLaunchPlacement {
     /// The placement state of a new launch, whose responses no session will hold are charged
-    /// through `sessionless`.
-    pub(crate) fn new(sessionless: Arc<CodexSessionlessSpend>) -> Self {
+    /// through `charge`.
+    pub(crate) fn new(charge: CodexLaunchCharge) -> Self {
         Self {
             placements: VecDeque::new(),
             failed_walks: VecDeque::new(),
@@ -137,8 +127,7 @@ impl CodexLaunchPlacement {
             held: VecDeque::new(),
             joins: CodexJoinTargets::default(),
             copies: CodexCopyThreads::default(),
-            sessionless_region: CodexSessionlessRegion::Unread,
-            sessionless,
+            charge,
             is_closed: false,
         }
     }
@@ -228,7 +217,7 @@ impl CodexLaunchPlacement {
     fn keep(&mut self, responses: impl IntoIterator<Item = CodexKeptResponse>) {
         for kept in responses {
             if self.is_closed {
-                self.charge(vec![kept.response]);
+                self.charge.charge(vec![kept.response]);
                 continue;
             }
             self.make_room();
@@ -241,7 +230,7 @@ impl CodexLaunchPlacement {
     fn hold(&mut self, responses: impl IntoIterator<Item = CodexKeptResponse>) {
         for held in responses {
             if self.is_closed {
-                self.charge(vec![held.response]);
+                self.charge.charge(vec![held.response]);
                 continue;
             }
             self.make_room();
@@ -255,7 +244,7 @@ impl CodexLaunchPlacement {
             return;
         }
         if let Some(pushed_out) = self.held.pop_front().or_else(|| self.kept.pop_front()) {
-            self.charge(vec![pushed_out.response]);
+            self.charge.charge(vec![pushed_out.response]);
         }
     }
 
@@ -291,20 +280,6 @@ impl CodexLaunchPlacement {
         buckets
     }
 
-    /// Charges `responses` as their accounts' spend outside any session, at the region the launch
-    /// read, else at the unknown host's.
-    pub(crate) fn charge(&self, responses: Vec<CodexCompletedResponse>) {
-        match &self.sessionless_region {
-            CodexSessionlessRegion::Read(region) => {
-                self.sessionless.charge(responses, region.as_ref());
-            }
-            CodexSessionlessRegion::Unread => {
-                self.sessionless
-                    .charge(responses, unknown_host_region().as_ref());
-            }
-        }
-    }
-
     /// Closes the launch as it ends or the daemon stops: charges every response it keeps or
     /// holds, and from here on charges each one a placement would keep or hold.
     pub(crate) fn close(&mut self) {
@@ -315,7 +290,7 @@ impl CodexLaunchPlacement {
             .map(|left| left.response)
             .collect();
         if !left.is_empty() {
-            self.charge(left);
+            self.charge.charge(left);
         }
     }
 }
@@ -398,22 +373,6 @@ pub(crate) fn take_kept_buckets(
         .collect()
 }
 
-/// Charges `responses` as their accounts' spend outside any session through `sessionless`, at
-/// `launch`'s region where the launch still lives, else at the unknown host's.
-pub(crate) fn charge_unplaced(
-    sessionless: &Arc<CodexSessionlessSpend>,
-    launch: &Weak<Mutex<CodexLaunchPlacement>>,
-    responses: Vec<CodexCompletedResponse>,
-) {
-    if responses.is_empty() {
-        return;
-    }
-    match launch.upgrade() {
-        Some(launch) => lock(&launch).charge(responses),
-        None => sessionless.charge(responses, unknown_host_region().as_ref()),
-    }
-}
-
 /// Places `bucket`, the responses of one thread, on the session holding the thread, from the
 /// cache while what it names still holds, else by walking its parents once; a thread whose walk
 /// failed in the last two export intervals is kept unwalked, a thread not listed after an earlier
@@ -455,7 +414,7 @@ pub(crate) async fn place_bucket(
             return join_unlisted(service, launch, &thread_id, bucket, last).await;
         }
         Some(CodexCachedPlacement::Sessionless) => {
-            charge_sessionless(service, launch, bucket).await;
+            charge_sessionless(launch, bucket);
             return None;
         }
         None => {}
@@ -503,7 +462,7 @@ pub(crate) async fn place_bucket(
         Ok(CodexThreadPlacement::Unplaced(
             CodexUnplacedThread::NoHeldAncestor | CodexUnplacedThread::Loop,
         )) => {
-            charge_sessionless(service, launch, bucket).await;
+            charge_sessionless(launch, bucket);
             None
         }
         Ok(CodexThreadPlacement::Unplaced(CodexUnplacedThread::NotListed)) => {
@@ -594,7 +553,8 @@ async fn join_unlisted(
             if joined.is_empty() {
                 placement.cache(thread_id, CodexCachedPlacement::Sessionless);
             }
-            placement.charge(unjoined.into_iter().map(|kept| kept.response).collect());
+            let responses = unjoined.into_iter().map(|kept| kept.response).collect();
+            placement.charge.charge(responses);
         }
         Some(CodexUnjoinedThread::Filed) => lock(launch).hold(unjoined),
         Some(CodexUnjoinedThread::LookupFailed) => {
@@ -630,8 +590,7 @@ async fn join_unlisted(
 }
 
 // Settles a thread nothing joins by where Codex keeps its file, remembered for the launch so its
-// later responses are looked up no more: one Codex keeps none for has the region its charge is
-// made at read first. A failed lookup is remembered by nothing.
+// later responses are looked up no more. A failed lookup is remembered by nothing.
 async fn settle_unjoined(
     service: &CodexService,
     launch: &Mutex<CodexLaunchPlacement>,
@@ -662,36 +621,28 @@ async fn settle_unjoined(
         }
     };
     if is_filed {
-        return CodexUnjoinedThread::Filed;
+        CodexUnjoinedThread::Filed
+    } else {
+        CodexUnjoinedThread::Fileless
     }
-    read_sessionless_region(service, launch).await;
-    CodexUnjoinedThread::Fileless
 }
 
-// Charges `bucket`'s responses as their accounts' spend outside any session, the launch's region
-// read first.
-async fn charge_sessionless(
-    service: &CodexService,
-    launch: &Mutex<CodexLaunchPlacement>,
-    bucket: Vec<CodexKeptResponse>,
-) {
-    read_sessionless_region(service, launch).await;
-    lock(launch).charge(bucket.into_iter().map(|kept| kept.response).collect());
+// Charges `bucket`'s responses as their accounts' spend outside any session.
+fn charge_sessionless(launch: &Mutex<CodexLaunchPlacement>, bucket: Vec<CodexKeptResponse>) {
+    let responses = bucket.into_iter().map(|kept| kept.response).collect();
+    lock(launch).charge.charge(responses);
 }
 
-// Reads, once per launch, the region its responses no session owns are charged at: the region of
-// the service's settings for no folder, since no response names the session whose settings ran
-// it. A read that fails leaves the unknown host's region in force and is tried again at the next
-// charge.
-async fn read_sessionless_region(service: &CodexService, launch: &Mutex<CodexLaunchPlacement>) {
-    if matches!(
-        lock(launch).sessionless_region,
-        CodexSessionlessRegion::Read(_)
-    ) {
+/// Reads, once per launch, at its first export, the region `charge`, the launch's, charges at:
+/// the region of `service`'s settings for no folder, since no response names the session whose
+/// settings ran it. A read that fails leaves the unknown host's region in force and is tried again
+/// at the launch's next export.
+pub(crate) async fn read_launch_region(service: &CodexService, charge: &CodexLaunchCharge) {
+    if charge.is_region_read() {
         return;
     }
     match read_region_word(service, None).await {
-        Ok(region) => lock(launch).sessionless_region = CodexSessionlessRegion::Read(region),
+        Ok(region) => charge.keep_region(region),
         Err(error) => tracing::warn!(
             error = &error as &(dyn std::error::Error + 'static),
             "a codex service's region could not be read; its spend outside any session is held"
@@ -729,10 +680,8 @@ fn push_bucket(
             rollout: None,
         })
         .collect();
-    let untaken = push_exported_responses(service, session_id, exported);
-    if !untaken.is_empty() {
-        lock(launch).charge(untaken);
-    }
+    let charge = lock(launch).charge.clone();
+    push_exported_responses(service, session_id, exported, &charge);
     off_stream
 }
 

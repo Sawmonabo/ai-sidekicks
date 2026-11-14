@@ -291,19 +291,26 @@ CREATE INDEX idx_provider_account_usage_turns_unpriced
 -- session and account, so a record leaves whole with a session's purge or an account's removal; a
 -- record counting toward a run not yet ended for good leaves at that run's final state once its
 -- account is gone. A record a request no session holds opened, charged as its account's spend
--- outside any session, carries no session and leaves with its account.
+-- outside any session, carries no session and leaves with its account; a session's mark on it
+-- carries that session and leaves with its purge.
 CREATE TABLE usage_sightings (
   sighting_id  INTEGER PRIMARY KEY,
   record_id    INTEGER NOT NULL,
   match_key    TEXT NOT NULL,     -- the key every sighting of one request carries alike
   source       TEXT NOT NULL,     -- the source's wire word
   sighting_key TEXT,              -- the source's own id of the request, where it has one
-  session_id   TEXT,              -- the session the record's first sighting was priced on
+  -- The session the record's first sighting was priced on; on a mark of a record no session
+  -- opened, the session that marked it, so the mark leaves with that session's purge.
+  session_id   TEXT,
   account_id   TEXT NOT NULL,     -- the account it was charged to
   -- On a record's first sighting, the event of the row it priced, whose tokens the record counts.
   event_id     TEXT,
+  -- On a record's first sighting outside any session, the tokens of the row no session owns
+  -- that it charged, which a later sighting on a run counts.
+  token_count  INTEGER CHECK(token_count IS NULL OR token_count >= 0),
   -- On a later sighting, the run its request's tokens count toward, set only where the record's
-  -- row was the session's own and no other sighting set one, so a request counts toward one run.
+  -- row was the session's own or no session's and no other sighting set one, so a request counts
+  -- toward one run.
   run_id       TEXT,
   UNIQUE (record_id, source)
 ) STRICT;

@@ -49,7 +49,9 @@ use crate::driver::contract::account::{
     ProviderWindowTurnLegs, TokenLimitsReading, WindowTurnAnswer, WindowTurnSpend,
 };
 use crate::driver::contract::error::DriverError;
-use crate::driver::ports::{HeldRequest, RequestHeldListener, SessionlessRequest};
+use crate::driver::ports::{
+    HeldRequest, RequestHeldListener, SessionlessOutcome, SessionlessRequest,
+};
 use crate::driver::test_registry::new_session_id;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
@@ -344,7 +346,7 @@ impl RequestHeldListener for RecordedHeldRequests {
     fn sessionless_requests_held(
         &self,
         _requests: Vec<SessionlessRequest>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<Vec<SessionlessOutcome>, Box<dyn Error + Send + Sync>>> {
         unreachable!("the observer writes its own rows no session owns")
     }
 }

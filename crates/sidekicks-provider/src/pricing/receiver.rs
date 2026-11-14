@@ -75,6 +75,11 @@ impl TelemetryTarget {
         Self { port, bearers }
     }
 
+    /// The loopback port the receiver listens on, which a launch's record keeps.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
     /// The registry a driver mints each process's or launch's bearer from.
     pub fn bearers(&self) -> &Arc<TelemetryBearers> {
         &self.bearers

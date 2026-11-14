@@ -53,6 +53,8 @@ pub(super) struct ExportingSession {
     pub(super) usage: Arc<GatedUsage>,
     exports: Arc<CodexExports>,
     tag: CodexExportTag,
+    // Whether the launch's one region read was answered.
+    is_launch_region_answered: bool,
 }
 
 impl ExportingSession {
@@ -80,6 +82,17 @@ impl ExportingSession {
             usage,
             exports,
             tag,
+            is_launch_region_answered: false,
+        }
+    }
+
+    // Answers the launch's region read, which its first export's work, or its first pass reading
+    // its rollout files, makes before anything else; once per launch. The session's recorder reads
+    // the same way, so whichever comes first is answered here and the other by the test.
+    async fn answer_launch_region_read(&mut self) {
+        if !self.is_launch_region_answered {
+            answer_region_read(&mut self.live.scripted).await;
+            self.is_launch_region_answered = true;
         }
     }
 
@@ -93,16 +106,17 @@ impl ExportingSession {
     }
 
     // An export of one completed response of `counts` on the session's thread.
-    async fn export(&self, counts: &UsageAxisCounts) {
+    async fn export(&mut self, counts: &UsageAxisCounts) {
         let record = codex_record(completed_response_attributes(TEST_THREAD, counts));
         self.export_records(vec![record]).await;
     }
 
-    // An export of `records` under the launch's tag.
-    pub(super) async fn export_records(&self, records: Vec<LogRecord>) {
+    // An export of `records` under the launch's tag, the launch's region read answered.
+    pub(super) async fn export_records(&mut self, records: Vec<LogRecord>) {
         self.exports
             .read_telemetry_export(self.tag.holder(), export_tagged(&self.tag, records))
             .await;
+        self.answer_launch_region_read().await;
     }
 
     // Relaunches the session's service, its old tag let go, and sweeps the register, which ends
@@ -110,6 +124,7 @@ impl ExportingSession {
     pub(super) fn relaunch(&mut self) {
         let relaunch = self.exports.launched(&self.live.scripted.service);
         drop(std::mem::replace(&mut self.tag, relaunch));
+        self.is_launch_region_answered = false;
         self.exports.is_exporting(self.live.scripted.service.id());
     }
 
@@ -152,8 +167,10 @@ impl ExportingSession {
         path
     }
 
-    // Answers a fallback pass's listing of the recent helpers with none.
+    // Answers a fallback pass's listing of the recent helpers with none, the launch's region read
+    // answered first.
     pub(super) async fn answer_helper_listing(&mut self) {
+        self.answer_launch_region_read().await;
         let listing = self.live.scripted.next_request("thread/list").await;
         self.live
             .scripted

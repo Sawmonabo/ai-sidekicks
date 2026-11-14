@@ -449,9 +449,10 @@ pub(super) fn read_service_version(
 // The launch of a service on the native program the build runs, with the launcher's variables
 // set, in the dedicated empty working folder, and its export tag and own telemetry token where it
 // exports to the daemon. Its home's telemetry switches come first, composed against the
-// telemetry target as registered now, with their environment pairs set past the withhold; every service carries the
-// privacy choices read now from the person's own Codex folder, last, so they win over any switch
-// before them, whichever home it runs on. Fails as the token's mint or that read does.
+// telemetry target as registered now, with their environment pairs set past the withhold; every
+// service carries the privacy choices read now from the person's own Codex folder, last, so they
+// win over any switch before them, whichever home it runs on. Fails as the token's mint or that
+// read does.
 async fn compose_launch(
     service: &Arc<CodexService>,
     executable: &ResolvedProviderExecutable,

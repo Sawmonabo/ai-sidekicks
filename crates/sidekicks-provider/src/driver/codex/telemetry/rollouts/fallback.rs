@@ -15,11 +15,13 @@
 //! waiting on its turn's end asks the export status for one wake two intervals out, whose pass
 //! reads that session's files once more and arms nothing; a turn settled while the stop was read
 //! is judged at the pass at its end, which names every file and still asks the wake. A turn still
-//! open after it waits for the next export, settle or stop. A file no export and no settled turn names costs a pass nothing. A
-//! stop an export ended before the fallback looked is read the same way. While the export arrives,
-//! the file of an off-stream thread an export's response was placed on is read on as the response
-//! is placed, so a search inside that request, which no export carries, is charged; it is kept
-//! beside the files let go.
+//! open after it waits for the next export, settle or stop. A file no export and no settled turn
+//! names costs a pass nothing. A stop an export ended before the fallback looked is read the same
+//! way. A hand-over no session takes is charged through the launch's charge, each line with its
+//! own sighting, since the offset moves past it and no later read takes it. While the export
+//! arrives, the file of an off-stream thread an export's response was placed on is read on as the
+//! response is placed, so a search inside that request, which no export carries, is charged; it is
+//! kept beside the files let go.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
@@ -38,6 +40,7 @@ use crate::driver::codex::telemetry::exported_response::{
     CodexExportedResponse, CodexOffStreamPlacement,
 };
 use crate::driver::codex::telemetry::rollouts::file::{CodexRolloutFile, CodexRolloutThread};
+use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
 use crate::driver::codex::thread::ancestry::{
     CodexListedThread, CodexThreadPlacement, CodexUnplacedThread, list_recent_helper_threads,
     place_codex_thread,
@@ -377,9 +380,10 @@ impl CodexRolloutFallback {
     /// and a recent helper's in the day folder of its thread's making where the scan missed it;
     /// past its end, only the followed files whose thread was named since the last pass are
     /// looked at. Each such file that grew is read on from its offset once its thread is placed,
-    /// each request it states handed to its session, the files whose turn live at the stop's end
-    /// has ended let go, and the files it cannot read published.
-    pub(crate) async fn pass(&mut self, service: &Arc<CodexService>) {
+    /// each request it states handed to its session, what no session takes charged through
+    /// `charge`, the launch's, the files whose turn live at the stop's end has ended let go, and
+    /// the files it cannot read published.
+    pub(crate) async fn pass(&mut self, service: &Arc<CodexService>, charge: &CodexLaunchCharge) {
         let Some(reading) = &self.reading else {
             return;
         };
@@ -470,7 +474,7 @@ impl CodexRolloutFallback {
         for (path, followed) in &mut self.files {
             let is_walk_due = matches!(followed.placement, CodexRolloutPlacement::Unplaced { .. });
             if !is_past_end || is_walk_due || named.is_named(followed) {
-                follow(service, path, followed, since_ms).await;
+                follow(service, path, followed, since_ms, charge).await;
             }
         }
         if let Some(ended_ms) = ended_ms {
@@ -613,12 +617,14 @@ impl CodexRolloutFallback {
 
 // Reads `followed` on where it grew past its offset: up to its first `session_meta` while its
 // thread is unknown, then, once its thread is placed, to its end, each request stamped from
-// `since_ms` on handed to the session its placement names as it is read.
+// `since_ms` on handed to the session its placement names as it is read, or charged through
+// `charge` where no session takes it.
 async fn follow(
     service: &Arc<CodexService>,
     path: &Path,
     followed: &mut CodexFollowedRollout,
     since_ms: u64,
+    charge: &CodexLaunchCharge,
 ) {
     loop {
         let held_thread = match &followed.placement {
@@ -673,7 +679,7 @@ async fn follow(
             }),
             CodexRolloutPlacement::Unplaced { .. } | CodexRolloutPlacement::Passed => None,
         };
-        if !read_followed(service, path, followed, since_ms, target).await {
+        if !read_followed(service, path, followed, since_ms, target, charge).await {
             return;
         }
         // A read that stopped at the file's first line places its thread next.
@@ -684,19 +690,22 @@ async fn follow(
 }
 
 // Reads `followed`, at `path`, on from its offset as `read_on` does, handing what it charges to
-// `target`'s session, and keeps where the read stopped; answers whether it read, a failed read
-// logged and the file marked as one whose read failed.
+// `target`'s session, or through `charge` where no session takes it, and keeps where the read
+// stopped; answers whether it read, a failed read logged and the file marked as one whose read
+// failed.
 async fn read_followed(
     service: &Arc<CodexService>,
     path: &Path,
     followed: &mut CodexFollowedRollout,
     since_ms: u64,
     target: Option<CodexRolloutTarget>,
+    charge: &CodexLaunchCharge,
 ) -> bool {
     let file = std::mem::take(&mut followed.file);
     let read_path = path.to_owned();
     let offset = followed.offset;
     let read_service = Arc::clone(service);
+    let read_charge = charge.clone();
     let read = tokio::task::spawn_blocking(move || {
         read_on(
             &read_path,
@@ -704,6 +713,7 @@ async fn read_followed(
             file,
             since_ms,
             target.as_ref().map(|target| (target, &*read_service)),
+            &read_charge,
         )
     })
     .await;
@@ -741,14 +751,15 @@ async fn read_followed(
 // Reads `path` on from `offset` into `file`, stopping just past the line that names its thread
 // where it is not known yet; the charges read are handed to `target`'s session on its service
 // together, `HAND_OVER_LINES` at a time and the rest before this answers, so the offset is kept
-// only once every line before it was handed over. Answers the file, and the offset the next read
-// starts at or the failure. Blocking.
+// only once every line before it was handed over or, where no session took it, charged through
+// `charge`. Answers the file, and the offset the next read starts at or the failure. Blocking.
 fn read_on(
     path: &Path,
     offset: u64,
     mut file: CodexRolloutFile,
     since_ms: u64,
     target: Option<(&CodexRolloutTarget, &CodexService)>,
+    charge: &CodexLaunchCharge,
 ) -> (CodexRolloutFile, io::Result<u64>) {
     let is_thread_unknown = file.thread().is_none();
     let mut hand_over = Vec::new();
@@ -765,7 +776,8 @@ fn read_on(
                 provider_account_id,
             ));
             if hand_over.len() >= HAND_OVER_LINES {
-                push_exported_responses(service, target.session_id, std::mem::take(&mut hand_over));
+                let lines = std::mem::take(&mut hand_over);
+                push_exported_responses(service, target.session_id, lines, charge);
             }
         }
         if is_thread_unknown && file.thread().is_some() {
@@ -775,7 +787,7 @@ fn read_on(
         }
     });
     if let Some((target, service)) = target {
-        push_exported_responses(service, target.session_id, hand_over);
+        push_exported_responses(service, target.session_id, hand_over, charge);
     }
     (file, read)
 }

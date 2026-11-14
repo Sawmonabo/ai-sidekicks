@@ -174,6 +174,20 @@ pub struct SessionlessRequest {
     pub sighting: Option<UsageSighting>,
 }
 
+/// What became of one request handed over as no session's spend: its row written and its key
+/// queued for the repricing, passed over since another sighting priced it first, or dropped
+/// with its account, which is being removed or is no longer registered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionlessOutcome {
+    /// Its row was written held and its key queued.
+    Written,
+    /// Another sighting priced it first: its sighting marked that record, or its source's own id
+    /// was recorded already.
+    PassedOver,
+    /// Its account is being removed or is no longer registered, so nothing was written.
+    AccountGone,
+}
+
 /// The repricing's intake of a request its driver left unpriced.
 pub trait RequestHeldListener: Send + Sync {
     /// Takes `held` into the repricing, marking its listed rows held before it answers; fails as
@@ -184,13 +198,14 @@ pub trait RequestHeldListener: Send + Sync {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 
     /// Writes each of `requests`, never empty, as a held usage row no session owns, all in one
-    /// write, then takes each one's key into the repricing; a request whose sighting is passed
-    /// over writes no row and marks its sighting. Fails as the write fails, which writes none of
-    /// them, an account not registered among its refusals where the request has no sighting.
+    /// write, then takes the key of each written into the repricing; a request whose sighting is
+    /// passed over writes no row and marks its sighting. Answers each request's outcome in order.
+    /// Fails as the write fails, which writes none of them, an account not registered among its
+    /// refusals where the request has no sighting.
     fn sessionless_requests_held(
         &self,
         requests: Vec<SessionlessRequest>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+    ) -> BoxFuture<'_, Result<Vec<SessionlessOutcome>, Box<dyn Error + Send + Sync>>>;
 }
 
 /// One place the daemon runs sessions in, as its start found it.

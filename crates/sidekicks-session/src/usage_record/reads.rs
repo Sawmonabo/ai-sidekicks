@@ -88,8 +88,9 @@ pub(crate) const TOKEN_COUNT_SUM_SQL: &str = "COALESCE(SUM(
     COALESCE(json_extract(payload, '$.inputTokens'), 0)
       + COALESCE(json_extract(payload, '$.outputTokens'), 0)), 0)";
 
-// A run's token count: its own rows, and the session's rows whose sighting records a later
-// sighting counted toward the run, each through the record's link to its row.
+// A run's token count: its own rows, the session's rows whose sighting records a later sighting
+// counted toward the run, each through the record's link to its row, and the tokens of each row
+// no session owns whose record a later sighting counted toward the run, kept on its record.
 static SELECT_TOKEN_COUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     let recorded = SessionEventType::UsageTokenCountRecorded;
     format!(
@@ -104,18 +105,26 @@ static SELECT_TOKEN_COUNT_SQL: LazyLock<String> = LazyLock::new(|| {
        WHERE id IN (SELECT opener.event_id
                       FROM usage_sightings AS counted
                       JOIN usage_sightings AS opener ON opener.record_id = counted.record_id
-                     WHERE counted.run_id = @run_id AND opener.event_id IS NOT NULL))",
+                     WHERE counted.run_id = @run_id AND opener.event_id IS NOT NULL))
+  + (SELECT COALESCE(SUM(opener.token_count), 0)
+       FROM usage_sightings AS counted
+       JOIN usage_sightings AS opener ON opener.record_id = counted.record_id
+      WHERE counted.run_id = @run_id AND opener.token_count IS NOT NULL)",
         recorded = recorded.as_str(),
     )
 });
 
-// The token count of the row a sighting record's first sighting priced.
+// The token count of the row a sighting record's first sighting priced: a session's row, or one
+// no session owns, whose tokens its record keeps.
 static SELECT_RECORD_TOKEN_COUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {TOKEN_COUNT_SUM_SQL}
-  FROM session_events
-  WHERE id IN (SELECT event_id FROM usage_sightings
-                WHERE record_id = @record_id AND event_id IS NOT NULL)"
+        "SELECT
+  (SELECT {TOKEN_COUNT_SUM_SQL}
+     FROM session_events
+     WHERE id IN (SELECT event_id FROM usage_sightings
+                   WHERE record_id = @record_id AND event_id IS NOT NULL))
+  + (SELECT COALESCE(SUM(token_count), 0) FROM usage_sightings
+      WHERE record_id = @record_id AND token_count IS NOT NULL)"
     )
 });
 
@@ -347,8 +356,8 @@ pub(super) fn read_tally_seed(
     }))
 }
 
-/// The token count of the row that opened the sighting record `record_id`, 0 where the record names
-/// no row. Fails as the read fails.
+/// The token count of the row that opened the sighting record `record_id`, a session's or one no
+/// session owns, 0 where the record names no row. Fails as the read fails.
 pub(super) fn read_counted_record_tokens(
     reader: &Connection,
     record_id: i64,

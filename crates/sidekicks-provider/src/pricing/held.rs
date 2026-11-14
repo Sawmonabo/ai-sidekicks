@@ -50,7 +50,9 @@ use crate::account::usage_turns::{
     mint_sessionless_turn_id, sessionless_usage_cost_statement, sessionless_usage_turn_statement,
 };
 use crate::driver::ProviderAccountReader;
-use crate::driver::ports::{HeldRequest, RequestHeldListener, SessionlessRequest};
+use crate::driver::ports::{
+    HeldRequest, RequestHeldListener, SessionlessOutcome, SessionlessRequest,
+};
 use crate::port::usage_sink::{PricedRequest, PricedUsageRow, RecordedUsage, UsageSink};
 use crate::pricing::BoxedError;
 use crate::pricing::rule::{RequestPricer, RequestPricing};
@@ -560,11 +562,12 @@ impl RequestHeldListener for HeldRequestRepricing {
     }
 
     // As a hand-off above: the rows' one write and the queuing run as one task of their own. Each
-    // sighted row carries its record's statements after it, which see the store as the row did.
+    // sighted row carries its record's statements after it, which see the store as the row did;
+    // only a written row's key is queued.
     fn sessionless_requests_held(
         &self,
         requests: Vec<SessionlessRequest>,
-    ) -> BoxFuture<'_, Result<(), BoxedError>> {
+    ) -> BoxFuture<'_, Result<Vec<SessionlessOutcome>, BoxedError>> {
         let writer = Arc::clone(&self.writer);
         let held_keys = Arc::clone(&self.held_keys);
         let wake = Arc::clone(&self.wake);
@@ -583,23 +586,51 @@ impl RequestHeldListener for HeldRequestRepricing {
                         request.sighting.as_ref(),
                     );
                     let record = request.sighting.as_ref().map(|sighting| {
-                        sessionless_sighting_statements(sighting, &request.provider_account_id)
+                        sessionless_sighting_statements(
+                            sighting,
+                            &request.provider_account_id,
+                            &request.spend,
+                        )
                     });
                     std::iter::once(row).chain(record.into_iter().flatten())
                 })
                 .collect();
-            writer.write(rows).await?;
-            lock(&held_keys)
-                .queued_keys
-                .extend(requests.into_iter().map(|request| UnpricedUsageKey {
-                    provider: request.provider,
-                    account_id: request.provider_account_id,
-                    model_id: request.spend.model_id,
-                    speed: request.spend.speed,
-                    processing_region: request.processing_region,
-                }));
+            let written = writer.write(rows).await?;
+            // Each request's results: its row's, then, where it has a sighting, its record's open,
+            // its mark and whether its source's own id was recorded already.
+            let mut results = written.iter().map(|result| result.row_count > 0);
+            let mut outcomes = Vec::with_capacity(requests.len());
+            for request in &requests {
+                let is_written = results.next().unwrap_or(false);
+                let is_passed_over = request.sighting.is_some() && {
+                    let _is_opened = results.next();
+                    let is_marked = results.next().unwrap_or(false);
+                    let is_recorded = results.next().unwrap_or(false);
+                    is_marked || is_recorded
+                };
+                outcomes.push(if is_written {
+                    SessionlessOutcome::Written
+                } else if is_passed_over {
+                    SessionlessOutcome::PassedOver
+                } else {
+                    SessionlessOutcome::AccountGone
+                });
+            }
+            let mut held_keys = lock(&held_keys);
+            for (request, outcome) in requests.into_iter().zip(&outcomes) {
+                if *outcome == SessionlessOutcome::Written {
+                    held_keys.queued_keys.insert(UnpricedUsageKey {
+                        provider: request.provider,
+                        account_id: request.provider_account_id,
+                        model_id: request.spend.model_id,
+                        speed: request.spend.speed,
+                        processing_region: request.processing_region,
+                    });
+                }
+            }
+            drop(held_keys);
             wake.notify_one();
-            Ok::<(), BoxedError>(())
+            Ok::<Vec<SessionlessOutcome>, BoxedError>(outcomes)
         });
         async move { hand_off.await? }.boxed()
     }
