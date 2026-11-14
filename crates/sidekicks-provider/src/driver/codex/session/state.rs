@@ -24,6 +24,7 @@ use crate::driver::codex::delivery::memory::CodexDeliveryMemory;
 use crate::driver::codex::notification_routing::CodexMcpServerStartups;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::inbound::CodexSessionInboundSender;
+use crate::driver::codex::session::recovery::in_place_resume::CodexHelperReopenWaits;
 use crate::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::contract::error::DriverError;
@@ -232,6 +233,8 @@ pub(crate) struct CodexSessionRecord {
     /// What the tool servers' startups on the conversation said, which the leg's list of their
     /// tools reads; begun afresh whenever the conversation is bound.
     pub(crate) mcp_server_startups: CodexMcpServerStartups,
+    /// The helpers the newest move still waits to reopen; their waits end as the record goes.
+    pub(crate) helper_reopen_waits: CodexHelperReopenWaits,
 }
 
 /// What an establishment knows of a session's conversation, from which its record starts with
@@ -316,6 +319,7 @@ impl CodexSessionRecord {
             delivery: CodexDeliveryMemory::new(),
             on_mcp_server_status: established.on_mcp_server_status,
             mcp_server_startups: CodexMcpServerStartups::default(),
+            helper_reopen_waits: CodexHelperReopenWaits::default(),
         }
     }
 

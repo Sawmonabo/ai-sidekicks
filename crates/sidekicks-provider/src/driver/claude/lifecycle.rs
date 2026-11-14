@@ -534,6 +534,7 @@ impl ClaudeDriver {
                 idle_sleep,
                 inboxes,
                 context_readings,
+                inspector_reads: Arc::clone(&inspector_reads),
             });
             composed = Some((
                 restarts,

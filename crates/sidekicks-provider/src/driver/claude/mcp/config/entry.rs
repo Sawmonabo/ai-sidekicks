@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 
+use super::project_key::resolve_claude_config_project_key;
 use super::{
     ClaudePersonConfigFiles, InstalledPluginRoot, MCP_SERVERS_MEMBER, PROJECTS_MEMBER,
     SERVERS_FILE, read_installed_plugin_roots, read_json_file, value_at,
@@ -80,15 +81,18 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
                 scope_ref,
                 server_name,
                 ..
-            } => Ok(declared(entry_at(
-                self.read_file(&person.person_config).await?,
-                &[
-                    PROJECTS_MEMBER,
-                    scope_ref.as_str(),
-                    MCP_SERVERS_MEMBER,
-                    server_name.as_str(),
-                ],
-            ))),
+            } => {
+                let project_key = resolve_claude_config_project_key(scope_ref.as_str()).await?;
+                Ok(declared(entry_at(
+                    self.read_file(&person.person_config).await?,
+                    &[
+                        PROJECTS_MEMBER,
+                        &project_key,
+                        MCP_SERVERS_MEMBER,
+                        server_name.as_str(),
+                    ],
+                )))
+            }
             McpServerBindingRef::Project {
                 scope_ref,
                 server_name,

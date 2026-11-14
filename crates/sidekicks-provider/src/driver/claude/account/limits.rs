@@ -595,7 +595,7 @@ done
         success(&json!({"subscription_type": "max", "rate_limits_available": true,
                        "rate_limits": null})),
         "2026-11-01T21:02:20.200Z [ERROR] Failed to fetch oauth profile from OAuth token: \
-         AxiosError: Request failed with status code 401\n",
+         [REDACTED] Request failed with status code 401\n",
         ProviderObservation::SignInRefusedBeforeAnswer
     )]
     #[tokio::test(flavor = "multi_thread")]

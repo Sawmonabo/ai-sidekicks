@@ -22,12 +22,11 @@ use crate::driver::claude::session::inspector_reads::{
 use crate::driver::claude::session::rules::CLAUDE_USER_SETTINGS_FILE;
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
 use crate::driver::claude::session::scripted::driver::{
-    ScriptedDriver, create_params, sandbox_cannot_run,
+    ScriptedDriver, create_params, end_turn_of, sandbox_cannot_run,
 };
 use crate::driver::claude::session::scripted::held_calls::init;
 use crate::driver::claude::session::scripted::starts::ScriptedStartRecord;
 use crate::driver::claude::session::scripted::{hand_scripted_frame, settle};
-use crate::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::session_control::{
     CloseSessionParams, PurgeSessionParams, SessionAccountPin, SessionCloseCause,
@@ -60,6 +59,13 @@ fn context_reply(memory_file: &str) -> Value {
         "model": "claude-opus-5-5",
         "memoryFiles": [{"path": memory_file, "tokens": 1_000}],
     })
+}
+
+// The turn's `system/init` naming `store` as the auto-memory folder.
+fn init_naming(store: &str) -> Value {
+    let mut frame = init();
+    frame["memory_paths"] = json!({"auto": store});
+    frame
 }
 
 fn inspector_reads(fixture: &ScriptedDriver) -> &ClaudeInspectorReads {
@@ -160,19 +166,13 @@ fn memory_entry(path: &str, kind: SessionMemoryEntryKind) -> SessionMemoryEntry 
     }
 }
 
-// Killed by: no listing sent; the listing's reply dropped; the stores not kept; files kept only
-// from a first read; files not taken from the read at all; the inspector making a read of its own;
-// a listing per read.
+// Killed by: no listing sent; the listing's reply dropped; the stores not taken from the turn's
+// `system/init`; files kept only from a first read; files not taken from the read at all; the
+// inspector making a read of its own; a listing per read.
 #[tokio::test]
-async fn a_spawn_keeps_its_stores_and_listing_and_each_read_refreshes_the_files() {
+async fn a_spawn_keeps_its_listing_and_each_turn_refreshes_the_stores_and_files() {
     let fixture = ScriptedDriver::new();
     let store = filesystem_path(Path::new("/memory/store"));
-    fixture
-        .starts
-        .script_initialize(ClaudeInitializeDeclaration {
-            memory_stores: vec![store.clone()],
-            ..ClaudeInitializeDeclaration::default()
-        });
     let channel = Arc::new(ScriptedChannel::default());
     channel.answer("get_hooks_listing", ScriptedAnswer::Reply(listing_reply()));
     channel.answer(
@@ -193,9 +193,14 @@ async fn a_spawn_keeps_its_stores_and_listing_and_each_read_refreshes_the_files(
     );
     let kept = reads.kept_memory(session_id).expect("the spawn is kept");
     assert_eq!(kept.files, Vec::<FilesystemPath>::new());
-    assert_eq!(kept.stores, vec![store.clone()]);
+    assert_eq!(kept.stores, Vec::<FilesystemPath>::new());
 
-    fixture.end_turn(&start, session_id);
+    end_turn_of(
+        &fixture.driver,
+        &start,
+        session_id,
+        init_naming("/memory/store"),
+    );
     poll_until(
         || reads.kept_memory(session_id),
         |kept| (kept.as_ref()).is_some_and(|kept| kept.files == [filesystem_path(Path::new("b"))]),
@@ -307,12 +312,6 @@ async fn a_close_during_a_spawn_leaves_no_rows() {
 #[tokio::test(start_paused = true)]
 async fn a_gone_process_answers_its_kept_rows_and_starts_nothing() {
     let fixture = ScriptedDriver::new();
-    fixture
-        .starts
-        .script_initialize(ClaudeInitializeDeclaration {
-            memory_stores: vec![filesystem_path(Path::new("/memory/store"))],
-            ..ClaudeInitializeDeclaration::default()
-        });
     let channel = Arc::new(ScriptedChannel::default());
     channel.answer("get_hooks_listing", ScriptedAnswer::Reply(listing_reply()));
     // The turn's end asks two reads; both name `a`.
@@ -325,7 +324,12 @@ async fn a_gone_process_answers_its_kept_rows_and_starts_nothing() {
     let session_id = fixture.create(&channel).await;
     let start = fixture.next_start().await;
     let reads = inspector_reads(&fixture);
-    fixture.end_turn(&start, session_id);
+    end_turn_of(
+        &fixture.driver,
+        &start,
+        session_id,
+        init_naming("/memory/store"),
+    );
     poll_until(
         || reads.kept_memory(session_id),
         |kept| (kept.as_ref()).is_some_and(|kept| kept.files == [filesystem_path(Path::new("a"))]),

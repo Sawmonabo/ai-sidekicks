@@ -117,7 +117,7 @@ struct ScriptedStartTables {
     account_server_reads: usize,
     sign_ins: VecDeque<ScriptedSignIn>,
     sign_in_starts: Vec<ScriptedSignInStart>,
-    mcp_probes: VecDeque<(Arc<ScriptedChannel>, Vec<Value>)>,
+    mcp_probes: VecDeque<Arc<ScriptedChannel>>,
     mcp_probe_starts: Vec<ClaudeMcpProbeProcessRequest>,
     started: Vec<ScriptedStartRecord>,
     started_channels: Vec<Arc<ScriptedChannel>>,
@@ -339,10 +339,9 @@ impl ScriptedStarts {
         std::mem::take(&mut self.lock().account_server_reads)
     }
 
-    /// Scripts the next MCP server probe's process to be `channel`, `frames` written once its
-    /// `initialize` is answered.
-    pub(crate) fn script_mcp_probe(&self, channel: Arc<ScriptedChannel>, frames: Vec<Value>) {
-        self.lock().mcp_probes.push_back((channel, frames));
+    /// Scripts the next MCP server probe's process to be `channel`, which writes no frame.
+    pub(crate) fn script_mcp_probe(&self, channel: Arc<ScriptedChannel>) {
+        self.lock().mcp_probes.push_back(channel);
     }
 
     /// Takes every MCP server probe's start recorded so far, each with its command line.
@@ -669,20 +668,17 @@ impl ClaudeProcessStarts for ScriptedStarts {
     fn start_mcp_probe(
         &self,
         request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
         let probe = {
             let mut tables = self.lock();
             tables.mcp_probe_starts.push(request);
             tables.mcp_probes.pop_front()
         };
         async move {
-            let (channel, frames) = probe.ok_or_else(|| spawn_failure("no probe scripted"))?;
+            let channel = probe.ok_or_else(|| spawn_failure("no probe scripted"))?;
             self.lock().started_channels.push(Arc::clone(&channel));
             let channel: Arc<dyn ClaudeProcessChannel> = channel;
-            Ok(ClaudeMcpProcess {
-                channel,
-                arrivals: scripted_arrivals(frames.into_iter().map(ScriptedProcessWrite::Frame)),
-            })
+            Ok(channel)
         }
         .boxed()
     }
