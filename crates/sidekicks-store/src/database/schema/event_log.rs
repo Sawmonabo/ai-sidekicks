@@ -103,7 +103,8 @@ CREATE INDEX idx_session_events_backgrounded ON {SESSION_EVENTS_TABLE}(session_i
 -- a live run's agent and newest touch. The read of where a run stands names it, since across its
 -- two types, turn starts and steers, the planner would leave it for an index that walks every
 -- row in range.
-CREATE INDEX {SESSION_EVENTS_RUN_INDEX} ON {SESSION_EVENTS_TABLE}(session_id, type, run_id, sequence)
+CREATE INDEX {SESSION_EVENTS_RUN_INDEX}
+  ON {SESSION_EVENTS_TABLE}(session_id, type, run_id, sequence)
   WHERE run_id IS NOT NULL;
 -- One run's events in log order, read beside the events filed under it.
 CREATE INDEX idx_session_events_run_sequence ON {SESSION_EVENTS_TABLE}(session_id, run_id, sequence)
@@ -112,7 +113,8 @@ CREATE INDEX idx_session_events_run_sequence ON {SESSION_EVENTS_TABLE}(session_i
 CREATE INDEX idx_session_events_target_run
   ON {SESSION_EVENTS_TABLE}(session_id, target_run_id, sequence)
   WHERE target_run_id IS NOT NULL;
--- A tool call's completions, newest last, for the read of the patches it left out.
+-- A tool call's completions, newest last, for the read of the patches it left out and the read of
+-- a run's newest call whose start named no subject, which takes its end's.
 CREATE INDEX {SESSION_EVENTS_TOOL_CALL_INDEX}
   ON {SESSION_EVENTS_TABLE}(session_id, tool_call_id, sequence)
   WHERE tool_call_id IS NOT NULL;

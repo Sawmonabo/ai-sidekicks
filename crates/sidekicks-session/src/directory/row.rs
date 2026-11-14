@@ -460,7 +460,8 @@ struct DirectoryUpdate {
 // Maintenance events are the log's own bookkeeping, so they never say when the session was last
 // active. A reasoning update arrives many times within one turn, and each move of last activity
 // would re-order the list, change its shown time and make the search index re-read the session's
-// tag rows, so it does not move it either.
+// tag rows, so it does not move it either. A working-folder move held, replaced or canceled is no
+// work done in the session, so its change moves the record's time alone.
 fn describe_directory_update(
     event: &DirectoryEvent<'_>,
 ) -> Result<DirectoryUpdate, DirectoryRowError> {
@@ -471,7 +472,8 @@ fn describe_directory_update(
             .as_str()
             .to_owned(),
         moves_last_activity: event.category != EventCategory::EventMaintenance
-            && event.event_type != SessionEventType::AgentThinkingUpdated.as_str(),
+            && event.event_type != SessionEventType::AgentThinkingUpdated.as_str()
+            && event.event_type != SessionEventType::SessionPendingWorkingFolderChanged.as_str(),
         moves_updated_at: event.category == EventCategory::SessionLifecycle,
     })
 }

@@ -75,6 +75,16 @@ pub enum RedirectReceiverError {
         /// The callback address as the owner issued it.
         callback_url: String,
     },
+    /// The owner's callback address, as written, does not read as an address whose port the
+    /// receiver can tell, so no listener could be sure to be where the server redirects.
+    #[error("the callback address {callback_url} names no port the receiver can read")]
+    UnreadablePort {
+        /// The callback address as the owner issued it.
+        callback_url: String,
+        /// Why `http` could not read it.
+        #[source]
+        source: http::uri::InvalidUri,
+    },
     /// The operating system refused the listener.
     #[error("could not listen for the sign-in's callback")]
     Bind(#[source] io::Error),
@@ -189,7 +199,8 @@ impl RedirectListener {
     /// path, a loopback name binding `127.0.0.1`, and is sent as its text writes it, except that
     /// one naming no port takes a free one, which the redirect then carries (RFC 8252 §7.3). Fails
     /// with `NotHttp` or `NotLoopback` for an owner address the receiver must not bind,
-    /// `UnusablePath` for a path it cannot route, and `Bind` when the system refuses.
+    /// `UnusablePath` for a path it cannot route, `UnreadablePort` for an address whose port it
+    /// cannot read, and `Bind` when the system refuses.
     pub async fn bind(
         callback: Option<&RedirectAddress>,
         path: CallbackPath<'_>,
@@ -318,7 +329,8 @@ async fn bind_free_loopback_port() -> io::Result<TcpListener> {
 
 /// The socket an owner-issued callback address binds: its loopback host as the sign-in judges
 /// loopback, a name (`localhost`, a name under it) as `127.0.0.1` and an IPv4 address an IPv6 one
-/// carries as that address, on its port, or on port 0, a free one, where it names no port.
+/// carries as that address, on its port, or on port 0, a free one, where it names no port. Refuses
+/// an address whose written text `http` cannot read, since its port could be one it drops.
 fn owner_issued_address(callback: &RedirectAddress) -> Result<SocketAddr, RedirectReceiverError> {
     let callback_url = callback.url();
     if callback_url.scheme() != "http" {
@@ -340,10 +352,18 @@ fn owner_issued_address(callback: &RedirectAddress) -> Result<SocketAddr, Redire
     };
     // The `url` crate drops a written port that is the scheme's default, so `http`'s parser reads
     // the address's own text for an explicit `:80`.
-    let port = callback_url
-        .port()
-        .or_else(|| callback.as_str().parse::<http::Uri>().ok()?.port_u16())
-        .unwrap_or(0);
+    let port = match callback_url.port() {
+        Some(port) => port,
+        None => callback
+            .as_str()
+            .parse::<http::Uri>()
+            .map_err(|source| RedirectReceiverError::UnreadablePort {
+                callback_url: callback_url.to_string(),
+                source,
+            })?
+            .port_u16()
+            .unwrap_or(0),
+    };
     Ok(SocketAddr::new(host, port))
 }
 

@@ -80,6 +80,7 @@ impl Fixture {
         let folders = Arc::new(SessionWorkingFolders::new(SessionWorkingFoldersDeps {
             reads: Arc::clone(&roots.reads),
             event_log: Arc::clone(&roots.log.service),
+            writer: Arc::clone(&roots.log.writer),
             execution_roots: Arc::clone(&roots.service),
             worktree_events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&roots.log.service))),
         }));

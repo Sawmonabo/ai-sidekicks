@@ -7,7 +7,7 @@ use std::sync::Arc;
 use rusqlite::params;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::repo::folders::RepoMountMoveRequest;
-use sidekicks_contracts::repo::mount::CapturesHeldCause;
+use sidekicks_contracts::repo::mount::{CapturesHeldCause, RepoMountId};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{CAN_OPEN_INSIDE_UNREADABLE_FOLDER, is_superuser, make_unreadable};
 use sidekicks_store::data_folder::session_storage_folder;
@@ -338,9 +338,10 @@ async fn a_capture_taken_before_two_moves_is_found_and_read_after_both() {
 // project's carry runs, passing over a stored folder it cannot resolve, and each opener of the held
 // project's capture folder is refused with the cause. Once the folder may be entered, the next
 // opener's ask carries the folder and it opens, and the carry clears the record; an unread record
-// has nothing to try. Killed by a start that fails on the one record, by a carry that stops at the
-// unresolved stored folder, by an opener that opens a held folder, and by an ask that tries
-// nothing.
+// has nothing to try, and holds its folder until a detach ends the mount, which lets the carry go
+// so the folder attached again opens. Killed by a start that fails on the one record, by a carry
+// that stops at the unresolved stored folder, by an opener that opens a held folder, by an ask
+// that tries nothing, and by a detach that leaves the carry held.
 #[tokio::test]
 async fn a_carry_that_cannot_be_made_holds_only_its_own_mount() {
     // A folder the daemon may not enter cannot be made here.
@@ -464,6 +465,30 @@ async fn a_carry_that_cannot_be_made_holds_only_its_own_mount() {
         } else {
             reopened.expect_err("a record that does not read has nothing to try");
             assert_eq!(records(&fixture, HELD_MOUNT_ID), 1);
+            let held_mount_id = RepoMountId::new(HELD_MOUNT_ID).expect("the id is a UUID");
+            fixture
+                .service
+                .let_go_detached_carry(held_mount_id)
+                .await
+                .expect("the mount's state reads");
+            CaptureFolder::open_existing(&fixture.packing, &captured.owner, &held_common)
+                .await
+                .expect_err("an attached mount keeps its held carry");
+            fixture
+                .roots
+                .rows
+                .execute_batch(&format!(
+                    "UPDATE repo_mounts SET state = 'detached' WHERE id = '{HELD_MOUNT_ID}'"
+                ))
+                .expect("the held mount is detached");
+            fixture
+                .service
+                .let_go_detached_carry(held_mount_id)
+                .await
+                .expect("the mount's state reads");
+            CaptureFolder::open_existing(&fixture.packing, &captured.owner, &held_common)
+                .await
+                .expect("a detached mount's carry holds no opener of its folder");
         }
     }
 }

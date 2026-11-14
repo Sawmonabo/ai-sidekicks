@@ -177,8 +177,8 @@ pub enum RepoMountHealth {
 
 /// Why a moved repository's captures are held: `accessDenied` when the service may not read a
 /// folder the move names, which granting it clears; `folderUnresolved` when that folder does not
-/// resolve for another reason; `recordUnreadable` when the service's stored record of the project's
-/// folders does not read.
+/// resolve for another reason; `recordUnreadable` when the service's stored folder or record of
+/// the project's folders does not read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum CapturesHeldCause {
@@ -186,7 +186,7 @@ pub enum CapturesHeldCause {
     AccessDenied,
     /// The folder does not resolve.
     FolderUnresolved,
-    /// The stored record of the project's folders does not read.
+    /// The stored folder or record of the project's folders does not read.
     RecordUnreadable,
 }
 
@@ -197,8 +197,8 @@ pub enum CapturesHeldCause {
 pub struct CapturesHeld {
     /// What holds them.
     pub cause: CapturesHeldCause,
-    /// The folder that holds them, absent when the stored record of the project's folders does
-    /// not read.
+    /// The folder that holds them, absent when the stored folder or record of the project's
+    /// folders does not read, and when the folder's path is longer than a [`FilesystemPath`].
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

@@ -261,10 +261,10 @@ impl RepoFolderUsage {
 
     /// `repoMount.read`: the mount's stored facts with a freshly probed health, read through
     /// `mounts`, what holds its moved repository's captures, read from `packing`, and where it came
-    /// from, its project's name and every session bound to it. Refuses
-    /// `repoMount.notFound` for an unknown mount and for a detached one whose project was
-    /// forgotten, `repoMount.rootResolutionFailed` when git cannot answer for its root, and fails
-    /// as a read fails.
+    /// from, its project's name and every session bound to it. Refuses `repoMount.notFound` for an
+    /// unknown mount and for a detached one whose project was forgotten,
+    /// `repoMount.rootResolutionFailed` when git cannot answer for its root, and fails as a read
+    /// fails.
     pub async fn read_mount(
         &self,
         mounts: &RepoMountService,

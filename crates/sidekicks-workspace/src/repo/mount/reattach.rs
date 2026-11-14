@@ -90,9 +90,10 @@ use crate::trust_envelope::components_equal;
 
 /// The statements the re-attach's reads keep prepared on each read connection: the running run,
 /// the holder of the repository, the mount's live trees, a move's recorded first commit and
-/// workspace paths, the mounts whose captures are still to be carried, a carry's record, and the
-/// stored common folders of the run contexts and the command windows a carry rewrites.
-pub const REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY: usize = 9;
+/// workspace paths, the mounts whose captures are still to be carried, a carry's record, whether a
+/// mount ended, and the stored common folders of the run contexts and the command windows a carry
+/// rewrites.
+pub const REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY: usize = 10;
 
 // What a log line names a failed follow-up's group as.
 const FOLLOW_UP_OPERATION: &str = "a re-attach's follow-ups";

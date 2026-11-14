@@ -61,7 +61,8 @@ impl<'a> SignInRedirect<'a> {
             Err(
                 RedirectReceiverError::NotHttp { .. }
                 | RedirectReceiverError::NotLoopback { .. }
-                | RedirectReceiverError::UnusablePath { .. },
+                | RedirectReceiverError::UnusablePath { .. }
+                | RedirectReceiverError::UnreadablePort { .. },
             ) => Ok((
                 None,
                 self.owner_callback

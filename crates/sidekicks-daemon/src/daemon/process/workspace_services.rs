@@ -211,6 +211,7 @@ pub(crate) fn build_execution_root_services(
     let session_working_folders = Arc::new(SessionWorkingFolders::new(SessionWorkingFoldersDeps {
         reads: Arc::clone(&reads),
         event_log,
+        writer: Arc::clone(&writer),
         execution_roots: Arc::clone(&execution_roots),
         worktree_events: Arc::clone(&repo.worktree_events),
     }));

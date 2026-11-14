@@ -1,6 +1,8 @@
 //! The pending move a session's row holds: its read, and each change to it, written in one write
 //! with the `session.pendingWorkingFolder.changed` that carries the move waiting after it, so every
-//! window of the session follows the row. A write that changes nothing appends nothing.
+//! window of the session follows the row. A write that changes nothing appends nothing, and nor
+//! does one that changes only the workspace a move waiting at the same folder was asked for, which
+//! no event carries.
 
 use std::borrow::Cow;
 
@@ -31,13 +33,17 @@ const SELECT_PENDING_SQL: &str =
     "SELECT pending_working_folder, pending_working_folder_workspace_id
   FROM sessions WHERE id = @session_id";
 
-// Writes the move only where it differs from the one stored, so a request for the move already
-// waiting, or a clear with none waiting, writes nothing.
+// Writes the move only where its folder differs from the one stored, so a request for a move to
+// the folder already waiting, or a clear with none waiting, writes nothing here.
 const STORE_PENDING_SQL: &str = "UPDATE sessions
   SET pending_working_folder = @path, pending_working_folder_workspace_id = @workspace_id
-  WHERE id = @session_id
-    AND (pending_working_folder IS NOT @path
-         OR pending_working_folder_workspace_id IS NOT @workspace_id)";
+  WHERE id = @session_id AND pending_working_folder IS NOT @path";
+
+// Writes the workspace of a move to the folder already waiting, only where it differs.
+const STORE_PENDING_WORKSPACE_SQL: &str = "UPDATE sessions
+  SET pending_working_folder_workspace_id = @workspace_id
+  WHERE id = @session_id AND pending_working_folder IS @path
+    AND pending_working_folder_workspace_id IS NOT @workspace_id";
 
 // Clears the pending move only while it still names `@path` and `@workspace_id`, so a newer
 // request survives.
@@ -49,7 +55,7 @@ const CLEAR_PENDING_AT_SQL: &str = "UPDATE sessions
 // Where a store's write puts the session's check, refused for a session with no row.
 const STORE_SESSION_CHECK_INDEX: usize = 0;
 
-// Where a store's write puts the change, refused when the row already holds that move.
+// Where a store's write puts the change, refused when the row already holds a move to that folder.
 const STORE_CHANGE_INDEX: usize = 1;
 
 /// Where a write that clears a move as read puts the clear, refused when another caller cleared or
@@ -88,7 +94,7 @@ impl PendingClear {
                 ]),
                 expected_row_count: Some(1),
             },
-            event: pending_changed(session_id, None)?,
+            event: draft_pending_changed(session_id, None)?,
         })
     }
 }
@@ -121,16 +127,17 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
     }
 
     /// Stores `pending`, a folder and the workspace it was asked for, as the session's pending
-    /// move, or clears it with `None`, with the event saying so; the move already stored is left
-    /// with no event. Refuses `session.notFound` for a session purged meanwhile.
+    /// move, or clears it with `None`, with the event saying so; a move to the folder already
+    /// waiting writes only its workspace, where that differs, with no event. Refuses
+    /// `session.notFound` for a session purged meanwhile, and fails as a write fails.
     pub(super) async fn store_pending(
         &self,
         session_id: SessionId,
         pending: Option<(&FilesystemPath, WorkspaceId)>,
     ) -> Result<(), SessionWorkingFolderError> {
         let workspace_text = pending.map(|(_, workspace_id)| workspace_id.text());
-        let change = WriteStatement {
-            sql: Cow::Borrowed(STORE_PENDING_SQL),
+        let statement = |sql: &'static str, expected_row_count| WriteStatement {
+            sql: Cow::Borrowed(sql),
             bindings: StatementBindings::Named(vec![
                 text_binding("@session_id", session_id.text().as_str()),
                 nullable_text_binding("@path", pending.map(|(path, _)| path.as_str())),
@@ -139,15 +146,23 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
                     workspace_text.as_ref().map(UuidText::as_str),
                 ),
             ]),
-            expected_row_count: Some(1),
+            expected_row_count,
         };
-        let event = pending_changed(session_id, pending.map(|(path, _)| path.clone()))?;
-        let prelude = vec![session_exists_statement(&session_id), change];
+        let event = draft_pending_changed(session_id, pending.map(|(path, _)| path.clone()))?;
+        let prelude = vec![
+            session_exists_statement(&session_id),
+            statement(STORE_PENDING_SQL, Some(1)),
+        ];
         match self.append_pending(event, prelude, None).await {
             Ok(()) => Ok(()),
             Err(error) => match error.refused_statement_index() {
                 Some(STORE_SESSION_CHECK_INDEX) => Err(session_not_found(&session_id).into()),
-                Some(STORE_CHANGE_INDEX) => Ok(()),
+                Some(STORE_CHANGE_INDEX) => {
+                    self.writer
+                        .write(vec![statement(STORE_PENDING_WORKSPACE_SQL, None)])
+                        .await?;
+                    Ok(())
+                }
                 Some(_) | None => Err(SessionEventEmitError::from(error).into()),
             },
         }
@@ -193,7 +208,7 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
 }
 
 // `session.pendingWorkingFolder.changed` on the session's log, naming the move that waits now.
-fn pending_changed(
+fn draft_pending_changed(
     session_id: SessionId,
     path: Option<FilesystemPath>,
 ) -> Result<SessionEventDraft, SessionEventEmitError> {

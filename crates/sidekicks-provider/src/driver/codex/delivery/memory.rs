@@ -274,7 +274,8 @@ impl CodexDeliveryMemory {
     }
 
     /// Forgets what the memory held for a turn once its terminal was handled, and for each of its
-    /// items that never ended, an item the turn's interrupt cut off among them.
+    /// items that never ended, an item the turn's interrupt cut off among them. A command still
+    /// running keeps its row's ids, which its own end reads and lets go.
     pub(crate) fn forget_turn(&mut self, turn_id: &str) {
         self.turn_epoch_by_turn_id.remove(turn_id);
         self.started_turn_by_turn_id.remove(turn_id);
@@ -288,6 +289,7 @@ impl CodexDeliveryMemory {
             .remove(turn_id)
             .unwrap_or_default()
             .keys()
+            .filter(|item_id| !self.running_command_by_item_id.contains_key(*item_id))
         {
             self.tool_row_event_id_by_item_id.remove(item_id);
             self.tool_row_run_by_item_id.remove(item_id);

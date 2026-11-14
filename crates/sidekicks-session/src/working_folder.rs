@@ -51,6 +51,7 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::stored_column::{closed_word, text_column};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{
@@ -159,6 +160,8 @@ pub struct SessionWorkingFoldersDeps<W = RecommendedWatcher> {
     pub reads: Arc<DatabaseReadPool>,
     /// The event log each change to a pending move is written to with its event.
     pub event_log: Arc<EventLogService>,
+    /// The writer of a change to a pending move's workspace alone, which no event carries.
+    pub writer: Arc<DatabaseWriter>,
     /// The owner of every workspace's preparation hold, which makes each move.
     pub execution_roots: Arc<ExecutionRootService<W>>,
     /// Appends each swept session's `session.sweptToCheckout`.
@@ -170,6 +173,7 @@ pub struct SessionWorkingFoldersDeps<W = RecommendedWatcher> {
 pub struct SessionWorkingFolders<W = RecommendedWatcher> {
     reads: Arc<DatabaseReadPool>,
     appender: SessionEventAppender,
+    writer: Arc<DatabaseWriter>,
     execution_roots: Arc<ExecutionRootService<W>>,
     worktree_events: Arc<WorktreeEventEmitter>,
     /// Where a test holds a take of the pending move between its read and its clear.
@@ -199,6 +203,9 @@ pub enum SessionWorkingFolderError {
     /// A change to the pending move, or a sweep's `session.sweptToCheckout`, was not written.
     #[error("the session's pending move or sweep could not be written")]
     Append(#[from] SessionEventEmitError),
+    /// The workspace of a move to the folder already waiting was not written.
+    #[error("the workspace of the session's pending move could not be written")]
+    Write(#[from] WriteError),
     /// The removed tree's mount has no row to sweep its sessions to.
     #[error("cannot sweep worktree {worktree_id}: its mount {repo_mount_id} has no row")]
     MountMissing {
@@ -234,6 +241,7 @@ impl From<SessionWorkingFolderError> for HandlerError {
             | SessionWorkingFolderError::Row(_)
             | SessionWorkingFolderError::Folder(_)
             | SessionWorkingFolderError::Append(_)
+            | SessionWorkingFolderError::Write(_)
             | SessionWorkingFolderError::MountMissing { .. }
             | SessionWorkingFolderError::Sweep(_)) => Self::Internal(Box::new(fault)),
         }
@@ -280,6 +288,7 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
         Self {
             reads: deps.reads,
             appender: SessionEventAppender::new(deps.event_log, SESSION_EVENT_VERSION.clone()),
+            writer: deps.writer,
             execution_roots: deps.execution_roots,
             worktree_events: deps.worktree_events,
             #[cfg(test)]

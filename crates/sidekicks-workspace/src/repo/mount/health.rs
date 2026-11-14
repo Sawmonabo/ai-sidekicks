@@ -11,7 +11,9 @@
 //!   daemon was down still reaches it. A send that fails leaves that session's verdict where it
 //!   was, so the next pass sends it again.
 //! - A verdict also says what holds a moved repository's captures while its carry cannot be made,
-//!   so the hold and its end reach each session on the mount as a health change.
+//!   so the hold and its end reach each session on the mount as a health change; a cause or folder
+//!   an opener's ask finds changed is told at once with the health the last pass read (see
+//!   `hold_change`).
 //! - A mount a re-attach or a move made owes its first verdict, naming the mount it replaced, to
 //!   each session on it until every one has it (see `first_verdict`).
 //! - Mounts are probed as many at once as the machine has processors, one pass per mount at a
@@ -28,6 +30,7 @@
 //!   a later move can know the repository wherever its folder goes.
 
 pub(crate) mod first_verdict;
+mod hold_change;
 mod verdict;
 
 use std::borrow::Cow;
@@ -42,7 +45,7 @@ use rusqlite::{Connection, OptionalExtension, Row, named_params};
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::folders::RepoMountRootResolutionReason;
 use sidekicks_contracts::repo::mount::{
-    RepoMountHealth, RepoMountId, RepoMountState, WorkspaceState,
+    CapturesHeld, RepoMountHealth, RepoMountId, RepoMountState, WorkspaceState,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -329,6 +332,8 @@ type ProbeTask = JoinHandle<Result<RepoMountHealth, MountHealthProbeError>>;
 struct MountMemory {
     // The verdict each session on the mount last heard, from a send or from its log.
     heard: HashMap<SessionId, MountVerdict>,
+    // The health the mount's last pass read, which a hold changed between passes is told with.
+    health: Option<RepoMountHealth>,
     // Every pass request numbered below this was served by a pass that started after it.
     served_below: u64,
     // The failure of the mount's last pass, which the requests it served answer with.
@@ -548,6 +553,12 @@ impl RepoMountHealthReprobe {
             .await
             .map_err(read_failure)?;
 
+        let told = Told {
+            repo_mount_id,
+            health: &health,
+            captures_held: captures_held.as_ref(),
+            verdict: &verdict,
+        };
         let mut sends = Vec::new();
         let mut is_cut_short = false;
         for session_id in sessions {
@@ -567,42 +578,12 @@ impl RepoMountHealthReprobe {
             if heard == verdict && owed_verdict.is_none() {
                 continue;
             }
-            let sent = self
-                .events
-                .emit_mount_health_changed(
-                    session_id,
-                    repo_mount_id,
-                    health.clone(),
-                    captures_held.clone(),
-                    owed_verdict.flatten(),
-                    SessionEventLinkage::default(),
-                )
-                .await;
-            match sent {
-                Ok(_receipt) => {
-                    if let Some(memory) = self.lock_mounts().get_mut(&repo_mount_id) {
-                        memory.heard.insert(session_id, verdict.clone());
-                    }
-                    sends.push(Ok(()));
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        error = &error as &(dyn Error + 'static),
-                        %repo_mount_id,
-                        %session_id,
-                        "a repo mount's health change did not reach a session; the next pass \
-                         sends it again"
-                    );
-                    sends.push(Err(error));
-                }
-            }
+            sends.push(self.tell(session_id, &told, owed_verdict.flatten()).await);
         }
-        let sent = settle_all(sends, "sending a repo mount's health change")
-            .map(|_sent| ())
-            .map_err(|source| MountPassFailure::Send {
-                repo_mount_id,
-                source,
-            });
+        if let Some(memory) = self.lock_mounts().get_mut(&repo_mount_id) {
+            memory.health = Some(health.clone());
+        }
+        let sent = settle_sends(repo_mount_id, sends);
         // Cleared only once every session the pass owed was told, each append already kept.
         let cleared = if sent.is_ok() && !is_cut_short {
             self.clear_first_verdict(&mount).await
@@ -615,6 +596,47 @@ impl RepoMountHealthReprobe {
             Ok(())
         };
         sent.and(cleared).and(recorded)
+    }
+
+    // Sends `told`'s verdict to `session_id`, naming the mount `replaced` it heard of where it is
+    // owed its first verdict, and keeps it as what the session heard once the append is kept; a
+    // send that fails is logged and answered, and the next pass sends it again.
+    async fn tell(
+        &self,
+        session_id: SessionId,
+        told: &Told<'_>,
+        replaced: Option<RepoMountId>,
+    ) -> Result<(), SessionEventEmitError> {
+        let repo_mount_id = told.repo_mount_id;
+        let sent = self
+            .events
+            .emit_mount_health_changed(
+                session_id,
+                repo_mount_id,
+                told.health.clone(),
+                told.captures_held.cloned(),
+                replaced,
+                SessionEventLinkage::default(),
+            )
+            .await;
+        match sent {
+            Ok(_receipt) => {
+                if let Some(memory) = self.lock_mounts().get_mut(&repo_mount_id) {
+                    memory.heard.insert(session_id, told.verdict.clone());
+                }
+                Ok(())
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    %repo_mount_id,
+                    %session_id,
+                    "a repo mount's health change did not reach a session; the next pass sends it \
+                     again"
+                );
+                Err(error)
+            }
+        }
     }
 
     // Records the first commit of a healthy project mount that recorded none, once its repository
@@ -762,6 +784,27 @@ impl RepoMountHealthReprobe {
         // Each critical section leaves the map whole, so a panicking holder breaks nothing.
         lock(&self.mounts)
     }
+}
+
+// One verdict of a mount as a send tells it.
+struct Told<'a> {
+    repo_mount_id: RepoMountId,
+    health: &'a RepoMountHealth,
+    captures_held: Option<&'a CapturesHeld>,
+    verdict: &'a MountVerdict,
+}
+
+// The mount's sends settled together, every one that failed answered.
+fn settle_sends(
+    repo_mount_id: RepoMountId,
+    sends: Vec<Result<(), SessionEventEmitError>>,
+) -> Result<(), MountPassFailure> {
+    settle_all(sends, "sending a repo mount's health change")
+        .map(|_sent| ())
+        .map_err(|source| MountPassFailure::Send {
+            repo_mount_id,
+            source,
+        })
 }
 
 fn attached_mount_of(row: &Row<'_>) -> rusqlite::Result<AttachedMount> {

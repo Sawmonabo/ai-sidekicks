@@ -82,7 +82,8 @@ static ARCHIVE_DEPENDENTS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // Compare-and-swap: `attached` in the predicate is the legal predecessor and the mutual exclusion
 // between concurrent detaches and re-attaches. A first verdict still owed is owed to no one once
-// the mount is gone, so its record goes with it.
+// the mount is gone, so its record goes with it. A carry's record stays: a made carry still
+// running reads it to finish, and no start reads it of a detached mount.
 static DETACH_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE repo_mounts

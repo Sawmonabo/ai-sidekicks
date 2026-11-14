@@ -375,10 +375,10 @@ interface SessionWorkingFolderUpdateResponse {
 // session.pendingWorkingFolder.changed payload. Appended in the same write as every change to the
 // session's pending move: a request that leaves it pending or replaces it, the re-target that
 // cancels it, the run boundary that applies or drops it, and a worktree removal that clears it
-// (beside that session's `session.sweptToCheckout`). A request that changes nothing appends
-// nothing. It carries the value `session.read` returns after the change, so the composer strip's
-// `<current> → <target> when this run ends` and the switcher row's `switching when this run ends`
-// follow one value on every window and device.
+// (beside that session's `session.sweptToCheckout`). A request that leaves the waiting folder as
+// it is appends nothing. It carries the value `session.read` returns after the change, so the
+// composer strip's `<current> → <target> when this run ends` and the switcher row's `switching
+// when this run ends` follow one value on every window and device.
 interface SessionPendingWorkingFolderChangedPayload {
   sessionId: SessionId;
   pendingWorkingFolder: { path: string } | null; // null when no move waits

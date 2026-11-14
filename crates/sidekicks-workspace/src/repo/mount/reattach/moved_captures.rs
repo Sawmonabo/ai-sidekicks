@@ -94,6 +94,14 @@ static SELECT_CARRY_RECORD_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// Whether the mount's row is no longer attached.
+static SELECT_IS_MOUNT_ENDED_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT EXISTS (SELECT 1 FROM repo_mounts WHERE id = @repo_mount_id AND state <> '{}')",
+        <&'static str>::from(RepoMountState::Attached)
+    )
+});
+
 // Clears the record only while it is the one the carry read: a newer move clears it from the
 // ended mount as it takes it forward, so the older carry's write is then refused whole.
 static CLEAR_CARRY_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -223,19 +231,30 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         settle_all(outcomes, START_CARRY_OPERATION).map(drop)
     }
 
-    /// Carries, as the start's carry does, each moved mount's captures whose carry an opener's ask
-    /// made in this run, until `stop` fires; a carry made before `stop` fired is run first. Then
-    /// probes the mount's health again, so the hold it told ends. Logs each one that failed, which
-    /// keeps its record for the next start; a mount moved again since finds its record gone, and
-    /// that move's chain carries it.
+    /// Takes what openers' asks did until `stop` fires, what they did before it fired first. Tells
+    /// the health of each mount whose held carry an ask found with another cause or folder.
+    /// Carries, as the start's carry does, each moved mount's captures whose carry an ask made,
+    /// then probes the mount's health again, so the hold it told ends. Logs each one that failed:
+    /// a carry keeps its record for the next start, and a mount moved again since finds its
+    /// record gone, that move's chain carrying it.
     pub async fn carry_lifted_captures(&self, stop: &CancellationToken) {
         loop {
-            let lifted = tokio::select! {
+            let asked = tokio::select! {
                 biased;
-                lifted = self.packing.carries().next_lifted() => lifted,
+                asked = self.packing.carries().next_asked() => asked,
                 () = stop.cancelled() => return,
             };
-            for (repo_mount_id, carry) in lifted {
+            for repo_mount_id in asked.changed {
+                if let Err(error) = self.health.tell_captures_held(repo_mount_id).await {
+                    tracing::warn!(
+                        %repo_mount_id,
+                        error = &error as &(dyn Error + 'static),
+                        "what holds a moved project's captures now did not reach every session \
+                         on it; its next pass tells it"
+                    );
+                }
+            }
+            for (repo_mount_id, carry) in asked.lifted {
                 if let Err(error) = self.carry_captures(repo_mount_id, &carry).await {
                     tracing::warn!(
                         %repo_mount_id,
@@ -254,6 +273,28 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 }
             }
         }
+    }
+
+    /// Lets go the carry the mount `repo_mount_id` held unmade once a detach ended it, so a folder
+    /// attached again as another mount opens its captures free; the carry renamed nothing, so its
+    /// owners' folders and rows still agree at the old names. A mount still attached keeps its
+    /// carry, and so does one whose carry was made, which alone finds the owners it renamed. Its
+    /// record stays on the row, which no start reads once the mount is detached. Fails as the read
+    /// of the mount's state fails.
+    pub async fn let_go_detached_carry(
+        &self,
+        repo_mount_id: RepoMountId,
+    ) -> Result<(), CaptureCarryError> {
+        let is_ended = self
+            .reads
+            .read(ReadLength::Short, move |connection| {
+                read_is_mount_ended(connection, repo_mount_id)
+            })
+            .await?;
+        if is_ended {
+            self.packing.carries().let_go_unmade(repo_mount_id);
+        }
+        Ok(())
     }
 
     /// Renames each owner's capture folder of the moved repository `carry` names from each of its
@@ -397,6 +438,19 @@ fn read_uncarried_mounts(
             })
         })?
         .collect::<rusqlite::Result<_>>()?)
+}
+
+// Whether a row holds the mount no longer attached.
+fn read_is_mount_ended(
+    connection: &Connection,
+    repo_mount_id: RepoMountId,
+) -> Result<bool, CaptureCarryError> {
+    Ok(connection
+        .prepare_cached(&SELECT_IS_MOUNT_ENDED_SQL)?
+        .query_row(
+            named_params! { "@repo_mount_id": repo_mount_id.text().as_str() },
+            |row| row.get(0),
+        )?)
 }
 
 // The mount's record and the stored common folders, or `None` once its record is gone.

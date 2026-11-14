@@ -4,6 +4,7 @@
 //! `Delete`), `repoMount.reattach` (the lost folder's `Re-attach`) and `repoMount.move` (the lost
 //! folder's `Open folder…` on a folder holding the same repository).
 
+use std::error::Error;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
@@ -24,10 +25,10 @@ use sidekicks_workspace::folder::usage::{RepoFolderUsage, RepoFolderUsageError};
 use crate::daemon::process::workspace_services::RepoMountMethods;
 
 /// Registers the six folder verbs over `methods`. A detach, whatever it answers, then asks for
-/// the worktree cleanup, since a detach can fail after its write committed; a re-attach or a move,
-/// whatever it answers, forgets the setup cards of the trees it retired and reads its project into
-/// the projects list again. Each refuses as its service refuses. Fails the start when a method is
-/// already registered.
+/// the worktree cleanup and lets go the held carry of a mount it ended, since a detach can fail
+/// after its write committed; a re-attach or a move, whatever it answers, forgets the setup cards
+/// of the trees it retired and reads its project into the projects list again. Each refuses as its
+/// service refuses. Fails the start when a method is already registered.
 pub(crate) fn register_repo_mounts(
     registry: &mut MethodRegistryBuilder,
     methods: RepoMountMethods,
@@ -75,14 +76,25 @@ pub(crate) fn register_repo_mounts(
             .boxed()
         },
     )?;
+    let detaching = Arc::clone(&reattach);
     registry.register::<RepoMountDetach, _>(
         move |request: RepoMountRequest, _context: HandlerContext| {
             let projects = Arc::clone(&projects);
+            let reattach = Arc::clone(&detaching);
             let cleanup = cleanup.clone();
             async move {
+                let repo_mount_id = request.repo_mount_id;
                 // The request names no actor and no correlation, so the detach records none.
-                let detached = projects.detach(request.repo_mount_id, None, None).await;
+                let detached = projects.detach(repo_mount_id, None, None).await;
                 cleanup.request();
+                if let Err(error) = reattach.let_go_detached_carry(repo_mount_id).await {
+                    tracing::warn!(
+                        %repo_mount_id,
+                        error = &error as &(dyn Error + 'static),
+                        "a detached project's held captures could not be let go; a folder \
+                         attached again at its old place may be refused them until the next start"
+                    );
+                }
                 Ok(detached?)
             }
             .boxed()

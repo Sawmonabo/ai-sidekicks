@@ -28,20 +28,23 @@ type RepoMountHealth =
     };
 // Why a moved repository's captures are held: "accessDenied" when the service may not read a
 // folder the move names, which granting it clears; "folderUnresolved" when that folder does not
-// resolve for another reason; "recordUnreadable" when the service's stored record of the project's
-// folders does not read.
+// resolve for another reason; "recordUnreadable" when the service's stored folder or record of
+// the project's folders does not read.
 type CapturesHeldCause = "accessDenied" | "folderUnresolved" | "recordUnreadable";
 // A moved repository's captures that cannot be carried to its new folder yet: no capture of the
 // project is taken, so nothing done in it can be undone, until they are (Spec-007 §Repo Mount
 // Health (V1 Definition)).
 interface CapturesHeld {
   cause: CapturesHeldCause;
-  folder?: string; // the folder that holds them; absent for "recordUnreadable"
+  // The folder that holds them; absent for "recordUnreadable", and where the folder's path is
+  // longer than a path the wire carries.
+  folder?: string;
 }
-// repoMount.health.changed — sent by the daemon's re-probe on the stream of every session on the
-// mount whenever the verdict, or what holds its captures, changes, and, for a mount a committed re-attach or move made, with the
-// new mount's first verdict, which the re-probe's pass of the new mount sends right after the
-// commit; the session's lost-folder banner reads it (Spec-007 §Fallback Behavior).
+// repoMount.health.changed — sent on the stream of every session on the mount whenever the
+// verdict, or what holds its captures, changes: by the daemon's re-probe, or by the ask that finds
+// a held carry's cause or folder changed; and, for a mount a committed re-attach or move made,
+// with the new mount's first verdict, which the re-probe's pass of the new mount sends right after
+// the commit; the session's lost-folder banner reads it (Spec-007 §Fallback Behavior).
 interface RepoMountHealthChangedPayload {
   repoMountId: RepoMountId;
   health: RepoMountHealth;
