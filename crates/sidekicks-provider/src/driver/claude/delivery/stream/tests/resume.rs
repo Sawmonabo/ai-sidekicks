@@ -15,6 +15,8 @@ use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
 use crate::driver::test_registry::new_run_id;
+use crate::port::run_host::test_host::EngineCall;
+use crate::run::state_entry::RunStateEntry;
 
 // Fails when a resume leaves the log's held calls unrebuilt, ignores a saved ending, or times a
 // rebuilt opening from the rebuild rather than its stored time. Mutations: the hook in
@@ -293,5 +295,50 @@ async fn a_restored_call_waits_until_the_first_list_or_reply(
             Some(binding_id("binding-a")),
             Ending::Failed(Some(ToolCallEndCause::ProcessExit)),
         )]
+    );
+}
+
+// A relaunched or forked process reports a task the last process left running with a `result` of
+// no model turn before it takes any input; the run holding the turn keeps it until its own turn's
+// `result`. Killed by the reader's end check reading that `result` as the turn's end (the run ends
+// empty and frees the turn), and by the session's task opening the held turn on it.
+#[tokio::test(start_paused = true)]
+async fn a_relaunchs_task_notification_result_neither_opens_nor_ends_the_held_turn() {
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+
+    session.frame(&result(&json!({
+        "result": "",
+        "num_turns": 0,
+        "origin": {"kind": "task-notification"},
+    })));
+    settle().await;
+
+    let is_started = |calls: Vec<EngineCall>| {
+        calls
+            .iter()
+            .any(|call| matches!(call, EngineCall::StartTurn(started, _) if *started == run_id))
+    };
+    assert_eq!(session.engine.moves_of_run(run_id), []);
+    assert!(!is_started(session.engine.calls()));
+    assert_eq!(
+        session
+            .start
+            .routes
+            .lead_run_on(session.session_id)
+            .map(|lead| lead.run_id),
+        Some(run_id)
+    );
+
+    session.frame(&init());
+    session.frame(&result(&json!({})));
+    settle().await;
+
+    assert!(is_started(session.engine.calls()));
+    assert_eq!(
+        session.engine.moves_of_run(run_id),
+        [RunStateEntry::Completed {
+            intended_close: None
+        }]
     );
 }

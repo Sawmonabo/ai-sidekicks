@@ -150,9 +150,12 @@ struct WorkFolderRemoval {
 }
 
 impl WorkFolderRemoval {
+    // The folder stays in `self` until the removal ends, so a caller that drops the fork's future
+    // mid-removal leaves it to the drop.
     async fn remove(mut self) {
-        if let Some(folder) = self.folder.take() {
+        if let Some(folder) = self.folder.clone() {
             remove_work_folder(folder, self.tree_ends.clone()).await;
+            self.folder = None;
         }
     }
 }
@@ -167,14 +170,7 @@ impl Drop for WorkFolderRemoval {
         impl Drop for UnfinishedRemoval {
             fn drop(&mut self) {
                 if let Some(folder) = self.0.take() {
-                    let removed = remove_folder(&folder).or_else(|error| {
-                        if error.kind() == io::ErrorKind::NotFound {
-                            Ok(())
-                        } else {
-                            Err(error)
-                        }
-                    });
-                    log_left_folder(&folder, removed);
+                    log_left_folder(&folder, remove_folder(&folder));
                 }
             }
         }
@@ -211,12 +207,16 @@ async fn remove_work_folder(folder: PathBuf, tree_ends: TaskTracker) {
 }
 
 // Removes `folder` whole, once more where a write a killed process had in flight landed in it
-// during the first pass.
+// during the first pass; a folder already gone, as a part-done removal leaves it, counts as removed.
 fn remove_folder(folder: &Path) -> io::Result<()> {
-    match std::fs::remove_dir_all(folder) {
+    let removed = match std::fs::remove_dir_all(folder) {
         Err(error) if error.kind() == io::ErrorKind::DirectoryNotEmpty => {
             std::fs::remove_dir_all(folder)
         }
+        removed => removed,
+    };
+    match removed {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         removed => removed,
     }
 }

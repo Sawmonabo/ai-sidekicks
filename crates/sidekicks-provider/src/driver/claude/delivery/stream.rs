@@ -52,7 +52,9 @@ use crate::driver::claude::delivery::system::{
     read_claude_provider_status, read_claude_refusal_without_fallback, read_claude_warning,
     read_claude_worker_shutdown_reason,
 };
-use crate::driver::claude::delivery::turn_end::ClaudeTerminalReason;
+use crate::driver::claude::delivery::turn_end::{
+    ClaudeTerminalReason, is_claude_task_notification_result,
+};
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::rate_limit_windows::read_claude_quota_windows;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
@@ -211,6 +213,17 @@ impl ClaudeDeliveryStream {
             return after;
         }
         let is_result = kind.is_result();
+        // A relaunch's report of a task the last process left running opens and ends no turn of
+        // a run that holds this one.
+        if is_result && !is_turn_ending && is_claude_task_notification_result(&frame.text) {
+            record_unmapped(
+                session,
+                &session.unheld_reports,
+                frame_kind,
+                UNHELD_FRAME_REASON,
+            );
+            return after;
+        }
         // The reader released the turn as it read a turn-ending `result`, so that frame ends the
         // turn the stream opened; any other frame belongs to the run that held the turn as it was
         // read, the reader being ahead of this task.

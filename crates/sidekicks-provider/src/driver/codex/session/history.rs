@@ -20,6 +20,11 @@ const CODEX_TURNS_PAGE_LIMIT: u32 = 100;
 /// Codex's refusal for a conversation no message has reached yet, which holds no turn.
 const CODEX_NOT_MATERIALIZED_MESSAGE: &str = "is not materialized yet";
 
+/// The words of Codex's failure to read a conversation whose first message it has taken and not
+/// yet written, which holds no turn on record either; its message ends with the second.
+const CODEX_UNWRITTEN_ROLLOUT_MESSAGES: [&str; 2] =
+    ["failed to read session metadata", " is empty"];
+
 const THREAD_TURNS_LIST_METHOD: &str = "thread/turns/list";
 
 const THREAD_ITEMS_LIST_METHOD: &str = "thread/items/list";
@@ -81,12 +86,31 @@ struct ListedUserMessage {
 
 /// One of the person's messages a search of a conversation's turns looks for the turn of.
 #[derive(Clone, Copy, Debug)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "each field is the id of a different thing: a message, its turn's opener, a turn"
+)]
 pub(crate) struct CodexSoughtMessage<'a> {
     /// The message's id, which Codex keeps on its item as the `clientId` its `turn/start` or
     /// `turn/steer` was sent with; a `UUIDv7` dates its send.
     pub(crate) message_id: &'a str,
+    /// The message that opened the turn this one rode in, where it is another: a turn start sends
+    /// only its first message's id, so a turn holding the opener's `clientId` holds this one too.
+    pub(crate) opener_id: Option<&'a str>,
     /// The turn the message opened or steered, where a record holds it.
     pub(crate) turn_id: Option<&'a str>,
+}
+
+impl CodexSoughtMessage<'_> {
+    // Whether a listed item is the person's message sought, or the opener of the turn it rode in.
+    fn is_held_by(&self, item: &RawValue) -> bool {
+        read_codex_object::<ListedUserMessage>(item.get()).is_some_and(|message| {
+            message.item_type.as_deref() == Some("userMessage")
+                && message.client_id.as_deref().is_some_and(|client_id| {
+                    client_id == self.message_id || self.opener_id == Some(client_id)
+                })
+        })
+    }
 }
 
 /// What a search of a conversation's turns found.
@@ -100,19 +124,24 @@ pub(crate) enum CodexTurnListing {
     /// Codex lists turns and none since the message's send, nor the one running at it, is the turn
     /// sought or holds the message's id.
     Unlisted,
-    /// What Codex lists shows neither the message nor that it is gone: Codex lists no turn, as for
-    /// a conversation no message has reached or one whose history it has not projected, or it
-    /// serves a legacy thread's items only as each turn's first message, which a steer is not.
+    /// Codex holds the conversation and lists no turn of it: one whose history it has not
+    /// projected, or one cut to before its first turn, which the listing cannot tell apart.
+    Empty,
+    /// What Codex lists shows neither the message nor that it is gone: it has no record of the
+    /// conversation's turns yet, as for one no message has reached or whose first message it has
+    /// not written, or it serves a legacy thread's items only as each turn's first message, which
+    /// a steer is not.
     Indeterminate,
 }
 
-/// Every turn of `thread_id`, oldest first, each turn's items as `items_view` asks, Codex's
-/// summary where it is `None`; a conversation no message has reached yet answers none. Fails as
-/// the connection's request does, and with `CodexError::Transport` for a reply that is not a page.
+/// Every turn of `thread_id`, oldest first, with its items not loaded, since each reader reads a
+/// turn's own members only; a conversation no message has reached yet, or whose first message
+/// Codex has not written, answers none. Fails as the connection's request does, and with
+/// `CodexError::Transport` for a reply that is not a page or names the cursor it was sent as the
+/// next.
 pub(crate) async fn read_codex_turns(
     connection: &CodexAppServerConnection,
     thread_id: &str,
-    items_view: Option<TurnItemsView>,
 ) -> Result<Vec<CodexListedTurn>, CodexError> {
     let mut newest_first = Vec::new();
     let mut cursor = None;
@@ -120,16 +149,20 @@ pub(crate) async fn read_codex_turns(
         let Some(page) = read_turns_page(
             connection,
             thread_id,
-            cursor,
+            cursor.clone(),
             CODEX_TURNS_PAGE_LIMIT,
-            items_view,
+            TurnItemsView::NotLoaded,
         )
         .await?
         else {
             return Ok(Vec::new());
         };
         newest_first.extend(page.data.into_iter().filter_map(read_listed_turn));
-        cursor = page.next_cursor.filter(|next| !next.is_empty());
+        cursor = read_next_cursor(
+            THREAD_TURNS_LIST_METHOD,
+            cursor.as_deref(),
+            page.next_cursor,
+        )?;
         if cursor.is_none() {
             break;
         }
@@ -142,10 +175,11 @@ pub(crate) async fn read_codex_turns(
 /// Where `thread_id` lists the turn of the message `sought` names. Its turns are read newest
 /// first with no items, and the paging stops at the first turn that started before the second
 /// the message was sent in, which no turn of the message can follow. A known turn id found among
-/// them answers at once; otherwise the message's `clientId` is looked for in the items of the
-/// turns that paging passed, one turn at a time through `thread/items/list`, or, on a legacy
-/// thread that list does not serve, in each turn's first message. Fails as [`read_codex_turns`]
-/// does.
+/// them answers at once; otherwise the message's `clientId`, or that of the opener of the turn it
+/// rode in, is looked for in the items of the turns that paging passed, one turn at a time through
+/// `thread/items/list`, or, on a legacy thread that list does not serve, in each turn's first
+/// message. Fails as [`read_codex_turns`] does, and with `CodexError::Transport` for a page that
+/// names the cursor it was sent as the next.
 pub(crate) async fn find_codex_turn(
     connection: &CodexAppServerConnection,
     thread_id: &str,
@@ -163,9 +197,9 @@ pub(crate) async fn find_codex_turn(
         let Some(page) = read_turns_page(
             connection,
             thread_id,
-            cursor,
+            cursor.clone(),
             CODEX_TURNS_PAGE_LIMIT,
-            Some(TurnItemsView::NotLoaded),
+            TurnItemsView::NotLoaded,
         )
         .await?
         else {
@@ -194,13 +228,17 @@ pub(crate) async fn find_codex_turn(
                 None => undated.push(turn_id),
             }
         }
-        cursor = page.next_cursor.filter(|next| !next.is_empty());
+        cursor = read_next_cursor(
+            THREAD_TURNS_LIST_METHOD,
+            cursor.as_deref(),
+            page.next_cursor,
+        )?;
         if cursor.is_none() {
             break;
         }
     }
     if !is_any_turn_listed {
-        return Ok(CodexTurnListing::Indeterminate);
+        return Ok(CodexTurnListing::Empty);
     }
     // The message most often opened the oldest turn started since its send, or steered the one
     // running then, so those two are read first, then any later turn oldest first; with no turn
@@ -218,7 +256,7 @@ pub(crate) async fn find_codex_turn(
         .chain(undated)
         .collect();
     for (index, turn_id) in candidates.iter().enumerate() {
-        match holds_message(connection, thread_id, turn_id, sought.message_id).await {
+        match holds_message(connection, thread_id, turn_id, &sought).await {
             Ok(true) => {
                 return Ok(CodexTurnListing::Listed {
                     turn_id: turn_id.clone(),
@@ -226,13 +264,8 @@ pub(crate) async fn find_codex_turn(
             }
             Ok(false) => {}
             Err(error) if is_items_list_unserved(&error) => {
-                let opened = find_opening_turn(
-                    connection,
-                    thread_id,
-                    &candidates[index..],
-                    sought.message_id,
-                )
-                .await?;
+                let opened =
+                    find_opening_turn(connection, thread_id, &candidates[index..], &sought).await?;
                 return Ok(match opened {
                     Some(turn_id) => CodexTurnListing::Listed { turn_id },
                     None => CodexTurnListing::Indeterminate,
@@ -265,13 +298,13 @@ fn is_items_list_unserved(error: &CodexError) -> bool {
 }
 
 // The turn among `candidates` whose first user message, as Codex's summary of each turn shows it,
-// is `message_id`, the turns of `thread_id` paged newest first until every candidate was read;
-// `None` where none opened with it.
+// is the message `sought` or the opener of the turn it rode in, the turns of `thread_id` paged
+// newest first until every candidate was read; `None` where none opened with either.
 async fn find_opening_turn(
     connection: &CodexAppServerConnection,
     thread_id: &str,
     candidates: &[String],
-    message_id: &str,
+    sought: &CodexSoughtMessage<'_>,
 ) -> Result<Option<String>, CodexError> {
     let mut unread: HashSet<&str> = candidates.iter().map(String::as_str).collect();
     let mut cursor = None;
@@ -279,9 +312,9 @@ async fn find_opening_turn(
         let Some(page) = read_turns_page(
             connection,
             thread_id,
-            cursor,
+            cursor.clone(),
             CODEX_TURNS_PAGE_LIMIT,
-            Some(TurnItemsView::Summary),
+            TurnItemsView::Summary,
         )
         .await?
         else {
@@ -298,14 +331,15 @@ async fn find_opening_turn(
             if !unread.remove(turn_id.as_str()) {
                 continue;
             }
-            if items
-                .iter()
-                .any(|item| is_user_message_of(item, message_id))
-            {
+            if items.iter().any(|item| sought.is_held_by(item)) {
                 return Ok(Some(turn_id));
             }
         }
-        cursor = page.next_cursor.filter(|next| !next.is_empty());
+        cursor = read_next_cursor(
+            THREAD_TURNS_LIST_METHOD,
+            cursor.as_deref(),
+            page.next_cursor,
+        )?;
         if cursor.is_none() {
             break;
         }
@@ -313,26 +347,18 @@ async fn find_opening_turn(
     Ok(None)
 }
 
-// Whether a listed item is the person's message `message_id`.
-fn is_user_message_of(item: &RawValue, message_id: &str) -> bool {
-    read_codex_object::<ListedUserMessage>(item.get()).is_some_and(|message| {
-        message.item_type.as_deref() == Some("userMessage")
-            && message.client_id.as_deref() == Some(message_id)
-    })
-}
-
-// Whether turn `turn_id` of `thread_id` holds the person's message `message_id`, its items read
-// page by page.
+// Whether turn `turn_id` of `thread_id` holds the message `sought` or the opener of the turn it
+// rode in, its items read page by page.
 async fn holds_message(
     connection: &CodexAppServerConnection,
     thread_id: &str,
     turn_id: &str,
-    message_id: &str,
+    sought: &CodexSoughtMessage<'_>,
 ) -> Result<bool, CodexError> {
     let mut cursor = None;
     loop {
         let params = ThreadItemsListParams {
-            cursor,
+            cursor: cursor.clone().map(CodexItemsCursor),
             limit: Some(CODEX_TURNS_PAGE_LIMIT),
             sort_direction: None,
             thread_id: thread_id.to_owned(),
@@ -345,45 +371,69 @@ async fn holds_message(
         let is_held = page.data.iter().any(|entry| {
             read_codex_object::<ListedItemEntry>(entry.get())
                 .and_then(|entry| entry.item)
-                .is_some_and(|item| is_user_message_of(&item, message_id))
+                .is_some_and(|item| sought.is_held_by(&item))
         });
         if is_held {
             return Ok(true);
         }
-        cursor = page
-            .next_cursor
-            .filter(|next| !next.is_empty())
-            .map(CodexItemsCursor);
+        cursor = read_next_cursor(
+            THREAD_ITEMS_LIST_METHOD,
+            cursor.as_deref(),
+            page.next_cursor,
+        )?;
         if cursor.is_none() {
             return Ok(false);
         }
     }
 }
 
-/// The newest turn of `thread_id`, `None` for a conversation no message has reached yet. Fails
-/// as [`read_codex_turns`] does.
+// The cursor of the page after one `method` answered for the cursor `sent`: `None` where the page
+// names none, which ends the paging. Fails with `CodexError::Transport` where the page names `sent`
+// again, which would page forever.
+fn read_next_cursor(
+    method: &str,
+    sent: Option<&str>,
+    next: Option<String>,
+) -> Result<Option<String>, CodexError> {
+    let next = next.filter(|next| !next.is_empty());
+    if next.is_some() && next.as_deref() == sent {
+        return Err(CodexError::Transport {
+            detail: format!(
+                "The Codex app-server \"{method}\" reply named the cursor it was sent again."
+            ),
+            cause: None,
+        });
+    }
+    Ok(next)
+}
+
+/// The newest turn of `thread_id`, its items not loaded, `None` for a conversation no message has
+/// reached yet. Fails as [`read_codex_turns`] does.
 pub(crate) async fn read_codex_newest_turn(
     connection: &CodexAppServerConnection,
     thread_id: &str,
 ) -> Result<Option<CodexListedTurn>, CodexError> {
-    let Some(page) = read_turns_page(connection, thread_id, None, 1, None).await? else {
+    let Some(page) =
+        read_turns_page(connection, thread_id, None, 1, TurnItemsView::NotLoaded).await?
+    else {
         return Ok(None);
     };
     Ok(page.data.into_iter().find_map(read_listed_turn))
 }
 
 // One page of `thread_id`'s turns, newest first, from `cursor`, each turn's items as `items_view`
-// asks, Codex's summary where it is `None`; `None` for a conversation no message has reached yet.
+// asks; `None` for a conversation no message has reached yet, or whose first message Codex has not
+// written yet.
 async fn read_turns_page(
     connection: &CodexAppServerConnection,
     thread_id: &str,
     cursor: Option<String>,
     limit: u32,
-    items_view: Option<TurnItemsView>,
+    items_view: TurnItemsView,
 ) -> Result<Option<CodexPage>, CodexError> {
     let params = ThreadTurnsListParams {
         cursor,
-        items_view,
+        items_view: Some(items_view),
         limit: Some(limit),
         sort_direction: None,
         thread_id: thread_id.to_owned(),
@@ -395,9 +445,23 @@ async fn read_turns_page(
         {
             return Ok(None);
         }
+        Err(error) if is_rollout_unwritten(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
     read_page(THREAD_TURNS_LIST_METHOD, &reply, "turns").map(Some)
+}
+
+// Whether `error` is Codex's internal failure to read a conversation whose record file it has
+// made and not yet written to, as right after the first message's `turn/start`.
+fn is_rollout_unwritten(error: &CodexError) -> bool {
+    let [read_failed, empty] = CODEX_UNWRITTEN_ROLLOUT_MESSAGES;
+    matches!(
+        error,
+        CodexError::ProviderRequest { code, message, .. }
+            if *code == i64::from(JsonRpcErrorCode::InternalError.code())
+                && message.contains(read_failed)
+                && message.ends_with(empty)
+    )
 }
 
 // A listed turn with its id; an entry with no id is skipped, since a placeholder would shift every

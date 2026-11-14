@@ -21,6 +21,9 @@ pub struct RewindConversationParams {
     pub binding_id: RuntimeBindingId,
     /// The person's message the cut lands before.
     pub target_message_id: String,
+    /// The person's message that opened the turn the target rode in, where that is another
+    /// message, so a driver whose provider keeps only a turn's first message id finds the turn.
+    pub target_turn_opener_id: Option<String>,
     /// The provider's id of the turn that message opened or steered, as the daemon's log recorded
     /// its start, so a driver whose own record lost the message finds its turn by id.
     pub target_turn_id: Option<ProviderTurnId>,
@@ -73,6 +76,11 @@ pub enum RewindTargetPresence {
     Held,
     /// The conversation held the message and a cut took it: it already ends before it.
     CutAway,
+    /// The provider's listing no longer shows the message, which only its own cut can confirm
+    /// gone, since the listing may lag the record the cut reads: asked of the cut's target, the
+    /// cut is sent and the provider's answer decides; asked of the message before, it reads as
+    /// cut away, since confirming it would cut past the undo's point.
+    UnconfirmedCut,
 }
 
 /// The fork a cut restarted the session on, which the daemon records as a relaunch of the cut

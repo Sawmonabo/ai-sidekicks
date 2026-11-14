@@ -294,7 +294,9 @@ impl RunQueue {
     /// its provider's own check deciding; any other provider's record is read on the session's
     /// live binding, so a retried undo never cuts twice: a conversation that no longer holds the
     /// reach's message reads as the cut already made only while it still holds the person's
-    /// message just before the reach, or none stands there. Fails with [`ConversationCutError`]'s
+    /// message just before the reach, or none stands there; a reach's message the record shows
+    /// gone only unconfirmed is cut, the provider's own check deciding, and a message before it
+    /// so shown reads as cut away. Fails with [`ConversationCutError`]'s
     /// `NoLiveBinding` where the session runs on none, `CutPastPoint` where the conversation was
     /// cut back past the reach, and `Queue` carrying the provider's failure of a read.
     pub async fn read_provider_cut(
@@ -324,29 +326,41 @@ impl RunQueue {
         binding_id: RuntimeBindingId,
         reach: &ReachRead,
     ) -> Result<ProviderCut, ConversationCutError> {
-        let read = |message_id: QueueItemId, turn_id: Option<ProviderTurnId>| {
+        let read = |message_id: QueueItemId,
+                    turn_id: Option<ProviderTurnId>,
+                    opener_id: Option<QueueItemId>| {
             driver_of(reach).read_rewind_target(RewindConversationParams {
                 session_id,
                 binding_id: binding_id.clone(),
                 target_message_id: message_id.to_string(),
+                target_turn_opener_id: opener_id.map(|opener_id| opener_id.to_string()),
                 target_turn_id: turn_id,
             })
         };
-        let presence = read(reach.reach.message_id, reach.message_turn_id.clone())
-            .await
-            .map_err(QueueError::from)?;
-        if presence == RewindTargetPresence::Held {
-            return Ok(ProviderCut::ToMake);
+        let presence = read(
+            reach.reach.message_id,
+            reach.message_turn_id.clone(),
+            reach.message_turn_opener_id,
+        )
+        .await
+        .map_err(QueueError::from)?;
+        match presence {
+            RewindTargetPresence::Held | RewindTargetPresence::UnconfirmedCut => {
+                return Ok(ProviderCut::ToMake);
+            }
+            RewindTargetPresence::CutAway => {}
         }
         let Some(before) = self.read_message_before(session_id, reach).await? else {
             return Ok(ProviderCut::AlreadyMade);
         };
-        match read(before.message_id, before.turn_id)
+        match read(before.message_id, before.turn_id, before.turn_opener_id)
             .await
             .map_err(QueueError::from)?
         {
             RewindTargetPresence::Held => Ok(ProviderCut::AlreadyMade),
-            RewindTargetPresence::CutAway => Err(ConversationCutError::CutPastPoint),
+            RewindTargetPresence::CutAway | RewindTargetPresence::UnconfirmedCut => {
+                Err(ConversationCutError::CutPastPoint)
+            }
         }
     }
 
@@ -395,6 +409,9 @@ impl RunQueue {
             session_id,
             binding_id: cut_reach.binding.id.clone(),
             target_message_id: reach.reach.message_id.to_string(),
+            target_turn_opener_id: reach
+                .message_turn_opener_id
+                .map(|opener_id| opener_id.to_string()),
             target_turn_id: reach.message_turn_id.clone(),
         };
         let mut fork = None;

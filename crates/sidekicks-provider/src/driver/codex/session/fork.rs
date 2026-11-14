@@ -17,7 +17,6 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::port_registration::PortRegistration;
 
 use crate::compaction_wait::PendingCompactionRegistry;
-use crate::driver::codex::app_server_protocol::TurnItemsView;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
@@ -376,12 +375,7 @@ pub(crate) async fn read_codex_fork_or_let_go(
             read_thread_reasoning_effort(&forked.reply).as_deref(),
         )
         .await?;
-        let turns = read_codex_turns(
-            connection,
-            &forked.thread_id,
-            Some(TurnItemsView::NotLoaded),
-        )
-        .await?;
+        let turns = read_codex_turns(connection, &forked.thread_id).await?;
         Ok(turns.into_iter().map(|listed| listed.id).collect())
     };
     let turn_ids = read.await;

@@ -301,6 +301,8 @@ pub struct ReachRead {
     /// The provider's id of the turn the reach's message opened or steered, where its start
     /// recorded one.
     pub(super) message_turn_id: Option<ProviderTurnId>,
+    /// The queue item that opened the turn the reach's message rode in, where it is another.
+    pub(super) message_turn_opener_id: Option<QueueItemId>,
     /// The pressed message and its group, which the cut reads the reach's messages from again
     /// under the hold.
     pub(super) pressed_group: PressedGroup,
@@ -321,11 +323,17 @@ pub(super) struct PressedGroup {
 }
 
 /// One of the person's messages the provider's read is asked about.
+#[expect(
+    clippy::struct_field_names,
+    reason = "each field is the id of a different thing: a message, its turn, its turn's opener"
+)]
 pub(super) struct AskedMessage {
     /// Its queue item.
     pub(super) message_id: QueueItemId,
     /// The provider's id of the turn it opened or steered, where its start recorded one.
     pub(super) turn_id: Option<ProviderTurnId>,
+    /// The queue item that opened the turn it rode in, where it is another.
+    pub(super) turn_opener_id: Option<QueueItemId>,
 }
 
 // What the log holds at a checkpoint's sequence.
@@ -532,10 +540,13 @@ fn read_reach(
         }
         Some(TurnOpening::Queued { .. } | TurnOpening::Unqueued) | None => pressed_message_id,
     };
-    let message_turn_id = if driver.is_some() {
-        read_provider_turn_id(reader, read_damaged, session_id, &checkpoint)?
+    let (message_turn_id, message_turn_opener_id) = if driver.is_some() {
+        (
+            read_provider_turn_id(reader, read_damaged, session_id, &checkpoint)?,
+            read_turn_opener_id(reader, session_id, &checkpoint, message_id)?,
+        )
     } else {
-        None
+        (None, None)
     };
     Ok(ReachRead {
         reach: UndoReach {
@@ -548,6 +559,7 @@ fn read_reach(
         later_run_ids,
         driver,
         message_turn_id,
+        message_turn_opener_id,
         pressed_group,
     })
 }
@@ -769,9 +781,28 @@ fn read_provider_turn_id(
         .flatten())
 }
 
+// The queue item that opened the turn `checkpoint`'s message `message_id` opened or steered, as
+// that turn's start recorded it, where it is another message.
+fn read_turn_opener_id(
+    reader: &Connection,
+    session_id: SessionId,
+    checkpoint: &Checkpoint,
+    message_id: QueueItemId,
+) -> Result<Option<QueueItemId>, ConversationCutError> {
+    Ok(turn_start_checkpoint(
+        reader,
+        session_id,
+        checkpoint.run_id,
+        checkpoint.turn_number,
+    )
+    .map_err(QueueError::from)?
+    .and_then(|start| start.turn_opening_id)
+    .filter(|opener_id| *opener_id != message_id))
+}
+
 // The person's last message sent through the queue before `reach` that the lead's conversation
 // still holds, a cut away one or a turn's start passed over, with the provider's id of the turn it
-// opened or steered; `None` where none stands before it.
+// opened or steered and the message that opened that turn; `None` where none stands before it.
 fn read_message_before(
     reader: &Connection,
     read_damaged: &DamagedFromSequenceReader,
@@ -787,6 +818,7 @@ fn read_message_before(
     Ok(Some(AskedMessage {
         message_id,
         turn_id: read_provider_turn_id(reader, read_damaged, session_id, &before)?,
+        turn_opener_id: read_turn_opener_id(reader, session_id, &before, message_id)?,
     }))
 }
 

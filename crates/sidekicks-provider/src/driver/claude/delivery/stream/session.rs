@@ -21,7 +21,9 @@ use crate::driver::claude::delivery::mcp_tasks::restore::{ClaudeKeptCall, Claude
 use crate::driver::claude::delivery::run_readings::{
     ClaudeOpenTurn, ClaudeStreamSession, ClaudeTakenMessage,
 };
-use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
+use crate::driver::claude::delivery::turn_end::{
+    is_claude_task_notification_result, read_claude_result_message_uuids,
+};
 use crate::driver::claude::delivery::turn_readings::ClaudeTurnReadings;
 use crate::driver::claude::goals::file::ClaudeProcessGoal;
 use crate::driver::claude::pricing::ClaudeResultPricing;
@@ -326,8 +328,12 @@ impl ClaudeSessionStream {
     /// steer and ends nothing; one naming it ends the turn and settles the steer. A run with a
     /// steer still waiting keeps the turn through the settlement the reader then makes, since
     /// Claude Code starts its next turn with that steer; the turn's end on the session's task
-    /// decides whether the run goes on into it.
+    /// decides whether the run goes on into it. A `result` Claude Code wrote for a task's
+    /// notification with no model turn ends nothing.
     pub(crate) fn is_turn_ending(&self, text: &str) -> bool {
+        if is_claude_task_notification_result(text) {
+            return false;
+        }
         let is_ending = {
             let mut readings = self.lock();
             if readings.now_steers.is_empty() {

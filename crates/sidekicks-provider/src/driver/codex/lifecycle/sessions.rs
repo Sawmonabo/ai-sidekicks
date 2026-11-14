@@ -463,13 +463,16 @@ impl CodexDriver {
             &reading.thread_id,
             CodexSoughtMessage {
                 message_id: &first,
+                opener_id: None,
                 turn_id: None,
             },
         )
         .await?;
         let taken: Vec<QueueItemId> = match listing {
             CodexTurnListing::Listed { .. } => params.message_ids,
-            CodexTurnListing::Unlisted | CodexTurnListing::Indeterminate => Vec::new(),
+            CodexTurnListing::Unlisted
+            | CodexTurnListing::Empty
+            | CodexTurnListing::Indeterminate => Vec::new(),
         };
         Ok(TakenMessages { taken })
     }

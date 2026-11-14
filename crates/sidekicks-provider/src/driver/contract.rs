@@ -151,13 +151,20 @@ pub trait ProviderDriver: Send + Sync {
     /// Reads from the provider's own record whether the bound conversation still holds the
     /// person's message `params.target_message_id` or already ends before it, so a retried undo
     /// never cuts twice (gated on `rollback`). Answers `CutAway` only where the record shows the
-    /// message once held and no longer in the conversation, and `Held` wherever it cannot tell;
-    /// fails as the read fails. With its own record empty, as after a restart, a driver reads the
-    /// provider's stored history: Claude Code its transcript, `CutAway` only where a cut's own
-    /// row, written after the last turn and never taken back, names the entry holding the message,
-    /// and `Held` otherwise; Codex the conversation's turns, `CutAway` where no turn listed since
-    /// the message's send is `params.target_turn_id` or holds the message's id, which a fork's
-    /// copy keeps. Asked when [`rewind_target_ask`](Self::rewind_target_ask) says.
+    /// message once held and no longer in the conversation, `UnconfirmedCut` where only the
+    /// provider's own cut can confirm it gone, and `Held` wherever it cannot tell; fails as the
+    /// read fails. With its own record empty, as after a restart, a driver reads the provider's
+    /// stored history: Claude Code its transcript, `CutAway` only where a cut's own row, written
+    /// after the last turn and never taken back, names the entry holding the message, and `Held`
+    /// otherwise; Codex the conversation's turns. Where Codex lists turns and none listed since the
+    /// message's send, or running at it, is the turn its record or `params.target_turn_id` names
+    /// or holds the message's id or `params.target_turn_opener_id`, which a fork's copy keeps,
+    /// Codex answers `UnconfirmedCut` when it knows a turn of the message, since its listing can
+    /// lag the record its cut reads, and `CutAway` when it knows none; it answers `Held` where
+    /// Codex lists no turn or, on a legacy thread, shows only each turn's first message, and
+    /// `CutAway` once Codex's refusal of the cut showed that cut made. Asked when
+    /// [`rewind_target_ask`](Self::rewind_target_ask) says: on Codex before its cut, on Claude Code
+    /// after a refusal.
     fn read_rewind_target(
         &self,
         params: RewindConversationParams,

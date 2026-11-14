@@ -66,6 +66,10 @@ const CODEX_RESTART_REQUESTED_MESSAGE: &str = "Restart Codex";
 /// find.
 const CODEX_THREAD_NOT_FOUND_MESSAGE: &str = "thread not found";
 
+/// The words of Codex's refusal of a `thread/revert` before a turn its own record of the
+/// conversation does not hold, followed by the turn's id.
+const CODEX_TURN_NOT_FOUND_MESSAGE: &str = "turn not found: ";
+
 /// The `data.reason` a turn refused while another of the session's turns is in flight carries.
 const SESSION_TURN_IN_FLIGHT_REASON: &str = "sessionTurnInFlight";
 
@@ -330,6 +334,16 @@ impl CodexError {
     /// not found: <id>`.
     pub(crate) fn is_thread_not_found(&self) -> bool {
         self.is_invalid_request_saying(CODEX_THREAD_NOT_FOUND_MESSAGE)
+    }
+
+    /// Whether this is Codex's refusal of a cut before `turn_id`, `turn not found: <id>`, which it
+    /// answers once it has read the conversation's own record and found no such turn.
+    pub(crate) fn is_turn_not_found(&self, turn_id: &str) -> bool {
+        matches!(
+            self,
+            Self::ProviderRequest { code: CODEX_INVALID_REQUEST_CODE, message, .. }
+                if message.strip_prefix(CODEX_TURN_NOT_FOUND_MESSAGE) == Some(turn_id)
+        )
     }
 
     // A `-32600` answer whose message holds `words`.
