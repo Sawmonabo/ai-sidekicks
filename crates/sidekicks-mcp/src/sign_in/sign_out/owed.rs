@@ -9,11 +9,13 @@
 //!   whose address no longer reads, as one whose variable lost its value, still owes that server,
 //!   and a remaining binding whose address no longer reads still names it. A read at another
 //!   address owes the old one, which the next settle signs out unless a binding still names it.
-//! - A removal between its record and its own settle is counted in memory by digest, and each
-//!   count stamps the server with the next removal's number. No settle clears or signs out a server
-//!   a removal is counted at, or one stamped since its scan began, so a settle that read a binding
-//!   before its removal landed never clears the record that removal needs. A stop loses only the
-//!   counts; the records stay for the next start.
+//! - A removal between its record and its own settle is counted in memory by digest. Its count,
+//!   its release once its write has answered, and each sign-in or sign-out press stamp the server
+//!   with the next number. No settle clears or signs out a server a removal is counted at, or one
+//!   stamped since its scan began, so a settle that read a binding before its removal landed never
+//!   clears the record that removal needs, and one that read a server unnamed before a binding was
+//!   added there never signs out the sign-in a press then made. A stop loses only the counts and
+//!   stamps; the records stay for the next start.
 //! - One settle runs at a time, on a task the sign-in service's stop ends: a request while one runs
 //!   has it run once more after, so a burst of presses costs two scans, and a removal waits for a
 //!   run that began after its write.
@@ -157,24 +159,31 @@ impl OwedSignOutStore {
 }
 
 // The removals between their record and their own settle: how many are counted at each server,
-// and the number of the latest removal counted at each, which a settle compares with the number
-// it began at.
+// and the latest number each server was stamped with, by a removal's count or release or by a
+// press, which a settle compares with the number it began at.
 #[derive(Default)]
 struct RemovalsInFlight {
     counts: HashMap<ServerAddressDigest, usize>,
-    counted_at: HashMap<ServerAddressDigest, u64>,
+    stamped_at: HashMap<ServerAddressDigest, u64>,
     next: u64,
 }
 
 impl RemovalsInFlight {
+    // Stamps `digest`'s server with the next number, no earlier than any a running settle began at.
+    fn stamp(&mut self, digest: &ServerAddressDigest) {
+        let number = self.next;
+        self.next += 1;
+        self.stamped_at.insert(digest.clone(), number);
+    }
+
     // Whether a settle that began at `began` leaves `digest`'s record: a removal is counted there
-    // or was counted since the settle began.
+    // or the server was stamped since the settle began.
     fn holds(&self, digest: &ServerAddressDigest, began: u64) -> bool {
         self.counts.contains_key(digest)
             || self
-                .counted_at
+                .stamped_at
                 .get(digest)
-                .is_some_and(|counted| *counted >= began)
+                .is_some_and(|stamped| *stamped >= began)
     }
 }
 
@@ -230,16 +239,18 @@ impl OwedSignOuts {
         })
     }
 
-    /// Keeps the digest of `address`, which `binding`'s whole address just read as, as the
-    /// binding's last declared one, owing the sign-out of the one it held where that differs, and
-    /// answers it. Fails with [`OwedSignOutError`] when the address key, the binding store or the
-    /// record does not read or keep, the column then left as it was.
+    /// Stamps the server `address` names, as a press does, so no settle that began earlier signs
+    /// it out; keeps its digest, which `binding`'s whole address just read as, as the binding's
+    /// last declared one, owing the sign-out of the one it held where that differs; and answers
+    /// it. Fails with [`OwedSignOutError`] when the address key, the binding store or the record
+    /// does not read or keep, the column then left as it was.
     pub(crate) async fn note_declared(
         &self,
         binding: &McpServerBindingRef,
         address: &McpServerAddress,
     ) -> Result<ServerAddressDigest, OwedSignOutError> {
         let digest = self.sign_ins.custody.digest(address).await?;
+        lock(&self.in_flight).stamp(&digest);
         let last = self.read_last_declared(binding).await?;
         self.keep_declared(binding, &digest, last.as_ref()).await?;
         Ok(digest)
@@ -247,17 +258,22 @@ impl OwedSignOuts {
 
     /// The digest of the server a sign-out of `binding` reaches: `address`'s, kept as the
     /// binding's last declared one, or where the address no longer reads, the one it last read
-    /// as; `None` where it never read. Fails with [`OwedSignOutError`] when the address key or the
-    /// binding store does not read or keep.
+    /// as; `None` where it never read. The server is stamped as [`Self::note_declared`] stamps it.
+    /// Fails with [`OwedSignOutError`] when the address key or the binding store does not read or
+    /// keep.
     pub(crate) async fn sign_out_digest(
         &self,
         binding: &McpServerBindingRef,
         address: Option<&McpServerAddress>,
     ) -> Result<Option<ServerAddressDigest>, OwedSignOutError> {
-        match address {
-            Some(address) => self.note_declared(binding, address).await.map(Some),
-            None => self.read_last_declared(binding).await,
+        if let Some(address) = address {
+            return self.note_declared(binding, address).await.map(Some);
         }
+        let last = self.read_last_declared(binding).await?;
+        if let Some(last) = &last {
+            lock(&self.in_flight).stamp(last);
+        }
+        Ok(last)
     }
 
     /// Asks the one settle task for a run, as a press does once it has answered and the daemon's
@@ -345,14 +361,13 @@ impl OwedSignOuts {
         Ok(hold)
     }
 
-    // Counts a removal in flight at `digest`'s server, stamping it with the removal's number, and
-    // answers the hold that uncounts it.
+    // Counts a removal in flight at `digest`'s server, stamping it, and answers the hold that
+    // uncounts it and stamps it again, so a settle whose scan began before the removal's write
+    // landed, and read its binding still declared, leaves the record for the removal's own settle.
     fn count_in_flight(&self, digest: &ServerAddressDigest) -> McpRemovalSignOutHold {
         {
             let mut in_flight = lock(&self.in_flight);
-            let number = in_flight.next;
-            in_flight.next += 1;
-            in_flight.counted_at.insert(digest.clone(), number);
+            in_flight.stamp(digest);
             *in_flight.counts.entry(digest.clone()).or_default() += 1;
         }
         let in_flight = Arc::clone(&self.in_flight);
@@ -367,6 +382,7 @@ impl OwedSignOuts {
             if *count == 0 {
                 in_flight.counts.remove(&digest);
             }
+            in_flight.stamp(&digest);
         })
     }
 
@@ -458,8 +474,8 @@ impl OwedSignOuts {
         }
         let mut in_flight = lock(&self.in_flight);
         in_flight
-            .counted_at
-            .retain(|_digest, counted| *counted >= began);
+            .stamped_at
+            .retain(|_digest, stamped| *stamped >= began);
         Ok(())
     }
 

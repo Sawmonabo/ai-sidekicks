@@ -10,8 +10,9 @@ use crate::errors::McpRefusal;
 /// Owes and settles the sign-out a removed binding's server is due.
 pub trait McpRemovalSignOut: Send + Sync {
     /// Owes the sign-out of the server `binding` names, before its removal is written, answering
-    /// the hold that keeps a settle from clearing it until the removal has answered. Refuses
-    /// `provider.unavailable` when the binding's address cannot be read and
+    /// the hold that keeps a settle from clearing it until the removal has answered, and keeps one
+    /// that began before then from clearing it at all, so the removal's own settle decides it.
+    /// Refuses `provider.unavailable` when the binding's address cannot be read and
     /// `mcp.bindingStoreUnavailable` when the record is not kept, so nothing is written.
     fn owe_sign_out<'a>(
         &'a self,

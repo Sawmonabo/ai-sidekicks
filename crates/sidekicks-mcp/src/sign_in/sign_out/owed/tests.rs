@@ -620,6 +620,93 @@ async fn a_removal_landing_during_a_scan_keeps_its_record_for_its_own_settle() {
     );
 }
 
+// A removal counted before a settle began, whose write lands and whose hold drops while that
+// settle's scan holds its binding still declared, keeps its record through that settle and is
+// signed out by its own. Killed by a release that does not stamp the server: the earlier settle
+// clears the record from its stale reading and the item stays.
+#[tokio::test]
+async fn a_removal_released_during_an_earlier_settles_scan_still_signs_out() {
+    let (server, harness, _authorizer) = signed_in(StatusCode::OK, None, None).await;
+    let (scan_reached, release_scan) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+    let (reached_by_driver, release_for_driver) =
+        (Arc::clone(&scan_reached), Arc::clone(&release_scan));
+    let is_armed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let armed_for_driver = Arc::clone(&is_armed);
+    let mut notes = driver_declaring(vec![remote_declaration(
+        &notes_binding(),
+        "https://notes.example.test/mcp",
+    )]);
+    notes
+        .expect_read_mcp_server_addresses()
+        .returning(move |requests| {
+            let blocks = armed_for_driver.swap(false, std::sync::atomic::Ordering::SeqCst);
+            let (reached, release) = (
+                Arc::clone(&reached_by_driver),
+                Arc::clone(&release_for_driver),
+            );
+            async move {
+                if blocks {
+                    reached.notify_one();
+                    release.notified().await;
+                }
+                requests
+                    .iter()
+                    .map(|_request| {
+                        Ok(McpServerAddressReading::Declared(
+                            McpServerAddress::new("https://notes.example.test/mcp")
+                                .expect("an address"),
+                        ))
+                    })
+                    .collect()
+            }
+            .boxed()
+        });
+    let (write_reached, go_write) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+    let (reached_by_write, go_for_write) = (Arc::clone(&write_reached), Arc::clone(&go_write));
+    let waiting: WriteHook = Arc::new(move || {
+        let (reached, go) = (Arc::clone(&reached_by_write), Arc::clone(&go_for_write));
+        async move {
+            reached.notify_one();
+            go.notified().await;
+        }
+        .boxed()
+    });
+    let removal = removal_over(
+        vec![
+            docs_driver(&server, Some(address(&server)), waiting),
+            Arc::new(notes),
+        ],
+        &harness,
+    )
+    .await;
+
+    let removed = removal
+        .mutations
+        .delete(delete(&first_provider(), &idempotency_key(), "docs"));
+    let earlier = async {
+        write_reached.notified().await;
+        is_armed.store(true, std::sync::atomic::Ordering::SeqCst);
+        removal.owed.settle_after_request().await;
+    };
+    let landing = async {
+        scan_reached.notified().await;
+        go_write.notify_one();
+        while !lock(&removal.owed.in_flight).counts.is_empty() {
+            tokio::task::yield_now().await;
+        }
+        release_scan.notify_one();
+    };
+    let (removed, (), ()) = tokio::join!(removed, earlier, landing);
+
+    assert!(removed.is_ok(), "the removal lands");
+    assert!(!is_held(&harness, &server).await);
+    assert_eq!(received_revocations(&server).await.len(), 1);
+    assert_eq!(
+        records(&removal.owed).await,
+        Vec::<ServerAddressDigest>::new()
+    );
+}
+
 // A detached project's folder still counts as a root: a server only its `.mcp.json` names keeps
 // its sign-in when another binding at that server is removed. Killed by the scan reading the
 // attached roots alone: the project's binding is never declared and the sign-in is revoked.
