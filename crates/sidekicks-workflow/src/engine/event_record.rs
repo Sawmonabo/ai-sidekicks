@@ -282,7 +282,7 @@ impl EngineRecorder {
         lock(&self.sequences).remove(&run_id);
     }
 
-    /// The faults of runs that have no row, none recorded yet.
+    /// The faults of runs that record nothing more in this life, none recorded yet.
     #[cfg_attr(
         not(test),
         expect(
@@ -290,8 +290,8 @@ impl EngineRecorder {
             reason = "the run start's held start and the restart's leftover sweep"
         )
     )]
-    pub(crate) fn rowless_run_faults(&self) -> RowlessRunFaults<'_> {
-        RowlessRunFaults {
+    pub(crate) fn ended_run_faults(&self) -> EndedRunFaults<'_> {
+        EndedRunFaults {
             recorder: self,
             records: HashMap::new(),
         }
@@ -304,8 +304,9 @@ impl EngineRecorder {
     }
 }
 
-/// The faults of runs that have no row and record nothing more: each run's go through one record,
-/// so they carry one sequence, and each run's sequence is forgotten once, when this is dropped.
+/// The faults of runs that record nothing more in this life, a start's that wrote no row and a
+/// finished or rowless run's the restart's sweep found: each run's go through one record, so they
+/// carry one sequence, and each run's sequence is forgotten once, when this is dropped.
 #[cfg_attr(
     not(test),
     expect(
@@ -313,14 +314,14 @@ impl EngineRecorder {
         reason = "the run start's held start and the restart's leftover sweep"
     )
 )]
-pub(crate) struct RowlessRunFaults<'recorder> {
+pub(crate) struct EndedRunFaults<'recorder> {
     /// The recorder the records come from and whose sequences are forgotten.
     recorder: &'recorder EngineRecorder,
     /// The record of each run a fault was recorded under.
     records: HashMap<WorkflowRunId, RunEngineRecord>,
 }
 
-impl RowlessRunFaults<'_> {
+impl EndedRunFaults<'_> {
     /// Records `fault` and its `error` under `run_id`, after the run's earlier faults here.
     #[cfg_attr(
         not(test),
@@ -344,7 +345,7 @@ impl RowlessRunFaults<'_> {
     }
 }
 
-impl Drop for RowlessRunFaults<'_> {
+impl Drop for EndedRunFaults<'_> {
     fn drop(&mut self) {
         for run_id in self.records.keys() {
             self.recorder.end_run(*run_id);

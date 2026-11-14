@@ -12,7 +12,7 @@ use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::database::writer::DatabaseWriter;
 
 use crate::engine::payload_reservations::{
-    ReservedPayloadError, forget_payload, forget_run_statement, reserve_payload_ids,
+    ReservedPayloadError, forget_payloads, forget_run_statement, reserve_payload_ids,
 };
 use crate::engine::ports::{PortError, StepPayloadArtifacts};
 use crate::runs::step_payload::{
@@ -107,7 +107,7 @@ impl<'start> StartPayloads<'start> {
         for artifact_id in self.stored {
             match self.payloads.delete(&artifact_id).await {
                 Ok(()) => {
-                    if let Err(error) = forget_payload(self.writer, artifact_id).await {
+                    if let Err(error) = forget_payloads(self.writer, &[artifact_id]).await {
                         left.push((artifact_id, Box::new(error) as PortError));
                     }
                 }

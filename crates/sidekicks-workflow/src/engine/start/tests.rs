@@ -52,9 +52,8 @@ use sidekicks_workspace::test_rows::project_and_mount_rows;
 
 use self::binding::TestBinder;
 use super::{
-    StartedRun, StartsUnderWay, WORKFLOW_RUN_START_STATEMENT_CAPACITY, WorkflowRunStart,
-    WorkflowRunStartError, WorkflowRunStarter, WorkflowRunStarterDependencies,
-    WorkflowStartArrival, WorkflowStartOutcome,
+    StartedRun, WORKFLOW_RUN_START_STATEMENT_CAPACITY, WorkflowRunStart, WorkflowRunStartError,
+    WorkflowRunStarter, WorkflowRunStarterDependencies, WorkflowStartArrival, WorkflowStartOutcome,
 };
 use crate::definitions::kept_values::{
     WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY, WorkflowKeptValueStore,
@@ -63,6 +62,7 @@ use crate::engine::event_record::EngineRecorder;
 use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::run_limits::ScriptedRunLimits;
 use crate::engine::ports::{EngineRecordSink, KeptEngineRecords, StepPayloadArtifacts};
+use crate::engine::under_way::RunsUnderWay;
 use crate::kinds::{
     NodeKindTable, PassThroughExecutor, command_test_kind, git_test_kind, main_test_kind, test_kind,
 };
@@ -199,7 +199,7 @@ impl Fixture {
             recorder: Arc::new(EngineRecorder::new(
                 Arc::clone(&records) as Arc<dyn EngineRecordSink>
             )),
-            starts_under_way: Arc::new(StartsUnderWay::default()),
+            runs_under_way: Arc::new(RunsUnderWay::default()),
         });
         let rows = database.reader();
         insert_workflow_version_body(&rows, DEFINITION_ID, VERSION_ID, body);

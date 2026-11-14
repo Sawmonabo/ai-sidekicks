@@ -27,9 +27,9 @@ pub(crate) struct KeptPayload {
 }
 
 /// A payload store that keeps what each write was given, or refuses every write past a count once
-/// told to, or leaves every write past a count unanswered once told to, reads each kept artifact's
-/// bytes back, noting each read, and keeps each artifact deleted, one never written among them, or
-/// refuses every delete once told to.
+/// told to, or leaves every write past a count unanswered once told to until told to answer it,
+/// reads each kept artifact's bytes back, noting each read, and keeps each artifact deleted, one
+/// never written among them, or refuses every delete once told to.
 #[derive(Default)]
 pub(crate) struct KeptPayloads {
     writes: Mutex<Vec<KeptPayload>>,
@@ -43,6 +43,8 @@ pub(crate) struct KeptPayloads {
     hold_limit: Mutex<Option<usize>>,
     /// Woken when a write is kept unanswered.
     held: Notify,
+    /// Woken once for each write kept unanswered that is to be answered.
+    released: Notify,
 }
 
 impl KeptPayloads {
@@ -77,8 +79,8 @@ impl KeptPayloads {
         *self.write_limit.lock().expect("the test's payloads lock") = Some(count);
     }
 
-    /// Keeps each write past `count` in all, those already kept among them, and never answers it,
-    /// as a store a stop cuts off before its caller hears back.
+    /// Keeps each write past `count` in all, those already kept among them, and answers it only
+    /// once released, as a store a stop cuts off, or a slow one, before its caller hears back.
     pub(crate) fn hold_writes_past(&self, count: usize) {
         *self.hold_limit.lock().expect("the test's payloads lock") = Some(count);
     }
@@ -86,6 +88,12 @@ impl KeptPayloads {
     /// Waits until a write is kept unanswered.
     pub(crate) async fn held_write(&self) {
         self.held.notified().await;
+    }
+
+    /// Answers the write kept unanswered, and every later write at once.
+    pub(crate) fn release_held_write(&self) {
+        *self.hold_limit.lock().expect("the test's payloads lock") = None;
+        self.released.notify_one();
     }
 }
 
@@ -113,7 +121,10 @@ impl StepPayloadArtifacts for KeptPayloads {
         });
         if hold.is_some_and(|hold| writes.len() > hold) {
             self.held.notify_one();
-            return Box::pin(std::future::pending());
+            return Box::pin(async {
+                self.released.notified().await;
+                Ok(())
+            });
         }
         Box::pin(async { Ok(()) })
     }

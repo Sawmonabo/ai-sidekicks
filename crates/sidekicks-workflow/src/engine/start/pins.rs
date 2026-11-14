@@ -20,10 +20,9 @@ use super::WorkflowRunStartError;
 use super::stored_payloads::StartPayloads;
 use crate::definitions::content_hash::hash_canonical_json;
 use crate::definitions::stored_document::parse_stored_pin_data;
-use crate::engine::payload_reservations::ReservedPayloadError;
 use crate::engine::ports::StepPayloadArtifacts;
 use crate::engine::tick::RunPin;
-use crate::runs::step_payload::{StepPayloadReadError, StepPayloadWriteError};
+use crate::runs::step_payload::StepPayloadReadError;
 
 /// The pins a run's started event names: inline, or stored as one payload.
 pub(crate) type StartedPins = (
@@ -123,17 +122,7 @@ pub(crate) async fn started_pins(
     let artifact_id = stored
         .store_bytes(trigger_step, bytes, item_count.get())
         .await
-        .map_err(|error| match error {
-            ReservedPayloadError::Write(StepPayloadWriteError::Json(error)) => {
-                WorkflowRunStartError::InputJson(error)
-            }
-            ReservedPayloadError::Write(StepPayloadWriteError::Artifact(error)) => {
-                WorkflowRunStartError::Payload(error)
-            }
-            ReservedPayloadError::Reservation(error) => {
-                WorkflowRunStartError::PayloadReservation(error)
-            }
-        })?;
+        .map_err(WorkflowRunStartError::from_start_payload)?;
     Ok((
         None,
         Some(WorkflowPayloadRef::Artifact {

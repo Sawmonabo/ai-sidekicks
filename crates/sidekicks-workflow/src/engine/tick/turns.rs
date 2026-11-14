@@ -57,6 +57,7 @@ use crate::engine::deadlines::EngineDeadlines;
 use crate::engine::event_record::{EngineFault, EngineRecorder, RunEngineRecord};
 use crate::engine::ports::{PortError, RunSnapshotPoints, StepAdmission, StepPayloadArtifacts};
 use crate::engine::start::{ReloadedRun, StartedRun};
+use crate::engine::under_way::RunsUnderWay;
 use crate::engine::waits::answers::PersonWaitIntake;
 use crate::engine::waits::{PersonWaitPorts, PersonWaitRefusal};
 use crate::kinds::{NodeKindTable, StepFailure, uncoded_step_error};
@@ -113,6 +114,8 @@ pub(crate) struct EngineTickDependencies {
     pub(crate) payloads: Arc<dyn StepPayloadArtifacts>,
     /// The writer a turn reserves its payloads' ids through, ahead of its write.
     pub(crate) writer: Arc<DatabaseWriter>,
+    /// The runs under way, which holds each run the tick takes back until it ends the run.
+    pub(crate) runs_under_way: Arc<RunsUnderWay>,
     /// The memory gate, weighed once per turn.
     pub(crate) admission: Arc<dyn StepAdmission>,
     /// The receiving end of the dispatch's report channel.
@@ -139,6 +142,7 @@ pub(crate) struct EngineTick {
     recorder: Arc<EngineRecorder>,
     payloads: Arc<dyn StepPayloadArtifacts>,
     writer: Arc<DatabaseWriter>,
+    runs_under_way: Arc<RunsUnderWay>,
     admission: Arc<dyn StepAdmission>,
     reports: mpsc::Receiver<StepReport>,
     inbox: mpsc::Receiver<EngineTickInput>,
@@ -248,6 +252,7 @@ impl EngineTick {
             recorder,
             payloads,
             writer,
+            runs_under_way,
             admission,
             reports,
             inbox,
@@ -264,6 +269,7 @@ impl EngineTick {
             recorder,
             payloads,
             writer,
+            runs_under_way,
             admission,
             reports,
             inbox,

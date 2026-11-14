@@ -19,6 +19,7 @@ use crate::definitions::kept_values::WorkflowKeptValueError;
 use crate::definitions::stored_document::StoredDocumentError;
 use crate::definitions::versions::history::WorkflowVersionsError;
 use crate::engine::partial_run::PartialRunPlanError;
+use crate::engine::payload_reservations::ReservedPayloadError;
 use crate::engine::ports::PortError;
 use crate::runs::step_payload::{StepPayloadReadError, StepPayloadWriteError};
 
@@ -206,6 +207,22 @@ pub(crate) enum WorkflowRunStartError {
         #[source]
         removal: RunSetupGateError,
     },
+}
+
+impl WorkflowRunStartError {
+    /// The start's error for a payload of its own, its trigger input or its pins, that could not
+    /// be reserved or stored.
+    pub(super) fn from_start_payload(error: ReservedPayloadError) -> Self {
+        match error {
+            ReservedPayloadError::Write(StepPayloadWriteError::Json(error)) => {
+                Self::InputJson(error)
+            }
+            ReservedPayloadError::Write(StepPayloadWriteError::Artifact(error)) => {
+                Self::Payload(error)
+            }
+            ReservedPayloadError::Reservation(error) => Self::PayloadReservation(error),
+        }
+    }
 }
 
 impl From<WorkflowRunStartError> for HandlerError {

@@ -2,9 +2,9 @@
 //! the scope its steps share rebuilt from what its start stored, its pinned version's graph, its
 //! steps not yet settled and its workflow events in log order. Before it, what a stop left behind
 //! is deleted: the workspace a start bound for a run whose row it never wrote, and every payload
-//! a start or a run's turn reserved under its run that no write named; what a start still under
-//! way holds is left to it, and a leftover that cannot be deleted is recorded as a fault and kept
-//! for the next restart.
+//! a start or a run's turn reserved under its run that no write named; what a run under way holds,
+//! one a start or the tick is driving, is left to it, and a leftover that cannot be deleted is
+//! recorded as a fault and kept for the next restart.
 #![cfg_attr(
     not(test),
     expect(
@@ -61,17 +61,18 @@ use sidekicks_workspace::working_folder::{
 use tokio_util::sync::CancellationToken;
 
 use super::pins::read_started_pins;
-use super::{StartsUnderWay, check_run_graph, hash_pin_data, read_session_project};
+use super::{check_run_graph, hash_pin_data, read_session_project};
 use crate::definitions::kept_values::{WorkflowKeptValueError, WorkflowKeptValueStore};
 use crate::definitions::stored_document::parse_stored_workflow_body;
 use crate::definitions::versions::history::{WorkflowVersions, WorkflowVersionsError};
 use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::partial_run::covered_places;
-use crate::engine::payload_reservations::{LEFT_PAYLOADS_SQL, forget_payload};
+use crate::engine::payload_reservations::{LEFT_PAYLOADS_SQL, forget_payloads};
 use crate::engine::ports::{PortError, StepPayloadArtifacts};
 use crate::engine::results::run_posts_results;
 use crate::engine::tick::run_status::RunPersonWait;
 use crate::engine::tick::{RunGraph, RunScope};
+use crate::engine::under_way::RunsUnderWay;
 use crate::engine::waits::step_key;
 use crate::kinds::{NodeKindTable, coded_step_error, uncoded_step_error};
 use crate::runs::gate_resolution::RunEventKeys;
@@ -298,15 +299,17 @@ pub(crate) struct RunReloader {
     pub(crate) writer: Arc<DatabaseWriter>,
     /// The engine's record, which takes each leftover that could not be deleted.
     pub(crate) recorder: Arc<EngineRecorder>,
-    /// The starts under way, whose leftovers are left to them.
-    pub(crate) starts_under_way: Arc<StartsUnderWay>,
+    /// The runs under way, held by their start or the tick, whose leftovers are left to them.
+    pub(crate) runs_under_way: Arc<RunsUnderWay>,
 }
 
-/// What stops left in a session: the runs a workspace was bound for that have no row, and each
-/// payload reserved that no write named, with the run it was reserved under.
+/// What stops left in a session: the runs a workspace was bound for that have no row, each
+/// payload reserved that no write named, with the run it was reserved under, and those of these
+/// runs whose row is unfinished, which the tick takes back.
 struct StopLeftovers {
     stranded_runs: Vec<WorkflowRunId>,
     left_payloads: Vec<(ArtifactId, WorkflowRunId)>,
+    unfinished_runs: HashSet<WorkflowRunId>,
 }
 
 /// One unfinished run's row, as the reload reads it.
@@ -330,7 +333,8 @@ impl RunReloader {
     /// The unfinished runs of `session_id`, oldest first, each with its scope rebuilt from its
     /// row and its start event, or the error its crashed ending stores, once what a stop cut
     /// short left is deleted, a leftover that will not delete recorded on the engine's record and
-    /// kept. A start in the session may run alongside: what it holds is left to it. Fails as
+    /// kept. A start or a turn of the session may run alongside: what its run holds is left to it,
+    /// since the run is under way until its start returns and then until the tick ends it. Fails as
     /// [`RunReloadError`] when a read of the session's rows, kept values or log fails.
     pub(crate) async fn reload_session(
         &self,
@@ -382,29 +386,31 @@ impl RunReloader {
     // reserved in the session that no write named: a start's trigger input, pins or copy of
     // another session's payload stored before a stop cut its run's row, a turn's input, output,
     // log, run variables or kept value stored before a stop cut the turn's write, or one a cleanup
-    // could not delete. The write that names a reserved payload deletes its run's reservations in
-    // the same transaction, so no committed row names a reserved one. A leftover is deleted only
-    // where both reads, one on each side of the check of the starts under way, hold it and its
-    // start is not under way: a start that ends after the first read has cleared or taken over
-    // what it held by the second. One that will not delete is recorded as a fault under its run,
-    // and its workspace or reservation kept for the next restart.
+    // could not delete. The write that names a reserved payload deletes its reservation in the
+    // same transaction, so no committed row names a reserved one. Each reservation is made while
+    // its run is under way, and a run stays under way past its last write, so a leftover is
+    // deleted only where both reads, one on each side of the check of the runs under way, hold it
+    // and its run is not under way: a run that stops being under way after the first read has
+    // cleared or taken over what it held by the second. One that will not delete is recorded as a
+    // fault under its run, and its workspace or reservation kept for the next restart.
     async fn delete_stop_leftovers(&self, session_id: SessionId) -> Result<(), RunReloadError> {
         let mut leftovers = self.read_stop_leftovers(session_id).await?;
-        let starts = &self.starts_under_way;
+        let runs = &self.runs_under_way;
         leftovers
             .stranded_runs
-            .retain(|run_id| !starts.is_under_way(*run_id));
+            .retain(|run_id| !runs.is_under_way(*run_id));
         leftovers
             .left_payloads
-            .retain(|(_, run_id)| !starts.is_under_way(*run_id));
+            .retain(|(_, run_id)| !runs.is_under_way(*run_id));
         if leftovers.stranded_runs.is_empty() && leftovers.left_payloads.is_empty() {
             return Ok(());
         }
         let still_left = self.read_stop_leftovers(session_id).await?;
         let still_stranded = still_left.stranded_runs.into_iter().collect::<HashSet<_>>();
         let still_recorded = still_left.left_payloads.into_iter().collect::<HashSet<_>>();
-        // A run's workspace and payloads that will not delete share the run's one sequence.
-        let mut faults = self.recorder.rowless_run_faults();
+        // A run's workspace and payloads that will not delete share the run's one sequence, which
+        // the take-back of a run with an unfinished row carries on.
+        let mut faults = self.recorder.ended_run_faults();
         for workflow_run_id in leftovers.stranded_runs {
             if !still_stranded.contains(&workflow_run_id) {
                 continue;
@@ -421,12 +427,20 @@ impl RunReloader {
             }
             let (artifact_id, workflow_run_id) = left;
             let deleted = match self.payloads.delete(&artifact_id).await {
-                Ok(()) => forget_payload(&self.writer, artifact_id)
+                Ok(()) => forget_payloads(&self.writer, &[artifact_id])
                     .await
                     .map_err(|error| Box::new(error) as PortError),
                 Err(error) => Err(error),
             };
-            if let Err(error) = deleted {
+            let Err(error) = deleted else {
+                continue;
+            };
+            if still_left.unfinished_runs.contains(&workflow_run_id) {
+                self.recorder
+                    .for_run(workflow_run_id, Arc::new(RunRedaction::new(&[])))
+                    .fault(None, EngineFault::StopLeftoverKept, &*error)
+                    .await;
+            } else {
                 faults
                     .fault(workflow_run_id, EngineFault::StopLeftoverKept, &*error)
                     .await;
@@ -435,23 +449,26 @@ impl RunReloader {
         Ok(())
     }
 
-    // The runs of `session_id` a workspace was bound for that have no row, and the payloads
-    // reserved in it that no write named.
+    // The runs of `session_id` a workspace was bound for that have no row, the payloads reserved
+    // in it that no write named, and the runs among theirs whose row is unfinished.
     async fn read_stop_leftovers(
         &self,
         session_id: SessionId,
     ) -> Result<StopLeftovers, RunReloadError> {
         self.pool
             .read(ReadLength::Short, move |connection| {
-                let left_payloads = connection
-                    .prepare_cached(LEFT_PAYLOADS_SQL)?
-                    .query_map([session_id.text().as_str()], |row| {
-                        Ok((
-                            text_column(row, 0, |text| ArtifactId::new(&text))?,
-                            text_column(row, 1, |text| WorkflowRunId::new(&text))?,
-                        ))
-                    })?
-                    .collect::<Result<Vec<_>, _>>()?;
+                let mut left_payloads = Vec::new();
+                let mut unfinished_runs = HashSet::new();
+                let mut statement = connection.prepare_cached(LEFT_PAYLOADS_SQL)?;
+                let mut rows = statement.query([session_id.text().as_str()])?;
+                while let Some(row) = rows.next()? {
+                    let run_id = text_column(row, 1, |text| WorkflowRunId::new(&text))?;
+                    left_payloads
+                        .push((text_column(row, 0, |text| ArtifactId::new(&text))?, run_id));
+                    if row.get::<_, bool>(2)? {
+                        unfinished_runs.insert(run_id);
+                    }
+                }
                 Ok::<_, RunReloadError>(StopLeftovers {
                     stranded_runs: read_run_ids(
                         connection,
@@ -459,6 +476,7 @@ impl RunReloader {
                         session_id,
                     )?,
                     left_payloads,
+                    unfinished_runs,
                 })
             })
             .await

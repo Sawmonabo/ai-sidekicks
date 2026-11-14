@@ -17,7 +17,6 @@ mod retry;
 mod stored_payloads;
 #[cfg(test)]
 mod tests;
-mod under_way;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -68,11 +67,11 @@ use tokio_util::sync::CancellationToken;
 
 use crate::definitions::kept_values::{WorkflowKeptValue, WorkflowKeptValueStore};
 use crate::engine::chain::read_chain_question;
-use crate::engine::event_record::{EngineFault, EngineRecorder, RowlessRunFaults};
+use crate::engine::event_record::{EndedRunFaults, EngineFault, EngineRecorder};
 use crate::engine::partial_run::PARTIAL_RUN_PLAN_STATEMENT_CAPACITY;
-use crate::engine::payload_reservations::ReservedPayloadError;
 use crate::engine::ports::{StepPayloadArtifacts, WorkflowRunLimits};
 use crate::engine::tick::{RunGraph, RunPin, RunScope};
+use crate::engine::under_way::{RunUnderWay, RunsUnderWay};
 use crate::kinds::NodeKindTable;
 use crate::runs::creation::{
     CHAIN_COUNT_STATEMENT_INDEX, CHAIN_ROOT_CHECK_STATEMENT_INDEX, WorkflowRunCreation,
@@ -80,7 +79,6 @@ use crate::runs::creation::{
     workflow_run_creation_statements,
 };
 use crate::runs::deletion::remove_run_folder;
-use crate::runs::step_payload::StepPayloadWriteError;
 use crate::secrets::redaction::RunRedaction;
 
 pub(crate) use self::check::check_run_graph;
@@ -96,7 +94,6 @@ pub(crate) use self::reload::{
 };
 use self::retry::RetriedRun;
 pub(crate) use self::stored_payloads::StartPayloads;
-pub(crate) use self::under_way::StartsUnderWay;
 
 /// The statements a start prepares on a read connection: the pinned version by its id, the
 /// session's working folder, the workflow's pins and provider, a named project's folder, its
@@ -182,6 +179,9 @@ pub(crate) struct StartedRun {
     pub(crate) node_run: Option<StartedNodeRun>,
     /// The sequence of `workflow.run.started`, whose write readied the trigger step where it runs.
     pub(crate) started_sequence: SafeInt<0>,
+    /// The run's hold as under way, taken before the start's own lets go, which the tick keeps
+    /// until it ends the run.
+    pub(crate) under_way: RunUnderWay,
 }
 
 /// The input a run's trigger step starts on, as its `pending` row stores it and as items.
@@ -302,9 +302,10 @@ pub(crate) struct WorkflowRunStarterDependencies {
     pub(crate) data_folder: PathBuf,
     /// The engine's record, which takes what a held start could not clean up.
     pub(crate) recorder: Arc<EngineRecorder>,
-    /// The starts under way, each holding its run's id until it returns, which the leftover sweep
-    /// of a session taken back reads.
-    pub(crate) starts_under_way: Arc<StartsUnderWay>,
+    /// The runs under way, each start holding its run's id until it returns and the run it hands
+    /// the tick holding it until the tick ends the run, which the leftover sweep of a session
+    /// reloaded reads.
+    pub(crate) runs_under_way: Arc<RunsUnderWay>,
 }
 
 /// Starts workflow runs: checks each start, prepares the run's folder, reads the scope its steps
@@ -326,7 +327,7 @@ pub(crate) struct WorkflowRunStarter {
     binder: Arc<dyn SessionRunBinder>,
     data_folder: PathBuf,
     recorder: Arc<EngineRecorder>,
-    starts_under_way: Arc<StartsUnderWay>,
+    runs_under_way: Arc<RunsUnderWay>,
 }
 
 impl WorkflowRunStarter {
@@ -349,7 +350,7 @@ impl WorkflowRunStarter {
             binder,
             data_folder,
             recorder,
-            starts_under_way,
+            runs_under_way,
         } = dependencies;
         Self {
             pool,
@@ -364,7 +365,7 @@ impl WorkflowRunStarter {
             binder,
             data_folder,
             recorder,
-            starts_under_way,
+            runs_under_way,
         }
     }
 
@@ -415,7 +416,7 @@ impl WorkflowRunStarter {
         let workflow_run_id =
             WorkflowRunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         // Held until the start returns, so a leftover sweep leaves what it stores or binds alone.
-        let _under_way = self.starts_under_way.hold(workflow_run_id);
+        let _under_way = self.runs_under_way.hold(workflow_run_id);
         let is_run_owned = checked.project_root.is_some();
         // A run of its own workspace binds and prepares it before the write, so a start the chain
         // would hold is held first.
@@ -437,7 +438,7 @@ impl WorkflowRunStarter {
             }
         }
         // What a start that makes no run cannot clean up, each on the one sequence of its run.
-        let mut faults = self.recorder.rowless_run_faults();
+        let mut faults = self.recorder.ended_run_faults();
         let prepared = match self
             .prepare(start.session_id, workflow_run_id, &checked)
             .await
@@ -512,7 +513,7 @@ impl WorkflowRunStarter {
         &self,
         workflow_run_id: WorkflowRunId,
         ended: Result<WorkflowStartOutcome, WorkflowRunStartError>,
-        faults: &mut RowlessRunFaults<'_>,
+        faults: &mut EndedRunFaults<'_>,
     ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
         let Err(removal) = self.binder.discard_project_run(workflow_run_id).await else {
             return ended;
@@ -620,24 +621,12 @@ impl WorkflowRunStarter {
             .await?;
         let trigger_step = trigger_step_key(workflow_run_id, &checked.trigger_node);
         let trigger_input = match &checked.start_items {
-            Some(items) => {
-                Some(
-                    stored
-                        .store(&trigger_step, items)
-                        .await
-                        .map_err(|error| match error {
-                            ReservedPayloadError::Write(StepPayloadWriteError::Json(error)) => {
-                                WorkflowRunStartError::InputJson(error)
-                            }
-                            ReservedPayloadError::Write(StepPayloadWriteError::Artifact(error)) => {
-                                WorkflowRunStartError::Payload(error)
-                            }
-                            ReservedPayloadError::Reservation(error) => {
-                                WorkflowRunStartError::PayloadReservation(error)
-                            }
-                        })?,
-                )
-            }
+            Some(items) => Some(
+                stored
+                    .store(&trigger_step, items)
+                    .await
+                    .map_err(WorkflowRunStartError::from_start_payload)?,
+            ),
             None => None,
         };
         let (node_run, mut replayed) = node_run;
@@ -796,6 +785,7 @@ impl WorkflowRunStarter {
                         .map(|(input_ref, items)| StartedTrigger { input_ref, items }),
                     node_run: replayed,
                     started_sequence: receipt.sequence,
+                    under_way: self.runs_under_way.hold(workflow_run_id),
                 }))
             }
             (

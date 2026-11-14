@@ -32,6 +32,7 @@ use super::{ParkedAgentRun, RunScope, StepReport};
 use crate::engine::deadlines::EngineDeadlines;
 use crate::engine::event_record::{EngineDeadline, EngineDecision, RunEngineRecord};
 use crate::engine::ports::StepAdmissionTicket;
+use crate::engine::under_way::RunUnderWay;
 use crate::engine::waits::OpenedPersonWait;
 use crate::engine::waits::answers::PersonWaitIntake;
 use crate::expressions::lineage::StepOutputs;
@@ -104,6 +105,9 @@ pub(crate) struct LiveRun {
     /// The execution indexes of the steps the restart took back undispatched, whose dispatch takes
     /// again the agent run each made before the stop.
     pub(crate) taken_back: HashSet<u64>,
+    /// The run's hold as under way, let go when the tick drops the run, so the leftover sweep
+    /// of a session reloaded beside it leaves what its turns reserve alone.
+    _under_way: RunUnderWay,
 }
 
 /// What reached a pausing run, kept for the turn its last pause point's end opens, each list in
@@ -246,9 +250,15 @@ impl LiveRun {
         }
     }
 
-    /// The run of `scope` before any step, on `walk`, recording through `record`.
+    /// The run of `scope` before any step, on `walk`, recording through `record`, held as under
+    /// way by `under_way` until the tick drops it.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    pub(crate) fn new(scope: Arc<RunScope>, walk: RunWalk, record: RunEngineRecord) -> Self {
+    pub(crate) fn new(
+        scope: Arc<RunScope>,
+        walk: RunWalk,
+        record: RunEngineRecord,
+        under_way: RunUnderWay,
+    ) -> Self {
         let outputs = StepOutputs::new(
             scope
                 .nodes
@@ -285,6 +295,7 @@ impl LiveRun {
                 resumes: Vec::new(),
             },
             taken_back: HashSet::new(),
+            _under_way: under_way,
         }
     }
 

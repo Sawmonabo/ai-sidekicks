@@ -181,13 +181,27 @@ impl EngineTick {
             Ok(answer) => answer,
             Err(failure) => {
                 let failed = self
-                    .fail_in_place(live, &step, at.clone(), failure, StepFailure::Failed)
+                    .fail_in_place(
+                        live,
+                        commit,
+                        &step,
+                        at.clone(),
+                        failure,
+                        StepFailure::Failed,
+                    )
                     .await;
                 match commit.report(failed, self.reported(live, &step)).await {
                     Ok(answer) => answer,
                     Err(failure) => {
                         let ended = self
-                            .fail_in_place(live, &step, at.clone(), failure, StepFailure::EndsRun)
+                            .fail_in_place(
+                                live,
+                                commit,
+                                &step,
+                                at.clone(),
+                                failure,
+                                StepFailure::EndsRun,
+                            )
                             .await;
                         commit
                             .report(ended, self.reported(live, &step))
@@ -207,11 +221,13 @@ impl EngineTick {
         answer.expect("a settlement answers")
     }
 
-    /// Deletes what the failed settlement of `step` wrote, records the failure, and answers the
-    /// step's report at `at` failing as `failed_as` with the write's error.
+    /// Deletes what the failed settlement of `step` wrote, keeping in `commit` the reservation of
+    /// each artifact that would not delete, records the failure, and answers the step's report at
+    /// `at` failing as `failed_as` with the write's error.
     async fn fail_in_place(
         &self,
         live: &LiveRun,
+        commit: &mut RunTurnCommit,
         step: &WorkflowStepKey,
         at: WireInstant,
         failure: SettlementWriteFailure,
@@ -221,7 +237,8 @@ impl EngineTick {
             error,
             artifact_ids,
         } = failure;
-        for (_, removal) in remove_dropped(&*self.payloads, &artifact_ids).await {
+        for (artifact_id, removal) in remove_dropped(&*self.payloads, &artifact_ids).await {
+            commit.keep_reservation(artifact_id);
             live.record
                 .fault(Some(step), EngineFault::TurnPayloadLeftBehind, &*removal)
                 .await;

@@ -16,6 +16,7 @@ use crate::engine::tick::live_runs::{LiveRun, LiveStep};
 use crate::engine::tick::node_settings::main_inputs;
 use crate::engine::tick::walk::{RunGraph, RunWalk, WalkTurn};
 use crate::engine::tick::{ReadyStep, RunScope};
+use crate::engine::under_way::RunUnderWay;
 
 /// How a run the tick took opens.
 pub(super) enum RunOpening {
@@ -37,6 +38,7 @@ impl EngineTick {
             trigger,
             node_run,
             started_sequence,
+            under_way,
         } = run;
         let run_id = scope.run_id;
         let record = self.recorder.for_run(run_id, Arc::clone(&scope.redaction));
@@ -48,7 +50,7 @@ impl EngineTick {
                 reused,
             }) => (Some(covered), sealed, reused),
         };
-        let mut live = seeded_run(scope, graph, (covered, sealed), reused, record);
+        let mut live = seeded_run(scope, graph, (covered, sealed), reused, record, under_way);
         let mut opened = live.walk.start();
         let opening = if opened.skipped.is_empty() {
             let trigger_step = opened
@@ -100,15 +102,17 @@ pub(super) fn trigger_inputs(
 
 /// The run of `scope` before any step, its walk over `graph` kept to the places `coverage` covers
 /// (`None` covers every place), a node run's target sealed where it names one, and seeded with
-/// `reused`, each reused step carrying its outputs until the walk replays it.
+/// `reused`, each reused step carrying its outputs until the walk replays it, recording through
+/// `record` and held as under way by `under_way`.
 pub(super) fn seeded_run(
     scope: Arc<RunScope>,
     graph: Arc<RunGraph>,
     (covered, sealed): (Option<Arc<[bool]>>, Option<usize>),
     reused: Vec<StartedReusedStep>,
     record: RunEngineRecord,
+    under_way: RunUnderWay,
 ) -> LiveRun {
     let seed = reused.into_iter().map(|step| step.seed).collect();
     let walk = RunWalk::reusing(graph, scope.run_id, covered, sealed, seed);
-    LiveRun::new(scope, walk, record)
+    LiveRun::new(scope, walk, record, under_way)
 }

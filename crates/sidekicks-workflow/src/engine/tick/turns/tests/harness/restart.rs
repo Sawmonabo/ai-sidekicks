@@ -29,18 +29,19 @@ use crate::engine::ports::{
     ScriptedGate, StepAdmission, StepAdmissionOutcome, StepPayloadArtifacts, WorkflowRunLimits,
     refusing_engine_ports,
 };
-use crate::engine::start::StartsUnderWay;
 use crate::engine::start::reload::RunReloader;
 use crate::engine::tick::StepReport;
 use crate::engine::tick::dispatch::test_dispatch_recording;
 use crate::engine::tick::turns::{
     ENGINE_TICK_STATEMENT_CAPACITY, EngineTick, EngineTickDependencies, EngineTickInput,
 };
+use crate::engine::under_way::RunsUnderWay;
 use crate::engine::waits::PersonWaitPorts;
 use crate::kinds::NodeKindTable;
 
 /// What every daemon life of a test shares: the database, its log, the kinds, the record, the
-/// payload store, the asks, the points, the binder's notices, the wall clock and the run limits.
+/// payload store, the asks, the points, the binder's notices, the wall clock, the run limits and
+/// the runs under way.
 pub(super) struct LifeParts<'harness> {
     pub(super) database: &'harness TestDatabase,
     pub(super) log: &'harness TestLog,
@@ -52,6 +53,7 @@ pub(super) struct LifeParts<'harness> {
     pub(super) notices: &'harness Arc<NoticedSessions>,
     pub(super) clock: &'harness Arc<TestWallClock>,
     pub(super) limits: &'harness Arc<ScriptedRunLimits>,
+    pub(super) runs_under_way: &'harness Arc<RunsUnderWay>,
 }
 
 /// One daemon life's loop, not yet running, with its inbox, a sending end of its report channel,
@@ -78,6 +80,7 @@ impl DaemonLife {
             notices,
             clock,
             limits,
+            runs_under_way,
         } = *parts;
         let gate = Arc::new(ScriptedGate::new(None));
         let agents = Arc::new(ScriptedAgentRunner::new(
@@ -125,6 +128,7 @@ impl DaemonLife {
             deadlines: Arc::clone(&deadlines),
             snapshot_points: Arc::clone(points) as Arc<dyn RunSnapshotPoints>,
             binder: Arc::clone(notices) as Arc<dyn SessionRunBinder>,
+            runs_under_way: Arc::clone(runs_under_way),
         });
         Self {
             tick,
@@ -158,6 +162,7 @@ impl Harness {
             notices: &self.notices,
             clock: &self.clock,
             limits: &self.limits,
+            runs_under_way: &self.runs_under_way,
         });
         // The queue's recovery starts again every agent run an earlier life made.
         agents.store_runs(self.agents.runs_made());
@@ -168,6 +173,28 @@ impl Harness {
         if let Err(error) = old_task.await {
             assert!(error.is_cancelled(), "the old loop ends without a panic");
         }
+        let runs = self
+            .reloader()
+            .reload_session(self.scope.session_id)
+            .await
+            .expect("the session's runs reload");
+        // Taken back through the loop's inbox, as a session settled late is.
+        for input in std::iter::once(EngineTickInput::TakeBack(runs)).chain(along) {
+            self.inbox
+                .send(input)
+                .await
+                .expect("the new loop takes its inputs");
+        }
+        self.tick_task = tokio::spawn(tick.run());
+        self.reports = reports;
+        self.deadlines = deadlines;
+        self.agents = agents;
+    }
+
+    /// The reload of a session's unfinished runs, as the daemon's restart builds it, over the
+    /// harness's database, payload store, record and runs under way, the scope's session row
+    /// written first where the test has none, as the daemon holds every session it reloads.
+    pub(in crate::engine::tick::turns) fn reloader(&self) -> RunReloader {
         let session_id = self.scope.session_id;
         let is_stored: bool = self
             .rows
@@ -184,7 +211,7 @@ impl Harness {
             self.database.path(),
             ENGINE_TICK_STATEMENT_CAPACITY + WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY,
         ));
-        let reloader = RunReloader {
+        RunReloader {
             pool: Arc::clone(&pool),
             kinds: Arc::clone(&self.kinds),
             kept_values: Arc::new(WorkflowKeptValueStore::new(
@@ -197,22 +224,7 @@ impl Harness {
             payloads: Arc::clone(&self.payloads) as Arc<dyn StepPayloadArtifacts>,
             writer: Arc::clone(&self.log.writer),
             recorder: Arc::clone(&self.recorder),
-            starts_under_way: Arc::new(StartsUnderWay::default()),
-        };
-        let runs = reloader
-            .reload_session(session_id)
-            .await
-            .expect("the session's runs reload");
-        // Taken back through the loop's inbox, as a session settled late is.
-        for input in std::iter::once(EngineTickInput::TakeBack(runs)).chain(along) {
-            self.inbox
-                .send(input)
-                .await
-                .expect("the new loop takes its inputs");
+            runs_under_way: Arc::clone(&self.runs_under_way),
         }
-        self.tick_task = tokio::spawn(tick.run());
-        self.reports = reports;
-        self.deadlines = deadlines;
-        self.agents = agents;
     }
 }

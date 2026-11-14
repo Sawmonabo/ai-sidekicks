@@ -171,10 +171,12 @@ CREATE INDEX idx_workflow_runs_session_unfinished ON workflow_runs(session_id, s
 
 -- Each artifact id a run reserves before it stores a payload under it, ahead of the write that
 -- names the payload: a start's, before its run's row, and a turn's, before the turn's write (a turn
--- reserves a block of ids in one write at its first payload over the inline cap). That write deletes
--- the run's rows, and a start or turn whose write never lands deletes each payload with its row, so
--- a row left is what a stop cut, which the restart deletes. Run ids are event-sourced, so no foreign
--- key.
+-- reserves a block of ids in one write at its first payload over the inline cap). A start's run
+-- write deletes the run's rows and a turn's write those of its ids, but an artifact's that may be
+-- stored and that no row names; a start or turn whose write never lands deletes each payload with
+-- its row, keeping the row of one that will not delete. A row left is what a stop cut or a cleanup
+-- could not finish, which the restart deletes once its run is not under way. Run ids are
+-- event-sourced, so no foreign key.
 CREATE TABLE workflow_payload_reservations (
   artifact_id               TEXT PRIMARY KEY,
   session_id                TEXT NOT NULL,

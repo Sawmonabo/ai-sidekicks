@@ -109,10 +109,11 @@ pub(crate) struct RunTurnCommit {
     payloads: Arc<dyn StepPayloadArtifacts>,
     /// The writer the turn reserves its payloads' ids through, ahead of the append.
     writer: Arc<DatabaseWriter>,
-    /// The ids the turn reserved under its run and has not used yet.
+    /// The ids of the turn's last reserved block that no payload has taken yet.
+    spare_ids: Vec<ArtifactId>,
+    /// Each id the turn reserved whose reservation its write deletes: every one but an artifact's
+    /// that may be stored and is named by no row, whose reservation the restart's sweep takes.
     reserved_ids: Vec<ArtifactId>,
-    /// Whether the turn reserved any id, so its write deletes the run's reservations.
-    has_reserved: bool,
     /// The turn's events, in write order.
     events: Vec<TurnEvent>,
     /// The turn's row statements, in the order handed.
@@ -335,6 +336,9 @@ pub(crate) struct RunTurnCommitFailure {
     /// Every artifact a payload ref of the write names, which no row now names, for the tick
     /// to delete through the payload store.
     pub(crate) artifact_ids: Vec<ArtifactId>,
+    /// Each id the turns reserved whose reservation the write would have deleted, for the tick to
+    /// delete once it has deleted the artifacts, keeping the reservation of one that would not.
+    pub(crate) reserved_ids: Vec<ArtifactId>,
 }
 
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -361,8 +365,8 @@ impl RunTurnCommit {
             person_wait,
             payloads,
             writer,
+            spare_ids: Vec::new(),
             reserved_ids: Vec::new(),
-            has_reserved: false,
             events: Vec::new(),
             statements: Vec::new(),
             pending: Vec::new(),

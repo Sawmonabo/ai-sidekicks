@@ -59,6 +59,7 @@ use crate::engine::tick::turns::tests::harness::ports::{
 };
 use crate::engine::tick::turns::{EngineTickInput, RunCancelIntake};
 use crate::engine::tick::{RunGraph, RunScope, StepReport, test_run_scope};
+use crate::engine::under_way::RunsUnderWay;
 use crate::engine::waits::answers::PersonWaitIntake;
 use crate::engine::waits::{PersonWaitAnswer, PersonWaitRefusal};
 use crate::kinds::{NodeKindTable, uncoded_step_error};
@@ -176,6 +177,8 @@ pub(in crate::engine::tick::turns) struct Harness {
     pub(in crate::engine::tick::turns) reports: mpsc::Sender<StepReport>,
     /// The sessions the loop told its binder of, once per run ending.
     pub(in crate::engine::tick::turns) notices: Arc<NoticedSessions>,
+    /// The runs under way, which every daemon life's loop and reload share.
+    runs_under_way: Arc<RunsUnderWay>,
 }
 
 impl Harness {
@@ -203,6 +206,7 @@ impl Harness {
         let asks = Arc::new(RecordingAsks::new(database.reader(), Arc::clone(&order)));
         let points = Arc::new(RecordingSnapshotPoints::new(Arc::clone(&order)));
         let notices = Arc::new(NoticedSessions::default());
+        let runs_under_way = Arc::new(RunsUnderWay::default());
         let DaemonLife {
             tick,
             inbox,
@@ -220,6 +224,7 @@ impl Harness {
             notices: &notices,
             clock: &clock,
             limits: &limits,
+            runs_under_way: &runs_under_way,
         });
         let tick_task = tokio::spawn(tick.run());
         Self {
@@ -248,6 +253,7 @@ impl Harness {
             limits,
             reports,
             notices,
+            runs_under_way,
         }
     }
 
@@ -449,6 +455,7 @@ impl Harness {
             trigger: started_trigger,
             node_run,
             started_sequence: receipt.sequence,
+            under_way: self.runs_under_way.hold(base.run_id),
         };
         self.send(EngineTickInput::Started(started)).await;
         cancel
@@ -645,6 +652,12 @@ pub(in crate::engine::tick::turns) fn step_column(
         |row| row.get(0),
     )
     .ok()
+}
+
+/// The status of the test's one run.
+pub(in crate::engine::tick::turns) fn run_status(rows: &Connection) -> String {
+    rows.query_row("SELECT status FROM workflow_runs", [], |row| row.get(0))
+        .expect("the run's row reads")
 }
 
 /// `column` of attempt `attempt` of the step of `node_id`, `None` before its row is written.

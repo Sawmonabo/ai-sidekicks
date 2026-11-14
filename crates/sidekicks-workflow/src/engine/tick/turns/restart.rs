@@ -66,8 +66,9 @@ impl EngineTick {
         }
     }
 
-    /// Takes back `reloaded`: its walk replayed, its steps made live from their rows and its sweep
-    /// queued; a run whose scope, log or rows do not line up ends crashed with the reason.
+    /// Takes back `reloaded`: its walk replayed, its steps made live from their rows, the run held
+    /// as under way until the tick ends it, and its sweep queued; a run whose scope, log or rows do
+    /// not line up ends crashed with the reason.
     async fn take_back(&mut self, reloaded: ReloadedRun) {
         let ReloadedRun {
             keys,
@@ -101,7 +102,8 @@ impl EngineTick {
         let record = self.recorder.for_run(run_id, Arc::clone(&scope.redaction));
         let replayed = match reused_seeds(&events, scope.session_id, &*self.payloads).await {
             Ok(reused) => {
-                let live = seeded_run(scope, graph, (covered, sealed), reused, record);
+                let under_way = self.runs_under_way.hold(run_id);
+                let live = seeded_run(scope, graph, (covered, sealed), reused, record, under_way);
                 replay_run(live, &events, repins, &*self.payloads).await
             }
             Err(reason) => Err(reason),

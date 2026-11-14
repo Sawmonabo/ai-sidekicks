@@ -5,6 +5,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
@@ -16,7 +17,7 @@ use super::{
 };
 use crate::definitions::kept_values::remove_dropped;
 use crate::engine::event_record::EngineFault;
-use crate::engine::payload_reservations::forget_run_reservations;
+use crate::engine::payload_reservations::forget_payloads;
 use crate::engine::tick::commit::{RunTurnCommit, RunTurnCommitFailure};
 use crate::engine::tick::dispatch::stop_agent_run;
 use crate::engine::tick::live_runs::{LiveRun, LiveStep};
@@ -258,10 +259,10 @@ impl EngineTick {
     /// Ends the run of `live`, whose turn's write was refused: cancels its steps, stops each agent
     /// run a spent account parked, each of the turn's `resumes` and the stored run of each step
     /// the restart took back and has not dispatched, which no cancel reaches, deletes every
-    /// artifact the write would have named with the run's payload reservations, keeping them where
-    /// one would not delete, and records the failure; the restart settles what the log holds and
-    /// deletes what is still reserved. Its stored waits stay off the deadline clock, and an answer
-    /// to one is not taken.
+    /// artifact the write would have named, then the reservation of each id the write would have
+    /// deleted but an artifact's that would not delete, and records the failure; the restart
+    /// settles what the log holds and deletes what is still reserved. Its stored waits stay off the
+    /// deadline clock, and an answer to one is not taken.
     async fn drop_failed_run(
         &mut self,
         mut live: LiveRun,
@@ -271,6 +272,7 @@ impl EngineTick {
         let RunTurnCommitFailure {
             error,
             artifact_ids,
+            reserved_ids,
         } = failure;
         live.scope.cancel.cancel();
         let parked: Vec<(WorkflowStepKey, ParkedAgentRun)> = live
@@ -307,10 +309,11 @@ impl EngineTick {
                 .await;
         }
         // An artifact that would not delete keeps its reservation, which the restart tries again.
-        if !artifact_ids.is_empty()
-            && left.is_empty()
-            && let Err(error) = forget_run_reservations(&self.writer, live.scope.run_id).await
-        {
+        let forgotten: Vec<ArtifactId> = reserved_ids
+            .into_iter()
+            .filter(|reserved| !left.iter().any(|(artifact_id, _)| artifact_id == reserved))
+            .collect();
+        if let Err(error) = forget_payloads(&self.writer, &forgotten).await {
             live.record
                 .fault(None, EngineFault::TurnPayloadLeftBehind, &error)
                 .await;

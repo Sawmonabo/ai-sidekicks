@@ -3,7 +3,8 @@
 //! walks, admits, dispatches and commits a run's steps, the waits of steps waiting on a person, a
 //! chain's question and its Keep going, the deadline clock over its waits, the results a finished
 //! run posts, a partial run's plan, the reservations of the payloads a run stores ahead of the
-//! write that names them, and the record of its own decisions.
+//! write that names them, the runs under way, which the restart's leftover sweep leaves alone, and
+//! the record of its own decisions.
 
 pub(crate) mod chain;
 pub(crate) mod controls;
@@ -15,4 +16,5 @@ pub mod ports;
 pub(crate) mod results;
 pub(crate) mod start;
 pub(crate) mod tick;
+pub(crate) mod under_way;
 pub mod waits;

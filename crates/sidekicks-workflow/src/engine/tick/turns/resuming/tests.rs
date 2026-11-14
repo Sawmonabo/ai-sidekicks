@@ -14,7 +14,7 @@ use tokio::time::timeout;
 use super::{RunResumeIntake, RunResumeRefusal};
 use crate::engine::tick::turns::EngineTickInput;
 use crate::engine::tick::turns::tests::harness::{
-    Harness, WAIT, attempt_column, edge, item, node, step_column,
+    Harness, WAIT, attempt_column, edge, item, node, run_status, step_column,
 };
 use crate::test_rows::{
     assert_rebuild_rewrites_session_rows, insert_later_workflow_version,
@@ -45,12 +45,6 @@ pub(in crate::engine::tick::turns) async fn resume(
         .await
         .expect("the loop replies in time")
         .expect("the loop keeps the reply")
-}
-
-/// The run's status as its row stores it.
-fn run_status(rows: &Connection) -> String {
-    rows.query_row("SELECT status FROM workflow_runs", [], |row| row.get(0))
-        .expect("the run's row reads")
 }
 
 /// A Resume of a run with a step running, and of a run waiting only on a person's reply, is

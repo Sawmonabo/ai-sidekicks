@@ -321,8 +321,8 @@ pub trait StepProcess: Send + Sync {
 /// implements it.
 pub trait StepPayloadArtifacts: Send + Sync {
     /// Stores `bytes`, a payload of `item_count` items `step` wrote in `session_id`, as
-    /// `artifact_id`, an id the caller minted, so a record can name it before the write. Fails
-    /// when the artifact cannot be written.
+    /// `artifact_id`, an id the caller minted, so a reservation can name it before the write.
+    /// Fails when the artifact cannot be written, with part of it possibly stored.
     fn write<'call>(
         &'call self,
         session_id: SessionId,
@@ -338,7 +338,7 @@ pub trait StepPayloadArtifacts: Send + Sync {
         artifact_id: &'call ArtifactId,
     ) -> BoxFuture<'call, Result<Vec<u8>, PortError>>;
 
-    /// Deletes `artifact_id`, a stored payload no record will name; an artifact that is not
+    /// Deletes `artifact_id`, a stored payload no row will name; an artifact that is not
     /// stored, such as one whose write never ran, counts as deleted. Fails when the artifact
     /// cannot be removed.
     fn delete<'call>(
