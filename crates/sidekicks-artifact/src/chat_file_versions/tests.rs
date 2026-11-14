@@ -501,9 +501,11 @@ async fn a_patch_applies_to_the_newest_version_of_its_base_or_keeps_nothing() {
 
 /// A path of a folder two chats hold is one history: a tool's write is one version recorded on the
 /// tool's chat, whose log carries its `artifact.published`; a write only the watch reports is
-/// recorded on the folder's earliest live holder; and each version counts on from the folder's
-/// newest. Killed by recording a version per chat, by counting versions per session, and by
-/// recording a watch's write on the folder's namesake or the first holder by id.
+/// recorded on the folder's earliest live holder; each version counts on from the folder's newest;
+/// and a read through any version's id counts the whole history and answers its newest under the
+/// chat that recorded it. Killed by recording a version per chat, by counting versions per
+/// session, by the read's count grouped by session, and by recording a watch's write on the
+/// folder's namesake or the first holder by id.
 #[tokio::test]
 async fn a_shared_chat_folders_writes_are_one_history_each_recorded_on_its_writer() {
     let fixture = fixture().await;
@@ -560,6 +562,23 @@ async fn a_shared_chat_folders_writes_are_one_history_each_recorded_on_its_write
             recorded_on(3, planning),
             recorded_on(4, fresh),
         ]
+    );
+    let planning_version_id = &fixture.store.read_rows(
+        "SELECT id FROM artifact_manifests WHERE workspace_path = ?1 AND version_number = 2",
+        "notes.txt",
+    )[0];
+    let ArtifactReadResponse::Inline(newest) =
+        read(&fixture.store, planning_version_id, None).await
+    else {
+        panic!("a small payload reads inline");
+    };
+    assert_eq!(
+        (
+            newest.version_number.get(),
+            newest.version_count.get(),
+            newest.manifest.session_id
+        ),
+        (4, 4, fresh)
     );
 }
 

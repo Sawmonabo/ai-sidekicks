@@ -517,6 +517,9 @@ impl ClaudeDeliveryStream {
             self.send_pieces(session, &turn.binding_id, pieces).await;
         }
         self.send_rows(session, released, None).await;
+        session
+            .file_tool_writes
+            .settle_all_unread(session.session_id);
         let held = {
             let mut readings = session.lock();
             readings.daemon_ended.clear();

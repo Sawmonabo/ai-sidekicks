@@ -181,6 +181,7 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
               effortLevels: ["low", "medium", "high", "xhigh", "max"],
               fast: false,
               largerWindow: false,
+              isDefault: false,
             },
             {
               id: "claude-opus-5-5",
@@ -189,6 +190,7 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
               effortLevels: ["low", "medium", "high", "xhigh", "max"],
               fast: true,
               largerWindow: false,
+              isDefault: false,
             },
           ],
         },
@@ -202,6 +204,7 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
               effortLevels: ["low", "medium", "high", "xhigh"],
               fast: true,
               largerWindow: false,
+              isDefault: false,
             },
           ],
         },

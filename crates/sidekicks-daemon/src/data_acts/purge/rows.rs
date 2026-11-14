@@ -1,6 +1,8 @@
 //! What a session's purge reads and writes in the database: the mark and its hand-off guard, the
 //! reads of what its files and its receipt need, and the one write that deletes every row naming
-//! the session.
+//! the session and releases each managed folder it holds. A chat folder's file versions are the
+//! folder's: a holder's purge hands the ones it recorded to the folder's earliest surviving holder,
+//! and the last holder's deletes them all with their payload references.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -30,16 +32,20 @@ use sidekicks_session::queue_store::plan_message::plan_message_item_sql;
 use sidekicks_session::run::ids::SESSION_RUN_IDS_SQL;
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{
-    StatementBindings, WriteStatement, json_list_binding, text_binding,
+    StatementBindings, WriteStatement, json_list_binding, json_list_value, text_binding,
 };
 use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::projection::SessionProjection as _;
 use sidekicks_workflow::runs::deletion::workflow_run_deletion_statements;
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
-use sidekicks_workspace::repo::mount::service::managed_mount_deletion_statements;
+use sidekicks_workspace::folder::usage::earliest_live_holder_sql;
+use sidekicks_workspace::repo::mount::service::held_folders::{
+    HeldManagedFolder, held_managed_folder_guard, held_managed_folder_release_statements,
+    read_held_managed_folders,
+};
 
 /// The statements the purge's reads prepare, counted into the read pool's statement capacity.
-pub(crate) const SESSION_PURGE_STATEMENT_CAPACITY: usize = 8;
+pub(crate) const SESSION_PURGE_STATEMENT_CAPACITY: usize = 9;
 
 /// The position of the guard that no hand-off of a plan the session made waits on its seed, in the
 /// mark's write.
@@ -53,6 +59,10 @@ pub(super) const MARKED_GUARD_INDEX: usize = 0;
 
 /// The position of the guard that no event of the session lies past the receipt's range.
 pub(super) const UPPER_BOUND_GUARD_INDEX: usize = 1;
+
+/// The position of the first held folder's guard in the delete's write, one guard per folder in
+/// the order the files stage read them.
+pub(super) const FOLDER_GUARDS_START_INDEX: usize = 2;
 
 /// The states a purge marks a session from, by the deletion that asks for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,12 +111,15 @@ impl PurgeCaller {
 }
 
 /// What the purge reads before it deletes a file: the session's workflow runs, the payloads its
-/// manifests name and its own folders on other volumes.
+/// manifests name, the managed folders it holds and its own folders on other volumes.
 pub(super) struct PurgeTargets {
     /// The session's workflow runs.
     pub(super) workflow_run_ids: Vec<WorkflowRunId>,
-    /// The payloads the session's manifests name.
+    /// The payloads the session's manifests name, and those of every version of each chat folder
+    /// it is the last holder of.
     pub(super) payload_hashes: Vec<ContentHash>,
+    /// The managed folders the session holds, each with whether another chat holds it too.
+    pub(super) held_folders: Vec<HeldManagedFolder>,
     /// The session's own folders on other volumes, read before their rows go so each is removed
     /// or owed.
     pub(super) volume_folders: Vec<VolumeFolder>,
@@ -139,11 +152,40 @@ static MARK_SQL: LazyLock<String> = LazyLock::new(|| {
 
 const WORKFLOW_RUN_IDS_SQL: &str = "SELECT id FROM workflow_runs WHERE session_id = @sessionId";
 
+// The payloads the session's manifests name, and those of the versions of the chat folders whose
+// mounts `@lastHeldMountIds` lists.
 const PAYLOAD_HASHES_SQL: &str = "
-  SELECT DISTINCT refs.storage_path
+  SELECT refs.storage_path
     FROM artifact_payload_refs AS refs
     JOIN artifact_manifests AS manifest ON manifest.id = refs.manifest_id
-   WHERE manifest.session_id = @sessionId";
+   WHERE manifest.session_id = @sessionId
+  UNION
+  SELECT refs.storage_path
+    FROM json_each(@lastHeldMountIds) AS mount
+    JOIN artifact_manifests AS manifest
+      ON manifest.repo_mount_id = mount.value AND manifest.workspace_path IS NOT NULL
+    JOIN artifact_payload_refs AS refs ON refs.manifest_id = manifest.id";
+
+// The versions of a chat folder the session recorded, handed to the folder's earliest surviving
+// holder, of the other chats holding it, as a chat folder's origin is read.
+static REHOME_FOLDER_VERSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE artifact_manifests
+    SET session_id = {}
+  WHERE repo_mount_id = @repoMountId AND workspace_path IS NOT NULL
+    AND session_id = @sessionId",
+        earliest_live_holder_sql("@repoMountId", Some("@sessionId"))
+    )
+});
+
+// Every version of a chat folder, references before the manifests they name.
+const DELETE_FOLDER_VERSIONS_SQL: [&str; 2] = [
+    "DELETE FROM artifact_payload_refs WHERE manifest_id IN
+       (SELECT id FROM artifact_manifests
+         WHERE repo_mount_id = @repoMountId AND workspace_path IS NOT NULL)",
+    "DELETE FROM artifact_manifests
+      WHERE repo_mount_id = @repoMountId AND workspace_path IS NOT NULL",
+];
 
 const EVENT_RANGE_SQL: &str = "
   SELECT MIN(sequence), MAX(sequence) FROM session_events WHERE session_id = @sessionId";
@@ -337,14 +379,27 @@ pub(super) fn read_purge_targets(
             text_column(row, 0, |text| WorkflowRunId::new(&text))
         })?
         .collect::<rusqlite::Result<_>>()?;
+    let held_folders = read_held_managed_folders(connection, session_id)?;
+    let last_held_mount_ids = held_folders
+        .iter()
+        .filter(|folder| !folder.is_held_by_another)
+        .map(|folder| folder.repo_mount_id)
+        .collect::<Vec<_>>();
     let payload_hashes = connection
         .prepare_cached(PAYLOAD_HASHES_SQL)?
-        .query_map(session, |row| row.get::<_, String>(0))?
+        .query_map(
+            named_params! {
+                "@sessionId": session_text,
+                "@lastHeldMountIds": json_list_value(&last_held_mount_ids),
+            },
+            |row| row.get::<_, String>(0),
+        )?
         .map(|stored| Ok(ContentHash::from_stored(stored?)?))
         .collect::<Result<_, PurgeReadError>>()?;
     Ok(PurgeTargets {
         workflow_run_ids,
         payload_hashes,
+        held_folders,
         volume_folders: volume_folders(connection, session_id)?,
     })
 }
@@ -446,18 +501,23 @@ pub(super) async fn gone_worktree_ids(
     Ok(gone)
 }
 
-/// The one write that deletes every row naming the session, led by its two guards: the session is
-/// still marked, and no event of it lies past `last_sequence` (its receipt's range, `None` for a
-/// session with no event). The workflow runs go first with every row hanging off them, then the
-/// rows keyed by the session's runs, then its questions and the queued answers paired with them,
-/// then the session's own, its plans and its hand-off row among them, then the chat's managed
-/// mount, and last one owed row for each of `owed_folders`, the session's folders on volumes that
-/// were absent, so each folder stays named by one row or the other.
+/// The one write that deletes every row naming the session, led by its guards: the session is
+/// still marked, no event of it lies past `last_sequence` (its receipt's range, `None` for a
+/// session with no event), and each of `held_folders` is still held as the files stage read it.
+/// The workflow runs go first with every row hanging off them, then the rows keyed by the
+/// session's runs, then its questions and the queued answers paired with them, then each held
+/// folder's versions (the ones the session recorded handed to the folder's earliest surviving
+/// holder, or every one deleted for its last holder), then the session's own, its plans, its
+/// hand-off row and its workspaces among them, then each held folder's release: the session's own
+/// hold, or the mount with every row on it for its last holder, and last one owed row for each of
+/// `owed_folders`, the session's folders on volumes that were absent, so each folder stays named
+/// by one row or the other.
 pub(super) fn session_deletion_statements(
     session_id: SessionId,
     last_sequence: Option<i64>,
     workflow_run_ids: &[WorkflowRunId],
     gone_worktree_ids: &[String],
+    held_folders: &[HeldManagedFolder],
     owed_folders: &[VolumeFolder],
 ) -> Vec<WriteStatement> {
     let session_binding = || text_binding("@sessionId", session_id.text().as_str());
@@ -484,6 +544,11 @@ pub(super) fn session_deletion_statements(
             expected_row_count: Some(0),
         },
     ];
+    statements.extend(
+        held_folders
+            .iter()
+            .map(|folder| held_managed_folder_guard(folder, session_id)),
+    );
     statements.extend(workflow_run_deletion_statements(workflow_run_ids));
     statements.extend(
         RUN_KEYED_DELETES
@@ -492,6 +557,11 @@ pub(super) fn session_deletion_statements(
     );
     // The questions' rows go as their projection's rebuild clears them.
     statements.extend(QuestionsProjection.clear_statements(&session_id));
+    statements.extend(
+        held_folders
+            .iter()
+            .flat_map(|folder| folder_version_statements(folder, session_id)),
+    );
     statements.extend(
         DELETES_THROUGH_SESSION_ROW
             .iter()
@@ -514,7 +584,39 @@ pub(super) fn session_deletion_statements(
         expected_row_count: None,
     });
     statements.push(by_session(Cow::Borrowed(WORKSPACES_DELETE_SQL)));
-    statements.extend(managed_mount_deletion_statements(session_id));
+    statements.extend(
+        held_folders
+            .iter()
+            .flat_map(|folder| held_managed_folder_release_statements(folder, session_id)),
+    );
     statements.extend(owed_folders.iter().map(insert_owed_folder_statement));
     statements
+}
+
+// What `session_id`'s purge does with `folder`'s versions, under the folder's guard: hands the ones
+// it recorded to the earliest surviving holder while another chat holds the folder, or deletes
+// every one when it is the last holder.
+fn folder_version_statements(
+    folder: &HeldManagedFolder,
+    session_id: SessionId,
+) -> Vec<WriteStatement> {
+    let mount_binding = || text_binding("@repoMountId", folder.repo_mount_id.text().as_str());
+    if folder.is_held_by_another {
+        return vec![WriteStatement {
+            sql: Cow::Borrowed(REHOME_FOLDER_VERSIONS_SQL.as_str()),
+            bindings: StatementBindings::Named(vec![
+                mount_binding(),
+                text_binding("@sessionId", session_id.text().as_str()),
+            ]),
+            expected_row_count: None,
+        }];
+    }
+    DELETE_FOLDER_VERSIONS_SQL
+        .into_iter()
+        .map(|sql| WriteStatement {
+            sql: Cow::Borrowed(sql),
+            bindings: StatementBindings::Named(vec![mount_binding()]),
+            expected_row_count: None,
+        })
+        .collect()
 }
