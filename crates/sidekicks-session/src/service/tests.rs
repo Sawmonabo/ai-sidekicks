@@ -265,7 +265,7 @@ async fn a_build_move_stands_until_a_send_and_each_warning_once() {
     let warning = json!({ "kind": "providerWarning", "source": "warning", "text": "Slow disk" });
     let sent = json!({
         "type": "user.message.sent",
-        "payload": { "actor": "person", "message": "Go on" },
+        "payload": { "actor": "person", "message": "Go on", "firstWords": "Go on" },
     });
     assert_eq!(
         standing_notices(&[moved.clone(), warning.clone(), warning.clone()]).await,

@@ -92,11 +92,11 @@ static SELECT_NEWEST_MESSAGES_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // Each listed run's first readable admitted message, as the person's or the dispatcher's send
-// wrote its words; the bare column reads from the row `MIN` picks.
+// wrote its words and its first words; the bare columns read from the row `MIN` picks.
 static SELECT_ADMITTED_ASKS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT json_extract(admitted.payload, '$.runId'), MIN(admitted.sequence),
-       json_extract(sent.payload, '$.message')
+       json_extract(sent.payload, '$.message'), json_extract(sent.payload, '$.firstWords')
   FROM session_events AS admitted
   JOIN session_events AS sent
     ON sent.session_id = admitted.session_id
@@ -261,17 +261,17 @@ impl HeadLog {
                     "@read_bound": read_bound,
                 },
                 |row| {
-                    Ok((
-                        run_id_column(row, 0)?,
-                        text_column(row, 2, MessageText::new)?,
-                    ))
+                    let message = text_column(row, 2, MessageText::new)?;
+                    // The ask is the message whole; a message of files alone asks as what it
+                    // carries.
+                    let ask = match read_message_words(&message) {
+                        Some(words) => words,
+                        None => text_column(row, 3, MessageContent::new)?,
+                    };
+                    Ok((run_id_column(row, 0)?, ask))
                 },
             )?
-            .collect::<rusqlite::Result<Vec<_>>>()?
-            .into_iter()
-            // A message of files alone was admitted with no words to ask.
-            .filter_map(|(run_id, message)| Some((run_id, read_message_words(&message)?)))
-            .collect();
+            .collect::<rusqlite::Result<_>>()?;
         Ok(Self {
             tool_counts,
             activities,
@@ -305,8 +305,8 @@ impl HeadLog {
         self.results.get(&run_id).cloned()
     }
 
-    /// The words `run_id` was admitted with, `None` where no send started it or its send held
-    /// files alone.
+    /// The words `run_id` was admitted with, or for a send of files alone what it carries; `None`
+    /// where no send started it.
     pub(super) fn admitted_ask(&self, run_id: RunId) -> Option<MessageContent> {
         self.admitted_asks.get(&run_id).cloned()
     }

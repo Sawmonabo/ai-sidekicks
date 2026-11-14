@@ -581,6 +581,7 @@ mod tests {
                     "runId": lead,
                     "actor": "person",
                     "message": "Plan the change",
+                    "firstWords": "Plan the change",
                 },
             }),
             None,

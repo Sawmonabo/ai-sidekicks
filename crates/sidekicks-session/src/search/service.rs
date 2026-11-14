@@ -623,6 +623,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{SessionSearchError, SessionSearchService};
+    use crate::auto_title::message_first_words;
     use crate::questions::schema::schema_parts;
     use crate::search::cursor::decode_search_cursor;
     use crate::search::index::outbox::OutboxReader;
@@ -773,7 +774,12 @@ mod tests {
     fn log_message(connection: &Connection, session_id: SessionId, message: &str) -> i64 {
         let event = json!({
             "type": "user.message.sent",
-            "payload": { "sessionId": session_id, "actor": "person", "message": message },
+            "payload": {
+                "sessionId": session_id,
+                "actor": "person",
+                "message": message,
+                "firstWords": message_first_words(message, &[]),
+            },
         });
         insert_test_event(connection, session_id, event, None, OCCURRED_AT).0
     }

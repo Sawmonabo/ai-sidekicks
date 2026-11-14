@@ -70,7 +70,7 @@ type AgentTreeMember =
 // (a helper's newest own run's). Whether it waits on an approval is its link's state.
 interface ChildRunHead {
   agentName: string | null; // a run's agent's name; a helper's provider-given name, else the role it started in
-  ask: string | null; // the ask it was dispatched with, whole: a run's first admitted send, a helper's start's prompt, or for a Codex helper spawned through the v2 tool, whose start carries no ask, the task name it was spawned under in words (`fix_parser` reads `Fix parser`)
+  ask: string | null; // the ask it was dispatched with, whole: a run's first admitted send, or for a send of files alone its `firstWords`, a helper's start's prompt, or for a Codex helper spawned through the v2 tool, whose start carries no ask, the task name it was spawned under in words (`fix_parser` reads `Fix parser`)
   modelId: string;
   effort?: string; // one word from the one effort ladder
   viaAgentName?: string; // present where the child was a peer call: the agent that was asked

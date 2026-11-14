@@ -14,6 +14,7 @@ use crate::agent_tree::read::tests::{
     NodeStart, SessionLog, agent_id, at, head, helper_link, run_link,
 };
 use crate::agents::projection::test_fixture::{binding, project, resolved_run_queued};
+use crate::auto_title::{AttachmentKind, message_first_words};
 
 // Writes one piece of `run_id`'s provider message `message_id` with `body`, through the log's own
 // insert so the piece stands as a row with its stored body.
@@ -79,11 +80,21 @@ fn run_end(
     session.sequence += 1;
 }
 
-// The person's send `queue_item_id` with `words`, admitted into `run_id`.
-fn admitted_send(session: &mut SessionLog, run_id: RunId, queue_item_id: &str, words: &str) {
+// The person's send `queue_item_id` with `words` and files of `attachment_kinds`, admitted into
+// `run_id`.
+fn admitted_send(
+    session: &mut SessionLog,
+    run_id: RunId,
+    queue_item_id: &str,
+    (words, attachment_kinds): (&str, &[AttachmentKind]),
+) {
     session.event(
         SessionEventType::UserMessageSent,
-        &json!({ "queueItemId": queue_item_id, "message": words }),
+        &json!({
+            "queueItemId": queue_item_id,
+            "message": words,
+            "firstWords": message_first_words(words, attachment_kinds),
+        }),
         None,
         &at(1),
     );
@@ -95,12 +106,13 @@ fn admitted_send(session: &mut SessionLog, run_id: RunId, queue_item_id: &str, w
     );
 }
 
-// An ended run's head reads its agent's name, the send that started it, its own tool calls, the
-// newest of them, the opening of its newest message cut to the cap and when it ended; a live run's
-// head reads its tool calls but no end and no result. Killed by the tool count or the activity
-// read across runs, by the oldest tool call or message taken for the newest, by a later send taken
-// for the ask, by the cut dropped, by a result or an end read for a live run, and by the agent's
-// name left out.
+// An ended run's head reads its agent's name, the send that started it whole, its own tool calls,
+// the newest of them, the opening of its newest message cut to the cap and when it ended; a live
+// run's head reads its tool calls but no end and no result; a run a send of files alone started
+// asks as what it carries. Killed by the tool count or the activity read across runs, by the
+// oldest tool call or message taken for the newest, by a later send taken for the ask, by the ask
+// cut to its first words, by a send of files alone asking nothing, by the cut dropped, by a result
+// or an end read for a live run, and by the agent's name left out.
 #[test]
 fn a_run_head_reads_its_tool_calls_activity_result_ask_and_end_from_its_own_log() {
     let mut session = SessionLog::new();
@@ -123,8 +135,9 @@ fn a_run_head_reads_its_tool_calls_activity_result_ask_and_end_from_its_own_log(
             &binding(PROVIDERS[0].id, "model-r"),
         ),
     );
-    admitted_send(&mut session, ended, "q-1", "Review the diff.");
-    admitted_send(&mut session, ended, "q-2", "Also check the docs.");
+    let ask = "Review the diff and check every caller of the parser.";
+    admitted_send(&mut session, ended, "q-1", (ask, &[]));
+    admitted_send(&mut session, ended, "q-2", ("Also check the docs.", &[]));
     tool_call(&mut session, ended, "read", &at(2));
     tool_call(&mut session, ended, "bash", &at(3));
     tool_call(&mut session, lead_run, "grep", &at(4));
@@ -146,6 +159,18 @@ fn a_run_head_reads_its_tool_calls_activity_result_ask_and_end_from_its_own_log(
     );
     tool_call(&mut session, live, "edit", &at(11));
     message(&mut session, live, "m-3", "Halfway.", &at(12));
+    let attached = session.run(
+        Some((lead_run, ChildRunProvenance::WorkflowStep)),
+        RunState::Running,
+        lead,
+        &at(13),
+    );
+    admitted_send(
+        &mut session,
+        attached,
+        "q-3",
+        ("", &[AttachmentKind::Image, AttachmentKind::Image]),
+    );
 
     let tree = session.read();
     let ended_head = head(run_link(&tree, ended));
@@ -155,8 +180,8 @@ fn a_run_head_reads_its_tool_calls_activity_result_ask_and_end_from_its_own_log(
     );
     assert_eq!(
         ended_head.ask.as_ref().map(FreeFormText::as_str),
-        Some("Review the diff."),
-        "the send that started it"
+        Some(ask),
+        "the send that started it, whole"
     );
     assert_eq!(ended_head.tool_count.get(), 2, "its own calls only");
     assert_eq!(
@@ -192,6 +217,13 @@ fn a_run_head_reads_its_tool_calls_activity_result_ask_and_end_from_its_own_log(
     assert_eq!(live_head.result, None, "a live run has no result yet");
     assert_eq!(live_head.ended_at, None);
     assert_eq!(live_head.ask, None, "no send started it");
+
+    let attached_head = head(run_link(&tree, attached));
+    assert_eq!(
+        attached_head.ask.as_ref().map(FreeFormText::as_str),
+        Some("2 attached images"),
+        "a send of files alone asks as what it carries"
+    );
 }
 
 // A failed child's head carries the cause and the provider's words its failure recorded. Killed
