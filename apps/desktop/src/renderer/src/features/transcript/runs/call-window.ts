@@ -1,11 +1,11 @@
 // A long run's window of calls: the stretch of a run group's drawn rows the outer list holds,
 // measured in screen heights as the transcript's own window is, and what its edges count. A
-// window holds the run's newest calls until a reader opens an earlier stretch, and holds the newest
-// again once a later stretch reaches them. Each edge line is a row of the outer list keyed under
-// its group, so it goes with the group wherever the group goes. The run group fold cuts the
-// window rather than the transcript's window cap: the cap holds one unbroken span of the list and
-// a group's header stands before every row of it, so a cut above a run's window would take the
-// header with it.
+// window holds the run's newest calls until a reader opens an earlier stretch or steps a find to a
+// call outside it, and holds the newest again once a later stretch reaches them. Each edge line is
+// a row of the outer list keyed under its group, so it goes with the group wherever the group
+// goes. The run group fold cuts the window rather than the transcript's window cap: the cap holds
+// one unbroken span of the list and a group's header stands before every row of it, so a cut
+// above a run's window would take the header with it.
 
 import {
   TRANSCRIPT_LET_GO_SCREEN_HEIGHTS,
@@ -114,6 +114,30 @@ export class RunCallWindows {
       walk.firstIndexBefore(endCallIndex, TRANSCRIPT_RETAINED_SCREEN_HEIGHTS),
       endCallIndex,
     );
+  }
+
+  /**
+   * Move the window onto `rowId`, one of the run's drawn rows, when it stops short of that row: a
+   * stretch of screens before the row and the retained share from there on, as a press on the
+   * earlier edge opens. A window that holds the row stays as it is, so a short run keeps every row.
+   */
+  public openStretchAt(runGroup: RunGroup, rowId: string, measure: RunWindowMeasure): void {
+    const current = this.windowOf(runGroup, measure);
+    const walk = new CallWalk(runGroup, measure);
+    const callIndex = walk.callIndexOf(rowId);
+    if (
+      callIndex === undefined ||
+      (callIndex >= current.firstCallIndex && callIndex < current.endCallIndex)
+    ) {
+      return;
+    }
+    const firstCallIndex = walk.firstIndexBefore(callIndex, TRANSCRIPT_STRETCH_SCREEN_HEIGHTS);
+    // A row taller than the retained share still ends the window past the row.
+    const endCallIndex = Math.max(
+      callIndex + 1,
+      walk.endIndexAfter(firstCallIndex, TRANSCRIPT_RETAINED_SCREEN_HEIGHTS),
+    );
+    this.#hold(runGroup, walk, firstCallIndex, endCallIndex);
   }
 
   /** The window the last `windowOf` resolved for a run group, by its key. */

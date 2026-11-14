@@ -16,11 +16,17 @@ export function useTranscriptStructureActs(
   inputs: TranscriptStructureActInputs,
   holdsRunGroup: boolean,
 ): void {
-  const { find, jumpToRow, jumpToTail, foldEveryRun, unfoldEveryRun } = inputs;
+  const { openFind, stepFind, jumpToTail, foldEveryRun, unfoldEveryRun } = inputs;
   const acts = useMemo(
     () =>
-      buildTranscriptStructureActs({ find, jumpToRow, jumpToTail, foldEveryRun, unfoldEveryRun }),
-    [find, jumpToRow, jumpToTail, foldEveryRun, unfoldEveryRun],
+      buildTranscriptStructureActs({
+        openFind,
+        stepFind,
+        jumpToTail,
+        foldEveryRun,
+        unfoldEveryRun,
+      }),
+    [openFind, stepFind, jumpToTail, foldEveryRun, unfoldEveryRun],
   );
   useMountedTranscript(acts, holdsRunGroup);
 }

@@ -1,10 +1,9 @@
 // Every window this feed derives, in the one order they may be derived in: the unfurled
 // projection, the run-group fold, the rows the feed draws anything for, and of those the rows that
-// draw whole, which the viewport holds a window of. The fold publishes the rows it removed, since
-// re-deriving the difference downstream re-walked the projection on every append; nothing counts a
-// row the feed never draws, so that stage publishes its window alone. The one viewport binding,
-// reveal engine and history reader are minted here, since the reader is asked by the viewport and
-// measured in it.
+// draw whole, which the viewport holds a window of. Neither the fold nor the drawn-row stage keeps
+// the rows it takes out, so find, which reads every row the window holds, reads the unfurled
+// window, and its step opens what hides a row. The one viewport binding, reveal engine and history
+// reader are minted here, since the reader is asked by the viewport and measured in it.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -52,7 +51,7 @@ import {
   type RowDrawing,
   type RunWindowEstimates,
 } from "../row-height-inputs.js";
-import { RunGroupFold, type RunWindowInputs } from "../run-group-fold.js";
+import { RunGroupFold, runGroupFoldingAway, type RunWindowInputs } from "../run-group-fold.js";
 import {
   runWindowEdgeKeysAmong,
   runWindowEdgesAmong,
@@ -125,6 +124,12 @@ export interface TranscriptFeedWindows {
   readonly messageReadBack: MessageReadBack | undefined;
   /** Open the next stretch of a long run beyond `edge`, measured as the fold measures it. */
   readonly openRunStretch: (runGroup: RunGroup, edge: RunWindowEdge) => void;
+  /**
+   * Open what hides a row of the unfolded window: its folded run group, and its long run's window
+   * where that stops short of it. Answers whether the row was hidden, so a landing on it waits for
+   * the render that draws it.
+   */
+  readonly unfoldRow: (rowId: string) => boolean;
   /**
    * The windows over `events`: unfolded, and as the feed would draw them, folded and cut as the
    * reader's runs stand now, without moving them. A copy reads the rows the store let go through
@@ -377,6 +382,20 @@ export function useTranscriptFeedWindows(
         : runCallWindows.resolvedWindowOf(runGroupKey),
     [foldedRunGroupKeys, runCallWindows],
   );
+  const foldsOpenRunGroup = folds.openRunGroup;
+  const foldsOpenRunStretchAt = folds.openRunStretchAt;
+  const unfoldRow = useCallback(
+    (rowId: string) => {
+      const runGroup = runGroupFoldingAway(rowId, unfurledWindow, foldedWindow);
+      if (runGroup === undefined) {
+        return false;
+      }
+      foldsOpenRunGroup(runGroup.key);
+      foldsOpenRunStretchAt(runGroup, rowId, runWindowInputs.measureOf(unfurledWindow));
+      return true;
+    },
+    [unfurledWindow, foldedWindow, foldsOpenRunGroup, foldsOpenRunStretchAt, runWindowInputs],
+  );
   const openRunStretch = useOpenRunStretch({
     history,
     sessionStore: inputs.sessionStore,
@@ -480,6 +499,7 @@ export function useTranscriptFeedWindows(
     history,
     messageReadBack: readBack,
     openRunStretch,
+    unfoldRow,
     deriveRowSourceWindows,
   };
 }

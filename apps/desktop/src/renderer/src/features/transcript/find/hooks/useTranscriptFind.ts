@@ -1,8 +1,8 @@
-// The find field's state and the walk over the rows the feed draws. It searches every row the
-// store holds, whether or not the viewport's window holds it: a step to a row the window let go
-// lands on it, as a link does. The search is held across the log's updates, which arrive per
-// event, so the count follows a row that goes, and a step from a hit that left moves on to the
-// next live one.
+// The find field's state and the walk over every row the window holds, whether a run group's fold
+// or a long run's window hides it and whether or not the viewport's window holds it: the caller's
+// step opens what hides a row before it lands on it, as a link does. The search is held across
+// the log's updates, which arrive per event, so the count follows a row that goes, and a step
+// from a hit that left moves on to the next live one.
 
 import { useCallback, useMemo, useState } from "react";
 
@@ -45,14 +45,14 @@ export interface TranscriptFindState {
 
 /** The rows the walk searches. */
 export interface TranscriptFindInputs {
-  /** The rows the feed draws, in log order: every one a step can land on. */
+  /** Every row the window holds, in log order, folded away or not. */
   readonly rows: readonly ProjectedTranscriptRow[];
   /** The system message behind each row of the unfurled window, whose line a match reads. */
   readonly systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>;
 }
 
 /**
- * Searches the rows the feed draws. The walk is held by row, not ordinal, because the result
+ * Searches every row the window holds. The walk is held by row, not ordinal, because the result
  * recomputes as the log moves.
  */
 export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindState {

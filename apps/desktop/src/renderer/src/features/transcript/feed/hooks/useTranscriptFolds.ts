@@ -40,6 +40,11 @@ export interface TranscriptFolds {
     edge: RunWindowEdge,
     measure: RunWindowMeasure,
   ) => void;
+  /**
+   * Move a long run's window onto one of its drawn rows, if it stops short of it, and fold again
+   * either way: asked for a row the fold hides.
+   */
+  readonly openRunStretchAt: (runGroup: RunGroup, rowId: string, measure: RunWindowMeasure) => void;
 }
 
 /**
@@ -134,6 +139,15 @@ export function useTranscriptFolds(sessionId: string): TranscriptFolds {
     },
     [runCallWindows, publishRunWindowMoveCount],
   );
+  const openRunStretchAt = useCallback(
+    (runGroup: RunGroup, rowId: string, measure: RunWindowMeasure) => {
+      runCallWindows.openStretchAt(runGroup, rowId, measure);
+      // Counted even where the window already held the row: the fold that hid it read the
+      // window as it stood then, and a new count folds again over the window as it stands now.
+      publishRunWindowMoveCount((moveCount) => moveCount + 1);
+    },
+    [runCallWindows, publishRunWindowMoveCount],
+  );
 
   const foldedRunGroupKeys = foldedRunGroupKeysState.value;
   const foldedCallRowIds = foldedCallRowIdsState.value;
@@ -152,6 +166,7 @@ export function useTranscriptFolds(sessionId: string): TranscriptFolds {
       runCallWindows,
       runWindowMoveCount,
       openRunStretch,
+      openRunStretchAt,
     }),
     [
       foldedRunGroupKeys,
@@ -166,6 +181,7 @@ export function useTranscriptFolds(sessionId: string): TranscriptFolds {
       runCallWindows,
       runWindowMoveCount,
       openRunStretch,
+      openRunStretchAt,
     ],
   );
 }

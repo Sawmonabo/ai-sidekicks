@@ -1,9 +1,8 @@
-// The matcher behind the find field. It runs over the loaded rows only, and
-// `searchedRowCount` is part of the result so a find cannot be read as a claim about the
-// whole session. It searches the text a row draws, read on demand from what the window already
-// holds: a person's whole message, a tool row's heading with its result chip, and a system
-// message's line. While a query is set the log moves under it on every admitted event, so a held
-// search reads only the rows that moved.
+// The matcher behind the find field. It runs over every row the window holds, folded away or not,
+// and searches the text a row draws, read on demand from what the window already holds: a
+// person's whole message, a tool row's heading with its result chip, and a system message's line.
+// While a query is set the log moves under it on every admitted event, so a held search reads only
+// the rows that moved.
 
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { toolRowHeadingOf, toolRowHeadingText } from "../rows/tool-heading.js";
@@ -14,7 +13,7 @@ import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vo
 
 /**
  * Matches the find field ranks and offers next/previous over.
- * A one-character query matches most of the loaded window; the cap keeps the next/previous walk
+ * A one-character query matches most of the window; the cap keeps the next/previous walk
  * terminating, and the true match count rides beside the capped denominator.
  */
 export const FIND_MATCH_CAP = 500;
@@ -49,9 +48,9 @@ export interface FindResult {
 }
 
 /**
- * One query's result over the rows the feed draws, held across the lists it is handed. A list that
- * only grew at its end, its earlier rows projected again with what find reads unchanged, costs its
- * new rows; any other list is searched whole.
+ * One query's result over the rows the window holds, held across the lists it is handed. A list
+ * that only grew at its end, its earlier rows projected again with what find reads unchanged,
+ * costs its new rows; any other list is searched whole.
  */
 export class FindMatchList {
   #rows: readonly ProjectedTranscriptRow[] = [];
@@ -125,13 +124,8 @@ export class FindMatchList {
   }
 }
 
-/** The result an empty query produces: no matches over the rows searched. */
-export function emptyFindResult(searchedRowCount: number): FindResult {
-  return { query: "", matches: [], totalMatchCount: 0, searchedRowCount };
-}
-
 /**
- * Runs a query over one loaded window.
+ * Runs a query over the rows one window holds.
  *
  * Case-insensitive literal substring, not the palette's subsequence matcher, which would match
  * nearly every row on a short query. An empty or whitespace-only query matches nothing.
@@ -190,6 +184,11 @@ export function stepFindMatch(
       : steppedIndexFrom(result.matches, selected, direction);
   const match = result.matches[index];
   return match === undefined ? undefined : { index, match };
+}
+
+/** The result an empty query produces: no matches over the rows searched. */
+function emptyFindResult(searchedRowCount: number): FindResult {
+  return { query: "", matches: [], totalMatchCount: 0, searchedRowCount };
 }
 
 /** Whether the text a row draws holds `needle`, already lowercased. */

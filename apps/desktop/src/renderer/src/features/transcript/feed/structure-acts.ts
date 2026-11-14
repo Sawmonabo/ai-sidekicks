@@ -3,14 +3,14 @@
 // state the feed holds, so a test can drive the set with no render.
 
 import { type FindStepDirection } from "../find/matcher.js";
-import { type TranscriptFindState } from "../find/hooks/useTranscriptFind.js";
 import { type TranscriptActs } from "../mounted-transcript.js";
 
 /** The state one window's acts are built over. */
 export interface TranscriptStructureActInputs {
-  readonly find: TranscriptFindState;
-  /** The transcript's one scroll writer, for the walk's jumps. */
-  readonly jumpToRow: (rowId: string) => void;
+  /** Reveal the find field without touching its query or walk. */
+  readonly openFind: () => void;
+  /** The find field's own step: the next or previous match, opened and scrolled to. */
+  readonly stepFind: (direction: FindStepDirection) => void;
   readonly jumpToTail: () => void;
   /** Fold every run group, holding the row nearest the middle where it stands. */
   readonly foldEveryRun: () => void;
@@ -24,19 +24,13 @@ export interface TranscriptStructureActInputs {
  * Written member by member, so an act added to `TranscriptActs` fails to compile here.
  */
 export function buildTranscriptStructureActs(inputs: TranscriptStructureActInputs): TranscriptActs {
-  const stepAndJump = (direction: FindStepDirection): void => {
-    const walked = inputs.find.step(direction);
-    if (walked !== undefined) {
-      inputs.jumpToRow(walked.match.rowId);
-    }
-  };
   return {
-    openFind: inputs.find.open,
+    openFind: inputs.openFind,
     stepFindNext: () => {
-      stepAndJump("next");
+      inputs.stepFind("next");
     },
     stepFindPrevious: () => {
-      stepAndJump("previous");
+      inputs.stepFind("previous");
     },
     jumpToLatest: inputs.jumpToTail,
     foldEveryRun: inputs.foldEveryRun,

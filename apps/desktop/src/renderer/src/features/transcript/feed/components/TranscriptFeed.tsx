@@ -123,15 +123,16 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const isWindowDegraded = useSessionDegraded(props.sessionStore);
   const isDependentReadFailed = useDependentReadFailed(props.sessionStore);
   const fullBodyReads = useFullBodyReads(props.sessionStore, props.readTranscriptBody);
-  const jumpToRow = viewport.jumpToRow;
+  // Find counts every row the window holds, and a step opens the fold that hides its match.
   const findAndJump = useTranscriptFindAndJump({
     systemMessageByRowId: windows.unfurledWindow.systemMessageByRowId,
-    rows: transcriptWindow.rows,
+    rows: windows.unfurledWindow.rows,
     areRowsShown: isDrawable,
-    jumpToRow,
+    unfoldRow: windows.unfoldRow,
+    jumpToRow: viewport.jumpToRow,
     focusTranscriptViewport: viewport.focusScrollContainer,
   });
-  const find = findAndJump.find;
+  const { find, onStep } = findAndJump;
 
   // The store's wheel, so one agent wears one color on every row. `assignmentFor` never
   // allocates: an actor the wheel never admitted, the person or a device among them, gets
@@ -238,7 +239,13 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     unfoldEveryRunGroup(runGroupKeys);
   }, [runGroupByHeaderKey, foldedRunGroupKeys, holdRowNearestMiddle, unfoldEveryRunGroup]);
   useTranscriptStructureActs(
-    { find, jumpToRow, jumpToTail: viewport.jumpToTail, foldEveryRun, unfoldEveryRun },
+    {
+      openFind: find.open,
+      stepFind: onStep,
+      jumpToTail: viewport.jumpToTail,
+      foldEveryRun,
+      unfoldEveryRun,
+    },
     runGroupByHeaderKey.size > 0,
   );
   const clockLocale = useClockLocale();

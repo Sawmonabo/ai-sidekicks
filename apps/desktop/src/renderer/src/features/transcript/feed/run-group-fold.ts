@@ -308,6 +308,22 @@ export class RunGroupFold {
   }
 }
 
+/**
+ * The run group a fold hides a row in: folded, or cut out of its long run's window. `undefined`
+ * when `foldedWindow` draws the row, the row is in no run group, or it is not in the log.
+ */
+export function runGroupFoldingAway(
+  rowKey: string | undefined,
+  unfurledWindow: TranscriptWindowModel,
+  foldedWindow: TranscriptWindowModel,
+): RunGroup | undefined {
+  if (rowKey === undefined || foldedWindow.rowsByKey.has(rowKey)) {
+    return undefined;
+  }
+  const runGroupKey = unfurledWindow.runGroupKeyByRowId.get(rowKey);
+  return runGroupKey === undefined ? undefined : foldedWindow.runGroupByHeaderKey.get(runGroupKey);
+}
+
 /** An open group a stretch grew: its window as the last stage folded it, and now. */
 interface GrownWindow {
   readonly runGroup: RunGroup;

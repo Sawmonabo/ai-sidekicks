@@ -16,7 +16,7 @@ import {
 } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";
-import { type RunGroup } from "../../runs/groups.js";
+import { runGroupFoldingAway } from "../run-group-fold.js";
 import { type TranscriptHistory } from "../../history/hooks/useTranscriptHistory.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 import { type MessageReadBack } from "../../viewport/landing.js";
@@ -143,24 +143,6 @@ function useReadBackToMessage(
     return undefined;
   }
   return history.state.missingRowCursor === messageAnchorCursor ? "not-in-history" : "reading-back";
-}
-
-/**
- * The run group a row is hidden in, or `undefined` when the window draws the row, it is in no run
- * group, or it is not in the log.
- */
-function runGroupFoldingAway(
-  rowKey: string | undefined,
-  unfurledWindow: TranscriptWindowModel,
-  transcriptWindow: TranscriptWindowModel,
-): RunGroup | undefined {
-  if (rowKey === undefined || transcriptWindow.rowsByKey.has(rowKey)) {
-    return undefined;
-  }
-  const runGroupKey = unfurledWindow.runGroupKeyByRowId.get(rowKey);
-  return runGroupKey === undefined
-    ? undefined
-    : transcriptWindow.runGroupByHeaderKey.get(runGroupKey);
 }
 
 /**

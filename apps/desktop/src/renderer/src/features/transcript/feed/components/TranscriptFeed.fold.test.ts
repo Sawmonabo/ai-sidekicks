@@ -1,7 +1,8 @@
 // What folds in the mounted feed and where a fold leaves the reader: nothing folds itself, a folded
 // call stays folded while it is scrolled away, and the palette's two rows fold and open every
-// group around the row nearest the middle of the view. Where a press on one header leaves that
-// header needs real layout, so it is proven in the browser tier.
+// group around the row nearest the middle of the view, and find counts a match a fold hides and
+// opens the fold when a step reaches it. Where a press on one header leaves that header needs real
+// layout, so it is proven in the browser tier.
 
 import { act, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -128,6 +129,60 @@ describe("the transcript feed — nothing folds itself", () => {
 
     expect(headerButtonOf(feed, "agent.run.completed").getAttribute("aria-expanded")).toBe("true");
     expect(isMounted(feed, 2)).toBe(true);
+  });
+});
+
+describe("the transcript feed — find reaches a match a fold hides", () => {
+  it("counts it with the rest, and a step opens its group and lands on it", () => {
+    withLaidOutViewport();
+    const bindings = vi.spyOn(ViewportController.prototype, "bindVirtualizer");
+    const sessionStore = openSessionStoreWithSystemMessage();
+    // After the run's first card, so this compaction joins the run's group; the first, before any
+    // card, stands on its own.
+    sessionStore.applyBatch([
+      {
+        id: transcriptFixtureEventId(3),
+        sessionId: SESSION_ID,
+        sequence: 3,
+        cursor: transcriptFixtureStreamCursor(3),
+        kind: "agent.run.context.compacted",
+        occurredAt: transcriptFixtureStampAt(3),
+        payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+        runStamp: { position: 3, epoch: 0 },
+      },
+    ]);
+    const feed = renderFeed(sessionStore, undefined, RowIdBody);
+    const landings = vi.spyOn(boundController(bindings).landing, "landOnRow");
+    const header = (): HTMLButtonElement => headerButtonOf(feed, "agent.run.running");
+    const drawnSystemMessageCount = (): number =>
+      feed.querySelectorAll(".meridian-system-message").length;
+    fireEvent.click(header());
+    expect(header().getAttribute("aria-expanded")).toBe("false");
+    expect(drawnSystemMessageCount()).toBe(1);
+
+    dispatchCommand("transcript.find");
+    const findField =
+      feed.querySelector<HTMLInputElement>(".meridian-find__input") ??
+      expect.fail("the find field opened");
+    fireEvent.change(findField, { target: { value: "compacted" } });
+    const countText = (): string | null | undefined =>
+      feed.querySelector(".meridian-find__count")?.textContent;
+    expect(countText()).toBe("1 of 2");
+
+    // The first match is drawn, so the field's step opens nothing; the palette's next step reaches
+    // the folded one and opens its group.
+    fireEvent.keyDown(findField, { key: "Enter" });
+    expect(header().getAttribute("aria-expanded")).toBe("false");
+    dispatchCommand("transcript.findNext");
+
+    expect(countText()).toBe("2 of 2");
+    expect(header().getAttribute("aria-expanded")).toBe("true");
+    expect(drawnSystemMessageCount()).toBe(2);
+    // Landed once the open drew the row: a land asked in the same press finds no row to land on.
+    expect(landings.mock.calls.filter(([, caller]) => caller === "find-match")).toStrictEqual([
+      [transcriptFixtureEventId(1), "find-match"],
+      [transcriptFixtureEventId(3), "find-match"],
+    ]);
   });
 });
 
