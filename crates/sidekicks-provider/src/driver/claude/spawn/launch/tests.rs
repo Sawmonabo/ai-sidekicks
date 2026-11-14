@@ -25,7 +25,7 @@ use crate::driver::claude::session::process::{
     ClaudeProcessEnd, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeStreamFrame,
 };
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
-use crate::driver::claude::spawn::launch::listed_commands::read_claude_session_commands;
+use crate::driver::claude::spawn::launch::session_listing::read_claude_session_listing;
 use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
 use crate::driver::claude::spawn::settings::private_file::compose_claude_settings_folder;
 use crate::driver::ports::DriverPorts;
@@ -469,20 +469,21 @@ async fn the_command_list_read_turns_the_persons_hooks_off() {
         ],
     };
 
-    let commands = tokio::time::timeout(
+    let listing = tokio::time::timeout(
         Duration::from_secs(30),
-        read_claude_session_commands(
+        read_claude_session_listing(
             &launcher,
             &executable,
             folder.path().to_path_buf(),
             test_provider_account_id(),
             false,
+            &[],
         ),
     )
     .await
     .expect("the read ends");
 
-    assert!(commands.is_ok(), "{commands:?}");
+    assert!(listing.is_ok(), "{listing:?}");
     let settings: Value = serde_json::from_str(
         &std::fs::read_to_string(folder.path().join("settings"))
             .expect("the stand-in copied the file"),

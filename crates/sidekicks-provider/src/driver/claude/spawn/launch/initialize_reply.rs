@@ -1,18 +1,17 @@
-//! What an `initialize` reply declares about the process: the models it offers, their effort
-//! levels and which run in auto mode, its output styles and the one it runs with, its fast mode,
-//! the commands it lists, and the memory stores it keeps. The reply is untrusted, so each member is
-//! read leniently and a row naming no value is skipped.
+//! What an `initialize` reply declares about the process: the models it offers, their effort levels
+//! and which run in auto mode, its output styles and the one it runs with, its fast mode, the
+//! commands it lists and the agents it offers. The reply is untrusted, so each member is read
+//! leniently and a row naming no value is skipped.
 
 use std::collections::HashSet;
-use std::path::Path;
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use sidekicks_contracts::free_form_string::FilesystemPath;
 
 use crate::driver::claude::session::transport::declarations::{
     ClaudeFastModeDeclaration, ClaudeInitializeDeclaration, ClaudeOfferedModel,
 };
+use crate::driver::contract::known_names::ProviderAgent;
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
 use crate::record_readers::filter_non_empty;
 
@@ -31,7 +30,7 @@ struct InitializeReply {
     #[serde(default, deserialize_with = "read_lenient")]
     commands: Option<LenientList<CommandRow>>,
     #[serde(default, deserialize_with = "read_lenient")]
-    memory_paths: Option<MemoryPaths>,
+    agents: Option<LenientList<AgentRow>>,
 }
 
 #[derive(Deserialize)]
@@ -77,14 +76,6 @@ impl ClaudeModelEffort {
 }
 
 #[derive(Deserialize)]
-struct MemoryPaths {
-    #[serde(default, deserialize_with = "read_lenient")]
-    auto: Option<String>,
-    #[serde(default, deserialize_with = "read_lenient")]
-    team: Option<String>,
-}
-
-#[derive(Deserialize)]
 struct CommandRow {
     #[serde(default, deserialize_with = "read_lenient")]
     name: Option<String>,
@@ -92,6 +83,14 @@ struct CommandRow {
     description: Option<String>,
     #[serde(rename = "argumentHint", default, deserialize_with = "read_lenient")]
     argument_hint: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AgentRow {
+    #[serde(default, deserialize_with = "read_lenient")]
+    name: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    description: Option<String>,
 }
 
 /// One command an `initialize` reply lists: its name, and its description and argument hint where
@@ -106,7 +105,7 @@ pub(crate) struct ClaudeListedCommand {
     pub(crate) argument_hint: Option<String>,
 }
 
-lenient_object!(ModelRow, MemoryPaths, CommandRow);
+lenient_object!(ModelRow, CommandRow, AgentRow);
 
 fn read_reply(reply: Option<&RawValue>) -> InitializeReply {
     reply
@@ -114,7 +113,7 @@ fn read_reply(reply: Option<&RawValue>) -> InitializeReply {
         .unwrap_or_default()
 }
 
-/// What `reply` declares about the process's models, styles, fast mode, commands and memory stores.
+/// What `reply` declares about the process's models, styles, fast mode, commands and agents.
 pub(crate) fn read_claude_initialize_declaration(
     reply: Option<&RawValue>,
 ) -> ClaudeInitializeDeclaration {
@@ -153,19 +152,23 @@ pub(crate) fn read_claude_initialize_declaration(
             .into_iter()
             .map(|command| command.name)
             .collect(),
-        memory_stores: read_memory_stores(reply.memory_paths),
+        agents: read_listed_agents(reply.agents),
     }
 }
 
-// The auto-memory folder, then the team-memory folder, each kept only where it is an absolute path
-// a filesystem path carries.
-fn read_memory_stores(memory_paths: Option<MemoryPaths>) -> Vec<FilesystemPath> {
-    memory_paths
+// The agents a reply's `agents` member offers, in its order, a row naming no agent skipped and an
+// empty description read as none.
+fn read_listed_agents(agents: Option<LenientList<AgentRow>>) -> Vec<ProviderAgent> {
+    agents
+        .map(|agents| agents.0)
+        .unwrap_or_default()
         .into_iter()
-        .flat_map(|paths| [paths.auto, paths.team])
-        .flatten()
-        .filter(|path| Path::new(path).is_absolute())
-        .filter_map(|path| FilesystemPath::new(path).ok())
+        .filter_map(|agent| {
+            Some(ProviderAgent {
+                name: filter_non_empty(agent.name)?,
+                description: filter_non_empty(agent.description),
+            })
+        })
         .collect()
 }
 

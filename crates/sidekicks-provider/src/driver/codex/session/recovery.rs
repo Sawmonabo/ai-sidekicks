@@ -68,7 +68,7 @@ use crate::run::delivery::InboundDelivery;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 
 use self::build_move::ServiceRestart;
-use self::in_place_resume::CodexInPlaceResumeCall;
+use self::in_place_resume::{CodexInPlaceResumeCall, CodexReleasedConversations};
 
 /// The words a run is failed with when its service ended with no exit the daemon could read.
 const CODEX_EXIT_UNREAD_FAILURE: &str = "The Codex service ended";
@@ -515,7 +515,7 @@ impl CodexServiceRecovery {
         let claim = claimed.ok()?;
         let held_lead_continue = self.lock().restart_continues.remove(&session_id);
         let outcome = self
-            .resume_claimed(service, inbound, writer_left, held_lead_continue)
+            .resume_claimed(service, inbound, writer_left, held_lead_continue, None)
             .await?;
         Some(self.settle_resumed(service, inbound, claim, outcome).await)
     }
@@ -556,15 +556,17 @@ impl CodexServiceRecovery {
     // session directory opened first, so what the resumed conversation delivers at once is taken;
     // a binding that cannot be opened, the directory unregistered among the causes, fails the
     // relaunch with no resume, as the live service's refusal. The resume carries
-    // `held_lead_continue` to the session's held lead. A session that closed or was
-    // established anew meanwhile answers `None`, its opened binding forgotten through a failed
-    // relaunch.
+    // `held_lead_continue` to the session's held lead, and answers once the lead is back, each
+    // helper `released` names reopened after its unload on the service a move left. A session that
+    // closed or was established anew meanwhile answers `None`, its opened binding forgotten
+    // through a failed relaunch.
     async fn resume_claimed(
         &self,
         service: &Arc<CodexService>,
         inbound: &CodexSessionInboundSender,
         writer_left: CodexWriterLeft,
         held_lead_continue: Option<CodexHeldLeadContinue>,
+        released: Option<CodexReleasedConversations>,
     ) -> Option<CodexInPlaceOutcome> {
         let session_id = inbound.session_id();
         let binding_id = mint_runtime_binding_id();
@@ -598,6 +600,7 @@ impl CodexServiceRecovery {
             writer_left,
             held_lead_continue,
             answer_steers: Arc::clone(&self.dependencies.answer_steers),
+            released,
         };
         let resumed = call_codex_session(inbound, |reply| CodexSessionCall::ResumeInPlace {
             resume: Box::new(resume),

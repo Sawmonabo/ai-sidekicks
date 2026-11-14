@@ -21,6 +21,7 @@ use sidekicks_platforms::CAN_LINK_A_SOCKET;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
+use super::in_place_resume::CodexReleasedConversations;
 use super::{CodexServiceRecovery, CodexWriterLeft, never_left};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnWait;
@@ -278,7 +279,7 @@ impl CodexServiceRecovery {
         self.dependencies.release.forget_service(service.id());
         for (claim, inbound) in held {
             let Some(outcome) = self
-                .resume_claimed(service, &inbound, never_left(), None)
+                .resume_claimed(service, &inbound, never_left(), None, None)
                 .await
             else {
                 continue;
@@ -356,9 +357,12 @@ impl CodexServiceRecovery {
         }
     }
 
-    // The move itself, the session's slot claimed: its conversations leave `from`, `thread_id`
-    // unloading there first, then it resumes on `to`, tried again while `from` still writes it;
-    // answers the resume's outcome, `None` when the session closed or was established anew.
+    // The move itself, the session's slot claimed: it takes over the helper reopens an earlier move
+    // still waits on, its conversations leave `from`, `thread_id` unloading there first, then it
+    // resumes on `to`, tried again while `from` still writes it, and each helper is reopened on
+    // `to` once the service that holds it no longer does, since Codex refuses the reopen
+    // meanwhile; answers the resume's outcome, `None` when the session closed or was established
+    // anew.
     async fn move_claimed(
         &self,
         inbound: &CodexSessionInboundSender,
@@ -368,9 +372,23 @@ impl CodexServiceRecovery {
     ) -> Option<CodexInPlaceOutcome> {
         let session_id = inbound.session_id();
         let deadline = Instant::now() + CODEX_UNLOAD_TIMEOUT;
-        self.dependencies
+        // Taken before the release, so a helper an earlier move reopened on `from` is let go there
+        // with the rest, and one it still waits for is waited for where it is loaded.
+        let mut loaded_on = call_codex_session(inbound, |reply| {
+            CodexSessionCall::TakeHelperReopenWaits { reply }
+        })
+        .await
+        .ok()?;
+        let released = self
+            .dependencies
             .release
-            .release_session_threads(from, &session_id, |released| released != thread_id);
+            .release_session_threads(from, &session_id, |released| released != thread_id)
+            .await;
+        loaded_on.extend(
+            released
+                .into_iter()
+                .map(|released| (released, Arc::clone(from))),
+        );
         to.attach_session(inbound.clone());
         let_go_codex_thread(from, &thread_id).await;
         if !from.await_unloaded(&thread_id, deadline).await {
@@ -381,13 +399,19 @@ impl CodexServiceRecovery {
             }
             .report();
         }
+        let released = CodexReleasedConversations {
+            loaded_on,
+            deadline,
+            tasks: self.dependencies.tasks.clone(),
+        };
         let leaving = Arc::clone(from);
         let writer_left: CodexWriterLeft = Box::new(move || {
             let leaving = Arc::clone(&leaving);
             let thread_id = thread_id.clone();
             async move { leaving.await_unloaded(&thread_id, deadline).await }.boxed()
         });
-        self.resume_claimed(to, inbound, writer_left, None).await
+        self.resume_claimed(to, inbound, writer_left, None, Some(released))
+            .await
     }
 
     // Tells a session it moved to `change`'s build once its conversation resumed there.

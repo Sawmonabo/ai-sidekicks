@@ -75,7 +75,7 @@ type VoiceDictationFailure =
   | { reason: "noSound" }
   // `No speech heard.`: the recording closed having heard sound but no words.
   | { reason: "noSpeech" }
-  // `Dictation couldn't be sent.` with `Try again`: the connection failed after the one retry, or
+  // `Couldn't send dictation.` with `Try again`: the connection failed after the one retry, or
   // the service refused with a 4xx other than 401 or 403.
   | { reason: "notSent" }
   // `Dictation couldn't sign in to <account>.` with `Sign in again`: the service refused the

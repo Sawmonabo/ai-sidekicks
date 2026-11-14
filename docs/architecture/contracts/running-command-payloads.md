@@ -20,7 +20,9 @@ The console's window onto the shell commands an agent started. The provider deci
 // it, which is also what the transcript row shows; `startedAt` is what the live timer counts from,
 // so the timer is a rendering of one fact rather than a second clock. `waitingInForeground` is true
 // only where the provider is holding the agent's turn on this command, which is the one state the
-// background act applies to.
+// background act applies to; while it is false the row and its list entry read `in background ·`.
+// Claude Code's driver sets it false for a command in its `background_tasks_changed` set, and
+// Codex's keeps it true until the turn that started the command has ended.
 interface RunningCommand {
   commandId: string;
   runId: RunId;

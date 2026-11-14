@@ -327,6 +327,7 @@ async fn a_failing_store_leaves_its_rows_out_of_the_list_and_an_unknown_binding_
                 }],
             }],
             probe_readings: Vec::new(),
+            failed_roots: Vec::new(),
         }))
         .boxed()
     });

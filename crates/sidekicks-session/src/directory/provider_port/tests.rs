@@ -536,6 +536,7 @@ async fn an_opening_sends_the_persons_servers_at_its_root(#[case] takes_tool_ser
                 server_policy: McpServerPolicy::default(),
                 account_servers: Vec::new(),
                 probe_readings: Vec::new(),
+                failed_roots: Vec::new(),
             },
         );
     }

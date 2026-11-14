@@ -402,7 +402,8 @@ pub(crate) async fn let_go_codex_session(
     let_go_codex_thread(&record.service, &record.thread_id).await;
     // A conversation the session moved off stays routed until the command it runs ends.
     deps.release
-        .release_session_threads(&record.service, &session_id, |_| true);
+        .release_session_threads(&record.service, &session_id, |_| true)
+        .await;
     deps.pending_compactions
         .release_binding(&codex_compaction_wait_key(record, &record.thread_id));
     deps.provider_commands.discard_listing(session_id);

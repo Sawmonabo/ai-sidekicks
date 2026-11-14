@@ -15,10 +15,12 @@ use tokio::time::Instant;
 use super::compose::NO_SWITCH_WORDS;
 use super::edit::{ClaudeEditTarget, edit_claude_mcp_entry, refused_by_daemon};
 use super::observe::observe_claude_mcp_server;
+use super::project_key::resolve_claude_config_project_key;
 use super::{ClaudePersonConfigFiles, SERVERS_FILE};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
+use crate::driver::claude::session::settings_file::ClaudeSettingsReadError;
 use crate::driver::claude::spawn::launch::installed_build::resolve_claude_build;
 use crate::driver::claude::spawn::one_shot_command::{
     CLAUDE_MCP_WRITE_TIMEOUT, ClaudeOneShotError, run_claude_one_shot,
@@ -111,8 +113,12 @@ impl ClaudeDriver {
         match change {
             ClaudeMcpChange::Edit(entry) => {
                 let (person, _plugin_home) = self.resolve_mcp_entry_places().await;
+                let target = match edit_target(binding, &person).await {
+                    Ok(target) => target,
+                    Err(error) => return refused_by_daemon(UNWRITTEN_CONTEXT, &error),
+                };
                 match edit_claude_mcp_entry(
-                    edit_target(binding, &person),
+                    target,
                     place.server_name,
                     entry,
                     &before.entry,
@@ -199,24 +205,25 @@ impl<'binding> ClaudeMcpWritePlace<'binding> {
 }
 
 // The file an add or an update of `binding` edits: the person's config, at the project's key for a
-// `local` binding, as Claude Code keys it, or the project's `.mcp.json` for a `project` one.
-fn edit_target(
+// `local` binding, as Claude Code keys it, or the project's `.mcp.json` for a `project` one. Fails
+// as the key's resolve does.
+async fn edit_target(
     binding: &McpWritableBindingRef,
     person: &ClaudePersonConfigFiles,
-) -> ClaudeEditTarget {
-    match binding {
+) -> Result<ClaudeEditTarget, ClaudeSettingsReadError> {
+    Ok(match binding {
         McpWritableBindingRef::User { .. } => ClaudeEditTarget::PersonConfig {
             path: person.person_config.clone(),
             project_key: None,
         },
         McpWritableBindingRef::Local { scope_ref, .. } => ClaudeEditTarget::PersonConfig {
             path: person.person_config.clone(),
-            project_key: Some(scope_ref.as_str().to_owned()),
+            project_key: Some(resolve_claude_config_project_key(scope_ref.as_str()).await?),
         },
         McpWritableBindingRef::Project { scope_ref, .. } => ClaudeEditTarget::ProjectServersFile {
             path: Path::new(scope_ref.as_str()).join(SERVERS_FILE),
         },
-    }
+    })
 }
 
 /// One `claude mcp` command of a write: the build it runs, the folder it runs in and the deadline
@@ -290,6 +297,7 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
     use sidekicks_contracts::mcp::server::McpWritableBindingRef;
+    use sidekicks_platforms::{make_folder_link, real_path};
     use sidekicks_std::file::atomic_write::write_file_atomically;
     use tempfile::TempDir;
 
@@ -318,6 +326,11 @@ mod tests {
                     .await
                     .unwrap();
             }
+            make_folder_link(
+                &root.path().join("project"),
+                &root.path().join("project-link"),
+            )
+            .unwrap();
             write_file_atomically(
                 &programs.join("claude"),
                 format!(
@@ -352,13 +365,23 @@ mod tests {
             self.root.path().join(name)
         }
 
-        // The `docs` binding at `scope`, a `project` or `local` one in the scratch project.
+        // The `docs` binding at `scope`, a `project` or `local` one in the scratch project, reached
+        // through a link to it.
         fn binding(&self, scope: &str) -> McpWritableBindingRef {
             let mut binding = json!({"scope": scope, "provider": "claude", "serverName": "docs"});
             if scope != "user" {
-                binding["scopeRef"] = json!(self.folder("project").display().to_string());
+                binding["scopeRef"] = json!(self.folder("project-link").display().to_string());
             }
             serde_json::from_value(binding).unwrap()
+        }
+
+        // The key Claude Code files the scratch project under: its folder with every link
+        // resolved.
+        fn project_key(&self) -> String {
+            real_path(&self.folder("project"))
+                .unwrap()
+                .display()
+                .to_string()
         }
 
         // One line of the record: the command run in `folder` with `arguments`, after the
@@ -366,7 +389,7 @@ mod tests {
         fn command_line(&self, folder: &Path, arguments: &str) -> String {
             format!(
                 "{}|{}|--settings {} mcp {arguments}\n",
-                std::fs::canonicalize(folder).unwrap().display(),
+                real_path(folder).unwrap().display(),
                 self.folder("config").display(),
                 compose_claude_export_off_settings()
             )
@@ -390,9 +413,9 @@ mod tests {
     // An add edits the file of its scope, made where it is not there yet, and runs no command but
     // the read-back, in the project's root for a `project` or `local` binding and in the home for
     // a `user` one, under the person's own `CLAUDE_CONFIG_DIR`, so no value it carries reaches a
-    // command line. Killed by an add through a command, an entry written at another scope's place,
-    // the home as a project write's folder, the environment cleared of the person's variable, and
-    // no read-back.
+    // command line. Killed by an add through a command, an entry written at another scope's place
+    // or at a `local` binding's root as given rather than resolved through its link, the home as a
+    // project write's folder, the environment cleared of the person's variable, and no read-back.
     #[rstest]
     #[case::user("user")]
     #[case::project("project")]
@@ -400,7 +423,7 @@ mod tests {
     #[tokio::test]
     async fn an_add_edits_its_scopes_file_and_puts_no_value_on_a_command_line(#[case] scope: &str) {
         let stand_in = StandIn::new().await;
-        let project = stand_in.folder("project").display().to_string();
+        let project = stand_in.project_key();
         let added = json!({
             "command": "npx",
             "args": ["docs"],
@@ -476,14 +499,14 @@ mod tests {
 
     // An update edits the entry in place, at the user's servers or under the project's key, and
     // runs no command before it: only the read-back runs. Killed by a removal and an add in place
-    // of the edit, and by an edit at another place in the file.
+    // of the edit, and by an edit at another place in the file, the root as given among them.
     #[rstest]
     #[case::user("user")]
     #[case::local("local")]
     #[tokio::test]
     async fn an_update_edits_the_entry_and_runs_no_command_before_it(#[case] scope: &str) {
         let stand_in = StandIn::new().await;
-        let project = stand_in.folder("project").display().to_string();
+        let project = stand_in.project_key();
         let held = json!({"command": "npx"});
         let written = json!({"command": "npx", "args": ["--verbose"]});
         let config_with = |docs: &Value| {

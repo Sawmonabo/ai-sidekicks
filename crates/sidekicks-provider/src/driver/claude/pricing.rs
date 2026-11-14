@@ -755,6 +755,7 @@ mod tests {
             output_speed_levels: None,
             fast,
             larger_window: false,
+            is_default: false,
             context_window: None,
         };
         assert_eq!(

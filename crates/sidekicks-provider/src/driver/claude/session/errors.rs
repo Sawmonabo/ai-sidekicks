@@ -346,6 +346,7 @@ fn missing_capability(subtype: ClaudeControlSubtype) -> Option<DriverCapabilityF
         | ClaudeControlSubtype::GetSettings
         | ClaudeControlSubtype::GetHooksListing
         | ClaudeControlSubtype::McpStatus
+        | ClaudeControlSubtype::ReloadPlugins
         | ClaudeControlSubtype::GetContextUsage
         | ClaudeControlSubtype::StopTask
         | ClaudeControlSubtype::SetModel
