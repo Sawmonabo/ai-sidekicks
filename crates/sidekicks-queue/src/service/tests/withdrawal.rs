@@ -7,8 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use sidekicks_contracts::plan::PlanId;
-use sidekicks_contracts::run::queue::{PlanMessageKind, QueueItemNotDeliveredReason};
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::run::queue::{MessageText, PlanMessageKind, QueueItemNotDeliveredReason};
 use sidekicks_provider::driver::ports::MessageTakenListener as _;
 use sidekicks_session::queue_store::RecordedQueueItemState;
 use tokio::time::timeout;
@@ -128,7 +127,7 @@ async fn a_seed_sent_again_by_its_retry_is_found_by_its_plan() {
     let retried = fixture
         .replace_item_carrying(first_id, |request| {
             request.content =
-                FreeFormText::new(PLAN_MESSAGE_TEXT.to_owned()).expect("a test message");
+                MessageText::new(PLAN_MESSAGE_TEXT.to_owned()).expect("a test message");
         })
         .await
         .expect("the retry is queued");

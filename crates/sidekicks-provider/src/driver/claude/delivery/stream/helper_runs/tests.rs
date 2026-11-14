@@ -4,7 +4,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::{RunFailureCategory, StopTrigger};
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
+use sidekicks_contracts::run::queue::{MessageText, QueueItemId};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_std::mutex_lock::lock;
@@ -343,7 +343,7 @@ async fn a_helpers_start_names_the_ask_model_and_effort_its_agent_call_asked_for
             messages: vec![WaitingMessage {
                 id: QueueItemId::new(&mint_uuid_v7().to_string())
                     .expect("a minted UUID is an item id"),
-                content: MessageContent::new("look elsewhere".to_owned())
+                content: MessageText::new("look elsewhere".to_owned())
                     .expect("the words are a message"),
                 attachments: Vec::new(),
                 skills: Vec::new(),

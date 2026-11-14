@@ -15,14 +15,16 @@ use crate::artifacts::attachment_reference::AttachmentReferenceList;
 use crate::free_form_string::FilesystemPath;
 use crate::method::KeyedRequest;
 use crate::method::methods;
-use crate::run::queue::QueuedSkillPick;
+use crate::run::queue::{
+    MessageText, QueuedSkillPick, add_words_or_a_file_rule, check_words_or_a_file,
+};
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{FreeFormText, NonEmptyText, branded_text};
+use crate::wire::text::{NonEmptyText, branded_text};
 
 /// The longest snapshot id the daemon accepts, in code points.
 pub const SNAPSHOT_ID_MAX_LEN: usize = 256;
@@ -226,12 +228,18 @@ pub struct SessionRestorePreviewResponse {
 }
 
 /// The edited message an edit and resend sends once the undo has applied, with its files, the
-/// skills picked for it and the output-speed level its turn alone runs at, as a send carries them.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// skills picked for it and the output-speed level its turn alone runs at, as a send carries them;
+/// like a send, it holds words or at least one file.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+#[garde(custom(|resend: &Self, (): &()| {
+    check_words_or_a_file(&resend.content, resend.attachments.as_ref())
+}))]
+#[schemars(transform = add_words_or_a_file_rule)]
 pub struct SessionRestoreResend {
-    /// The edited message.
-    pub content: FreeFormText<{ usize::MAX }>,
+    /// The edited message's words; blank only where `attachments` holds a file.
+    pub content: MessageText,
     /// Its files, where it has any.
     #[serde(
         default,
@@ -287,7 +295,7 @@ pub struct SessionRestoreRequest {
         deserialize_with = "crate::wire::present"
     )]
     #[schemars(with = "SessionRestoreResend")]
-    #[garde(custom(|resend: &Option<SessionRestoreResend>, (): &()| {
+    #[garde(dive, custom(|resend: &Option<SessionRestoreResend>, (): &()| {
         if resend.is_none() || self.scope == SessionRestoreScope::ConversationAndFiles {
             Ok(())
         } else {

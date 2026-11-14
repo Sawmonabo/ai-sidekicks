@@ -7,7 +7,7 @@ use std::time::Duration;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
+use sidekicks_contracts::run::queue::{MessageText, QueueItemId};
 use sidekicks_std::mutex_lock::lock;
 
 use super::CodexRunControl;
@@ -49,7 +49,7 @@ async fn live_run(session: &mut TestCodexSession) -> (Arc<CodexRunControl>, RunI
 fn steer(run_id: RunId, message_id: QueueItemId) -> CodexSteerRunRequest {
     CodexSteerRunRequest {
         run_id,
-        content: MessageContent::new("also check the tests".to_owned()).expect("the words"),
+        content: MessageText::new("also check the tests".to_owned()).expect("the words"),
         skills: Vec::new(),
         attachments: Vec::new(),
         expected_turn_id: None,

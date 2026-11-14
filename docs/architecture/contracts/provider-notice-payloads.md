@@ -60,7 +60,8 @@ interface SessionNoticeProviderUpdated {
 // Lifecycle). It splits by the shape of that report, never by provider: a report naming a file and
 // a line, both always (Codex's `Invalid configuration; using defaults`), or one naming a file and a
 // key, each only where known (the `Invalid settings` block `claude doctor` prints, which names no
-// line).
+// line). It names no agent, so it stands only while an agent of the session is on the provider: an
+// agent's move off it ends it only when no other is left there, and a move back shows it again.
 type SessionNoticeSettingsIgnored = {
   sessionId: SessionId;
   kind: "settingsIgnored";
@@ -107,8 +108,10 @@ type SessionNoticeProviderRestarted = {
 
 // session.notice.posted of kind `settingsLoaded`: the provider read its settings. With `file`, that
 // file now loads cleanly and its `settingsIgnored` notice ends; without one, a new start's reading
-// began, or a start failed after an earlier start's notices stood, which ends every earlier
-// `settingsIgnored` notice of the provider, and the reading posts again each one it still finds;
+// began (for Codex, a connection to a new service process; a redial of the same process, told by
+// its process id with its start, keeps its reading), or a start failed after an earlier start's
+// notices stood, which ends every earlier `settingsIgnored` notice of the provider, and the
+// reading posts again each one it still finds;
 // a start's reading also ends the provider's crash loop, as a build move (`providerUpdated`) does.
 // Posted only where a notice of the provider may stand. Draws no row.
 type SessionNoticeSettingsLoaded = {

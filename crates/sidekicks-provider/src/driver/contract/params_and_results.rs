@@ -18,7 +18,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::ProviderToolMetadata;
 use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
+use sidekicks_contracts::run::queue::{MessageText, QueueItemId};
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SessionMode, SessionReviewTarget,
 };
@@ -147,8 +147,8 @@ pub struct RunOpening {
 pub enum RunOpeningItem {
     /// A message.
     Message {
-        /// The message's words.
-        content: MessageContent,
+        /// The message's words; blank on a message of files alone.
+        content: MessageText,
         /// The message's files, in staging order.
         attachments: Vec<ArtifactId>,
         /// The skills picked for the message, in the order picked.

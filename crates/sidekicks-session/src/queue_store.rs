@@ -25,7 +25,7 @@ use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{
-    MessageContent, PlanMessage, QueueItemId, QueueItemNotDeliveredKind,
+    MessageContent, MessageText, PlanMessage, QueueItemId, QueueItemNotDeliveredKind,
     QueueItemNotDeliveredReason, QueueItemState, QueuedSkillPick,
 };
 use sidekicks_contracts::run::state::RunState;
@@ -91,8 +91,8 @@ impl QueueItemBody {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QueueMessageBody {
-    /// The words.
-    pub content: MessageContent,
+    /// The words; blank on a message of files alone.
+    pub content: MessageText,
     /// The message's files in staging order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachments: Option<AttachmentReferenceList>,

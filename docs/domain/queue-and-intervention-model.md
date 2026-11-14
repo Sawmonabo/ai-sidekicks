@@ -119,7 +119,7 @@ The following field inventory maps each driver payload to its sources.
 | `targetRunId` | yes | the run the daemon delivers into | `ApplyInterventionParams.targetRunId` |
 | `expectedRunVersion` | yes | the run's `runVersion` at delivery | `ApplyInterventionParams.expectedRunVersion` |
 | `clientIdempotencyKey` | yes | the daemon's own id on the message | `ApplyInterventionParams.clientIdempotencyKey` |
-| `content` | yes | `AgentQueueItemCreateRequest` (the message's text) | `SteerPayload.content` |
+| `content` | yes | `AgentQueueItemCreateRequest` (the message's text, blank only beside at least one file) | `SteerPayload.content` |
 | `attachments` | no | `AgentQueueItemCreateRequest.attachments` (optional, `ArtifactId[]`) | `SteerPayload.attachments` (optional, `ArtifactId[]`) |
 | `skills` | no | `AgentQueueItemCreateRequest.skills` (each `{name, folderPath}`), which the daemon resolves for a Codex agent to the skill Codex's own `skills/list` names | `SteerPayload.skills` (optional, `PickedSkill[]`, each `{name, path}`, `path` the absolute `SKILL.md` file Codex listed) |
 | `expectedTurnId` | no | never set by the queue's delivery: a steer goes to the live turn | `SteerPayload.expectedTurnId` (optional) |

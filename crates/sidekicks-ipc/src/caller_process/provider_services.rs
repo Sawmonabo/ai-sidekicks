@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::{Arc, Mutex};
 
-use sidekicks_platforms::{UnixDomainStream, unix_domain_peer_process};
+use sidekicks_platforms::{ProcessRecord, UnixDomainStream, unix_domain_peer_process};
 use sidekicks_std::mutex_lock::lock;
 
 /// Each serving process with the number of connections held to it.
@@ -33,24 +33,33 @@ pub struct ProviderServiceProcesses {
 
 impl ProviderServiceProcesses {
     /// Holds the process serving the dialed `stream` until the returned hold drops, handing the
-    /// stream back beside it. The system names the process from the socket, a read that can touch
-    /// the process table, so it runs on the blocking pool. An error when the system cannot name
-    /// the process, the service having closed its end included.
+    /// stream back beside it, with the process's record where the system reads one. The system
+    /// names the process from the socket, a read that can touch the process table, so it runs on
+    /// the blocking pool. An error when the system cannot name the process, the service having
+    /// closed its end included.
     pub async fn hold_serving(
         &self,
         stream: UnixDomainStream,
     ) -> Result<(UnixDomainStream, ProviderServiceHold), HoldServingError> {
         let (stream, read) = tokio::task::spawn_blocking(move || {
-            let read = unix_domain_peer_process(&stream);
+            let read = unix_domain_peer_process(&stream).map(|process| {
+                process.map(|process| {
+                    // A record the system cannot read leaves the process unnamed, which a reader
+                    // takes for a process it has not met.
+                    let record = process.record().unwrap_or_default();
+                    (process.id(), record)
+                })
+            });
             (stream, read)
         })
         .await
         .map_err(|join_error| HoldServingError::Read(io::Error::other(join_error)))?;
-        let process_id = read
+        let (process_id, record) = read
             .map_err(HoldServingError::Read)?
-            .ok_or(HoldServingError::PeerClosed)?
-            .id();
-        Ok((stream, self.hold(process_id)))
+            .ok_or(HoldServingError::PeerClosed)?;
+        let mut hold = self.hold(process_id);
+        hold.serving_process = record;
+        Ok((stream, hold))
     }
 
     /// Counts the process with `process_id` as serving a held connection until the returned hold
@@ -60,6 +69,7 @@ impl ProviderServiceProcesses {
         ProviderServiceHold {
             holds: Arc::clone(&self.holds),
             process_id,
+            serving_process: None,
         }
     }
 
@@ -82,6 +92,16 @@ pub struct ProviderServiceHold {
     holds: HoldCounts,
     /// The process this hold counts.
     process_id: u32,
+    /// The serving process's record, `None` where the system could not read it.
+    serving_process: Option<ProcessRecord>,
+}
+
+impl ProviderServiceHold {
+    /// The serving process's record: its id with its start, so a later dial tells the same
+    /// process from a new one; `None` where the system could not read it.
+    pub fn serving_process(&self) -> Option<&ProcessRecord> {
+        self.serving_process.as_ref()
+    }
 }
 
 impl Drop for ProviderServiceHold {

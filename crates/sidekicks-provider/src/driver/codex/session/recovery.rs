@@ -322,6 +322,8 @@ impl CodexServiceRecovery {
             }
         };
         for session_id in sessions {
+            // The next reading's start ends the banner where the person's restart does not.
+            service.mark_notice_standing(session_id);
             self.post_notice(
                 service,
                 session_id,

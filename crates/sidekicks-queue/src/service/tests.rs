@@ -27,7 +27,9 @@ use sidekicks_contracts::daemon::recovery::DaemonRecoveryHaltedRun;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{AgentQueueItemCreateRequest, QueueItemId, QueuedSkillPick};
+use sidekicks_contracts::run::queue::{
+    AgentQueueItemCreateRequest, MessageText, QueueItemId, QueuedSkillPick,
+};
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
@@ -36,7 +38,6 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
@@ -532,7 +533,7 @@ impl Fixture {
                     to: None,
                     workspace_id: None,
                     client_idempotency_key: key.clone(),
-                    content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
+                    content: MessageText::new("Look again".to_owned()).expect("a test message"),
                     attachments: None,
                     skills,
                     replaces_queue_item_id: None,

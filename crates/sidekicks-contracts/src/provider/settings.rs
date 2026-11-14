@@ -275,9 +275,10 @@ impl ListKey for ProviderBuiltInTool {
 }
 
 /// One provider's section as `provider.list` reads it, one per registered driver: the fixed facts
-/// its driver declares, the rows every provider offers, and the rows and session options its driver
-/// declares with their live values. `helpersAtOnce` is `null` for no limit and `0` for none; the
-/// compaction bound is `null` until the provider has been read.
+/// its driver declares, the moves to the background it can make, the rows every provider offers,
+/// and the rows and session options its driver declares with their live values. `helpersAtOnce` is
+/// `null` for no limit and `0` for none; the compaction bound is `null` until the provider has
+/// been read.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -327,6 +328,12 @@ pub struct ProviderSection {
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<SafeInt<0>>")]
     pub helpers_at_once: Option<SafeInt<0>>,
+    /// Whether it can move a running command the agent waits on to the background, as its
+    /// recorded capabilities declare; `false` until the provider has been read.
+    pub can_move_command_to_background: bool,
+    /// Whether it can move a helper of its own that a thread waits on to the background, as its
+    /// recorded capabilities declare; `false` until the provider has been read.
+    pub can_move_helper_to_background: bool,
     /// The compaction threshold, `null` until the provider has been read.
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<ProviderAutoCompactBound>")]

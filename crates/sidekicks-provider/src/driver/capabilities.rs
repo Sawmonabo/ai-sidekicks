@@ -1,6 +1,8 @@
-//! The capability flags a driver declares: the daemon's own gate on capability-bound calls, which
-//! no client reads. The daemon stores one row per flag, in this order, through its writer, so a
-//! cold start answers without asking the driver.
+//! The capability flags a driver declares: the daemon's own gate on capability-bound calls. No
+//! client reads the flags themselves; `provider.list` carries the two moves to the background as
+//! the section's own booleans, so a screen can gray the control before the press. The daemon
+//! stores one row per flag, in this order, through its writer, so a cold start answers without
+//! asking the driver.
 
 use std::collections::BTreeMap;
 

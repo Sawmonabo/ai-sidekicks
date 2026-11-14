@@ -223,8 +223,10 @@ const SELECT_TAGS_SQL: &str =
 //
 // The notices that stand: each provider's crash loop until the person's restart, a build move or a
 // new start's reading of that provider ends it; the newest ignored-settings notice per provider and
-// file until a reading finds that file clean, a new start's reading begins or an agent moves off
-// that provider; the newest build move until the next message is sent; and each distinct provider
+// file until a reading finds that file clean or a new start's reading begins, while an agent of the
+// session is on that provider, since the notice names no agent: an agent's move off it ends it only
+// when no other is left there, and a move back shows it again, the provider still reading the
+// same files; the newest build move until the next message is sent; and each distinct provider
 // warning, whose count the session keeps.
 static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
     let window_update = SessionEventType::UsageContextWindowUpdated.as_str();
@@ -243,7 +245,6 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
     let readable_crash = readable_event_sql("crash");
     let readable_ignored = readable_event_sql("ignored");
     let readable_loaded = readable_event_sql("loaded");
-    let readable_moved = readable_event_sql("moved");
     let readable_updated = readable_event_sql("updated");
     let readable_sent = readable_event_sql("sent");
     let readable_warning = readable_event_sql("warning");
@@ -324,16 +325,11 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
                      OR json_extract(loaded.payload, '$.file')
                           = json_extract(ignored.payload, '$.file'))
                 AND {readable_loaded})
-       AND NOT EXISTS (
+       AND EXISTS (
              SELECT 1
-               FROM session_events AS moved
-              WHERE moved.session_id = @session_id AND moved.type = '{binding_changed}'
-                AND moved.sequence > ignored.sequence
-                AND json_extract(moved.payload, '$.from.providerName')
-                      = json_extract(ignored.payload, '$.provider')
-                AND json_extract(moved.payload, '$.to.providerName')
-                      <> json_extract(ignored.payload, '$.provider')
-                AND {readable_moved})
+               FROM agents AS kept
+              WHERE kept.session_id = @session_id
+                AND kept.provider_name = json_extract(ignored.payload, '$.provider'))
      GROUP BY json_extract(payload, '$.provider'), json_extract(payload, '$.file')
     UNION ALL
     SELECT MAX(sequence)

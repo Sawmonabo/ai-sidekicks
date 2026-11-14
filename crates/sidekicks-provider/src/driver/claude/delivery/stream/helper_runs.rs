@@ -9,10 +9,11 @@
 //! and an own run that ended interrupted beneath that same run continues. A helper whose run the
 //! daemon refused is bound to that ended run all the same, which absorbs its frames, and is
 //! stopped. A helper's new own run clears a stop that is not final. A helper's start and end are
-//! also rows on the run its start went beneath. The start is dispatched on the session's task
-//! before any later arrival, so a request of the helper finds its run bound. A new child run names
-//! the ask, model and effort its `Agent` call asked for, read from the call's pre-tool hook, which
-//! Claude Code answers before it runs the call.
+//! also rows on the run its start went beneath, and so is its move to the background, from its
+//! `task_updated` or a start that runs there from the first. The start is dispatched on the
+//! session's task before any later arrival, so a request of the helper finds its run bound. A new
+//! child run names the ask, model and effort its `Agent` call asked for, read from the call's
+//! pre-tool hook, which Claude Code answers before it runs the call.
 
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
@@ -225,6 +226,7 @@ impl ClaudeDeliveryStream {
                 carrier.clone(),
             );
         }
+        let is_refused = refusal.is_some();
         // A refused helper still runs in Claude Code: its next tool use is denied, so it reports
         // and finishes while the lead's turn goes on.
         if let Some(refusal) = refusal {
@@ -236,9 +238,70 @@ impl ClaudeDeliveryStream {
         }
         let child_run_id =
             run_id.or_else(|| routes.child_run_for(session.session_id, &emission.subagent_id));
-        self.send_lifecycle_row(session, &carrier, emission, subagent_id, child_run_id)
-            .await;
+        self.send_lifecycle_row(
+            session,
+            &carrier,
+            emission,
+            subagent_id.clone(),
+            child_run_id,
+        )
+        .await;
+        // A helper started in the background is there from its start.
+        if let Some(run_id) = run_id
+            && !is_refused
+            && signal.and_then(|signal| signal.is_backgrounded) == Some(true)
+        {
+            self.send_backgrounded_row(session, &carrier, subagent_id, run_id)
+                .await;
+        }
         run_id.map(|run_id| (run_id, carrier))
+    }
+
+    // A helper Claude Code moved to the background by its `task_updated` gets its
+    // `agent.subagent.backgrounded` row, naming its child run, on the run its start went beneath,
+    // a start of it still parked delivered first; a task no unrefused helper route names, a
+    // command's, gets none.
+    pub(super) async fn move_helper_to_background(
+        &self,
+        session: &ClaudeSessionStream,
+        helper_id: &str,
+    ) {
+        self.flush_parked_start(session, helper_id).await;
+        let Some((child_run_id, route)) = self
+            .dependencies
+            .routes
+            .child_route_for(session.session_id, helper_id)
+            .filter(|(_, route)| !route.is_refused)
+        else {
+            return;
+        };
+        let Ok(subagent_id) = SubagentId::new(helper_id.to_owned()) else {
+            return;
+        };
+        let carrier = ClaudeBoundRun {
+            run_id: route.parent_run_id,
+            binding_id: route.binding_id,
+        };
+        self.send_backgrounded_row(session, &carrier, subagent_id, child_run_id)
+            .await;
+    }
+
+    // The helper's move to the background as a row on `carrier`, naming its child run.
+    async fn send_backgrounded_row(
+        &self,
+        session: &ClaudeSessionStream,
+        carrier: &ClaudeBoundRun,
+        subagent_id: SubagentId,
+        child_run_id: RunId,
+    ) {
+        let payload = subagent_payload(session, carrier, subagent_id, Some(child_run_id), None);
+        self.send_row(
+            session,
+            carrier,
+            LateAppendableRow::AgentSubagentBackgrounded(payload),
+            "system/task_updated",
+        )
+        .await;
     }
 
     // A helper's child run moves on its own `task_notification`, read with why the daemon stopped
@@ -358,16 +421,13 @@ impl ClaudeDeliveryStream {
         subagent_id: SubagentId,
         child_run_id: Option<RunId>,
     ) {
-        let payload = SubagentLifecyclePayload {
-            session_id: session.session_id,
-            run_id: carrier.run_id,
-            provider: DESCRIPTOR.provider_id(),
+        let payload = subagent_payload(
+            session,
+            carrier,
             subagent_id,
             child_run_id,
-            parent_tool_call_id: start_call_of(emission),
-            source_epoch: None,
-            source_position: None,
-        };
+            start_call_of(emission),
+        );
         let row = match emission.event_type {
             SubagentLifecycleEventType::Started => LateAppendableRow::AgentSubagentStarted(payload),
             SubagentLifecycleEventType::Completed => {
@@ -422,6 +482,27 @@ impl ClaudeSessionStream {
         self.lock()
             .helper_calls
             .retain(|_, helper_call| helper_call.caller_agent_id.as_deref() != Some(agent_id));
+    }
+}
+
+// The row of the helper `subagent_id` on `carrier`, naming its child run and the call it was opened
+// under where known.
+fn subagent_payload(
+    session: &ClaudeSessionStream,
+    carrier: &ClaudeBoundRun,
+    subagent_id: SubagentId,
+    child_run_id: Option<RunId>,
+    parent_tool_call_id: Option<ToolCallId>,
+) -> SubagentLifecyclePayload {
+    SubagentLifecyclePayload {
+        session_id: session.session_id,
+        run_id: carrier.run_id,
+        provider: DESCRIPTOR.provider_id(),
+        subagent_id,
+        child_run_id,
+        parent_tool_call_id,
+        source_epoch: None,
+        source_position: None,
     }
 }
 

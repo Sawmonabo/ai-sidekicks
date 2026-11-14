@@ -12,14 +12,14 @@ use sidekicks_contracts::artifacts::attachment_reference::AttachmentReferenceLis
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
+use sidekicks_contracts::run::queue::{MessageContent, MessageText, QueueItemId};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{
     SessionRestoreResend, SessionRestoreScope, SessionRestoreTarget,
 };
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::text::is_blank;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_session::checkpoints::store::Checkpoint;
@@ -112,8 +112,8 @@ pub enum TurnOpening {
 /// What the queue item that opened a turn carried.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QueuedOpeningKind {
-    /// The person's message, with its words.
-    Message(MessageContent),
+    /// The person's message, with its words, blank on a message of files alone.
+    Message(MessageText),
     /// The provider's review of `target`, which the person runs again from its own control.
     Review(SessionReviewTarget),
     /// A plan's message, with the words it opened its run with; the person runs it again from
@@ -166,6 +166,7 @@ impl UndoReach {
         let mut attachments = Vec::new();
         let mut skills = Vec::new();
         let mut output_speed_for_turn = None;
+        let mut is_first = true;
         for message in self.cut_messages.iter().filter(|message| message.is_resent) {
             let (content, files, picks, speed) = if message.queue_item_id == self.pressed_message_id
             {
@@ -184,20 +185,23 @@ impl UndoReach {
                     body.output_speed_for_turn.as_ref(),
                 )
             };
-            words.push(content.as_str());
+            if !is_blank(content.as_str()) {
+                words.push(content.as_str());
+            }
             attachments.extend(files.unwrap_or_default().iter().copied());
             for pick in picks.unwrap_or_default() {
                 if !skills.contains(pick) {
                     skills.push(pick.clone());
                 }
             }
-            if words.len() == 1 {
+            if is_first {
                 output_speed_for_turn = speed.cloned();
+                is_first = false;
             }
         }
         SessionRestoreResend {
-            content: FreeFormText::new(words.join("\n\n"))
-                .expect("free-form words joined by a blank line stay free-form text"),
+            content: MessageText::new(words.join("\n\n"))
+                .expect("NUL-free words joined by a blank line stay NUL-free text"),
             attachments: (!attachments.is_empty()).then_some(AttachmentReferenceList(attachments)),
             skills: (!skills.is_empty()).then_some(skills),
             output_speed_for_turn,

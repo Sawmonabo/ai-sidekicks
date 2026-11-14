@@ -3,7 +3,7 @@
 //! `childHandle` to reach a child's queue, whose messages arrive through `agent.childRun.steer`.
 //! Also the `agent.queueItem.*` event payloads and the frame `agent.queueItem.subscribe` sends.
 
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 use strum::{EnumDiscriminants, IntoStaticStr, VariantArray};
 
@@ -31,7 +31,7 @@ use crate::wire::id::ClientUuid;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::{ListKey, UniqueList};
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{FreeFormText, NON_BLANK_NUL_FREE_PATTERN, NulFreeText, is_blank};
 use crate::wire::{Never, literal};
 
 branded_uuid_id! {
@@ -109,8 +109,17 @@ pub enum QueueItemNotDeliveredReason {
     },
 }
 
-/// The words of a message the person sends.
+/// Words: text that is never blank, such as a helper's ask or a plan message's opening.
 pub type MessageContent = FreeFormText<{ usize::MAX }>;
+
+/// The text of a message the person sends: its words, blank only on a message that carries at
+/// least one file.
+pub type MessageText = NulFreeText<{ usize::MAX }>;
+
+/// The words a message's `text` holds, `None` where it is blank, as on a message of files alone.
+pub fn read_message_words(text: &MessageText) -> Option<MessageContent> {
+    MessageContent::new(text.as_str().to_owned()).ok()
+}
 
 /// One skill a send picked: its front-matter name and its folder, as `skill.list` gives them. A
 /// provider that takes a skill as its own input item receives the `SKILL.md` path its own skill
@@ -124,10 +133,15 @@ pub struct QueuedSkillPick {
     pub folder_path: FilesystemPath,
 }
 
-/// Sends one message to the lead, whether a turn is running or not (`agent.queueItem.create`).
+/// Sends one message to the lead, whether a turn is running or not (`agent.queueItem.create`). A
+/// message holds words or at least one file: its `content` is blank only beside a file.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
+#[garde(custom(|request: &Self, (): &()| {
+    check_words_or_a_file(&request.content, request.attachments.as_ref())
+}))]
+#[schemars(transform = add_words_or_a_file_rule)]
 pub struct AgentQueueItemCreateRequest {
     /// The session.
     pub session_id: SessionId,
@@ -150,8 +164,8 @@ pub struct AgentQueueItemCreateRequest {
     /// A send again under the same key answers what the first saved. A retry's key is the failed
     /// message's id, so a second press answers as the first did.
     pub client_idempotency_key: ClientUuid,
-    /// The words.
-    pub content: MessageContent,
+    /// The words; blank only where `attachments` holds a file.
+    pub content: MessageText,
     /// The message's files in staging order; one the daemon cannot deliver stays, marked.
     #[serde(
         default,
@@ -205,6 +219,44 @@ pub struct AgentQueueItemCreateRequest {
 }
 
 impl KeyedRequest for AgentQueueItemCreateRequest {}
+
+/// Refuses a message of the person's whose `content` is blank and whose `attachments` hold no
+/// file: a message holds words or at least one file.
+pub(crate) fn check_words_or_a_file(
+    content: &MessageText,
+    attachments: Option<&AttachmentReferenceList>,
+) -> garde::Result {
+    let has_file = attachments.is_some_and(|attachments| !attachments.0.is_empty());
+    if has_file || !is_blank(content.as_str()) {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "a message holds words or at least one file",
+        ))
+    }
+}
+
+/// States [`check_words_or_a_file`] in a message's schema: without a file in `attachments`, its
+/// `content` holds words.
+pub(crate) fn add_words_or_a_file_rule(schema: &mut Schema) {
+    schema.insert(
+        "if".into(),
+        serde_json::json!({
+            "type": "object",
+            "properties": { "attachments": { "type": "array", "minItems": 1 } },
+            "required": ["attachments"],
+        }),
+    );
+    schema.insert(
+        "else".into(),
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "content": { "type": "string", "pattern": NON_BLANK_NUL_FREE_PATTERN },
+            },
+        }),
+    );
+}
 
 /// What a plan message is for: building the plan in its own session, or seeding the fresh session
 /// a plan was handed to as its first turn.
@@ -284,8 +336,8 @@ pub struct UserMessageSentPayload {
     )]
     #[schemars(with = "DeviceId")]
     pub device_id: Option<DeviceId>,
-    /// The words.
-    pub message: MessageContent,
+    /// The words; blank on a message of files alone.
+    pub message: MessageText,
     /// Where the words came from when no one typed them.
     #[serde(
         default,
@@ -515,8 +567,8 @@ queue_item_summary_by_state! {
     /// child whose queue holds it (absent on the lead's), and, once its delivery has failed, the
     /// daemon's reason.
     QueueMessageSummary {
-        /// The words.
-        content: MessageContent,
+        /// The words; blank on a message of files alone.
+        content: MessageText,
         /// The message's files in staging order.
         #[serde(
             default,
@@ -788,51 +840,4 @@ impl ListKey for QueueItemId {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::{Value, json};
-
-    use super::{PlanMessageKind, UserMessageSentPayload};
-
-    fn sent_row(plan_message: Option<Value>) -> Value {
-        let mut row = json!({
-            "sessionId": "0190f5a4-1c2b-7d3e-8f40-5a6b7c8d9e0f",
-            "actor": "device-1",
-            "message": "Build this plan.",
-        });
-        if let Some(plan_message) = plan_message {
-            row["planMessage"] = plan_message;
-        }
-        row
-    }
-
-    // A person's message reads and writes without the plan marker, a plan message keeps it whole,
-    // and an explicit `null` is refused rather than read as a person's message.
-    #[test]
-    fn the_plan_marker_is_absent_or_whole_and_never_null() {
-        let plain: UserMessageSentPayload =
-            serde_json::from_value(sent_row(None)).expect("a person's message reads");
-        assert_eq!(plain.plan_message, None);
-        let written = serde_json::to_value(&plain).expect("a person's message writes");
-        assert!(written.get("planMessage").is_none());
-
-        let marker = json!({
-            "planId": "0190f5a4-1c2b-7d3e-8f40-5a6b7c8d9e10",
-            "kind": "seed",
-            "sourceSessionId": "0190f5a4-1c2b-7d3e-8f40-5a6b7c8d9e11",
-        });
-        let seed: UserMessageSentPayload =
-            serde_json::from_value(sent_row(Some(marker.clone()))).expect("a seed reads");
-        assert_eq!(
-            seed.plan_message
-                .as_ref()
-                .map(|plan_message| plan_message.kind),
-            Some(PlanMessageKind::Seed)
-        );
-        let written = serde_json::to_value(&seed).expect("a seed writes");
-        assert_eq!(written["planMessage"], marker);
-
-        assert!(
-            serde_json::from_value::<UserMessageSentPayload>(sent_row(Some(Value::Null))).is_err()
-        );
-    }
-}
+mod tests;

@@ -33,7 +33,9 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{MessageContent, QueueItemNotDeliveredReason};
+use sidekicks_contracts::run::queue::{
+    MessageContent, QueueItemNotDeliveredReason, read_message_words,
+};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -759,10 +761,10 @@ fn provider_work(
 }
 
 // The words an opening carries, which stand in for a first message the session has not yet
-// recorded: a message's or a plan message's; a review has none.
+// recorded: a message's or a plan message's; a review and a message of files alone have none.
 fn opening_words(body: &QueueItemBody) -> Option<MessageContent> {
     match body {
-        QueueItemBody::Message(message) => Some(message.content.clone()),
+        QueueItemBody::Message(message) => read_message_words(&message.content),
         QueueItemBody::PlanMessage { text, .. } => Some(text.clone()),
         QueueItemBody::Review { .. } => None,
     }

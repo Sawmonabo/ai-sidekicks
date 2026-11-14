@@ -16,8 +16,8 @@ use sidekicks_ipc::caller_process::provider_services::{
     ProviderServiceHold, ProviderServiceProcesses,
 };
 use sidekicks_platforms::{
-    UnixDomainStream, connect_unix_domain_socket, create_private_folder, found_no_listener,
-    real_path,
+    ProcessRecord, UnixDomainStream, connect_unix_domain_socket, create_private_folder,
+    found_no_listener, real_path,
 };
 use sidekicks_std::error_description::describe_error;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -75,7 +75,7 @@ pub(crate) struct CodexServiceSocketSender {
     /// The largest message the service takes, in UTF-8 bytes.
     sent_message_byte_limit: usize,
     /// The serving process, held until both halves drop.
-    _hold: Arc<ProviderServiceHold>,
+    hold: Arc<ProviderServiceHold>,
 }
 
 /// The receiving half of one open WebSocket to a Codex service.
@@ -91,6 +91,11 @@ impl CodexServiceSocketSender {
     /// opened, or 16 MiB when it named none.
     pub(crate) fn sent_message_byte_limit(&self) -> usize {
         self.sent_message_byte_limit
+    }
+
+    /// The record of the process serving the socket, `None` where the system could not read it.
+    pub(crate) fn serving_process(&self) -> Option<&ProcessRecord> {
+        self.hold.serving_process()
     }
 
     /// Sends `text`, the encoded message of `method`, as one text frame. Fails with
@@ -256,7 +261,7 @@ async fn dial_once(
         CodexServiceSocketSender {
             sink,
             sent_message_byte_limit,
-            _hold: Arc::clone(&hold),
+            hold: Arc::clone(&hold),
         },
         CodexServiceSocketReceiver {
             frames,

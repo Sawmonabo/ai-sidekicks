@@ -24,7 +24,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::id::UuidText;
-use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
+use sidekicks_contracts::wire::text::{FreeFormText, is_blank, is_ecmascript_whitespace};
 use sidekicks_contracts::worktree::events::SessionBranchChangedPayload;
 use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::database::statement::{
@@ -268,6 +268,10 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         }
         SessionEventType::UserMessageSent => {
             let sent: UserMessageSentPayload = payload_as(event_type, event.payload)?;
+            // A message of files alone has no words to preview, so a later one's words do.
+            if is_blank(sent.message.as_str()) {
+                return Ok(None);
+            }
             keep_first_column(ColumnValue::FirstMessagePreview(Some(
                 first_message_preview_of(sent.message.as_str()),
             )))
@@ -313,6 +317,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::AgentSubagentStarted
         | SessionEventType::AgentSubagentCompleted
         | SessionEventType::AgentSubagentStopped
+        | SessionEventType::AgentSubagentBackgrounded
         | SessionEventType::AgentCommandEnded
         | SessionEventType::AgentQueueItemCreated
         | SessionEventType::AgentQueueItemAdmitted

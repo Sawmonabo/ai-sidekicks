@@ -2,11 +2,10 @@
 //! tests.
 
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemId;
+use sidekicks_contracts::run::queue::{MessageText, QueueItemId};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::writer::DatabaseWriter;
 
 use crate::queue_store::{
@@ -16,7 +15,7 @@ use crate::queue_store::{
 /// A message carrying only `text`.
 pub fn words(text: &str) -> QueueMessageBody {
     QueueMessageBody {
-        content: FreeFormText::new(text.to_owned()).expect("a test message"),
+        content: MessageText::new(text.to_owned()).expect("a test message"),
         attachments: None,
         skills: None,
         skill_picks: None,

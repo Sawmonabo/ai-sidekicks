@@ -13,7 +13,7 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::streaming::STREAM_FRAME_MAX_CHANGES;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{
-    QueueItemId, QueueItemNotDeliveredReason, QueueItemSummary, QueueMessageSummary,
+    MessageText, QueueItemId, QueueItemNotDeliveredReason, QueueItemSummary, QueueMessageSummary,
     UserMessageSentPayload,
 };
 use sidekicks_contracts::run::queued::AgentRunQueuedPayload;
@@ -400,7 +400,7 @@ async fn each_write_raises_its_queue_once_and_moves_the_order_only_when_no_event
                 run_id: Some(fixture.run_id),
                 actor: FreeFormText::new("test-device".to_owned()).expect("a test actor"),
                 device_id: Some(device_id()),
-                message: FreeFormText::new("Look again".to_owned()).expect("a test message"),
+                message: MessageText::new("Look again".to_owned()).expect("a test message"),
                 origin: None,
                 answers_question_id: None,
                 plan_message: None,

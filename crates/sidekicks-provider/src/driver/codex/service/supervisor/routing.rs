@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_platforms::ProcessRecord;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
@@ -53,18 +54,23 @@ pub(super) struct CodexServiceRouting {
     pub(super) config_warnings: CodexConfigWarnings,
     /// The account's rate-limit readings.
     pub(super) rate_limits: CodexRateLimitReadings,
-    /// The out-of-table methods already reported on the current connection.
+    /// The out-of-table methods already reported on the current reading.
     reports: OnceReportedDiagnostics,
     /// The turns running on the service.
     pub(super) running_turns: CodexRunningTurns,
 }
 
 impl CodexServiceRouting {
-    /// Starts a new connection's reports and config warnings: the service sends its warnings again
-    /// to each connection.
-    pub(super) fn start_connection(&mut self) {
+    /// Starts a connection to `process`: a redial of the process the reading is of keeps its
+    /// reports and config warnings, and any other begins them again. Answers the attached
+    /// sessions owed the new reading's start, none for the redial.
+    pub(super) fn start_connection(&mut self, process: Option<ProcessRecord>) -> Vec<SessionId> {
+        let attached: Vec<SessionId> = self.sessions.keys().copied().collect();
+        let Some(owed) = self.config_warnings.start_connection(process, &attached) else {
+            return Vec::new();
+        };
         self.reports = OnceReportedDiagnostics::default();
-        self.config_warnings.start_connection();
+        owed
     }
 
     /// Sends a session's frames to `sender` from now on.
@@ -72,10 +78,9 @@ impl CodexServiceRouting {
         self.sessions.insert(sender.session_id(), sender);
     }
 
-    /// Stops sending a session its frames and forgets the warnings it was told; answers whether it
-    /// was attached.
+    /// Stops sending a session its frames, keeping the warnings it was told for its next attach;
+    /// answers whether it was attached.
     pub(super) fn detach(&mut self, session_id: &SessionId) -> bool {
-        self.config_warnings.forget_session(session_id);
         self.sessions.remove(session_id).is_some()
     }
 

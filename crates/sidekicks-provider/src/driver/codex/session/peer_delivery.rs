@@ -160,7 +160,7 @@ impl CodexPeerDelivery {
                                 agent_id: binding.agent_id,
                                 message_id: message.message_id,
                                 item: RunOpeningItem::Message {
-                                    content: message.content,
+                                    content: message.content.into(),
                                     attachments: message.attachments,
                                     skills: Vec::new(),
                                 },
@@ -213,7 +213,7 @@ impl CodexPeerDelivery {
             .run_control
             .steer_run(CodexSteerRunRequest {
                 run_id,
-                content: message.content,
+                content: message.content.into(),
                 skills: Vec::new(),
                 attachments: message.attachments,
                 expected_turn_id: None,

@@ -1,14 +1,16 @@
-//! A message as Codex's turn input takes it: its words as a text item, each skill picked for it as
-//! a `skill` item naming the file Codex listed it from, and its staged files, a picture as a
-//! `localImage` item naming its stored copy and any other file as a text item in its own place
-//! naming its stored copy, which the agent opens itself, or saying why it could not be delivered.
+//! A message as Codex's turn input takes it: its words as a text item, none on a message of files
+//! alone, each skill picked for it as a `skill` item naming the file Codex listed it from, and its
+//! staged files, a picture as a `localImage` item naming its stored copy and any other file as a
+//! text item in its own place naming its stored copy, which the agent opens itself, or saying why
+//! it could not be delivered.
 //! Codex leaves a `mention` item out of what the model reads, so a file never goes as one.
 
 use std::error::Error;
 
 use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::run::queue::MessageContent;
+use sidekicks_contracts::run::queue::MessageText;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::is_blank;
 
 use crate::driver::attachments::{
     AttachmentResolver, ProviderAttachment, compose_attachment_text, resolve_message_attachments,
@@ -28,7 +30,7 @@ const CODEX_PICTURE_MEDIA_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/
 pub(crate) async fn resolve_codex_turn_message(
     resolver: &dyn AttachmentResolver,
     session_id: &SessionId,
-    content: &MessageContent,
+    content: &MessageText,
     attachments: &[ArtifactId],
     skills: &[PickedSkill],
 ) -> Result<CodexTurnMessage, Box<dyn Error + Send + Sync>> {
@@ -40,13 +42,15 @@ pub(crate) async fn resolve_codex_turn_message(
 }
 
 /// The input items of the person's messages, in send order: each message's words as a text item,
-/// then an item per picked skill in the order picked, then an item per staged file in staging
-/// order.
+/// where it has words, then an item per picked skill in the order picked, then an item per staged
+/// file in staging order.
 pub(crate) fn compose_codex_message_input(messages: &[CodexTurnMessage]) -> Vec<UserInput> {
     messages
         .iter()
         .flat_map(|message| {
-            std::iter::once(compose_codex_text_input(message.text.clone()))
+            (!is_blank(&message.text))
+                .then(|| compose_codex_text_input(message.text.clone()))
+                .into_iter()
                 .chain(
                     message
                         .skills

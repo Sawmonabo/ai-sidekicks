@@ -26,6 +26,11 @@ pub fn is_ecmascript_whitespace(character: char) -> bool {
     )
 }
 
+/// Whether `text` is empty or only ECMAScript whitespace: text that holds no words.
+pub fn is_blank(text: &str) -> bool {
+    text.chars().all(is_ecmascript_whitespace)
+}
+
 /// The body of a regex class holding ECMAScript's `\s` set, spelled out so Rust's `regex` and
 /// ECMAScript read it alike; it goes inside `concat!` in a pattern.
 macro_rules! ecmascript_whitespace {
@@ -81,7 +86,7 @@ impl<const MAX: usize> FreeFormText<MAX> {
         if text.contains('\0') {
             return Err(TextError::HoldsNul);
         }
-        if text.chars().all(is_ecmascript_whitespace) {
+        if is_blank(text) {
             return Err(TextError::Blank);
         }
         if !is_within_length(text, 0, MAX) {
@@ -271,6 +276,18 @@ impl<const MAX: usize> NulFreeText<MAX> {
     /// The checked text.
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// The checked text, owned.
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl<const MAX: usize> From<FreeFormText<MAX>> for NulFreeText<MAX> {
+    /// Free-form text holds no NUL and keeps the same cap, so it is always NUL-free text.
+    fn from(text: FreeFormText<MAX>) -> Self {
+        Self(text.0)
     }
 }
 

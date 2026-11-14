@@ -1,7 +1,7 @@
 //! The malformed entries `claude doctor` reports Claude Code skipped while the rest of their file
 //! loaded, which no `get_settings` reply names: one run at a time in the daemon, in the session's
 //! folder on its build and home, its `Invalid settings` block read from its output and kept, for
-//! each set of settings files, for the newest content alone.
+//! each set of settings files an open session reads, for the newest content alone.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::Spawner;
 use sidekicks_std::mutex_lock::lock;
 
@@ -59,8 +60,9 @@ pub(crate) struct ClaudeSettingsContent {
 }
 
 /// The `claude doctor` readings: one run at a time in the daemon, each waiting run of a set of
-/// files replaced by a newer content of them, and only each set's newest reading kept, so every
-/// session on one content shares one run and the map holds one reading per set of files.
+/// files replaced by a newer content of them, and only each set's newest reading kept while an
+/// open session reads that set, so every session on one content shares one run and the map holds
+/// at most one reading per open session.
 pub(crate) struct ClaudeDoctorReadings {
     spawner: Spawner,
     // Held across each run; tokio's lock hands it on in the order it was asked for.
@@ -68,11 +70,32 @@ pub(crate) struct ClaudeDoctorReadings {
     newest: Arc<Mutex<ClaudeNewestDoctorReadings>>,
 }
 
-/// Each set of files' newest reading, by the order it was asked for.
+/// Each set of files' newest reading, by the order it was asked for, and the set each open session
+/// last asked a reading of.
 #[derive(Default)]
 struct ClaudeNewestDoctorReadings {
     asked: u64,
     by_files: HashMap<blake3::Hash, ClaudeNewestDoctorReading>,
+    files_of_session: HashMap<SessionId, blake3::Hash>,
+}
+
+impl ClaudeNewestDoctorReadings {
+    // Marks `session_id` a reader of `files`, dropping the reading of the set it read before where
+    // no other session reads that one.
+    fn note_reader(&mut self, session_id: SessionId, files: blake3::Hash) {
+        if let Some(earlier) = self.files_of_session.insert(session_id, files)
+            && earlier != files
+        {
+            self.drop_unread(earlier);
+        }
+    }
+
+    // Drops `files`' reading where no open session reads that set.
+    fn drop_unread(&mut self, files: blake3::Hash) {
+        if !self.files_of_session.values().any(|read| *read == files) {
+            self.by_files.remove(&files);
+        }
+    }
 }
 
 /// A set of files' newest reading: of which content, its place in the order asked, and the run.
@@ -92,18 +115,21 @@ impl ClaudeDoctorReadings {
         }
     }
 
-    /// The entries `claude doctor` reports for `settings`: a content not yet read runs
-    /// `executable`'s doctor in `working_folder` in the background once the runs before it
-    /// ended, unless a newer content of the same files is asked for first, and every later reading
-    /// of it, and every one while it waits or runs, shares that run. A run that fails or passes
-    /// its time limit is logged and reads as no entries.
+    /// The entries `claude doctor` reports for `settings`, which `session_id` reads: a content not
+    /// yet read runs `executable`'s doctor in `working_folder` in the background once the runs
+    /// before it ended, unless a newer content of the same files is asked for first or no open
+    /// session reads those files any longer, and every later reading of it, and every one while it
+    /// waits or runs, shares that run. A run that fails or passes its time limit is logged and
+    /// reads as no entries.
     pub(crate) fn read(
         &self,
+        session_id: SessionId,
         settings: ClaudeSettingsContent,
         executable: &Arc<ResolvedProviderExecutable>,
         working_folder: &Path,
     ) -> ClaudeDoctorReading {
         let mut newest = lock(&self.newest);
+        newest.note_reader(session_id, settings.files);
         if let Some(held) = newest.by_files.get(&settings.files)
             && held.content == settings.content
         {
@@ -119,10 +145,11 @@ impl ClaudeDoctorReadings {
         // Spawned, so the run finishes and is kept even when no session waits for it.
         let run = tokio::spawn(async move {
             let _turn = run_turn.lock().await;
+            // A set no open session reads any longer has no reading to replace it.
             let is_replaced = lock(&newest_readings)
                 .by_files
                 .get(&settings.files)
-                .is_some_and(|held| held.asked > asked);
+                .is_none_or(|held| held.asked > asked);
             if is_replaced {
                 return None;
             }
@@ -151,6 +178,15 @@ impl ClaudeDoctorReadings {
             },
         );
         reading
+    }
+
+    /// Forgets the closed session `session_id`, dropping the reading of its set of files where no
+    /// other open session reads that set.
+    pub(crate) fn forget_session(&self, session_id: SessionId) {
+        let mut newest = lock(&self.newest);
+        if let Some(files) = newest.files_of_session.remove(&session_id) {
+            newest.drop_unread(files);
+        }
     }
 }
 
@@ -277,6 +313,7 @@ mod tests {
 
     use super::{ClaudeDoctorReadings, ClaudeSettingsContent};
     use crate::driver::claude::session::ignored_settings::ClaudeDroppedSetting;
+    use crate::driver::test_registry::new_session_id;
     use crate::spawned_version::ResolvedProviderExecutable;
 
     // The block as Claude Code 2.1.319 printed it under a private home, between its other checks.
@@ -346,12 +383,15 @@ mod tests {
         let readings =
             ClaudeDoctorReadings::new(Spawner::new(Handle::current()).expect("a spawner starts"));
         let content = settings(b"one settings content");
+        let session_id = new_session_id();
 
         let (first, second) = tokio::join!(
-            readings.read(content, &executable, folder.path()),
-            readings.read(content, &executable, folder.path()),
+            readings.read(session_id, content, &executable, folder.path()),
+            readings.read(session_id, content, &executable, folder.path()),
         );
-        let later = readings.read(content, &executable, folder.path()).await;
+        let later = readings
+            .read(session_id, content, &executable, folder.path())
+            .await;
 
         let expected: Arc<[ClaudeDroppedSetting]> = Arc::from([
             ClaudeDroppedSetting {
@@ -385,14 +425,16 @@ mod tests {
         let readings =
             ClaudeDoctorReadings::new(Spawner::new(Handle::current()).expect("a spawner starts"));
         let first_call = folder.path().join("claude.first-call");
+        let session_id = new_session_id();
 
-        let first = readings.read(settings(b"first"), &executable, folder.path());
+        let first = readings.read(session_id, settings(b"first"), &executable, folder.path());
         while !first_call.exists() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        let replaced = [b"second".as_slice(), b"third"]
-            .map(|content| readings.read(settings(content), &executable, folder.path()));
-        let newest = readings.read(settings(b"newest"), &executable, folder.path());
+        let replaced = [b"second".as_slice(), b"third"].map(|content| {
+            readings.read(session_id, settings(content), &executable, folder.path())
+        });
+        let newest = readings.read(session_id, settings(b"newest"), &executable, folder.path());
 
         assert!(
             tokio::time::timeout(Duration::from_millis(300), newest.clone())
@@ -408,7 +450,7 @@ mod tests {
         assert_eq!(count_runs(&record), 2);
         assert!(
             readings
-                .read(settings(b"first"), &executable, folder.path())
+                .read(session_id, settings(b"first"), &executable, folder.path())
                 .await
                 .is_some()
         );

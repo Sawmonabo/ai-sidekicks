@@ -22,7 +22,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{RunRefusalChoice, RunUsageCreditsChoice};
-use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
+use sidekicks_contracts::run::queue::{MessageText, QueueItemId};
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::ClientUuid;
@@ -48,8 +48,8 @@ pub struct PickedSkill {
 /// person picked for it and a target turn.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SteerPayload {
-    /// The message's words.
-    pub content: MessageContent,
+    /// The message's words; blank on a message of files alone.
+    pub content: MessageText,
     /// The message's files in staging order; one the turn cannot resolve becomes an unresolved
     /// marker in its own place, never dropped, and no count of the app's own bounds the list.
     pub attachments: Vec<ArtifactId>,
@@ -190,8 +190,8 @@ pub struct PauseRunParams {
 pub struct WaitingMessage {
     /// The queue item.
     pub id: QueueItemId,
-    /// The words.
-    pub content: MessageContent,
+    /// The words; blank on a message of files alone.
+    pub content: MessageText,
     /// The message's files in staging order.
     pub attachments: Vec<ArtifactId>,
     /// The skills picked for the message, in the order picked.

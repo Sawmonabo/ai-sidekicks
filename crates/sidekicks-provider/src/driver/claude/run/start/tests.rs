@@ -5,10 +5,9 @@ use serde_json::json;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
+use sidekicks_contracts::run::queue::{MessageText, QueueItemId};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::claude::session::scripted::{
@@ -38,7 +37,7 @@ fn opening_params(
             message_id: QueueItemId::new(&mint_uuid_v7().to_string())
                 .expect("a minted UUID is an item id"),
             item: RunOpeningItem::Message {
-                content: FreeFormText::new("go on".to_owned()).expect("the words fit"),
+                content: MessageText::new("go on".to_owned()).expect("the words fit"),
                 attachments,
                 skills: Vec::new(),
             },
@@ -105,8 +104,7 @@ async fn a_picture_past_the_limit_refuses_the_run_in_claude_codes_own_words(
                 messages: vec![WaitingMessage {
                     id: QueueItemId::new(&mint_uuid_v7().to_string())
                         .expect("a minted UUID is an item id"),
-                    content: MessageContent::new("go on".to_owned())
-                        .expect("the words are a message"),
+                    content: MessageText::new("go on".to_owned()).expect("the words are a message"),
                     attachments: vec![picture],
                     skills: Vec::new(),
                 }],
@@ -164,7 +162,7 @@ async fn a_reset_word_with_files_writes_and_records_nothing(#[case] write: Reset
         ResetWrite::Start => {
             let mut params = opening_params(&session, new_run_id(), Vec::new());
             params.opening.item = RunOpeningItem::Message {
-                content: FreeFormText::new(words.to_owned()).expect("the words fit"),
+                content: MessageText::new(words.to_owned()).expect("the words fit"),
                 attachments: vec![file],
                 skills: Vec::new(),
             };
@@ -180,7 +178,7 @@ async fn a_reset_word_with_files_writes_and_records_nothing(#[case] write: Reset
                     run_id,
                     messages: vec![WaitingMessage {
                         id: message_id,
-                        content: MessageContent::new(words.to_owned())
+                        content: MessageText::new(words.to_owned())
                             .expect("the words are a message"),
                         attachments: vec![file],
                         skills: Vec::new(),
@@ -199,7 +197,7 @@ async fn a_reset_word_with_files_writes_and_records_nothing(#[case] write: Reset
                     expected_run_version: SafeInt::new(0).expect("zero is a run version"),
                     client_idempotency_key: message_id,
                     payload: SteerPayload {
-                        content: FreeFormText::new(words.to_owned()).expect("the words fit"),
+                        content: MessageText::new(words.to_owned()).expect("the words fit"),
                         attachments: vec![file],
                         skills: Vec::new(),
                         expected_turn_id: None,

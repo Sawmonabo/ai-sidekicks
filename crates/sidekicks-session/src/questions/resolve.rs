@@ -268,7 +268,7 @@ impl QuestionsService {
                 actor: FreeFormText::new(device_id.as_str().to_owned())
                     .expect("a device id is a short, printable actor"),
                 device_id: Some(device_id),
-                message,
+                message: message.into(),
                 origin: None,
                 answers_question_id: Some(question_id),
                 plan_message: None,

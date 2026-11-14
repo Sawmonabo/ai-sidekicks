@@ -12,7 +12,7 @@ use sidekicks_contracts::orchestration::{
 };
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::MessageContent;
+use sidekicks_contracts::run::queue::{MessageContent, MessageText, read_message_words};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -261,11 +261,15 @@ impl HeadLog {
                 |row| {
                     Ok((
                         run_id_column(row, 0)?,
-                        text_column(row, 2, FreeFormText::new)?,
+                        text_column(row, 2, MessageText::new)?,
                     ))
                 },
             )?
-            .collect::<rusqlite::Result<_>>()?;
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            // A message of files alone was admitted with no words to ask.
+            .filter_map(|(run_id, message)| Some((run_id, read_message_words(&message)?)))
+            .collect();
         Ok(Self {
             tool_counts,
             activities,
@@ -298,7 +302,8 @@ impl HeadLog {
         self.results.get(&run_id).cloned()
     }
 
-    /// The words `run_id` was admitted with, `None` where no send started it.
+    /// The words `run_id` was admitted with, `None` where no send started it or its send held
+    /// files alone.
     pub(super) fn admitted_ask(&self, run_id: RunId) -> Option<MessageContent> {
         self.admitted_asks.get(&run_id).cloned()
     }

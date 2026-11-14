@@ -9,7 +9,7 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{MessageContent, QueueItemNotDeliveredReason};
+use sidekicks_contracts::run::queue::{MessageText, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_std::mutex_lock::lock;
 
@@ -226,7 +226,7 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
                 run_id: session.run_id,
                 messages: vec![WaitingMessage {
                     id: new_message_id(),
-                    content: MessageContent::new("carry on".to_owned())
+                    content: MessageText::new("carry on".to_owned())
                         .expect("the words are a message"),
                     attachments: Vec::new(),
                     skills: Vec::new(),

@@ -28,6 +28,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{QueueItemId, UserMessageSentPayload};
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::is_blank;
 use sidekicks_store::events::session::read::tool_call_closes::ToolCallCloses;
 use sidekicks_store::events::session::read::{
     HydratedPage, SessionEventReads, SessionLogReadError,
@@ -594,11 +595,13 @@ impl TurnFold {
                 TranscriptEventKind::TurnStarted => RowFold::CloseTurn,
                 TranscriptEventKind::UserMessage => {
                     let sent = read_payload::<UserMessageSentPayload>(sequence, &event.payload)?;
+                    // A message of files alone opens the person's row with no words to carry.
+                    let words = (!is_blank(sent.message.as_str())).then_some(sent.message);
                     RowFold::Append {
                         role: CanonicalTranscriptRole::User,
-                        segment: Some(CanonicalTranscriptSegment::Text {
+                        segment: words.map(|words| CanonicalTranscriptSegment::Text {
                             position,
-                            text: sent.message.into_string(),
+                            text: words.into_string(),
                             is_content_unavailable: false,
                             queue_item_id: sent.queue_item_id,
                         }),

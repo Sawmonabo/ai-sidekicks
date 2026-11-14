@@ -301,7 +301,7 @@ impl QueueAdmission {
                 RunOpeningItem::Message {
                     attachments: Vec::new(),
                     skills: Vec::new(),
-                    content: text,
+                    content: text.into(),
                 },
                 None,
             ),

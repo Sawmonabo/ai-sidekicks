@@ -275,9 +275,13 @@ impl ClaudeIgnoredSettings {
         }
     }
 
-    /// Forgets the session once it closed.
+    /// Forgets the session once it closed, with the doctor reading of its settings files where no
+    /// other session reads them.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
-        lock(&self.sessions).remove(&session_id);
+        // Under the sessions' lock, so a reading in flight for it never asks the doctor after.
+        let mut sessions = lock(&self.sessions);
+        sessions.remove(&session_id);
+        self.doctor.forget_session(session_id);
     }
 
     // Posts each notice `report` raises that is not standing yet, unless a later start began.
@@ -312,15 +316,20 @@ impl ClaudeIgnoredSettings {
             }
             raised.doctor_content = Some(settings.content);
         }
-        let Some(entries) = self
-            .doctor
-            .read(
+        // Asked under the sessions' lock, so a session closed meanwhile adds no reading.
+        let reading = {
+            let sessions = lock(&self.sessions);
+            if !sessions.contains_key(&watch.session_id) {
+                return;
+            }
+            self.doctor.read(
+                watch.session_id,
                 settings,
                 &watch.executable,
                 sources.project_folder.working_folder,
             )
-            .await
-        else {
+        };
+        let Some(entries) = reading.await else {
             return;
         };
         let mut raised = watch.notices.lock().await;

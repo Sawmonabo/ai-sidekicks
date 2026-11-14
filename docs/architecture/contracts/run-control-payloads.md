@@ -23,6 +23,8 @@ interface AgentQueueItemCreateRequest {
   // the daemon's order (`agent.queueItem.reorder`).
   workspaceId?: WorkspaceId;
   clientIdempotencyKey: string; // a UUID; a retried send returns the saved result
+  // The words; blank only where `attachments` holds a file, so a message holds words or at least
+  // one file and never neither. A message of files alone reaches the provider with no words block.
   content: string;
   // in staging order; how many a message carries is what the daemon and the provider accept
   attachments?: ArtifactId[];

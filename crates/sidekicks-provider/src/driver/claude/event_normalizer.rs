@@ -357,9 +357,10 @@ pub(crate) struct ClaudeSubagentLifecycleSignal {
     pub(crate) parent_task_id: Option<String>,
     /// The role Claude Code started the helper as, its `subagent_type`; `None` on a stop.
     pub(crate) subagent_type: Option<String>,
-    /// Whether a start runs in the foreground, where Claude Code answers the helper-tool call
-    /// only once the helper finished.
-    pub(crate) is_foreground: bool,
+    /// Whether a start runs in the background, as its `is_backgrounded` says: `Some(false)` in the
+    /// foreground, where Claude Code answers the helper-tool call only once the helper finished,
+    /// and `None` where the frame says neither.
+    pub(crate) is_backgrounded: Option<bool>,
 }
 
 /// A helper lifecycle signal as its event and, for a start, the router's announcement.
@@ -394,7 +395,7 @@ pub(crate) fn normalize_claude_subagent_lifecycle(
         parent_tool_use_id,
         parent_task_id,
         subagent_type: _,
-        is_foreground,
+        is_backgrounded,
     } = lifecycle_signal;
     let (event_type, announcement) = match signal {
         ClaudeSubagentSignal::SubagentStart => {
@@ -409,7 +410,9 @@ pub(crate) fn normalize_claude_subagent_lifecycle(
                     child_thread_id: subagent_id.clone(),
                     declared_parent_thread_id,
                     subagent_id: Some(subagent_id.clone()),
-                    waiting_call_id: parent_tool_use_id.clone().filter(|_| is_foreground),
+                    waiting_call_id: parent_tool_use_id
+                        .clone()
+                        .filter(|_| is_backgrounded == Some(false)),
                 }),
             )
         }
@@ -484,7 +487,7 @@ mod tests {
                 parent_tool_use_id: parent_tool_use_id.map(str::to_owned),
                 parent_task_id: parent_task_id.map(str::to_owned),
                 subagent_type: None,
-                is_foreground: true,
+                is_backgrounded: Some(false),
             },
             "session",
             |task_id| registered_helpers.contains(&task_id),

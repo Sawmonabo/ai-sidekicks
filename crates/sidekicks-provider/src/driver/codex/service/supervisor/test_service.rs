@@ -500,7 +500,7 @@ pub(crate) fn script_codex_service(
         service.connection_handlers(SCRIPTED_DIAL),
     );
     service.routed_dial.store(SCRIPTED_DIAL, Ordering::Release);
-    service.start_connection();
+    service.start_connection(None);
     service.lock_live().connection = Some(Arc::new(connection));
     service
         .availability

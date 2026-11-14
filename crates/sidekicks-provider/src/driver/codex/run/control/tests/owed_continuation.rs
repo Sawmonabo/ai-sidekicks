@@ -2,7 +2,7 @@
 //! person: its next turn takes up the cut work before the messages that waited for it.
 
 use serde_json::{Value, json};
-use sidekicks_contracts::run::queue::MessageContent;
+use sidekicks_contracts::run::queue::MessageText;
 use sidekicks_std::mutex_lock::lock;
 
 use super::{DEADLOCK_BOUND, live_run};
@@ -32,7 +32,7 @@ async fn a_continue_owed_its_continuation_starts_with_it() {
         run_id,
         messages: vec![WaitingMessage {
             id: message_id,
-            content: MessageContent::new("carry on".to_owned()).expect("the words"),
+            content: MessageText::new("carry on".to_owned()).expect("the words"),
             attachments: Vec::new(),
             skills: Vec::new(),
         }],

@@ -17,7 +17,7 @@ use rusqlite::params;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::control::{AgentRunPauseRequest, AgentRunResumeRequest};
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
+use sidekicks_contracts::run::queue::{MessageText, QueueItemId};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -174,7 +174,7 @@ fn safe(version: u64) -> SafeInt<0> {
 fn waiting_message() -> WaitingMessage {
     WaitingMessage {
         id: QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an item id"),
-        content: MessageContent::new("carry on".to_owned()).expect("the words are a message"),
+        content: MessageText::new("carry on".to_owned()).expect("the words are a message"),
         attachments: Vec::new(),
         skills: Vec::new(),
     }

@@ -19,13 +19,14 @@ branded_free_form_text! {
     pub struct SubagentId(PROVIDER_WIRE_HANDLE_MAX_LEN);
 }
 
-/// The `agent.subagent.started`, `agent.subagent.completed` and `agent.subagent.stopped` payload:
-/// a helper the provider started under the run `run_id`, by the provider's own id, and the tool
-/// call it was opened under where the provider names one, and the helper's own run where one was
-/// started. `subagent_id` is unique only within its provider's run, so a completion pairs to its
-/// start on `run_id`, `provider` and `subagent_id` together. A stop of a helper already interrupted
-/// carries the run the helper runs under in `run_id` and the helper's own run in `child_run_id`. It
-/// takes the epoch stamp: `source_epoch` and `source_position` come together.
+/// The `agent.subagent.started`, `agent.subagent.completed`, `agent.subagent.stopped` and
+/// `agent.subagent.backgrounded` payload: a helper the provider started under the run `run_id`, by
+/// the provider's own id, and the tool call it was opened under where the provider names one, and
+/// the helper's own run where one was started. `subagent_id` is unique only within its provider's
+/// run, so a completion pairs to its start on `run_id`, `provider` and `subagent_id` together. A
+/// stop of a helper already interrupted, and a helper's move to the background, carry the run the
+/// helper runs under in `run_id` and the helper's own run in `child_run_id`. It takes the epoch
+/// stamp: `source_epoch` and `source_position` come together.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

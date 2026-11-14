@@ -1,6 +1,7 @@
 //! The session's agent tree as a client reads it: every child at any depth with its head, the
 //! badge's figures and the refused creates; and a wire handle resolved to its node.
 
+mod ancestry;
 mod head;
 
 use std::cmp::Ordering;
@@ -9,7 +10,6 @@ use std::sync::LazyLock;
 
 use rusqlite::types::Type;
 use rusqlite::{Connection, named_params};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::agent::tree::{AgentTreeMember, ChildHandle};
 use sidekicks_contracts::event::registry::SessionEventType;
@@ -31,6 +31,7 @@ use sidekicks_store::database::stored_column::{
 };
 use sidekicks_store::events::session::read::readable_event_sql;
 
+use crate::agent_tree::read::ancestry::AncestryWalk;
 use crate::agent_tree::read::head::{HEAD_LOG_STATEMENT_CAPACITY, HeadLog, run_ids_json};
 use crate::agent_tree::store::{AgentTreeNode, read_node, read_session_nodes};
 use crate::agents::projection::read_agent_row;
@@ -61,8 +62,9 @@ static SELECT_SESSION_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // Each readable helper start that names the helper's own run, with the provider and its id for
-// the helper, which pair the run to its node; and each readable stop of a helper already
-// interrupted, which names its own run. The row's type tells the two apart.
+// the helper, which pair the run to its node; each readable stop of a helper already interrupted,
+// and each move of a helper to the background, which name its own run; in log order, so a later
+// start of the same own run ends the move before it. The row's type tells the three apart.
 static SELECT_HELPER_STARTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT json_extract(started.payload, '$.childRunId'),
@@ -71,11 +73,13 @@ static SELECT_HELPER_STARTS_SQL: LazyLock<String> = LazyLock::new(|| {
        started.type
   FROM session_events AS started
   WHERE started.session_id = @session_id
-    AND started.type IN ('{started}', '{stopped}')
+    AND started.type IN ('{started}', '{stopped}', '{backgrounded}')
     AND json_extract(started.payload, '$.childRunId') IS NOT NULL
-    AND {readable}",
+    AND {readable}
+  ORDER BY started.sequence",
         started = SessionEventType::AgentSubagentStarted.as_str(),
         stopped = SessionEventType::AgentSubagentStopped.as_str(),
+        backgrounded = SessionEventType::AgentSubagentBackgrounded.as_str(),
         readable = readable_event_sql("started"),
     )
 });
@@ -405,6 +409,8 @@ pub fn read_agent_tree(
                     child_handle: node.child_handle.clone(),
                     parent_child_handle: node.parent_child_handle.clone(),
                     state,
+                    is_in_background: !state.is_terminal()
+                        && tree.backgrounded_runs.contains(&node.own_run_id),
                     head,
                 }
             }
@@ -474,12 +480,15 @@ pub(crate) struct SessionTree {
     /// Each own run's node by its place in `nodes`: every node's newest own run, and each run a
     /// readable helper start names for it.
     pub(crate) node_of_run: HashMap<RunId, usize>,
+    /// Each own run a readable move to the background names that no later start of it ended.
+    backgrounded_runs: HashSet<RunId>,
 }
 
 impl SessionTree {
     /// `session_id`'s runs and nodes, each own run paired to its node through the helper starts
-    /// readable before `read_bound`, and each interrupted own run that a helper stop readable
-    /// before it names read as `Stopped`, its row keeping `interrupted`. Fails as SQLite or a
+    /// readable before `read_bound`, each interrupted own run that a helper stop readable before
+    /// it names read as `Stopped`, its row keeping `interrupted`, and each own run a move to the
+    /// background readable before it names, unless a later start of it is. Fails as SQLite or a
     /// stored column does.
     pub(crate) fn read(
         reader: &Connection,
@@ -535,16 +544,21 @@ impl SessionTree {
                 ))
             },
         )?;
+        let mut backgrounded_runs = HashSet::new();
         for start in starts {
             let (run_id, provider, subagent_id, event_type) = start?;
             if event_type == SessionEventType::AgentSubagentStopped.as_str() {
                 if let Some(run) = runs.get_mut(&run_id) {
                     run.state = own_run_state_with_held_stop(run.state, true);
                 }
-            } else if let Some(&place) =
-                node_of_helper.get(&(provider.as_str(), subagent_id.as_str()))
-            {
-                node_of_run.insert(run_id, place);
+            } else if event_type == SessionEventType::AgentSubagentBackgrounded.as_str() {
+                backgrounded_runs.insert(run_id);
+            } else {
+                backgrounded_runs.remove(&run_id);
+                if let Some(&place) = node_of_helper.get(&(provider.as_str(), subagent_id.as_str()))
+                {
+                    node_of_run.insert(run_id, place);
+                }
             }
         }
         Ok(Self {
@@ -553,6 +567,7 @@ impl SessionTree {
             nodes,
             node_of_handle,
             node_of_run,
+            backgrounded_runs,
         })
     }
 
@@ -680,88 +695,6 @@ impl LinkSubject {
         match self {
             Self::Run { state, .. } | Self::Node { state, .. } => *state,
         }
-    }
-}
-
-// Walks a link's ancestry, reading each run's agent once per tree read.
-struct AncestryWalk<'tree> {
-    tree: &'tree SessionTree,
-    agents: RunAgentReader<'tree>,
-    session_id: &'tree SessionId,
-    agent_of_run: HashMap<RunId, AgentId>,
-}
-
-impl AncestryWalk<'_> {
-    // A node's ancestry from the lead down to its parent: up its parent nodes, then up the runs
-    // from the topmost one's carrying run.
-    fn node_ancestry(&mut self, place: usize) -> Result<Vec<AgentTreeMember>, AgentTreeReadError> {
-        let mut seen = HashSet::from([place]);
-        let mut upward = Vec::new();
-        let mut topmost = place;
-        for parent in self.tree.lineage_places(Some(place)).skip(1) {
-            upward.push(self.tree.member(parent)?);
-            seen.insert(parent);
-            topmost = parent;
-        }
-        self.walk_runs(self.tree.carrying_run(topmost)?, &mut seen, &mut upward)?;
-        upward.reverse();
-        Ok(upward)
-    }
-
-    // A run link's ancestry from the lead down to its parent run's member.
-    fn run_ancestry(
-        &mut self,
-        parent_run_id: RunId,
-    ) -> Result<Vec<AgentTreeMember>, AgentTreeReadError> {
-        let mut upward = Vec::new();
-        self.walk_runs(parent_run_id, &mut HashSet::new(), &mut upward)?;
-        upward.reverse();
-        Ok(upward)
-    }
-
-    // Adds the members up `parent_run_id` from `run_id` to the root, nearest first. A provider
-    // subagent's run adds its node's member unless that node is the child or already in `seen`:
-    // a helper resumed under a run of its own child hangs under that child's run, so the run
-    // chain can cross the node chain. Each chain only reaches back in time, so the walk ends.
-    fn walk_runs(
-        &mut self,
-        mut run_id: RunId,
-        seen: &mut HashSet<usize>,
-        upward: &mut Vec<AgentTreeMember>,
-    ) -> Result<(), AgentTreeReadError> {
-        loop {
-            let run = self.tree.run(run_id)?;
-            let Some(parent_run_id) = run.parent_run_id else {
-                upward.push(AgentTreeMember::Agent {
-                    agent_id: self.agent(run_id)?,
-                });
-                return Ok(());
-            };
-            match run.reached_by {
-                Some(ChildRunProvenance::BridgeRun | ChildRunProvenance::WorkflowStep) => {
-                    upward.push(AgentTreeMember::Agent {
-                        agent_id: self.agent(run_id)?,
-                    });
-                }
-                Some(ChildRunProvenance::ProviderSubagent) | None => {
-                    if let Some(&place) = self.tree.node_of_run.get(&run_id)
-                        && seen.insert(place)
-                    {
-                        upward.push(self.tree.member(place)?);
-                    }
-                }
-            }
-            run_id = parent_run_id;
-        }
-    }
-
-    fn agent(&mut self, run_id: RunId) -> Result<AgentId, RunAgentReadError> {
-        if let Some(&agent_id) = self.agent_of_run.get(&run_id) {
-            return Ok(agent_id);
-        }
-        let agent_id = self.agents.read_agent(self.session_id, &run_id)?;
-        self.agent_of_run.insert(run_id, agent_id);
-        Ok(agent_id)
     }
 }
 

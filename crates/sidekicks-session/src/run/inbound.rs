@@ -729,6 +729,7 @@ fn tool_call_opening_of(row: &LateAppendableRow) -> Option<(RunId, String)> {
         | LateAppendableRow::AgentToolCallInvoked(_)
         | LateAppendableRow::AgentSubagentStarted(_)
         | LateAppendableRow::AgentSubagentCompleted(_)
+        | LateAppendableRow::AgentSubagentBackgrounded(_)
         | LateAppendableRow::SessionProviderStatusReported(_)
         | LateAppendableRow::UsageTokenCountRecorded(_)
         | LateAppendableRow::UsageContextWindowUpdated(_)

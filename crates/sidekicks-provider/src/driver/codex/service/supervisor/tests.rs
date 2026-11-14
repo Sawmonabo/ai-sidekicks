@@ -338,11 +338,11 @@ async fn a_held_frame_expires_at_its_deadline_with_no_later_frame() {
     assert_eq!(reached_until(&mut session, "idle").await, Vec::new());
 }
 
-// A session attached to a service hears that a reading of its settings began before the warnings
-// the service already sent, at each attach, and each session holding a conversation there hears
-// it again when a new connection starts, which takes the earlier connection's warnings away.
-// Killed by the attach or the connection's start pushing no reading's start, by a second attach
-// skipping the warnings told at the first, and by the start keeping the warnings.
+// A session first attached to a service hears that a reading of its settings began before the
+// warnings the service already sent, a second attach repeats neither, and a connection to a new
+// process tells a session a warning stood on that a new reading began, which takes the earlier
+// reading's warnings away. Killed by the first attach pushing no reading's start, by a second
+// attach pushing one or a warning again, and by the new process's start pushing none.
 #[tokio::test]
 async fn each_reading_of_the_settings_begins_before_its_warnings() {
     let scripted = start_scripted_account_service_reporting_to(Arc::new(UnheardEvents));
@@ -366,7 +366,7 @@ async fn each_reading_of_the_settings_begins_before_its_warnings() {
     let attached = [queue.try_next(), queue.try_next()];
     service.attach_session(sender);
     let attached_again = [queue.try_next(), queue.try_next()];
-    service.start_connection();
+    service.start_connection(None);
     let reconnected = [queue.try_next(), queue.try_next()];
 
     assert!(matches!(
@@ -376,13 +376,7 @@ async fn each_reading_of_the_settings_begins_before_its_warnings() {
             Some(CodexSessionInbound::Frame { .. }),
         ]
     ));
-    assert!(matches!(
-        attached_again,
-        [
-            Some(CodexSessionInbound::SettingsReadingBegan),
-            Some(CodexSessionInbound::Frame { .. }),
-        ]
-    ));
+    assert!(matches!(attached_again, [None, None]));
     assert!(matches!(
         reconnected,
         [Some(CodexSessionInbound::SettingsReadingBegan), None]

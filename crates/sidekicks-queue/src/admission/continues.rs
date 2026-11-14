@@ -8,7 +8,7 @@ use std::sync::Arc;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
+use sidekicks_contracts::run::queue::{QueueItemNotDeliveredReason, read_message_words};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -102,12 +102,13 @@ impl QueueAdmission {
                     execution_posture,
                     true,
                 ),
-                opening_words: opening
-                    .body
-                    .as_message()
-                    .expect("a continue opens only on a message")
-                    .content
-                    .clone(),
+                opening_words: read_message_words(
+                    &opening
+                        .body
+                        .as_message()
+                        .expect("a continue opens only on a message")
+                        .content,
+                ),
             })
             .await;
         if let Err(continue_error) = continued {

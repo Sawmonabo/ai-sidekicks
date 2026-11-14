@@ -13,13 +13,12 @@ use serde_json::Value;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::control::AgentRunResumeRequest;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{AgentQueueItemReorderRequest, QueueItemId};
+use sidekicks_contracts::run::queue::{AgentQueueItemReorderRequest, MessageText, QueueItemId};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::session::restore::SessionRestoreResend;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::list::UniqueList;
-use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
@@ -34,7 +33,7 @@ use crate::error::QueueError;
 /// The edited message an undo sends again, saying `text`.
 fn resend_of(text: &str) -> SessionRestoreResend {
     SessionRestoreResend {
-        content: FreeFormText::new(text.to_owned()).expect("a test message"),
+        content: MessageText::new(text.to_owned()).expect("a test message"),
         attachments: None,
         skills: None,
         output_speed_for_turn: None,

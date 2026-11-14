@@ -5,7 +5,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemId;
+use sidekicks_contracts::run::queue::{MessageText, QueueItemId};
 use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -41,7 +41,7 @@ fn steer(
         expected_run_version: SafeInt::new(0).expect("zero is a run version"),
         client_idempotency_key: *message_id,
         payload: SteerPayload {
-            content: FreeFormText::new(text.to_owned()).expect("a test message fits"),
+            content: MessageText::new(text.to_owned()).expect("a test message fits"),
             attachments,
             skills: Vec::new(),
             expected_turn_id: None,

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use serde_json::{Value, json};
+use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionReadRequest;
@@ -11,21 +12,51 @@ use sidekicks_store::database::writer::test_file::{
 };
 
 use super::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
-use crate::agents::projection::test_fixture::{binding, binding_changed};
+use crate::agents::projection::test_fixture::{
+    binding, binding_changed, project, resolved_run_queued, session_created,
+};
 use crate::questions::schema::schema_parts;
 
-/// A session whose log holds `notices`, each a `session.notice.posted` payload but its session,
-/// or a whole event where it names its `type`, in order; answers the notice payloads of its read's
-/// standing events, in sequence order.
+/// The session's lead, on `claude` until a move in the log takes it off.
+const LEAD: &str = "019a0000-0000-7000-8000-000000000002";
+
+/// A second agent of the session, on `codex` until a move in the log takes it off.
+const REVIEWER: &str = "019a0000-0000-7000-8000-000000000003";
+
+/// A session with the lead on `claude` and the reviewer on `codex`, whose log holds `notices`,
+/// each a `session.notice.posted` payload but its session, or a whole event where it names its
+/// `type`, in order, a binding change also moving its agent; answers the notice payloads of its
+/// read's standing events, in sequence order.
 async fn standing_notices(notices: &[Value]) -> Vec<Value> {
-    let database = TestDatabase::new(schema_parts());
+    let database =
+        TestDatabase::new(schema_parts().with_parts(crate::agents::schema::schema_parts()));
     let session_id = test_session_id();
     let writer = database.opener()().expect("the test creates its database");
     insert_session_row(&writer, session_id.text().as_str(), None, None);
+    project(
+        &writer,
+        session_id,
+        &session_created(session_id, LEAD, &binding("claude", "model-a")),
+    );
+    project(
+        &writer,
+        session_id,
+        &resolved_run_queued(
+            session_id,
+            "019a0000-0000-7000-8000-000000000004",
+            REVIEWER,
+            &binding("codex", "model-a"),
+        ),
+    );
     for notice in notices {
         let event = if notice.get("type").is_some() {
             let mut event = notice.clone();
             event["payload"]["sessionId"] = json!(session_id);
+            if event["type"] == "agent.providerBinding.changed" {
+                let moved: SessionEvent =
+                    serde_json::from_value(event.clone()).expect("the move reads as its event");
+                project(&writer, session_id, &moved);
+            }
             event
         } else {
             let mut payload = notice.clone();
@@ -168,17 +199,19 @@ async fn an_ignored_settings_notice_stands_until_its_file_loads_cleanly() {
     );
 }
 
-/// An agent moved off a provider ends that provider's ignored-settings notices, and a move between
-/// other providers ends none. Killed by the move not counting, and by one counting whatever
-/// provider it left.
+/// An ignored-settings notice, which names no agent, stands while an agent of the session is on its
+/// provider: the last one moving off ends it, another still on it keeps it, and a move back shows
+/// it again. Killed by any move off the provider ending it, by a move between other providers
+/// counting, and by a move off that ends it for good.
 #[tokio::test]
-async fn an_ignored_settings_notice_ends_when_the_agent_moves_off_its_provider() {
+async fn an_ignored_settings_notice_ends_when_no_agent_is_left_on_its_provider() {
     let settings = "/work/.claude/settings.json";
-    let moved = |from: &str, to: &str| {
+    let config = "/home/a/.codex/config.toml";
+    let moved = |agent_id: &str, switch_id: &str, from: &str, to: &str| {
         serde_json::to_value(binding_changed(
             test_session_id(),
-            "019a0000-0000-7000-8000-000000000002",
-            "switch-1",
+            agent_id,
+            switch_id,
             &binding(from, "model-a"),
             &binding(to, "model-b"),
             "account-1",
@@ -187,11 +220,34 @@ async fn an_ignored_settings_notice_ends_when_the_agent_moves_off_its_provider()
     };
     let ignored = ignored_at_key(settings, "permissions.defaultMode");
     assert_eq!(
-        standing_notices(&[ignored.clone(), moved("claude", "codex")]).await,
+        standing_notices(&[ignored.clone(), moved(LEAD, "switch-1", "claude", "codex")]).await,
         Vec::<Value>::new()
     );
     assert_eq!(
-        standing_notices(&[ignored.clone(), moved("codex", "other")]).await,
+        standing_notices(&[
+            ignored.clone(),
+            moved(REVIEWER, "switch-1", "codex", "other")
+        ])
+        .await,
+        std::slice::from_ref(&ignored)
+    );
+    assert_eq!(
+        standing_notices(&[
+            ignored.clone(),
+            moved(LEAD, "switch-1", "claude", "codex"),
+            moved(LEAD, "switch-2", "codex", "claude"),
+        ])
+        .await,
+        [ignored]
+    );
+    let ignored = ignored_at_line(config, 4);
+    assert_eq!(
+        standing_notices(&[
+            ignored.clone(),
+            moved(LEAD, "switch-1", "claude", "codex"),
+            moved(LEAD, "switch-2", "codex", "claude"),
+        ])
+        .await,
         [ignored]
     );
 }

@@ -133,6 +133,9 @@ impl ClaudeDeliveryStream {
             )
             .await;
         }
+        if let Some(helper_id) = &frame.observation.backgrounded_helper_id {
+            self.move_helper_to_background(session, helper_id).await;
+        }
         self.record_metered(session, turn_at_read.lead.as_ref(), routed.metered)
             .await;
         let frame_kind = frame.observation.frame_kind.as_str();

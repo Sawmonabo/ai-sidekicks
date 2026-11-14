@@ -426,7 +426,7 @@ impl ClaudeStreamFrameRead {
             subagent_type: (signal == ClaudeSubagentSignal::SubagentStart)
                 .then(|| filter_non_empty(self.subagent_type.clone()))
                 .flatten(),
-            is_foreground: self.is_backgrounded == Some(false),
+            is_backgrounded: self.is_backgrounded,
         })
     }
 }

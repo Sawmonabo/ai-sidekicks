@@ -14,7 +14,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
+use sidekicks_contracts::run::queue::{MessageText, QueueItemId};
 
 use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::{
@@ -27,8 +27,8 @@ use crate::driver::run_control::{
 pub(crate) struct CodexSteerRunRequest {
     /// The run the message goes to.
     pub(crate) run_id: RunId,
-    /// The message's words.
-    pub(crate) content: MessageContent,
+    /// The message's words; blank on a message of files alone.
+    pub(crate) content: MessageText,
     /// The skills picked for the message, in the order picked.
     pub(crate) skills: Vec<PickedSkill>,
     /// The message's staged files, in staging order.
@@ -142,7 +142,7 @@ mod tests {
     use futures::future::BoxFuture;
     use rstest::rstest;
     use sidekicks_contracts::run::id::RunId;
-    use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
+    use sidekicks_contracts::run::queue::{MessageText, QueueItemId};
     use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::{
@@ -199,7 +199,7 @@ mod tests {
             client_idempotency_key: QueueItemId::new("0192f0c8-7a3e-7b4c-9d2e-3f4a5b6c7d8f")
                 .unwrap(),
             payload: SteerPayload {
-                content: MessageContent::new("also check the tests".to_owned()).unwrap(),
+                content: MessageText::new("also check the tests".to_owned()).unwrap(),
                 attachments: Vec::new(),
                 skills: Vec::new(),
                 expected_turn_id: None,

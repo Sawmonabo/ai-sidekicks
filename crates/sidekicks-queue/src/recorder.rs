@@ -19,7 +19,7 @@ use sidekicks_contracts::run::queue::{
     AgentQueueItemAdmittedPayload, AgentQueueItemAdmittedState, AgentQueueItemCanceledPayload,
     AgentQueueItemCanceledState, AgentQueueItemCreatedPayload, AgentQueueItemNotDeliveredPayload,
     AgentQueueItemNotDeliveredState, AgentQueueItemSupersededPayload,
-    AgentQueueItemSupersededState, MessageContent, PlanMessage, QueueItemId, QueueItemQueuedState,
+    AgentQueueItemSupersededState, MessageText, PlanMessage, QueueItemId, QueueItemQueuedState,
     UserMessageSentPayload,
 };
 use sidekicks_contracts::run::queued::{
@@ -301,12 +301,12 @@ impl QueueRecorder {
         let (draft, correlation_id) = match &item.body {
             QueueItemBody::Message(body) => {
                 preceding_events.extend(item_events);
-                sent_message_draft(&item, &body.content, body.answers_question_id, None)?
+                sent_message_draft(&item, body.content.clone(), body.answers_question_id, None)?
             }
             // A plan message is recorded as the message it opens its run with, carrying its plan.
             QueueItemBody::PlanMessage { plan_message, text } => {
                 preceding_events.extend(item_events);
-                sent_message_draft(&item, text, None, Some(plan_message.clone()))?
+                sent_message_draft(&item, text.clone().into(), None, Some(plan_message.clone()))?
             }
             // A review has no words, so its own events carry the write, the last of them last.
             QueueItemBody::Review { .. } => {
@@ -609,7 +609,7 @@ pub(crate) fn lead_run_queued(
 // `answers_question_id` or carrying out `plan_message`, and the id the provider echoes it under.
 fn sent_message_draft(
     item: &NewQueueItem,
-    message: &MessageContent,
+    message: MessageText,
     answers_question_id: Option<QuestionId>,
     plan_message: Option<PlanMessage>,
 ) -> Result<(SessionEventDraft, Option<FreeFormText<EVENT_FIELD_MAX_LEN>>), QueueRecordError> {
@@ -624,7 +624,7 @@ fn sent_message_draft(
         actor: FreeFormText::new(device_id.as_str().to_owned())
             .expect("a device id is non-blank, NUL-free text within an event field's cap"),
         device_id: Some(device_id),
-        message: message.clone(),
+        message,
         origin: None,
         answers_question_id,
         plan_message,

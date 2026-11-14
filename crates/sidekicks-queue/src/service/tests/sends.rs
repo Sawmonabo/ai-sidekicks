@@ -21,7 +21,8 @@ use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::queue::{
     AgentQueueItemCancelRequest, AgentQueueItemCreateRequest, AgentQueueItemCreateResponse,
-    PlanMessage, PlanMessageKind, QueueItemId, QueueItemNotDeliveredReason, QueuedSkillPick,
+    MessageText, PlanMessage, PlanMessageKind, QueueItemId, QueueItemNotDeliveredReason,
+    QueuedSkillPick,
 };
 use sidekicks_contracts::session::controls::methods::{
     SessionCodeReviewStartRequest, SessionReviewTarget,
@@ -216,7 +217,7 @@ impl Fixture {
             to: None,
             workspace_id: None,
             client_idempotency_key: client_key(),
-            content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
+            content: MessageText::new("Look again".to_owned()).expect("a test message"),
             attachments: None,
             skills: None,
             replaces_queue_item_id: Some(replaces),
@@ -502,7 +503,7 @@ async fn a_send_repeated_after_its_account_was_removed_answers_the_saved_one() {
                 to: None,
                 workspace_id: None,
                 client_idempotency_key: key,
-                content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
+                content: MessageText::new("Look again".to_owned()).expect("a test message"),
                 attachments: None,
                 skills: None,
                 replaces_queue_item_id: None,
@@ -611,7 +612,7 @@ pub(super) fn new_plan_id() -> PlanId {
 /// The opening a plan message's run starts with: its words alone.
 fn plan_message_opening() -> RunOpeningItem {
     RunOpeningItem::Message {
-        content: FreeFormText::new(PLAN_MESSAGE_TEXT.to_owned()).expect("a test message"),
+        content: MessageText::new(PLAN_MESSAGE_TEXT.to_owned()).expect("a test message"),
         attachments: Vec::new(),
         skills: Vec::new(),
     }
@@ -742,7 +743,7 @@ async fn a_plan_message_not_delivered_goes_again_only_in_its_own_words() {
     let own_words = fixture
         .replace_item_carrying(failed_id, |request| {
             request.content =
-                FreeFormText::new(PLAN_MESSAGE_TEXT.to_owned()).expect("a test message");
+                MessageText::new(PLAN_MESSAGE_TEXT.to_owned()).expect("a test message");
         })
         .await
         .expect("the retry is queued");
@@ -791,7 +792,7 @@ async fn a_plan_message_s_retry_carrying_files_is_refused() {
     let retried = fixture
         .replace_item_carrying(failed_id, |request| {
             request.content =
-                FreeFormText::new(PLAN_MESSAGE_TEXT.to_owned()).expect("a test message");
+                MessageText::new(PLAN_MESSAGE_TEXT.to_owned()).expect("a test message");
             request.attachments = Some(AttachmentReferenceList(vec![
                 ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID is an artifact id"),
             ]));

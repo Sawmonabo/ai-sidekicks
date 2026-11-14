@@ -53,6 +53,6 @@ pub struct RunStartRequest {
 pub struct RunContinueRequest {
     /// The run and how its next turn reaches the driver.
     pub turn: RunTurnStart,
-    /// The words of the message that continues the run.
-    pub opening_words: MessageContent,
+    /// The words of the message that continues the run; absent for a message of files alone.
+    pub opening_words: Option<MessageContent>,
 }

@@ -431,6 +431,9 @@ late_appendable_rows! {
     AgentSubagentStarted(SubagentLifecyclePayload) => SessionEvent::AgentSubagentStarted,
     /// `agent.subagent.completed`.
     AgentSubagentCompleted(SubagentLifecyclePayload) => SessionEvent::AgentSubagentCompleted,
+    /// `agent.subagent.backgrounded`.
+    AgentSubagentBackgrounded(SubagentLifecyclePayload) =>
+        SessionEvent::AgentSubagentBackgrounded,
     /// `session.providerStatus.reported`.
     SessionProviderStatusReported(SessionProviderStatusReportedPayload) =>
         SessionEvent::SessionProviderStatusReported,

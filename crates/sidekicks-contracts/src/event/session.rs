@@ -324,6 +324,10 @@ session_events! {
     /// `interrupted` record.
     AgentSubagentStopped(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.stopped"
         => required,
+    /// Emitted when the provider moves a helper to the background, where it runs on past the
+    /// answer to the call that started it.
+    AgentSubagentBackgrounded(#[garde(dive)] SubagentLifecyclePayload)
+        = "agent.subagent.backgrounded" => required,
     /// Emitted when the provider process reports its start for a run; it moves no state.
     AgentRunProviderInitialized(AgentRunProviderInitializedPayload)
         = "agent.run.providerInitialized" => versioned,

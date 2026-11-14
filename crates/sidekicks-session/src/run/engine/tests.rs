@@ -373,7 +373,7 @@ pub(crate) fn continue_request(
 ) -> RunContinueRequest {
     RunContinueRequest {
         turn: turn_start(run_id, start_driver),
-        opening_words: FreeFormText::new("Go on.".to_owned()).expect("a test message"),
+        opening_words: Some(FreeFormText::new("Go on.".to_owned()).expect("a test message")),
     }
 }
 

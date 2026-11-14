@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::is_blank;
 
 /// One staged file bound to its stored copy: the absolute path the provider reads, the file's own
 /// name, and the media type read from its bytes.
@@ -103,11 +104,17 @@ pub(crate) fn compose_attachment_text(attachment: &ProviderAttachment) -> String
 }
 
 /// A message as words alone, for a reader that takes only text: its words, then a line per
-/// attachment in staging order.
+/// attachment in staging order; a message of files alone is its lines alone.
 pub fn compose_message_text(content: &str, attachments: &[ProviderAttachment]) -> String {
-    let mut text = content.to_owned();
+    let mut text = if is_blank(content) {
+        String::new()
+    } else {
+        content.to_owned()
+    };
     for attachment in attachments {
-        text.push('\n');
+        if !text.is_empty() {
+            text.push('\n');
+        }
         text.push_str(&compose_attachment_text(attachment));
     }
     text

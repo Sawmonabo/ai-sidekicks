@@ -301,7 +301,7 @@ impl QueueSends {
                 QueueItemBody::PlanMessage { plan_message, text },
                 RecordedQueueItemState::NotDelivered { .. },
             ) => {
-                if message.body.content != *text {
+                if message.body.content.as_str() != text.as_str() {
                     return Err(not_own_words_refusal(replaces.id).into());
                 }
                 let members = message_extras(&message.body);

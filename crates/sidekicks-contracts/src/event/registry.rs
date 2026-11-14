@@ -125,6 +125,7 @@ session_event_types! {
         AgentSubagentStarted = "agent.subagent.started",
         AgentSubagentCompleted = "agent.subagent.completed",
         AgentSubagentStopped = "agent.subagent.stopped",
+        AgentSubagentBackgrounded = "agent.subagent.backgrounded",
         AgentCommandEnded = "agent.command.ended",
     ]
     /// The event types of the `interactiveRequest` category.

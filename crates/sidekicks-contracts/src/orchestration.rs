@@ -353,6 +353,10 @@ pub enum ChildRunLink {
         parent_child_handle: Option<ChildHandle>,
         /// Its state.
         state: RunState,
+        /// Whether its provider moved its newest own run, still live, to the background, where it
+        /// runs on past the answer to the call that started it; `false` wherever the provider has
+        /// no such move.
+        is_in_background: bool,
         /// Its head.
         #[garde(dive)]
         head: ChildRunHead,

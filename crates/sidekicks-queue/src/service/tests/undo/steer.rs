@@ -7,11 +7,11 @@ use std::sync::atomic::Ordering;
 
 use rstest::rstest;
 use sidekicks_contracts::event::envelope::SourcePosition;
+use sidekicks_contracts::run::queue::MessageText;
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::restore::{
     SessionRestoreResend, SessionRestoreScope, SessionRestoreTarget,
 };
-use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_session::checkpoints::store::kept::list_checkpoints;
 use sidekicks_session::queue_store::QueueItemReader;
 use sidekicks_session::run::engine::undo::RollbackCompanions;
@@ -60,7 +60,7 @@ async fn cut_to_target(scene: &Scene) -> (Vec<SourcePosition>, UndoReach) {
 /// The edit of a steer to [`EDITED_WORDS`], carrying nothing else.
 fn edited() -> SessionRestoreResend {
     SessionRestoreResend {
-        content: FreeFormText::new(EDITED_WORDS.to_owned()).expect("a test message"),
+        content: MessageText::new(EDITED_WORDS.to_owned()).expect("a test message"),
         attachments: None,
         skills: None,
         output_speed_for_turn: None,
@@ -127,7 +127,7 @@ async fn an_undo_on_a_steer_reaches_its_turns_opening_where_the_cut_lands_only_a
         Some(TurnOpening::Queued {
             queue_item_id: steer.opening_message_id,
             kind: QueuedOpeningKind::Message(
-                FreeFormText::new(OPENING_WORDS.to_owned()).expect("a test message")
+                MessageText::new(OPENING_WORDS.to_owned()).expect("a test message")
             ),
         })
     );
@@ -345,7 +345,7 @@ async fn an_undo_on_a_steer_into_a_retry_turn_goes_back_to_the_retried_prompt() 
         Some(TurnOpening::Queued {
             queue_item_id: retried,
             kind: QueuedOpeningKind::Message(
-                FreeFormText::new(LATER_WORDS.to_owned()).expect("a test message")
+                MessageText::new(LATER_WORDS.to_owned()).expect("a test message")
             ),
         })
     );

@@ -161,8 +161,9 @@ fn record_unkept(error: io::Error) -> CodexError {
 }
 
 /// Dials the service's socket at `socket` under the ticket `dial` and opens the connection,
-/// within the start's deadline and ended early by `exit`, the process's end, or `cancel`. Answers
-/// the connection and its `initialize` reply.
+/// within the start's deadline and ended early by `exit`, the process's end, or `cancel`; a
+/// connection to another process than the last one's begins a new reading of its settings.
+/// Answers the connection and its `initialize` reply.
 pub(in crate::driver::codex::service::supervisor) async fn connect(
     service: &Arc<CodexService>,
     socket: &Path,
@@ -177,7 +178,7 @@ pub(in crate::driver::codex::service::supervisor) async fn connect(
         let (sender, receiver) =
             dial_codex_service_socket(socket, wait, &dependencies.provider_services, cancel)
                 .await?;
-        service.start_connection();
+        service.start_connection(sender.serving_process().cloned());
         open_codex_connection(
             sender,
             receiver,

@@ -36,7 +36,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
-use sidekicks_platforms::Spawner;
+use sidekicks_platforms::{ProcessRecord, Spawner};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -639,17 +639,18 @@ impl CodexService {
         }
     }
 
-    /// Sends a session's frames and asks to `sender` from now on, and first the start of a reading
-    /// of the service's settings with the config warnings the service sent that the session has
-    /// not heard.
+    /// Sends a session's frames and asks to `sender` from now on, and first, for a session first
+    /// met since the daemon started, the start of a reading of the service's settings, then the
+    /// config warnings the service sent that the session has not heard.
     pub(crate) fn attach_session(&self, sender: CodexSessionInboundSender) {
         let session_id = sender.session_id();
         let mut routing = self.lock_routing();
-        // A queue whose task ended takes nothing more; its session is closing.
-        let _unheard = sender.push(CodexSessionInbound::SettingsReadingBegan);
-        // Every current warning follows the reading's start, those told at an earlier attach too.
-        routing.config_warnings.forget_session(&session_id);
-        for warning in routing.config_warnings.take_owed(&session_id) {
+        let (is_owed_start, warnings) = routing.config_warnings.attach(session_id);
+        if is_owed_start {
+            // A queue whose task ended takes nothing more; its session is closing.
+            let _unheard = sender.push(CodexSessionInbound::SettingsReadingBegan);
+        }
+        for warning in warnings {
             // A queue whose task ended takes nothing more; its session is closing.
             let _unheard = sender.push(CodexSessionInbound::Frame {
                 method: CODEX_CONFIG_WARNING_METHOD.to_owned(),
@@ -657,6 +658,21 @@ impl CodexService {
             });
         }
         routing.attach(sender);
+    }
+
+    /// Marks a notice standing on `session_id` that the next reading's start ends, a crash loop's
+    /// banner.
+    pub(crate) fn mark_notice_standing(&self, session_id: SessionId) {
+        self.lock_routing()
+            .config_warnings
+            .mark_standing(session_id);
+    }
+
+    /// Forgets a closed session's reading, so a later session under its id begins it again.
+    pub(crate) fn forget_session_reading(&self, session_id: &SessionId) {
+        self.lock_routing()
+            .config_warnings
+            .forget_session(session_id);
     }
 
     /// Stops sending a session its frames; the last session the daemon held on a joined service
@@ -741,15 +757,17 @@ impl CodexService {
         }
     }
 
-    /// Starts a new connection's routing: its reports and its config warnings begin again, and
-    /// each attached session, a conversation registered on it or not, hears that a new reading of
-    /// the settings began.
-    fn start_connection(&self) {
+    /// Starts a connection to the service's `process`: a redial of the process the reading is of
+    /// keeps the reading whole, and any other begins its reports and config warnings again, each
+    /// attached session a notice stands on, a conversation registered on it or not, hearing that
+    /// a new reading of the settings began.
+    fn start_connection(&self, process: Option<ProcessRecord>) {
         let mut routing = self.lock_routing();
-        routing.start_connection();
-        for session in routing.attached() {
-            // A queue whose task ended takes nothing more; its session is closing.
-            let _unheard = session.push(CodexSessionInbound::SettingsReadingBegan);
+        for session_id in routing.start_connection(process) {
+            if let Some(session) = routing.session(&session_id) {
+                // A queue whose task ended takes nothing more; its session is closing.
+                let _unheard = session.push(CodexSessionInbound::SettingsReadingBegan);
+            }
         }
     }
 

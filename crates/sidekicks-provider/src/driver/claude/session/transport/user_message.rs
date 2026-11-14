@@ -6,6 +6,7 @@ use std::io;
 
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::wire::text::is_blank;
 use sidekicks_ipc::domain_error::DomainError;
 
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
@@ -117,9 +118,10 @@ pub(crate) enum ClaudeMessagePriority {
 }
 
 /// The user message for one piece of provider-bound text, its words unchanged, followed by its
-/// files' blocks in staging order. Only text the daemon composed to tell the agent what happened is
-/// marked composed: the person's text and a command the daemon sends for Claude Code to run stay
-/// unmarked, since the mark expands no `@path` and stops a command from running.
+/// files' blocks in staging order; a message of files alone carries no words block. Only text the
+/// daemon composed to tell the agent what happened is marked composed: the person's text and a
+/// command the daemon sends for Claude Code to run stay unmarked, since the mark expands no
+/// `@path` and stops a command from running.
 pub(crate) fn compose_claude_user_frame(
     outbound_text: &OutboundText,
     message_uuid: String,
@@ -129,9 +131,11 @@ pub(crate) fn compose_claude_user_frame(
         ClaudeUserContent::Text(outbound_text.text.clone())
     } else {
         let mut blocks = Vec::with_capacity(attachment_blocks.len() + 1);
-        blocks.push(ClaudeUserContentBlock::Text {
-            text: outbound_text.text.clone(),
-        });
+        if !is_blank(&outbound_text.text) {
+            blocks.push(ClaudeUserContentBlock::Text {
+                text: outbound_text.text.clone(),
+            });
+        }
         blocks.extend(attachment_blocks);
         ClaudeUserContent::Blocks(blocks)
     };
