@@ -2,9 +2,9 @@
 //! write, sent as an answer returns, and an interrupt goes at once with the writes queued before
 //! it; every pane typing into the shell shares that window and the order of writes; a paste goes
 //! in whole parts never joined with keys; a refusal reaches only the pane that typed the write; a
-//! closed pane hands back what it had not sent, which its next handle sends whole and in order;
-//! and keys may be typed from a thread outside the runtime, as the desktop's JavaScript thread
-//! types them.
+//! closed pane hands back what it had not sent, which its next handle sends whole and in order; a
+//! finished pane sends all it queued and is done once each write is answered; and keys may be
+//! typed from a thread outside the runtime, as the desktop's JavaScript thread types them.
 
 use std::time::Duration;
 
@@ -293,6 +293,61 @@ async fn a_closed_pane_hands_back_its_unsent_writes_whole_and_in_order() {
         }),
         "the pane's next handle sends what came back first, each write as it was"
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_finished_pane_sends_the_rest_of_its_paste_in_order_and_is_done_once_answered() {
+    let client = JsonRpcClient::new();
+    let (_link, mut daemon) = open_link(&client).await;
+    let (first, _first_notices) = ShellInput::open(&client, target(FIRST_PANE));
+
+    let mut waiting = fill_the_window(&first, &mut daemon).await;
+    let whole_part = "p".repeat(TERMINAL_WRITE_MAX_BYTES);
+    first.paste(&format!("{whole_part}tail"));
+    first.type_keys("z");
+    daemon.answer(&waiting.remove(0), json!(null)).await;
+    let first_part = daemon.next_message().await;
+    assert_eq!(
+        first_part["params"]["isLastPart"], false,
+        "the paste is half sent"
+    );
+    waiting.push(first_part["id"].clone());
+
+    let mut finished = tokio::spawn(first.finish());
+    let mut sent = Vec::new();
+    for _ in 0..2 {
+        daemon.answer(&waiting.remove(0), json!(null)).await;
+        let write = daemon.next_message().await;
+        sent.push(write["params"].clone());
+        waiting.push(write["id"].clone());
+    }
+    let paste_id = &first_part["params"]["pasteId"];
+    assert_eq!(
+        sent,
+        [
+            json!({ "kind": "paste", "data": "tail", "pasteId": paste_id, "isLastPart": true }),
+            json!({ "kind": "keys", "data": "z" }),
+        ]
+        .map(|mut expected| {
+            expected["sessionId"] = json!("0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c1001");
+            expected["terminalId"] = json!("shell-1");
+            expected["outputSubscriptionId"] = json!(FIRST_PANE);
+            expected
+        }),
+        "the rest goes in order on the pane's own subscription, the paste's last part under its id"
+    );
+
+    while let Some(id) = waiting.pop() {
+        assert!(
+            tokio::time::timeout(QUIET, &mut finished).await.is_err(),
+            "the pane is not done while a write of it waits for its answer"
+        );
+        daemon.answer(&id, json!(null)).await;
+    }
+    tokio::time::timeout(PATIENCE, finished)
+        .await
+        .expect("the pane is done once its writes are answered")
+        .expect("finishing does not panic");
 }
 
 #[tokio::test]

@@ -808,8 +808,22 @@ class ClientHelper {
       return;
     }
     channel.streams.delete(streamId);
-    this.#shellInputs.forget(channel, streamId);
-    this.#cancelAddonStream(held);
+    this.#cancelOnceFinished(channel, streamId, held);
+  }
+
+  /**
+   * Cancels a stream the window let go of once its pane's queued writes have left, since a write
+   * names the stream's subscription and a paste open through it closes as it ends.
+   */
+  #cancelOnceFinished(channel: Channel, streamId: number, held: HeldStream): void {
+    const finishing = this.#shellInputs.finish(channel, streamId);
+    if (finishing === undefined) {
+      this.#cancelAddonStream(held);
+    } else {
+      void finishing.then(() => {
+        this.#cancelAddonStream(held);
+      });
+    }
   }
 
   /** Cancels a stream at the addon once it has an id; one still opening is canceled as it opens. */
@@ -818,8 +832,9 @@ class ClientHelper {
   }
 
   /**
-   * A window's port closed: every call and stream it held is canceled, a shell it alone was behind
-   * on resumes, its panes' shell inputs close, and nothing more is told.
+   * A window's port closed: every call it held is canceled, a shell it alone was behind on
+   * resumes, each stream it held is canceled once its pane's queued writes have left, and nothing
+   * more is told.
    */
   #closeChannel(channel: Channel): void {
     if (channel.isClosed) {
@@ -827,16 +842,16 @@ class ClientHelper {
     }
     channel.isClosed = true;
     this.#shells.forgetAsker(channel);
-    this.#shellInputs.removeWindow(channel);
     for (const held of channel.calls.values()) {
       held.isCanceled = true;
       held.addon?.client.cancelCall(held.addon.callId);
     }
     channel.calls.clear();
-    for (const held of channel.streams.values()) {
-      this.#cancelAddonStream(held);
+    for (const [streamId, held] of channel.streams) {
+      this.#cancelOnceFinished(channel, streamId, held);
     }
     channel.streams.clear();
+    this.#shellInputs.removeWindow(channel);
   }
 
   /**

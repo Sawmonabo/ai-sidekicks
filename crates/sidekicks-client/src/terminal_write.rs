@@ -5,12 +5,15 @@
 //! or suspend key goes at once, with every write queued before it, while fewer than
 //! `TERMINAL_WRITES_WAITING_LIMIT` wait, so order holds and the daemon decides whether the key is
 //! a signal. A paste goes in parts of at most the byte cap, each whole and never joined with keys.
-//! What the daemon answers a write is told to the pane that typed it, and a pane's handle closed
-//! hands back what it queued and had not sent, for the pane to send again on its next handle.
+//! What the daemon answers a write is told to the pane that typed it. A pane's handle closed hands
+//! back what it queued and had not sent, for the pane to send again on its next handle; a handle
+//! finished sends it all, and is done once each write it sent is answered.
 
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
+use std::future::Future;
 use std::mem;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
@@ -21,7 +24,7 @@ use sidekicks_contracts::terminal::{
 };
 use sidekicks_contracts::wire::id::ClientUuid;
 use tokio::runtime::Handle;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use uuid::Uuid;
 
 use crate::error::ClientError;
@@ -55,8 +58,8 @@ pub enum WriteNotice {
 /// One pane's input to one shell, typed into from any thread: a handle onto the queue its client
 /// holds for that shell, which every other pane's handle to the shell over that client shares.
 /// [`ShellInput::close`] hands back what it queued and has not sent and ends its notices, while
-/// the writes it sent count until they are answered; dropping it unclosed drops what it had not
-/// sent.
+/// the writes it sent count until they are answered; [`ShellInput::finish`], or dropping it, lets
+/// everything it queued leave in order.
 pub struct ShellInput {
     queue: Arc<ShellQueue>,
     pane: Arc<Pane>,
@@ -81,6 +84,8 @@ struct ShellQueue {
     /// The runtime each write's answer is awaited on.
     runtime: Handle,
     state: Mutex<QueueState>,
+    /// Changes after each answer is counted, for a finishing pane to look again.
+    answered: watch::Sender<()>,
 }
 
 /// The writes waiting for an answer, and what every pane queued and has not sent.
@@ -120,6 +125,8 @@ pub enum PaneWrite {
 /// One pane's handle as its queued writes and the answers to its sent ones reach it.
 struct Pane {
     output_subscription_id: SubscriptionId,
+    /// The pane's writes sent and not yet answered, changed only under its queue's lock.
+    unanswered: AtomicUsize,
     notices: mpsc::Sender<WriteNotice>,
     answers: Mutex<PaneAnswers>,
 }
@@ -150,6 +157,7 @@ impl ShellInput {
             .queue_for(client, (target.session_id, target.terminal_id));
         let pane = Arc::new(Pane {
             output_subscription_id: target.output_subscription_id,
+            unanswered: AtomicUsize::new(0),
             notices,
             answers: Mutex::new(PaneAnswers {
                 newest: 0,
@@ -212,6 +220,22 @@ impl ShellInput {
         self.take_unsent()
     }
 
+    /// Ends the handle and lets everything it queued leave, in order and each paste's parts whole,
+    /// on the pane's output subscription, which the caller keeps open until the returned future
+    /// ends: once every write of the pane is answered, as a shell or connection gone answers each.
+    pub fn finish(self) -> impl Future<Output = ()> + Send + 'static {
+        let Self { queue, pane } = self;
+        let mut answered = queue.answered.subscribe();
+        async move {
+            while queue.holds_writes_of(&pane) {
+                answered
+                    .changed()
+                    .await
+                    .expect("the queue held here keeps its sender");
+            }
+        }
+    }
+
     /// Queues `write` behind everything queued, keys joining this pane's last run of keys.
     fn push(&self, state: &mut QueueState, write: PaneWrite) {
         if let PaneWrite::Keys(keys) = &write
@@ -240,13 +264,6 @@ impl ShellInput {
     }
 }
 
-impl Drop for ShellInput {
-    fn drop(&mut self) {
-        // A queue never sends for a pane no handle holds; a closed handle took its writes already.
-        drop(self.take_unsent());
-    }
-}
-
 impl ShellQueues {
     /// The queue for `key` over `client`, made when none is held.
     fn queue_for(&self, client: &JsonRpcClient, key: ShellKey) -> Arc<ShellQueue> {
@@ -259,6 +276,7 @@ impl ShellQueues {
             key: key.clone(),
             runtime: Handle::current(),
             state: Mutex::default(),
+            answered: watch::channel(()).0,
         });
         queues.insert(key, Arc::downgrade(&queue));
         queue
@@ -307,6 +325,7 @@ impl ShellQueue {
             }
             state.waiting += 1;
             state.sent_count += 1;
+            next.pane.unanswered.fetch_add(1, Ordering::Relaxed);
             self.send(next, state.sent_count);
         }
     }
@@ -343,16 +362,31 @@ impl ShellQueue {
         let pane = Arc::downgrade(&next.pane);
         self.runtime.spawn(async move {
             let failure = answer.await.err();
+            let pane = pane.upgrade();
             {
                 let mut state = queue.lock();
                 state.waiting -= 1;
+                if let Some(pane) = &pane {
+                    pane.unanswered.fetch_sub(1, Ordering::Relaxed);
+                }
                 queue.send_what_fits(&mut state);
             }
+            queue.answered.send_replace(());
             // A pane whose handle was closed has no one left to tell.
-            if let Some(pane) = pane.upgrade() {
+            if let Some(pane) = pane {
                 pane.tell(sequence, failure);
             }
         });
+    }
+
+    /// Whether a write of `pane` is queued or waits for its answer.
+    fn holds_writes_of(&self, pane: &Arc<Pane>) -> bool {
+        let state = self.lock();
+        pane.unanswered.load(Ordering::Relaxed) > 0
+            || state
+                .queued
+                .iter()
+                .any(|queued| Arc::ptr_eq(&queued.pane, pane))
     }
 
     fn lock(&self) -> MutexGuard<'_, QueueState> {

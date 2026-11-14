@@ -435,7 +435,7 @@ impl DaemonClient {
                 .map_err(|error| napi::Error::from_reason(format!("subscription id: {error}")))?,
         };
         let (input, mut notices) = ShellInput::open(&self.client, target);
-        // Ends once the input is closed, which drops every sender of its notices.
+        // Ends once the input is closed or finished, which drops every sender of its notices.
         tokio::spawn(async move {
             while let Some(notice) = notices.recv().await {
                 let notice = ShellWriteNotice {
@@ -479,7 +479,7 @@ impl DaemonClient {
 #[napi]
 pub struct ShellInputHandle {
     /// The pane's handle onto the shell's queue, which every pane's input to that shell over this
-    /// connection shares; taken out once by `close`.
+    /// connection shares; taken out once by `close` or `finish`.
     input: Mutex<Option<ShellInput>>,
 }
 
@@ -530,6 +530,17 @@ impl ShellInputHandle {
         input.map_or_else(Vec::new, |input| {
             input.close().into_iter().map(unsent_shell_write).collect()
         })
+    }
+
+    /// Ends the input and lets everything it queued leave, in order and each paste whole; answers
+    /// once every write it sent is answered, until when its output stream must stay open. Nothing
+    /// once closed.
+    #[napi]
+    pub async fn finish(&self) {
+        let input = lock(&self.input).take();
+        if let Some(input) = input {
+            input.finish().await;
+        }
     }
 }
 
