@@ -1,4 +1,8 @@
 mod binding;
+mod node_run;
+mod rebuild;
+mod retry;
+mod run_owned_workspace;
 mod unstarted;
 
 use std::path::{Path, PathBuf};
@@ -58,8 +62,9 @@ use crate::engine::event_record::EngineRecorder;
 use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::run_limits::ScriptedRunLimits;
 use crate::engine::ports::{EngineRecordSink, KeptEngineRecords, StepPayloadArtifacts};
+use crate::engine::under_way::RunsUnderWay;
 use crate::kinds::{
-    NodeKindTable, PassThroughExecutor, command_test_kind, git_test_kind, test_kind,
+    NodeKindTable, PassThroughExecutor, command_test_kind, git_test_kind, main_test_kind, test_kind,
 };
 use crate::schema::schema_parts;
 use crate::test_rows::{TEST_SESSION_ID, insert_run, insert_workflow_version_body};
@@ -92,9 +97,10 @@ enum TestSession {
 }
 
 /// The starter over the execution roots' fixture, its database holding the store's, workspace and
-/// workflow tables, binding through the real setup gate behind the test's binder: the workflow's version 1 with `body` and
-/// no provider picked, the payloads it stored, the git kind, which needs a project's repository,
-/// and the command kind, which runs in its provider's sandbox.
+/// workflow tables, binding through the real setup gate behind the test's binder: the workflow's
+/// version 1 with `body` and no provider picked, the payloads it stored, the git kind, which needs
+/// a project's repository, the command kind, which runs in its provider's sandbox, and
+/// `test.split`, with two outputs.
 struct Fixture {
     roots: ExecutionRootFixture,
     rows: Connection,
@@ -131,7 +137,7 @@ impl Fixture {
         ));
         let machines = Arc::new(MachineRegistry::new(
             Arc::clone(&pool),
-            writer,
+            Arc::clone(&writer),
             LocalMachine {
                 machine_id: machine_id.clone(),
                 owner_user_id: user_id(),
@@ -146,6 +152,7 @@ impl Fixture {
         let starter = WorkflowRunStarter::new(WorkflowRunStarterDependencies {
             pool,
             event_log,
+            writer,
             machines,
             authorizer: Arc::new(Authorizer::load_built_in().expect("the built-in rules load")),
             payloads: Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
@@ -176,6 +183,12 @@ impl Fixture {
                         None,
                         Box::new(PassThroughExecutor),
                     ),
+                    main_test_kind(
+                        "test.split",
+                        "developer",
+                        (1, 2),
+                        Box::new(PassThroughExecutor),
+                    ),
                     git_test_kind(),
                     command_test_kind(),
                 ])
@@ -186,6 +199,7 @@ impl Fixture {
             recorder: Arc::new(EngineRecorder::new(
                 Arc::clone(&records) as Arc<dyn EngineRecordSink>
             )),
+            runs_under_way: Arc::new(RunsUnderWay::default()),
         });
         let rows = database.reader();
         insert_workflow_version_body(&rows, DEFINITION_ID, VERSION_ID, body);
@@ -454,7 +468,7 @@ fn start(
         arrival,
         started_by,
         chain,
-        input,
+        input: Some(input),
     }
 }
 
@@ -662,7 +676,10 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
                 .expect("the payload holds bytes"),
                 item_count: SafeInt::new(1).expect("one item"),
             };
-            assert_eq!(run.trigger_input, artifact);
+            assert_eq!(
+                run.trigger.as_ref().map(|trigger| &trigger.input_ref),
+                Some(&artifact)
+            );
             let (payload, occurred_at, started_at) = fixture.started_record(run.scope.run_id);
             assert_eq!(
                 payload["inputRef"],

@@ -25,6 +25,7 @@ use crate::driver::codex::delivery::memory::CodexDeliveryMemory;
 use crate::driver::codex::notification_routing::CodexMcpServerStartups;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::inbound::CodexSessionInboundSender;
+use crate::driver::codex::session::recovery::in_place_resume::CodexHelperReopenWaits;
 use crate::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::thread::settings::tool_servers::CodexDaemonToolServers;
@@ -237,6 +238,8 @@ pub(crate) struct CodexSessionRecord {
     /// The spawn's hold on the daemon's tool servers, which every start, resume and fork opens
     /// anew and installs here once it established; `None` until the route is registered.
     pub(crate) daemon_tool_servers: Option<CodexDaemonToolServers>,
+    /// The helpers the newest move still waits to reopen; their waits end as the record goes.
+    pub(crate) helper_reopen_waits: CodexHelperReopenWaits,
 }
 
 /// What an establishment knows of a session's conversation, from which its record starts with
@@ -324,6 +327,7 @@ impl CodexSessionRecord {
             on_mcp_server_status: established.on_mcp_server_status,
             mcp_server_startups: CodexMcpServerStartups::default(),
             daemon_tool_servers: established.daemon_tool_servers,
+            helper_reopen_waits: CodexHelperReopenWaits::default(),
         }
     }
 

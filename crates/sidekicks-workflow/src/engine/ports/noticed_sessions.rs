@@ -5,8 +5,10 @@ use std::sync::Mutex;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_workspace::project::records::AttachedProjectRoot;
 use sidekicks_workspace::run_setup_gates::RunSetupGateError;
 use sidekicks_workspace::run_setup_gates::execution_root::context::{
     RunContextBinding, SessionRunBinder,
@@ -35,6 +37,23 @@ impl SessionRunBinder for NoticedSessions {
         Box::pin(async { Err(RunSetupGateError::Failed(REFUSED_PORT_CALL.into())) })
     }
 
+    fn bind_project_run<'a>(
+        &'a self,
+        _session_id: SessionId,
+        _workflow_run_id: WorkflowRunId,
+        _root: &'a AttachedProjectRoot,
+    ) -> BoxFuture<'a, Result<RunContextBinding, RunSetupGateError>> {
+        Box::pin(async { Err(RunSetupGateError::Failed(REFUSED_PORT_CALL.into())) })
+    }
+
+    // It binds nothing, so no run owns a workspace to delete.
+    fn discard_project_run(
+        &self,
+        _workflow_run_id: WorkflowRunId,
+    ) -> BoxFuture<'_, Result<(), RunSetupGateError>> {
+        Box::pin(async { Ok(()) })
+    }
+
     fn hold_checkout<'a>(
         &'a self,
         _binding: &'a RunContextBinding,
@@ -44,5 +63,13 @@ impl SessionRunBinder for NoticedSessions {
 
     fn note_context_changed(&self, session_id: SessionId) {
         lock(&self.0).push(session_id);
+    }
+
+    // It binds nothing, so no session of it works in a removed tree.
+    fn sweep_released_run(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), RunSetupGateError>> {
+        Box::pin(async { Ok(()) })
     }
 }

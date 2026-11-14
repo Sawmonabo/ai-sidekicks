@@ -6,12 +6,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+use tokio::sync::Notify;
 
 use crate::engine::ports::{PortError, REFUSED_PORT_CALL, StepPayloadArtifacts};
 
-/// A payload the test's store kept, with the artifact it answered.
+/// A payload the test's store kept, with the artifact it was written as.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct KeptPayload {
     /// The session the payload was written in.
@@ -22,20 +22,29 @@ pub(crate) struct KeptPayload {
     pub(crate) bytes: Vec<u8>,
     /// How many items they hold.
     pub(crate) item_count: u64,
-    /// The artifact answered.
+    /// The artifact it was written as.
     pub(crate) artifact_id: ArtifactId,
 }
 
-/// A payload store that keeps what each write was given and answers a fresh artifact, or refuses
-/// every write past a count once told to, reads each kept artifact's bytes back, and keeps each
-/// artifact deleted, or refuses every delete once told to.
+/// A payload store that keeps what each write was given, or refuses every write past a count once
+/// told to, or leaves every write past a count unanswered once told to until told to answer it,
+/// reads each kept artifact's bytes back, noting each read, and keeps each artifact deleted, one
+/// never written among them, or refuses every delete once told to.
 #[derive(Default)]
 pub(crate) struct KeptPayloads {
     writes: Mutex<Vec<KeptPayload>>,
+    /// Each artifact read, in order, with how many writes were kept when it was read.
+    reads: Mutex<Vec<(ArtifactId, usize)>>,
     deletes: Mutex<Vec<ArtifactId>>,
     is_refusing_deletes: AtomicBool,
     /// How many writes it keeps in all before refusing the rest; `None` keeps every one.
     write_limit: Mutex<Option<usize>>,
+    /// How many writes it answers in all before keeping the rest unanswered; `None` answers each.
+    hold_limit: Mutex<Option<usize>>,
+    /// Woken when a write is kept unanswered.
+    held: Notify,
+    /// Woken once for each write kept unanswered that is to be answered.
+    released: Notify,
 }
 
 impl KeptPayloads {
@@ -45,6 +54,11 @@ impl KeptPayloads {
             .lock()
             .expect("the test's payloads lock")
             .clone()
+    }
+
+    /// Every artifact read, in order, each with how many writes were kept when it was read.
+    pub(crate) fn reads(&self) -> Vec<(ArtifactId, usize)> {
+        self.reads.lock().expect("the test's payloads lock").clone()
     }
 
     /// Every artifact deleted, in order.
@@ -64,6 +78,23 @@ impl KeptPayloads {
     pub(crate) fn refuse_writes_past(&self, count: usize) {
         *self.write_limit.lock().expect("the test's payloads lock") = Some(count);
     }
+
+    /// Keeps each write past `count` in all, those already kept among them, and answers it only
+    /// once released, as a store a stop cuts off, or a slow one, before its caller hears back.
+    pub(crate) fn hold_writes_past(&self, count: usize) {
+        *self.hold_limit.lock().expect("the test's payloads lock") = Some(count);
+    }
+
+    /// Waits until a write is kept unanswered.
+    pub(crate) async fn held_write(&self) {
+        self.held.notified().await;
+    }
+
+    /// Answers the write kept unanswered, and every later write at once.
+    pub(crate) fn release_held_write(&self) {
+        *self.hold_limit.lock().expect("the test's payloads lock") = None;
+        self.released.notify_one();
+    }
 }
 
 impl StepPayloadArtifacts for KeptPayloads {
@@ -71,12 +102,12 @@ impl StepPayloadArtifacts for KeptPayloads {
         &'call self,
         session_id: SessionId,
         step: &'call WorkflowStepKey,
+        artifact_id: ArtifactId,
         bytes: Vec<u8>,
         item_count: u64,
-    ) -> BoxFuture<'call, Result<ArtifactId, PortError>> {
-        let artifact_id =
-            ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID is an artifact id");
+    ) -> BoxFuture<'call, Result<(), PortError>> {
         let limit = *self.write_limit.lock().expect("the test's payloads lock");
+        let hold = *self.hold_limit.lock().expect("the test's payloads lock");
         let mut writes = self.writes.lock().expect("the test's payloads lock");
         if limit.is_some_and(|limit| writes.len() >= limit) {
             return Box::pin(async { Err(REFUSED_PORT_CALL.into()) });
@@ -88,17 +119,26 @@ impl StepPayloadArtifacts for KeptPayloads {
             item_count,
             artifact_id,
         });
-        Box::pin(async move { Ok(artifact_id) })
+        if hold.is_some_and(|hold| writes.len() > hold) {
+            self.held.notify_one();
+            return Box::pin(async {
+                self.released.notified().await;
+                Ok(())
+            });
+        }
+        Box::pin(async { Ok(()) })
     }
 
     fn read<'call>(
         &'call self,
         artifact_id: &'call ArtifactId,
     ) -> BoxFuture<'call, Result<Vec<u8>, PortError>> {
-        let bytes = self
-            .writes
+        let writes = self.writes.lock().expect("the test's payloads lock");
+        self.reads
             .lock()
             .expect("the test's payloads lock")
+            .push((*artifact_id, writes.len()));
+        let bytes = writes
             .iter()
             .find(|kept| kept.artifact_id == *artifact_id)
             .map(|kept| kept.bytes.clone());

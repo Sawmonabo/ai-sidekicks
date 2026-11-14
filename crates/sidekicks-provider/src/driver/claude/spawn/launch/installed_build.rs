@@ -159,12 +159,12 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
     ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>>;
 
     /// Starts the MCP server probe's process as `request` names and sends its `initialize`,
-    /// handing back the process with what it writes. Fails as the start or `initialize` does, the
-    /// process then closed.
+    /// handing back the process, whose writes nothing reads: the probe reads only its control
+    /// replies. Fails as the start or `initialize` does, the process then closed.
     fn start_mcp_probe(
         &self,
         request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>>;
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>>;
 
     /// Stops every live process, each killed by `deadline` at the latest, and starts none after.
     fn stop_every_process(&self, deadline: Instant) -> BoxFuture<'_, ()>;
@@ -521,7 +521,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
     fn start_mcp_probe(
         &self,
         request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
         async move {
             let executable =
                 resolve_claude_build(&self.command_search, &self.home_folder, request.environment)
@@ -538,7 +538,8 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                     request.provider_account_id,
                 )
                 .await?;
-            Ok(ClaudeMcpProcess::from(short))
+            let process: Arc<dyn ClaudeProcessChannel> = short.process;
+            Ok(process)
         }
         .boxed()
     }

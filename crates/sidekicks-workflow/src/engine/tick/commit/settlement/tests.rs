@@ -184,12 +184,16 @@ async fn a_completed_step_stores_its_outputs_and_keeps_its_kept_values(#[case] i
     let writes = harness.payloads.writes();
     assert_eq!(
         writes.len(),
-        2,
-        "the outputs and the kept value are artifacts"
+        3,
+        "the outputs, the step's run variables and the kept value are artifacts"
     );
     assert_eq!(
         step_json(&harness, "output_ref", 1)["artifactId"],
         json!(writes[0].artifact_id)
+    );
+    assert_eq!(
+        harness.events()[1].3["runVariablesRef"]["artifactId"],
+        json!(writes[1].artifact_id)
     );
     let log_ref = step_json(&harness, "log_ref", 1);
     assert_eq!(log_ref["kind"], json!("inline"));
@@ -417,12 +421,12 @@ async fn a_failure_routes_as_its_node_says(#[case] case: FailureCase) {
                 )
                 .expect("the run's row reads");
             assert_eq!(run_row, ("failed".to_owned(), None));
-            let pool_wait_ms = if matches!(case, FailureCase::HeldStop) {
+            let memory_wait_ms = if matches!(case, FailureCase::HeldStop) {
                 5_000
             } else {
                 0
             };
-            assert_eq!(harness.step_row(1).1, pool_wait_ms);
+            assert_eq!(harness.step_row(1).1, memory_wait_ms);
         }
     }
 }
@@ -539,7 +543,10 @@ async fn a_wait_is_stored_before_anyone_is_asked(#[case] case: WaitCase) {
             );
             assert_eq!(step_json(&harness, "resume_at", 1), Value::Null);
             assert_eq!(suspended["waitCause"], json!("account"));
-            assert_eq!(suspended.get("logRef"), None);
+            assert!(
+                suspended.get("logRef").is_some(),
+                "the park's lines are stored, so a restart keeps them"
+            );
             assert_eq!(types, ["workflow.phase.suspended"]);
             let progressed = run.progressed();
             runner.progress();

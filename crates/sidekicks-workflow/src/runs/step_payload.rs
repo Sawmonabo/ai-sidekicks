@@ -6,8 +6,10 @@
 use std::borrow::Cow;
 
 use rusqlite::{Connection, named_params};
+use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::step::methods::{
@@ -55,34 +57,117 @@ pub(crate) enum StepPayloadWriteError {
     Artifact(#[source] PortError),
 }
 
-/// `items`, a payload of `step` in `session_id`, as the reference its row stores: inline at or
-/// under [`WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP`] JSON bytes, else stored through `payloads` as
-/// one artifact. Fails as [`StepPayloadWriteError`] says, with nothing stored.
+/// `items`, a payload of `step` in `session_id` that a committed row names, as the reference its
+/// row stores, inline within the cap or else stored through `payloads` with no reservation, as a
+/// test sets up an earlier run's payloads. Fails as [`StepPayloadWriteError`] says.
+#[cfg(test)]
 pub(crate) async fn write_step_payload(
     payloads: &dyn StepPayloadArtifacts,
     session_id: SessionId,
     step: &WorkflowStepKey,
     items: &[WorkflowItem],
 ) -> Result<WorkflowPayloadRef, StepPayloadWriteError> {
-    let measured_bytes = json_utf8_byte_length(&items).map_err(StepPayloadWriteError::Json)?;
-    if measured_bytes <= WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP {
-        return Ok(WorkflowPayloadRef::Inline {
-            items: items.to_vec(),
-        });
+    prepare_step_payload(items)?
+        .write(payloads, session_id, step)
+        .await
+}
+
+/// `items` made ready to keep, inline at or under [`WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP`] JSON
+/// bytes, else as the bytes of one artifact under an id minted before anything is written, so a
+/// caller can reserve the id first. Fails with [`StepPayloadWriteError::Json`].
+pub(crate) fn prepare_step_payload(
+    items: &[WorkflowItem],
+) -> Result<PreparedStepPayload, StepPayloadWriteError> {
+    match inline_step_payload(items)? {
+        Some(reference) => Ok(PreparedStepPayload {
+            reference,
+            bytes: None,
+        }),
+        None => prepare_artifact_payload(mint_payload_artifact_id(), items),
     }
+}
+
+/// `items` as an inline reference when they measure at or under
+/// [`WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP`] JSON bytes, `None` when they are kept as an artifact.
+/// Fails with [`StepPayloadWriteError::Json`].
+pub(crate) fn inline_step_payload(
+    items: &[WorkflowItem],
+) -> Result<Option<WorkflowPayloadRef>, StepPayloadWriteError> {
+    let measured_bytes = json_utf8_byte_length(&items).map_err(StepPayloadWriteError::Json)?;
+    Ok(
+        (measured_bytes <= WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP).then(|| {
+            WorkflowPayloadRef::Inline {
+                items: items.to_vec(),
+            }
+        }),
+    )
+}
+
+/// `items`, a payload over [`WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP`] JSON bytes, made ready to keep
+/// as the bytes of one artifact under `artifact_id`, an id the caller minted and may have reserved.
+/// Fails with [`StepPayloadWriteError::Json`].
+pub(crate) fn prepare_artifact_payload(
+    artifact_id: ArtifactId,
+    items: &[WorkflowItem],
+) -> Result<PreparedStepPayload, StepPayloadWriteError> {
     let bytes = serde_json::to_vec(items).map_err(StepPayloadWriteError::Json)?;
     let size_bytes = SafeInt::new(SafeInt::from_usize(bytes.len()).get())
         .expect("a payload above the inline cap holds bytes");
-    let item_count = SafeInt::from_usize(items.len());
-    let artifact_id = payloads
-        .write(session_id, step, bytes, item_count.get())
-        .await
-        .map_err(StepPayloadWriteError::Artifact)?;
-    Ok(WorkflowPayloadRef::Artifact {
-        artifact_id,
-        size_bytes,
-        item_count,
+    Ok(PreparedStepPayload {
+        reference: WorkflowPayloadRef::Artifact {
+            artifact_id,
+            size_bytes,
+            item_count: SafeInt::from_usize(items.len()),
+        },
+        bytes: Some(bytes),
     })
+}
+
+/// A fresh id for a payload kept as an artifact, minted before the artifact's write.
+pub(crate) fn mint_payload_artifact_id() -> ArtifactId {
+    ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID is an artifact id")
+}
+
+/// A step payload ready to keep: the reference its row will store and, where that names an
+/// artifact, the artifact's bytes, not yet written.
+pub(crate) struct PreparedStepPayload {
+    reference: WorkflowPayloadRef,
+    bytes: Option<Vec<u8>>,
+}
+
+impl PreparedStepPayload {
+    /// The artifact the payload is kept as, `None` for one carried inline.
+    pub(crate) fn artifact_id(&self) -> Option<ArtifactId> {
+        match &self.reference {
+            WorkflowPayloadRef::Artifact { artifact_id, .. } => Some(*artifact_id),
+            WorkflowPayloadRef::Inline { .. } => None,
+        }
+    }
+
+    /// The reference, once the artifact it names, if any, is written through `payloads` as a
+    /// payload of `step` in `session_id`. Fails with [`StepPayloadWriteError::Artifact`].
+    pub(crate) async fn write(
+        self,
+        payloads: &dyn StepPayloadArtifacts,
+        session_id: SessionId,
+        step: &WorkflowStepKey,
+    ) -> Result<WorkflowPayloadRef, StepPayloadWriteError> {
+        if let (
+            Some(bytes),
+            WorkflowPayloadRef::Artifact {
+                artifact_id,
+                item_count,
+                ..
+            },
+        ) = (self.bytes, &self.reference)
+        {
+            payloads
+                .write(session_id, step, *artifact_id, bytes, item_count.get())
+                .await
+                .map_err(StepPayloadWriteError::Artifact)?;
+        }
+        Ok(self.reference)
+    }
 }
 
 /// Every output list's items in output order, as one payload stores them.
@@ -185,6 +270,14 @@ pub(crate) fn split_step_outputs(
         .iter()
         .map(|count| items.by_ref().take(*count).collect())
         .collect())
+}
+
+/// How many items each output of a stored step holds, in output order, from its stored counts.
+pub(crate) fn stored_output_lengths(counts: &[SafeInt<0>]) -> Vec<usize> {
+    counts
+        .iter()
+        .map(|count| usize::try_from(count.get()).expect("a safe integer fits in a usize"))
+        .collect()
 }
 
 /// Why a step payload read failed.

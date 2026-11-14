@@ -150,7 +150,7 @@ export const SESSION_EVENT_CATEGORY_RECORD = {
   "workflow.results_posted": "workflow_lifecycle",
   // workflow_phase_lifecycle
   "workflow.phase_admitted": "workflow_phase_lifecycle",
-  "workflow.phase_waiting_on_pool": "workflow_phase_lifecycle",
+  "workflow.phase_waiting_on_memory": "workflow_phase_lifecycle",
   "workflow.phase_started": "workflow_phase_lifecycle",
   "workflow.phase_progressed": "workflow_phase_lifecycle",
   "workflow.phase_canceling": "workflow_phase_lifecycle",

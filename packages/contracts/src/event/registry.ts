@@ -153,7 +153,7 @@ export type SessionEventType =
   | "workflow.results_posted"
   // workflow_phase_lifecycle
   | "workflow.phase_admitted"
-  | "workflow.phase_waiting_on_pool"
+  | "workflow.phase_waiting_on_memory"
   | "workflow.phase_started"
   | "workflow.phase_progressed"
   | "workflow.phase_canceling"

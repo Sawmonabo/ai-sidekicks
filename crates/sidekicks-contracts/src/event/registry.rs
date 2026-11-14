@@ -145,6 +145,7 @@ session_event_types! {
         QuestionAsked = "question.asked",
         QuestionOpened = "question.opened",
         QuestionCanceled = "question.canceled",
+        QuestionWaitSettled = "question.wait.settled",
     ]
     /// The event types of the `artifactPublication` category.
     ARTIFACT_PUBLICATION_EVENT_TYPES = ArtifactPublication [
@@ -258,9 +259,14 @@ session_event_types! {
         WorkflowRunFailed = "workflow.run.failed",
         WorkflowRunCompleted = "workflow.run.completed",
         WorkflowRunResumed = "workflow.run.resumed",
+        WorkflowRunCanceling = "workflow.run.canceling",
+        WorkflowRunFailing = "workflow.run.failing",
         WorkflowRunCanceled = "workflow.run.canceled",
+        WorkflowRunCrashed = "workflow.run.crashed",
         WorkflowRunWaiting = "workflow.run.waiting",
         WorkflowRunDeleted = "workflow.run.deleted",
+        WorkflowRunKeepChanged = "workflow.run.keepChanged",
+        WorkflowChainRunJoined = "workflow.chain.runJoined",
         WorkflowScheduleArmed = "workflow.schedule.armed",
         WorkflowScheduleFired = "workflow.schedule.fired",
         WorkflowTriggerArmed = "workflow.trigger.armed",
@@ -270,7 +276,7 @@ session_event_types! {
     /// The event types of the `workflowPhaseLifecycle` category.
     WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES = WorkflowPhaseLifecycle [
         WorkflowPhaseAdmitted = "workflow.phase.admitted",
-        WorkflowPhaseWaitingOnPool = "workflow.phase.waitingOnPool",
+        WorkflowPhaseWaitingOnMemory = "workflow.phase.waitingOnMemory",
         WorkflowPhaseStarted = "workflow.phase.started",
         WorkflowPhaseProgressed = "workflow.phase.progressed",
         WorkflowPhaseCanceling = "workflow.phase.canceling",

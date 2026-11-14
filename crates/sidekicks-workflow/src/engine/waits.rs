@@ -5,13 +5,15 @@
 //! The commit stores the wait, its id and deadline on the step's row, before anything asks the
 //! person. A crash in between leaves a stored wait the restart asks again, never a question with no
 //! stored wait to answer. The answer's intake, which makes an answer the step's resume and
-//! settlement, is `answers`.
+//! settlement, and the door that sends it to the tick, are `answers`; a form answer's check against
+//! its fields is `form_check`.
 
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::future::join_all;
 use rusqlite::Row;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::approval::ApprovalDecision;
@@ -26,10 +28,11 @@ use sidekicks_contracts::workflow::definition::item::{
 };
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowWaitCause;
-use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseSuspendedPayload;
+use sidekicks_contracts::workflow::run::step::events::suspended::WorkflowPhaseSuspendedPayload;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_store::database::stored_column::{closed_word, safe_int_column, text_column};
 
+use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome, RunEngineRecord};
 use crate::engine::ports::{
     ApprovalCardRaiser, FormQuestionRequest, PersonWaitQuestions, PortError, ReplyQuestionRequest,
     StepAdmissionTicket, WorkflowApprovalCardRequest,
@@ -37,7 +40,8 @@ use crate::engine::ports::{
 use crate::engine::tick::{RunScope, StepSettlement};
 use crate::kinds::{PersonAsk, StepFailure, uncoded_step_error};
 
-pub(crate) mod answers;
+pub mod answers;
+pub mod form_check;
 
 /// A wait on a person the engine opened for a step: what the commit stores on the step's row and
 /// writes in its `workflow.phase.suspended`.
@@ -99,8 +103,8 @@ fn ask_cause(ask: &PersonAsk) -> WorkflowWaitCause {
 }
 
 /// The `workflow.phase.suspended` of `step` in the session `session_id`, waiting on `ask` as
-/// `opened` opened it: the arm `ask` names, carrying the wait's id, its deadline and `log_ref`, the
-/// log the step wrote before it waited.
+/// `opened` opened it: the arm `ask` names, carrying the wait's id, its deadline, `log_ref`, the
+/// log the step wrote before it waited, and what `ask` asks, so a restart can ask it again.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn suspended_payload(
     session_id: SessionId,
@@ -117,7 +121,7 @@ pub(crate) fn suspended_payload(
     let wait_id = opened.wait_id;
     let log_ref = log_ref.clone();
     match ask {
-        PersonAsk::Approval { .. } => WorkflowPhaseSuspendedPayload::Approval {
+        PersonAsk::Approval { prompt } => WorkflowPhaseSuspendedPayload::Approval {
             session_id,
             workflow_run_id,
             node_id,
@@ -128,8 +132,14 @@ pub(crate) fn suspended_payload(
             wait_deadline_at,
             wait_id,
             log_ref,
+            run_variables_ref: None,
+            prompt: prompt.clone(),
+            input_schema: None,
         },
-        PersonAsk::Form { .. } => WorkflowPhaseSuspendedPayload::Form {
+        PersonAsk::Form {
+            prompt,
+            input_schema,
+        } => WorkflowPhaseSuspendedPayload::Form {
             session_id,
             workflow_run_id,
             node_id,
@@ -140,8 +150,11 @@ pub(crate) fn suspended_payload(
             wait_deadline_at,
             wait_id,
             log_ref,
+            run_variables_ref: None,
+            prompt: prompt.clone(),
+            input_schema: input_schema.clone(),
         },
-        PersonAsk::Reply { .. } => WorkflowPhaseSuspendedPayload::Reply {
+        PersonAsk::Reply { prompt } => WorkflowPhaseSuspendedPayload::Reply {
             session_id,
             workflow_run_id,
             node_id,
@@ -152,6 +165,9 @@ pub(crate) fn suspended_payload(
             wait_deadline_at,
             wait_id,
             log_ref,
+            run_variables_ref: None,
+            prompt: prompt.clone(),
+            input_schema: None,
         },
     }
 }
@@ -190,6 +206,7 @@ impl PersonWaitPorts {
                     .raise(WorkflowApprovalCardRequest {
                         session_id: scope.session_id,
                         run_id: scope.run_id,
+                        workflow_name: scope.workflow_name.clone(),
                         step: Some(step.clone()),
                         wait_id: opened.wait_id,
                         prompt: prompt.clone(),
@@ -203,6 +220,7 @@ impl PersonWaitPorts {
                 .questions
                 .open_form(FormQuestionRequest {
                     session_id: scope.session_id,
+                    workflow_name: scope.workflow_name.clone(),
                     step: step.clone(),
                     wait_id: opened.wait_id,
                     prompt: prompt.clone(),
@@ -214,6 +232,7 @@ impl PersonWaitPorts {
                 .questions
                 .open_reply(ReplyQuestionRequest {
                     session_id: scope.session_id,
+                    workflow_name: scope.workflow_name.clone(),
                     step: step.clone(),
                     wait_id: opened.wait_id,
                     prompt: prompt.clone(),
@@ -224,11 +243,64 @@ impl PersonWaitPorts {
     }
 }
 
+/// Withdraws through `cards` the card of each of `withdrawn`, an approval wait of the run `record`
+/// records in `session_id` that ended unanswered, with its step: every intent is recorded, the
+/// cards go in one call, whose cancels are queued together so the writer groups them into as few
+/// commits as it forms, then every outcome; a failed withdraw also records its error as a fault,
+/// and the restart's settle closes its card.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+pub(crate) async fn withdraw_cards(
+    cards: &dyn ApprovalCardRaiser,
+    record: &RunEngineRecord,
+    session_id: SessionId,
+    withdrawn: Vec<(WorkflowStepKey, UuidTextForm)>,
+) {
+    if withdrawn.is_empty() {
+        return;
+    }
+    let intents = join_all(withdrawn.iter().map(|(step, wait_id)| {
+        let intent = EngineIntent::WithdrawingCard { wait_id: *wait_id };
+        record.intent(Some(step), intent)
+    }))
+    .await;
+    let wait_ids = withdrawn.iter().map(|(_, wait_id)| *wait_id).collect();
+    let answers = match cards.withdraw(session_id, wait_ids).await {
+        Ok(answers) => answers,
+        Err(unread) => {
+            join_all(
+                intents
+                    .into_iter()
+                    .map(|pending| record.outcome(pending, EngineOutcome::Failed { code: None })),
+            )
+            .await;
+            record
+                .fault(None, EngineFault::CardWithdrawFailed, &*unread)
+                .await;
+            return;
+        }
+    };
+    join_all(withdrawn.iter().zip(intents).zip(answers).map(
+        |(((step, _), pending), answer)| async move {
+            match answer {
+                Ok(()) => record.outcome(pending, EngineOutcome::Done).await,
+                Err(failed) => {
+                    record
+                        .outcome(pending, EngineOutcome::Failed { code: None })
+                        .await;
+                    record
+                        .fault(Some(step), EngineFault::CardWithdrawFailed, &*failed)
+                        .await;
+                }
+            }
+        },
+    ))
+    .await;
+}
+
 /// A person's answer to a step waiting on them: an approval card's decision, a form's fields keyed
 /// by each field's id, or a chat reply's text.
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-pub(crate) enum PersonWaitAnswer {
+pub enum PersonWaitAnswer {
     /// The approval card's decision.
     Approval(ApprovalDecision),
     /// The submitted fields, keyed by each field's id.
@@ -263,14 +335,17 @@ pub(crate) struct WaitingPersonStep {
     pub(crate) deadline_at: Option<WireInstant>,
 }
 
-/// Why an answer did not settle a wait; it answers `workflow.step.notWaiting`.
+/// Why an answer did not settle a wait.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-pub(crate) enum PersonWaitRefusal {
-    /// The answer names another wait, is the wrong kind for the wait, or came at or after its
-    /// deadline.
+pub enum PersonWaitRefusal {
+    /// The answer names another wait of a run the engine holds, is the wrong kind for the wait,
+    /// or came at or after its deadline; it answers `workflow.step.notWaiting`.
     #[error("the step is not waiting on this answer")]
     NotWaiting,
+    /// A step still waits under the wait, but no run the engine holds drives it: its run is not
+    /// loaded yet; it answers `question.waitNotHeld`, never an answered card.
+    #[error("no run the engine holds waits on this answer")]
+    NotHeld,
 }
 
 /// Makes `answer`, given at `at`, the settlement of `waiting`, the live step under the wait the

@@ -124,6 +124,7 @@ pub(crate) fn scripted_driver(
             server_policy: McpServerPolicy::default(),
             account_servers: Vec::new(),
             probe_readings: Vec::new(),
+            failed_roots: Vec::new(),
         })))
     });
     let observe_config = Arc::clone(&config);
