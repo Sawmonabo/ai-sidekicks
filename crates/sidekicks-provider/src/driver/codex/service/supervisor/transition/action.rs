@@ -119,4 +119,8 @@ pub(crate) enum SupervisorAction {
     ReportStoppedOnFailedStart,
     /// Publishes how the service stands to the callers waiting on it.
     Publish(CodexServiceAvailability),
+    /// Tells the callers waiting on a service the daemon only joined that it answered nothing: a
+    /// request on its open connection went unanswered, or a redial found its socket listening and
+    /// got no answer.
+    ReportUnanswered,
 }

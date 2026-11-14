@@ -1,10 +1,12 @@
-//! The reads that run on the person's own Codex folder: Codex's config read and the machine probe.
-//! Each runs on the daemon's service there where one fits; otherwise on a transient service the
-//! daemon starts as its own child on a socket of its own beside the folder's, never the folder's
-//! service, and stops once the read settles. A transient service unloads a conversation as its
-//! connection drops, so a probe that follows a config read runs on the service the read started.
-//! The probe never runs on a joined service, whose unload delay the daemon does not set, so its
-//! throwaway conversation would outlive it.
+//! The reads that run on the person's own Codex folder: Codex's config read, the machine probe and
+//! a conversation's stored turn. Each runs on the daemon's service there where one fits; otherwise
+//! on a transient service the daemon starts as its own child on a socket of its own beside the
+//! folder's, never the folder's service, and stops once the read settles. A transient service
+//! unloads a conversation as its connection drops, so a probe that follows a config read runs on
+//! the service the read started. The probe never runs on a joined service, whose unload delay the
+//! daemon does not set, so its throwaway conversation would outlive it. A stored turn is read only
+//! where the folder's own service failed a wait's reads or answers nothing, so always on a
+//! transient service, one at a time.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -30,6 +32,9 @@ pub(crate) enum PersonalFolderRead {
     /// The machine probe, whose throwaway conversation must unload as its connection drops: only
     /// the terminal service, or a transient one that unloads at once.
     Probe,
+    /// A conversation's stored turns, read where the folder's own service failed a wait's reads or
+    /// answers nothing: only a transient service, whose reads load no conversation.
+    StoredTurn,
 }
 
 /// The service one read on the person's own folder runs on, and whether it was started for that
@@ -45,8 +50,9 @@ impl CodexServiceRegistry {
     /// Runs `read` on a started service on the person's own Codex folder: for a config read the
     /// daemon's service there, the terminal or a joined one, while it serves; for a probe the
     /// terminal service while it serves; otherwise a transient service started for the read and
-    /// stopped once the read settled and the service is free. Fails as the transient service's
-    /// socket cannot be named or its folder made, as the start fails, and as `read` fails.
+    /// stopped once the read settled and the service is free, a stored turn's waiting for the one
+    /// before it on the folder to settle. Fails as the transient service's socket cannot be named or
+    /// its folder made, as the start fails, and as `read` fails.
     pub(crate) async fn read_on_personal_folder<Answer, Reading>(
         &self,
         purpose: PersonalFolderRead,
@@ -55,6 +61,15 @@ impl CodexServiceRegistry {
     where
         Reading: Future<Output = Result<Answer, CodexError>>,
     {
+        // One stored turn's read on the folder at a time, so the waits on one folder start their
+        // services one after another.
+        let _one_at_a_time = match purpose {
+            PersonalFolderRead::StoredTurn => {
+                let folder = self.homes.terminal_reach_home().codex_home;
+                Some(self.stored_turn_reads.acquire(folder).await)
+            }
+            PersonalFolderRead::Config | PersonalFolderRead::Probe => None,
+        };
         let PersonalFolderService {
             service,
             is_transient,
@@ -111,6 +126,7 @@ impl CodexServiceRegistry {
         let fitting = match purpose {
             PersonalFolderRead::Config => self.service_on(&home.codex_home),
             PersonalFolderRead::Probe => self.daemon_terminal_service(),
+            PersonalFolderRead::StoredTurn => None,
         };
         if let Some(service) = fitting.filter(|service| service.is_serving()) {
             return Ok(PersonalFolderService {

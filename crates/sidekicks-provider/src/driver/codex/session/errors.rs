@@ -355,12 +355,24 @@ impl CodexError {
         )
     }
 
+    /// Whether this is the service's answer that its queue of incoming requests is full, which
+    /// asks for the request to be sent again later.
+    pub(crate) fn is_service_overloaded(&self) -> bool {
+        matches!(
+            self,
+            Self::ProviderRequest {
+                code: CODEX_OVERLOADED_CODE,
+                ..
+            }
+        )
+    }
+
     /// Codex's own words where this is its JSON-RPC error answer and the service neither
     /// overloaded nor draining toward its exit; `None` for every other failure, a connection's
     /// among them.
     pub(crate) fn provider_refusal_words(&self) -> Option<&str> {
-        if let Self::ProviderRequest { code, message, .. } = self
-            && *code != CODEX_OVERLOADED_CODE
+        if let Self::ProviderRequest { message, .. } = self
+            && !self.is_service_overloaded()
             && !self.is_service_draining()
         {
             return Some(message.as_str());

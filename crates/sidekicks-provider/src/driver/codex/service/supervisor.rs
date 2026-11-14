@@ -209,6 +209,8 @@ pub(crate) struct CodexService {
     supervision: Mutex<Supervision>,
     inputs: mpsc::UnboundedSender<RunnerInput>,
     availability: watch::Sender<CodexServiceAvailability>,
+    // How many times it was reported answering nothing, for a service the daemon only joined.
+    unanswered: watch::Sender<u64>,
     // Since when it has been anything but up; `None` while it is up or before its first publish.
     away_since: Mutex<Option<tokio::time::Instant>>,
     live: Mutex<LiveService>,
@@ -257,6 +259,7 @@ impl CodexService {
             supervision: Mutex::new(Supervision::new(kind)),
             inputs,
             availability: watch::Sender::new(CodexServiceAvailability::Stopped),
+            unanswered: watch::Sender::new(0),
             away_since: Mutex::default(),
             live: Mutex::default(),
             physical_socket: Mutex::default(),

@@ -556,7 +556,7 @@ impl Supervision {
             // A request went unanswered on the open connection: the silence watch counts from the
             // send of the oldest request still unanswered or the service's last frame, whichever
             // came later, unless one already runs, so a later request's timeout never pushes its
-            // end out.
+            // end out. A joined service, which has no watch, is reported to its waits instead.
             (
                 State::Up {
                     launch,
@@ -573,6 +573,9 @@ impl Supervision {
             ) if timed_out == dial => {
                 let mut actions = Vec::new();
                 let silence = self.watch_silence(&mut actions, silent_for);
+                if silence.is_none() {
+                    actions.push(Action::ReportUnanswered);
+                }
                 (
                     State::Up {
                         launch,
@@ -585,7 +588,8 @@ impl Supervision {
                     actions,
                 )
             }
-            // The service sent something on the connection: its silence is over.
+            // The service sent something on the connection: its silence is over, and a wait that
+            // slept through it, a joined service's above all, which no watch ends, reads again.
             (
                 State::Up {
                     launch,
@@ -593,7 +597,7 @@ impl Supervision {
                     attempt,
                     since,
                     draining,
-                    silence: Some(_),
+                    ..
                 },
                 Event::Answered { dial: answered },
             ) if answered == dial => (
@@ -605,7 +609,7 @@ impl Supervision {
                     draining,
                     silence: None,
                 },
-                Vec::new(),
+                vec![Action::Publish(CodexServiceAvailability::Up)],
             ),
             // The service answered nothing for the whole limit: the daemon ends it, and its end
             // is a crash once the stop is done.
@@ -734,12 +738,17 @@ impl Supervision {
                         is_process_gone: true,
                     }],
                 ),
-                (
-                    CodexServiceKind::Account
-                    | CodexServiceKind::Terminal
-                    | CodexServiceKind::Joined,
-                    _,
-                ) => self.redial(launch, attempt.saturating_add(1), silence, Vec::new()),
+                // Codex's own service listens and does not answer: redialed, never ended, and its
+                // waits told.
+                (CodexServiceKind::Joined, _) => self.redial(
+                    launch,
+                    attempt.saturating_add(1),
+                    silence,
+                    vec![Action::ReportUnanswered],
+                ),
+                (CodexServiceKind::Account | CodexServiceKind::Terminal, _) => {
+                    self.redial(launch, attempt.saturating_add(1), silence, Vec::new())
+                }
             },
             (State::Reconnecting { launch, .. }, Event::ProcessExited { launch: ended, at })
                 if ended == launch =>

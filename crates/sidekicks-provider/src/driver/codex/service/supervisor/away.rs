@@ -1,6 +1,7 @@
 //! How long a service has been away, anything but up since it last was: a terminal joined to the
 //! service retries for a window of its own and then never rejoins, so the time away says whether
-//! that terminal gave up on it; and the watch a wait follows a service's comings and goings on.
+//! that terminal gave up on it; and the watch a wait follows a service's comings and goings on,
+//! with the reports that a service the daemon only joined answers nothing.
 
 use std::time::Duration;
 
@@ -31,6 +32,12 @@ impl CodexService {
         self.availability.send_replace(availability);
     }
 
+    /// Tells every wait on the service, one the daemon only joined, that it answered nothing.
+    pub(super) fn publish_unanswered(&self) {
+        self.unanswered
+            .send_modify(|reports| *reports = reports.wrapping_add(1));
+    }
+
     /// How long the service has been anything but up; `None` while it is up, and before anything
     /// was published for it.
     pub(crate) fn away_for(&self) -> Option<Duration> {
@@ -43,12 +50,17 @@ impl CodexService {
             .await;
     }
 
-    /// A watch on where the service stands, for a wait that reads the service between its
-    /// changes: what it reads is marked seen, so a change made while a read runs is not missed.
-    /// The caller holds the service for as long as it waits on the watch.
+    /// A watch on where the service stands and on its reports of answering nothing, for a wait
+    /// that reads the service between its changes: what it reads is marked seen, so a change made
+    /// while a read runs is not missed, and a report made before the watch is not read. The caller
+    /// holds the service for as long as it waits on the watch.
     pub(crate) fn watch_availability(&self) -> CodexAvailabilityWatch {
+        let unanswered = self.unanswered.subscribe();
+        let unanswered_read = *unanswered.borrow();
         CodexAvailabilityWatch {
             availability: self.availability.subscribe(),
+            unanswered,
+            unanswered_read,
         }
     }
 }
@@ -63,19 +75,33 @@ pub(crate) enum CodexServiceRest {
     /// It is down and nothing brings it back by itself: stopped, its ordinary start failed, or its
     /// restarts are spent in a crash loop.
     Down,
+    /// It is a service the daemon only joined, reported answering nothing since the watch last
+    /// read it: up with a request unanswered, or redialed on a socket that listens and does not
+    /// answer.
+    Unanswered,
 }
 
-/// One wait's watch on a service's availability, held across the wait's reads; each wait on it
-/// panics where the service was dropped, which the caller holding the service rules out.
+/// One wait's watch on a service's availability and its reports of answering nothing, held across
+/// the wait's reads; each wait on it panics where the service was dropped, which the caller
+/// holding the service rules out.
 pub(crate) struct CodexAvailabilityWatch {
     availability: watch::Receiver<CodexServiceAvailability>,
+    unanswered: watch::Receiver<u64>,
+    // The count of reports this watch last answered for.
+    unanswered_read: u64,
 }
 
 impl CodexAvailabilityWatch {
-    /// Waits, however long it takes, until the service is no longer on its way back, and answers
-    /// where it came to rest; a stop under way waits too, since it may still end in a start.
+    /// Waits, however long it takes, until the service is no longer on its way back or is
+    /// reported answering nothing, and answers which; a stop under way waits too, since it may
+    /// still end in a start.
     pub(crate) async fn rest(&mut self) -> CodexServiceRest {
         loop {
+            let unanswered = *self.unanswered.borrow_and_update();
+            if unanswered != self.unanswered_read {
+                self.unanswered_read = unanswered;
+                return CodexServiceRest::Unanswered;
+            }
             if let Some(rest) = read_rest(&self.availability.borrow_and_update()) {
                 return rest;
             }
@@ -83,12 +109,14 @@ impl CodexAvailabilityWatch {
         }
     }
 
-    /// Waits for the service's next publish after the last one this watch read.
+    /// Waits for the service's next publish, or its next report of answering nothing, after the
+    /// last one this watch read.
     pub(crate) async fn changed(&mut self) {
-        self.availability
-            .changed()
-            .await
-            .expect("the service outlives its watch");
+        let changed = tokio::select! {
+            changed = self.availability.changed() => changed,
+            changed = self.unanswered.changed() => changed,
+        };
+        changed.expect("the service outlives its watch");
     }
 }
 

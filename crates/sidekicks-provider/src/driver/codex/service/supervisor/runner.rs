@@ -359,6 +359,7 @@ impl ServiceRunner {
             SupervisorAction::Publish(availability) => {
                 service.publish_availability(availability);
             }
+            SupervisorAction::ReportUnanswered => service.publish_unanswered(),
         }
     }
 

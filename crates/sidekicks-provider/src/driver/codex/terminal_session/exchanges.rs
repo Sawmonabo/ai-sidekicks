@@ -288,6 +288,33 @@ async fn read_stored_turn_end(
         .map(Some)
 }
 
+/// How the turn `turn_id` of `thread_id` ended, read from the conversation's stored turn list on
+/// `connection`, a service that does not hold the conversation, which lists a turn still running
+/// elsewhere as interrupted with no end time: answered only for a turn that completed, failed, or
+/// was interrupted with an end time, its reply read from its items only where it answered; `None`
+/// for any other, a turn the list does not hold among them. Fails as the reads fail.
+pub(super) async fn read_settled_turn_end(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+    turn_id: &str,
+) -> Result<Option<CodexTerminalTurnEnd>, CodexError> {
+    let Some(listed) = read_codex_turn(connection, thread_id, turn_id).await? else {
+        return Ok(None);
+    };
+    let state = read_codex_listed_turn(&listed.turn);
+    let is_settled = match state.status {
+        Some(CodexTurnStatus::Completed | CodexTurnStatus::Failed) => true,
+        Some(CodexTurnStatus::Interrupted) => state.has_completed_at,
+        Some(CodexTurnStatus::InProgress) | None => false,
+    };
+    if !is_settled {
+        return Ok(None);
+    }
+    read_ended_turn(connection, thread_id, turn_id, &listed.turn)
+        .await
+        .map(Some)
+}
+
 // How the ended turn `turn`, `turn_id` of `thread_id`, ended, its reply read from its items only
 // where it answered.
 async fn read_ended_turn(

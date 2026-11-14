@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::{CAN_LINK_A_SOCKET, create_private_folder, read_socket_link};
+use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
 use tokio::runtime::Handle;
@@ -89,6 +90,8 @@ pub(crate) struct CodexServiceRegistry {
     dependencies: Arc<CodexServiceDependencies>,
     // Shared with the tasks that retire a service the switch took off its home.
     services: Arc<Mutex<RegisteredServices>>,
+    // Held per folder while a stored turn is read on a service of the daemon's own there.
+    stored_turn_reads: KeyedLock<PathBuf>,
 }
 
 #[derive(Default)]
@@ -112,6 +115,7 @@ impl CodexServiceRegistry {
             homes,
             dependencies,
             services: Arc::default(),
+            stored_turn_reads: KeyedLock::default(),
         }
     }
 
