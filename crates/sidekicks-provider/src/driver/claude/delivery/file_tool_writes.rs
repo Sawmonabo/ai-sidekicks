@@ -5,11 +5,13 @@
 //! process ends settles unread, so no call holds its path's watch reports for good. An open is
 //! handed to the intake on the session's task, ahead of the frames after it; a settle is recorded
 //! on a task of the session's own, so no frame waits on a version's disk read or writes, and the
-//! call stays open until it is recorded.
+//! call stays open until it is recorded. A claim that would take the queue's held text past its
+//! budget is handed on unread, so the intake reads that file from the disk instead.
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
@@ -21,6 +23,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::mpsc;
 
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
+use crate::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
 use crate::lenient_json::read_lenient;
 use crate::port::file_tool_write::{
     FileToolWriteClaim, FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort,
@@ -155,39 +158,61 @@ enum ClaudeOpenFileToolWrite {
     Recording,
 }
 
-/// The file-tool calls of one session's process, the lead's and its helpers', by `tool_use_id`,
-/// each from its open until the chat versions' intake has recorded its settle, which a task of
-/// the session's own does in the order the settles were handed, so no frame waits on a version's
-/// disk read or writes. The queue to that task is unbounded in type only: each settle in it is a
-/// call still in the open map, removed once recorded, so it never holds more than the session's
-/// open calls. The task ends once this is dropped with the session's stream.
+/// The bytes of claimed file text one session's settle queue holds at most, sized for an agent
+/// writing files faster than the chat versions' intake records them: the longest output line
+/// Claude Code's reader takes, so a claim one frame carries is never refused for its size alone.
+pub(crate) const SETTLE_QUEUE_CLAIM_BYTES_BUDGET: usize = CLAUDE_OUTPUT_LINE_MAX_BYTES;
+
+/// The file-tool calls of one session's process by `tool_use_id`, each open until the chat
+/// versions' intake has recorded its settle on a task of the session's own, in the order handed.
+/// The settles queued hold at most [`SETTLE_QUEUE_CLAIM_BYTES_BUDGET`] of claimed text, or one
+/// larger claim alone, and the task ends once this is dropped with the session's stream.
 pub(crate) struct ClaudeFileToolWrites {
     open: Arc<Mutex<HashMap<String, ClaudeOpenFileToolWrite>>>,
+    // The bytes of claimed text the settles handed and not yet recorded hold.
+    held_claim_bytes: Arc<AtomicUsize>,
     settles: mpsc::UnboundedSender<FileToolWriteSettled>,
 }
 
 impl ClaudeFileToolWrites {
-    /// No call open yet, and the task handing each settle to the intake `file_tool_writes`:
-    /// dropped while it is unregistered, and a settle it could not record logged.
+    /// Starts the task handing each settle to the intake `file_tool_writes`, with no call open:
+    /// a settle is dropped while the intake is unregistered, one it could not record is logged,
+    /// and the task's early end is logged with its cause.
     pub(crate) fn start(
         file_tool_writes: Arc<PortRegistration<Arc<dyn FileToolWritePort>>>,
     ) -> Self {
         let open = Arc::new(Mutex::new(HashMap::new()));
+        let held_claim_bytes = Arc::new(AtomicUsize::new(0));
         let (settles, mut receiver) = mpsc::unbounded_channel::<FileToolWriteSettled>();
-        let recorded_open = Arc::clone(&open);
-        tokio::spawn(async move {
+        let (recorded_open, recorded_bytes) = (Arc::clone(&open), Arc::clone(&held_claim_bytes));
+        let drain = tokio::spawn(async move {
             while let Some(settled) = receiver.recv().await {
                 let call_id = settled.call_id.clone();
+                let claim_bytes = claim_text_bytes(&settled.outcome);
                 if let Some(port) = file_tool_writes.port() {
                     let session_id = settled.session_id;
                     if let Err(error) = port.settle_file_tool_write(settled).await {
                         report_intake_failure(session_id, &call_id, "settle", &*error);
                     }
                 }
+                recorded_bytes.fetch_sub(claim_bytes, Ordering::Relaxed);
                 lock(&recorded_open).remove(&call_id);
             }
         });
-        Self { open, settles }
+        tokio::spawn(async move {
+            if let Err(error) = drain.await {
+                tracing::error!(
+                    error = &error as &(dyn Error + 'static),
+                    "the task recording a Claude Code session's file-tool writes ended early, so \
+                     the session's later writes are left to the workspace's watch"
+                );
+            }
+        });
+        Self {
+            open,
+            held_claim_bytes,
+            settles,
+        }
     }
 
     /// Opens each file-tool call `frame`, an `assistant` frame, starts on `session_id` whose input
@@ -338,19 +363,61 @@ impl ClaudeFileToolWrites {
         }
     }
 
-    // Hands `settled` to the intake's task, which never makes the frame wait: its call's entry in
-    // the open map is the room it takes in the queue.
-    fn hand(&self, settled: FileToolWriteSettled) {
+    // Hands `settled` to the intake's task, which never makes the frame wait. A claim that would
+    // take the held text past the budget goes unread, holding no text, so the intake reads the
+    // disk; a hand-off the ended task cannot take gives back its call and its bytes.
+    fn hand(&self, mut settled: FileToolWriteSettled) {
+        let claim_bytes = claim_text_bytes(&settled.outcome);
+        if claim_bytes > 0 && !self.hold_claim_bytes(claim_bytes) {
+            tracing::debug!(
+                session_id = %settled.session_id,
+                tool_use_id = settled.call_id.as_str(),
+                claim_bytes,
+                "a Claude Code file tool's claimed text would pass the settle queue's budget, so \
+                 the intake reads its file from the disk"
+            );
+            settled.outcome = FileToolWriteOutcome::Unread;
+        }
         if let Err(error) = self.settles.send(settled) {
             let settled = &error.0;
+            self.held_claim_bytes
+                .fetch_sub(claim_text_bytes(&settled.outcome), Ordering::Relaxed);
+            lock(&self.open).remove(&settled.call_id);
             report_intake_failure(settled.session_id, &settled.call_id, "settle", &error);
         }
+    }
+
+    // Counts `claim_bytes` more as held, when they fit the budget or nothing is held yet.
+    fn hold_claim_bytes(&self, claim_bytes: usize) -> bool {
+        self.held_claim_bytes
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
+                held.checked_add(claim_bytes)
+                    .filter(|&total| held == 0 || total <= SETTLE_QUEUE_CLAIM_BYTES_BUDGET)
+            })
+            .is_ok()
     }
 
     /// How many calls are open: awaiting their result, or settled and not yet recorded.
     #[cfg(test)]
     pub(crate) fn open_count(&self) -> usize {
         lock(&self.open).len()
+    }
+
+    /// The bytes of claimed text the settles handed and not yet recorded hold.
+    #[cfg(test)]
+    pub(crate) fn held_claim_bytes(&self) -> usize {
+        self.held_claim_bytes.load(Ordering::Relaxed)
+    }
+}
+
+// The bytes of file text `outcome` holds.
+fn claim_text_bytes(outcome: &FileToolWriteOutcome) -> usize {
+    match outcome {
+        FileToolWriteOutcome::Claimed(FileToolWriteClaim::Text(text)) => text.len(),
+        FileToolWriteOutcome::Claimed(FileToolWriteClaim::Patch { unified_diff, .. }) => {
+            unified_diff.len()
+        }
+        FileToolWriteOutcome::NotWritten | FileToolWriteOutcome::Unread => 0,
     }
 }
 

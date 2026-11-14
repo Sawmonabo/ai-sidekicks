@@ -16,6 +16,7 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::Semaphore;
 
 use super::result;
+use crate::driver::claude::delivery::file_tool_writes::SETTLE_QUEUE_CLAIM_BYTES_BUDGET;
 use crate::driver::claude::session::scripted::held_calls::{helper_started, init};
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
@@ -342,12 +343,11 @@ async fn every_open_file_tool_call_settles_unread_when_no_result_can_come(
 
 // A settle is recorded off the session's task: while the intake is still recording the first, the
 // frames after it are read and their calls opened, and the settles then land after their opens in
-// the order they were handed. Each call stays open until its settle is recorded, which is the room
-// it takes in the queue, so a hundred settles held at the intake never make a frame wait, a result
-// for no open call takes none, and the queue never holds more than the open calls. Killed by the
-// settle awaited on the session's task (the later calls never open while the first settle is
-// held), by a fixed queue capacity under a hundred (`w4` never opens) and by a call leaving the
-// open map at its settle (the open count reads short while the intake holds them).
+// the order they were handed. Each call stays open until its settle is recorded, so a hundred
+// settles held at the intake never make a frame wait and a result for no open call opens nothing.
+// Killed by the settle awaited on the session's task (the later calls never open while the first
+// settle is held), by a fixed queue capacity under a hundred (`w4` never opens) and by a call
+// leaving the open map at its settle (the open count reads short while the intake holds them).
 #[tokio::test(start_paused = true)]
 async fn a_settle_is_recorded_off_the_sessions_task_after_its_open_in_order() {
     let session = ScriptedSession::new().await;
@@ -440,4 +440,82 @@ async fn a_settle_is_recorded_off_the_sessions_task_after_its_open_in_order() {
     );
     assert_eq!(*lock(&kept.settled), expected);
     wait_until(|| session.stream.file_tool_writes.open_count() == 2).await;
+}
+
+// With the intake held, a claim that would take the queue's held text past its budget is handed on
+// unread, holding no text, while a smaller one after it still fits, so the held bytes never pass
+// the budget and no frame waits; once the intake resumes, every call is recorded in order and none
+// is left open or held. Killed by no budget or a count cap (`w2` claimed), by a refusal that drops
+// the settle (`w2` never recorded), by bytes never given back (held reads above zero at the end)
+// and by refusing every claim once one did not fit (`w3` unread).
+#[tokio::test(start_paused = true)]
+async fn settles_past_the_queues_byte_budget_are_handed_unread_while_the_intake_is_held() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    let kept = register_intake(
+        &session,
+        KeptFileToolWrites {
+            settle_gate: Some(Semaphore::new(0)),
+            ..KeptFileToolWrites::default()
+        },
+    );
+    let large = "x".repeat(SETTLE_QUEUE_CLAIM_BYTES_BUDGET / 2 + 1);
+    let write = |call_id: &str, path: &str| {
+        call(
+            call_id,
+            "Write",
+            &json!({"file_path": path, "content": "-"}),
+            None,
+        )
+    };
+    let written = |call_id: &str, path: &str, content: &str| {
+        answer(
+            &[call_id],
+            false,
+            Some(
+                json!({"type": "create", "filePath": path, "content": content,
+                        "structuredPatch": [], "originalFile": null}),
+            ),
+            None,
+        )
+    };
+
+    session.frame(&init());
+    session.frame(&write("w1", "/chat/a.md"));
+    session.frame(&written("w1", "/chat/a.md", &large));
+    session.frame(&write("w2", "/chat/b.md"));
+    session.frame(&written("w2", "/chat/b.md", &large));
+    session.frame(&write("w3", "/chat/c.md"));
+    session.frame(&written("w3", "/chat/c.md", "one\n"));
+    let files = &session.stream.file_tool_writes;
+    wait_until(|| files.held_claim_bytes() == large.len() + 4).await;
+    assert!(
+        files.held_claim_bytes() <= SETTLE_QUEUE_CLAIM_BYTES_BUDGET,
+        "the held text stays within the budget"
+    );
+    assert!(
+        lock(&kept.settled).is_empty(),
+        "the intake still records the first settle"
+    );
+
+    kept.settle_gate
+        .as_ref()
+        .expect("the intake is gated")
+        .add_permits(3);
+    wait_until(|| lock(&kept.settled).len() == 3).await;
+
+    let settled = lock(&kept.settled).clone();
+    let call_ids: Vec<&str> = settled
+        .iter()
+        .map(|(call_id, _)| call_id.as_str())
+        .collect();
+    assert_eq!(call_ids, ["w1", "w2", "w3"]);
+    assert!(
+        settled[0].1 == claimed(&large),
+        "the first claim fits the budget"
+    );
+    assert_eq!(settled[1].1, FileToolWriteOutcome::Unread);
+    assert_eq!(settled[2].1, claimed("one\n"));
+    wait_until(|| files.open_count() == 0).await;
+    assert_eq!(files.held_claim_bytes(), 0);
 }
