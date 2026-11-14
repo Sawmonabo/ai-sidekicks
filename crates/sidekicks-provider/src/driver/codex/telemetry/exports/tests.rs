@@ -26,11 +26,11 @@ use crate::driver::codex::service::supervisor::test_service::{
 };
 use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
-use crate::driver::codex::session::thread_turns::{CodexEndedTurn, CodexThreadTurns};
+use crate::driver::codex::session::thread_turns::CodexThreadTurns;
 use crate::driver::codex::telemetry::completed_response::tests::{
     codex_record, completed_response_attributes,
 };
-use crate::driver::codex::telemetry::held_responses::{
+use crate::driver::codex::telemetry::exported_response::{
     CodexExportedResponse, CodexOffStreamPlacement,
 };
 use crate::driver::diagnostics::RecordedEvents;
@@ -67,11 +67,9 @@ fn settle_turn(
     if makes_request {
         turns.request_made(THREAD);
     }
-    let Some(CodexEndedTurn::Settled(settled)) =
-        turns.observe(CODEX_TURN_COMPLETED_METHOD, &params, Instant::now())
-    else {
-        panic!("the live turn settles");
-    };
+    let settled = turns
+        .observe(CODEX_TURN_COMPLETED_METHOD, &params, Instant::now())
+        .expect("the live turn settles");
     exports.turn_settled(service_id, settled.made_request, settled.started_at);
 }
 

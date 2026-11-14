@@ -17,12 +17,17 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use tempfile::TempDir;
-use tokio::sync::watch;
+use tokio::sync::{OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
 use super::super::intake::USAGE_RECORDER_QUEUE;
 use super::{LiveCodexSession, TEST_TURN, driver_holding};
+use crate::account::usage_turns::sightings::{
+    mark_sighting_statements, open_sighting_record_statement,
+};
 use crate::bounded_poll::poll_until;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, bind_test_listener, start_scripted_codex_service,
@@ -44,11 +49,15 @@ use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// A usage record that records nothing until its gate opens, then records each delta in arrival
-/// order as a row of its own, counting each delta it was handed, and keeps each row recorded,
-/// each priced request and each request handed to the repricing.
+/// order as a row of its own, its sighting first decided by the usage record's own statements on a
+/// store test database, so a sighting passed over records no row; it counts each delta it was
+/// handed and each it decided, and keeps each row recorded, each priced request and each request
+/// handed to the repricing.
 pub(crate) struct GatedUsage {
     gate: watch::Receiver<bool>,
     handed: AtomicUsize,
+    decided: AtomicUsize,
+    sightings: OnceCell<SightingRecord>,
     pub(crate) metered: Mutex<Vec<MeteredUsage>>,
     pub(crate) costs: Mutex<Vec<PricedRequest>>,
     pub(crate) held: Mutex<Vec<HeldRequest>>,
@@ -60,9 +69,72 @@ impl GatedUsage {
         Self {
             gate,
             handed: AtomicUsize::new(0),
+            decided: AtomicUsize::new(0),
+            sightings: OnceCell::new(),
             metered: Mutex::default(),
             costs: Mutex::default(),
             held: Mutex::default(),
+        }
+    }
+
+    /// The input and output of each row recorded, in order, once `decided` deltas were decided.
+    pub(crate) async fn rows_once_decided(
+        &self,
+        decided: usize,
+    ) -> Vec<(Option<u64>, Option<u64>)> {
+        poll_until(
+            || self.decided.load(Ordering::Relaxed),
+            |count| *count >= decided,
+        )
+        .await;
+        lock(&self.metered)
+            .iter()
+            .map(|metered| {
+                (
+                    metered.delta.axis_deltas.input,
+                    metered.delta.axis_deltas.output,
+                )
+            })
+            .collect()
+    }
+
+    // Whether `metered`'s sighting is its request's first, as the usage record decides it: its
+    // record opened, or where that is refused, the mark written, tried again where neither took;
+    // a delta with no sighting is always recorded.
+    async fn is_first_sighting(&self, metered: &MeteredUsage) -> bool {
+        let Some(sighting) = &metered.delta.sighting else {
+            return true;
+        };
+        let record = self.sightings.get_or_init(SightingRecord::open).await;
+        let account = metered
+            .provider_account_id
+            .clone()
+            .unwrap_or_else(test_provider_account_id);
+        loop {
+            let opened = record
+                .writer
+                .write(vec![open_sighting_record_statement(
+                    sighting,
+                    metered.session_id,
+                    &account,
+                )])
+                .await;
+            match opened {
+                Ok(_results) => return true,
+                Err(error) => assert_eq!(
+                    error.refused_statement_index(),
+                    Some(0),
+                    "only the record refuses a sighting"
+                ),
+            }
+            let marked = record
+                .writer
+                .write(Vec::from(mark_sighting_statements(sighting)))
+                .await
+                .expect("the sighting's mark writes");
+            if marked.iter().any(|result| result.row_count > 0) {
+                return false;
+            }
         }
     }
 
@@ -72,6 +144,25 @@ impl GatedUsage {
             .iter()
             .map(|metered| metered.delta.axis_deltas.input)
             .collect()
+    }
+}
+
+// The usage record's table of sightings on a store test database of its own, and its writer.
+struct SightingRecord {
+    writer: DatabaseWriter,
+    _database: TestDatabase,
+}
+
+impl SightingRecord {
+    async fn open() -> Self {
+        let database = TestDatabase::new(sidekicks_store::database::schema::schema_parts());
+        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens its database");
+        Self {
+            writer,
+            _database: database,
+        }
     }
 }
 
@@ -86,7 +177,12 @@ impl UsageSink for GatedUsage {
             gate.wait_for(|is_open| *is_open)
                 .await
                 .expect("the test holds the gate open");
+            if !self.is_first_sighting(&metered).await {
+                self.decided.fetch_add(1, Ordering::Relaxed);
+                return Ok(None);
+            }
             lock(&self.metered).push(metered);
+            self.decided.fetch_add(1, Ordering::Relaxed);
             Ok(Some(RecordedUsage {
                 event_id: FreeFormText::new(format!("event-{row}")).expect("an event id"),
                 run_id: None,

@@ -102,8 +102,9 @@ fn contains(bytes: &[u8], text: &str) -> bool {
 // windows' delete is refused, so the session is not removed), a session's shadows, volume folders
 // or kept undo outcomes left, any of the messaging deletes left out (its row on the session, at
 // either end of a pair, stays, and the reminder's note keeps the marker), either orphaned answers'
-// delete left out (its row stays, and the question's answer keeps the marker), and either question
-// delete left out (the question or its paired answer stays).
+// delete left out (its row stays, and the question's answer keeps the marker), either question
+// delete left out (the question or its paired answer stays), and the usage sightings' delete left
+// out (the session's sighting stays, its key keeping the marker).
 #[tokio::test]
 async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log() {
     let fixture = purge_fixture().await;
@@ -232,6 +233,13 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
             .execute(sql, row)
             .expect("the test stores a messaging row");
     }
+    reader
+        .execute(
+            "INSERT INTO usage_sightings (record_id, match_key, source, session_id, account_id)
+               VALUES (1, ?2, 'stream', ?1, 'account-1')",
+            [session, MARKER],
+        )
+        .expect("the test stores a sighting of the session's request");
     let (checkpoint_id, window_id, shadow_id) = (
         mint_uuid_v7().to_string(),
         mint_uuid_v7().to_string(),
@@ -356,6 +364,7 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
         ("question_orphaned_answers WHERE session_id = ?1", session),
         ("questions WHERE session_id = ?1", session),
         ("question_answer_items WHERE question_id = ?1", "question-1"),
+        ("usage_sightings WHERE session_id = ?1", session),
     ] {
         let left: i64 = reader
             .query_row(&format!("SELECT COUNT(*) FROM {rows}"), [id], |row| {

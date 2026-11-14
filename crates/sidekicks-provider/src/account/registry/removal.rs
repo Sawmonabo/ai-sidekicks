@@ -45,6 +45,10 @@ const SELECT_MARKED_ACCOUNT_PROVIDER_SQL: &str =
 const DELETE_MARKED_ACCOUNT_SQL: &str =
     "DELETE FROM provider_accounts WHERE account_id = @account_id AND removal_intent = 1";
 
+// The account's usage sightings, which name it by value, gone in the write that removes it.
+const DELETE_ACCOUNT_SIGHTINGS_SQL: &str =
+    "DELETE FROM usage_sightings WHERE account_id = @account_id";
+
 // The steps parked waiting on the account.
 static WAITING_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -249,14 +253,20 @@ impl ProviderAccountRegistry {
         })
         .await
         .map_err(ProviderAccountRegistryError::RemovedMark)?;
-        self.write(vec![WriteStatement {
-            sql: Cow::Borrowed(DELETE_MARKED_ACCOUNT_SQL),
-            bindings: StatementBindings::Named(vec![text_binding(
-                "@account_id",
-                account_id.as_str(),
-            )]),
-            expected_row_count: Some(1),
-        }])
+        let account_binding =
+            || StatementBindings::Named(vec![text_binding("@account_id", account_id.as_str())]);
+        self.write(vec![
+            WriteStatement {
+                sql: Cow::Borrowed(DELETE_MARKED_ACCOUNT_SQL),
+                bindings: account_binding(),
+                expected_row_count: Some(1),
+            },
+            WriteStatement {
+                sql: Cow::Borrowed(DELETE_ACCOUNT_SIGHTINGS_SQL),
+                bindings: account_binding(),
+                expected_row_count: None,
+            },
+        ])
         .await
         .map(drop)
     }

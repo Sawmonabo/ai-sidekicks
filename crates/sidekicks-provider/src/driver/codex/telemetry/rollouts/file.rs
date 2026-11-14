@@ -1,13 +1,11 @@
 //! Codex's rollout file read for price while its service's export is absent: each completed
-//! response's `token_usage_record` of the file's own thread, once per `response_id`, at the model
-//! of the `turn_context` carrying the record's turn and the tier of the file's own last settings
-//! snapshot before it, a spawned helper's at its root thread's tier; running totals and
-//! `token_count` lines are never read. A turn that settled with no record names the file as one
-//! that cannot be read until the file yields a record, and the turn the file shows live is kept
-//! with its start. Every record of the file's own thread is offered to the export's responses
-//! first, stamped before the reading's start or not, so a response an export carried is passed
-//! over by its own line. Only the payloads of the kinds read are parsed, and only a usage record
-//! that does not read is counted as refused.
+//! response's `token_usage_record` of the file's own thread, with its `response_id`, which the
+//! usage record passes over where it was read before, at the model of the `turn_context` carrying
+//! the record's turn and the tier of the file's own last settings snapshot before it, a spawned
+//! helper's at its root thread's tier; running totals and `token_count` lines are never read. A
+//! turn that settled with no record names the file as one that cannot be read until the file
+//! yields a record, and the turn the file shows live is kept with its start. Only the payloads of
+//! the kinds read are parsed, and only a usage record that does not read is counted as refused.
 
 use std::collections::VecDeque;
 
@@ -33,9 +31,6 @@ const ROLLOUT_FILE: &str = "a Codex rollout file";
 /// How many turns' models, and how many turns that wrote a record, one file remembers; the file's
 /// records name its newest turns, so the oldest is forgotten past it.
 const TURNS_KEPT: usize = 64;
-
-/// How many response ids one file remembers as read, so a repeated record is read once.
-const RESPONSES_KEPT: usize = 1_024;
 
 /// The thread a rollout file belongs to, as its first `session_meta` names it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,8 +69,8 @@ pub(crate) struct CodexRolloutRequest {
 }
 
 /// What one rollout file's lines told so far: its thread, its turns' models, its own settings
-/// snapshot's tier, the turns that wrote a record, the responses read, whether a settled turn
-/// left no record since the last one, and the turn live as its last line was read.
+/// snapshot's tier, the turns that wrote a record, whether a settled turn left no record since the
+/// last one, and the turn live as its last line was read.
 #[derive(Debug, Default)]
 pub(crate) struct CodexRolloutFile {
     thread: Option<CodexRolloutThread>,
@@ -83,7 +78,6 @@ pub(crate) struct CodexRolloutFile {
     tier: Option<String>,
     is_own_settings_seen: bool,
     recorded_turns: VecDeque<String>,
-    read_responses: VecDeque<String>,
     is_unreadable: bool,
     // The turn begun last and not ended, with its start's stamp where its line carries one.
     live_turn: Option<(String, Option<u64>)>,
@@ -175,15 +169,9 @@ impl CodexRolloutFile {
     }
 
     /// Reads one line of the file, answering the request it states where it is a record of the
-    /// file's own thread not read before, that `is_exported` does not take as a response an export
-    /// carried (asked with its thread, counts and stamp), stamped at or after `since_ms`. A record
-    /// that cannot be read, or whose turn no `turn_context` names, is refused and logged.
-    pub(crate) fn read_line(
-        &mut self,
-        line: &[u8],
-        since_ms: u64,
-        is_exported: &mut dyn FnMut(&str, &UsageAxisCounts, u64) -> bool,
-    ) -> Option<CodexRolloutRequest> {
+    /// file's own thread stamped at or after `since_ms`. A record that cannot be read, or whose
+    /// turn no `turn_context` names, is refused and logged.
+    pub(crate) fn read_line(&mut self, line: &[u8], since_ms: u64) -> Option<CodexRolloutRequest> {
         // A line cut short as Codex writes it is read whole by the next pass.
         let line = serde_json::from_slice::<RolloutLine>(line).ok()?;
         let at_ms = line.timestamp.as_deref().and_then(read_unix_ms);
@@ -205,7 +193,7 @@ impl CodexRolloutFile {
                 }
                 None
             }
-            TOKEN_USAGE_RECORD_KIND => self.read_record(&payload, at_ms, since_ms, is_exported),
+            TOKEN_USAGE_RECORD_KIND => self.read_record(&payload, at_ms, since_ms),
             "event_msg" => {
                 if let Some(event) = read_payload::<EventPayload>(&payload) {
                     self.read_event(event, at_ms, since_ms);
@@ -216,14 +204,12 @@ impl CodexRolloutFile {
         }
     }
 
-    // A record's request, where it is the file's own thread's, read once, no exported response's
-    // and stamped at or after `since_ms`.
+    // A record's request, where it is the file's own thread's and stamped at or after `since_ms`.
     fn read_record(
         &mut self,
         payload: &RawValue,
         at_ms: Option<u64>,
         since_ms: u64,
-        is_exported: &mut dyn FnMut(&str, &UsageAxisCounts, u64) -> bool,
     ) -> Option<CodexRolloutRequest> {
         let thread = self.thread.as_ref()?;
         let Some(UsageRecordPayload {
@@ -249,14 +235,6 @@ impl CodexRolloutFile {
         }
         self.is_unreadable = false;
         remember(&mut self.recorded_turns, turn_id.clone(), TURNS_KEPT);
-        if self.read_responses.contains(&response_id) {
-            return None;
-        }
-        remember(
-            &mut self.read_responses,
-            response_id.clone(),
-            RESPONSES_KEPT,
-        );
         let Some(at_ms) = at_ms else {
             refuse_record(
                 &RecordRefusal {
@@ -276,13 +254,6 @@ impl CodexRolloutFile {
             reasoning_output: Some(usage.reasoning_output),
             total: Some(usage.total),
         };
-        if is_exported(&thread_id, &counts, at_ms) {
-            tracing::debug!(
-                conversation_id = thread_id.as_str(),
-                "a codex rollout record an export carried is passed over"
-            );
-            return None;
-        }
         if at_ms < since_ms {
             return None;
         }

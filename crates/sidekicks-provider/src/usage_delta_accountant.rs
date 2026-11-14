@@ -85,14 +85,6 @@ pub struct UsageAxisCounts {
     pub total: Option<u64>,
 }
 
-/// Whether `left` and `right` carry the same count on every axis, an absent count reading as
-/// zero: how one response is told from another where no id names it.
-pub(crate) fn is_same_counts(left: &UsageAxisCounts, right: &UsageAxisCounts) -> bool {
-    UsageTokenAxis::VARIANTS
-        .iter()
-        .all(|&axis| left.get(axis).unwrap_or(0) == right.get(axis).unwrap_or(0))
-}
-
 impl UsageAxisCounts {
     /// The count on `axis`, if carried.
     pub(crate) const fn get(&self, axis: UsageTokenAxis) -> Option<u64> {

@@ -9,7 +9,6 @@ use serde_json::Map;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::unix_time::read_unix_time_ms;
-use tokio::time::Instant;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::telemetry::completed_response::{
@@ -20,9 +19,6 @@ use crate::driver::codex::telemetry::exports::{
     CODEX_EXPORT_HAND_OFF_DEPTH, CodexExecResponses, CodexExports, CodexLaunchLookup, CodexTagKind,
 };
 use crate::driver::codex::telemetry::placement::refuse_unplaced;
-use crate::driver::codex::telemetry::rollouts::hold::{
-    CodexExportedIdentity, price_rollout_requests,
-};
 use crate::pricing::receiver::bearers::TelemetryHolderId;
 use crate::pricing::receiver::records::{RecordRefusal, read_count};
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
@@ -81,17 +77,10 @@ impl CodexExports {
             refuse_each(resource_logs, "the service that sent it has ended");
             return;
         };
-        let arrived_at = Instant::now();
         let arrived_at_ms = read_unix_time_ms();
         let current_account = service.provider_account_id();
-        let mut identities = Vec::new();
         for mut response in read_codex_completed_responses(resource_logs, current_account.as_ref())
         {
-            identities.push(CodexExportedIdentity {
-                thread_id: response.conversation_id.clone(),
-                counts: response.counts,
-                observed_at_ms: response.observed_at_ms,
-            });
             // The account its turn ran on, read by the time Codex observed it; one carrying no
             // time is read at its export's arrival.
             let ran_at_ms = match response.observed_at_ms {
@@ -103,20 +92,16 @@ impl CodexExports {
                 service: read.service.clone(),
                 launch: read.placement.clone(),
                 response: Box::new(response),
-                arrived_at,
                 export_number: read.export_number,
             });
         }
-        // Every record's stamp decides what the launch's rollout fallback holds, set under the
+        // Every record's stamp bounds the launch's rollout fallback's reading, set under the
         // status's lock with the stop it ends, so the fallback reads the stop and its end together.
         let newest_record_ms = read_newest_record_ms(resource_logs);
-        let mut priced = Vec::new();
         tracker.export_arrived(|stops| {
-            priced = read
-                .rollouts
-                .export_read(stops, identities, newest_record_ms, arrived_at_ms);
+            read.rollouts
+                .export_read(stops, newest_record_ms, arrived_at_ms);
         });
-        price_rollout_requests(Some(&*service), priced);
         self.offer(CodexExportItem::Retry {
             service: read.service,
             launch: read.placement,

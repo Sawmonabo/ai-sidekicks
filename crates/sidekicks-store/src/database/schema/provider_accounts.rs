@@ -287,19 +287,24 @@ CREATE INDEX idx_provider_account_usage_turns_unpriced
 -- Each sighting of a request a provider sees more than once, kept apart from the usage rows, which
 -- a session's rebuild clears and writes again: a record is the sightings sharing a record id, the
 -- first one priced as a row and each later one, from another source, passed over as its mark.
--- Record ids are given in the order the records are written.
+-- Record ids are given in the order the records are written. Each sighting carries its record's
+-- session and account, so a record leaves whole with a session's purge or an account's removal.
 CREATE TABLE usage_sightings (
   sighting_id  INTEGER PRIMARY KEY,
   record_id    INTEGER NOT NULL,
   match_key    TEXT NOT NULL,     -- the key every sighting of one request carries alike
   source       TEXT NOT NULL,     -- the source's wire word
   sighting_key TEXT,              -- the source's own id of the request, where it has one
+  session_id   TEXT NOT NULL,     -- the session the record's first sighting was priced on
+  account_id   TEXT NOT NULL,     -- the account it was charged to
   UNIQUE (record_id, source)
 ) STRICT;
--- A key's records in their order, and a source's own id once, each found without a scan.
+-- A key's records in their order, a source's own id once, and a session's sightings for its
+-- purge, each found without a scan; an account's removal, which is rare, reads the whole table.
 CREATE INDEX idx_usage_sightings_match ON usage_sightings(match_key, record_id);
 CREATE UNIQUE INDEX idx_usage_sightings_key ON usage_sightings(sighting_key)
   WHERE sighting_key IS NOT NULL;
+CREATE INDEX idx_usage_sightings_session ON usage_sightings(session_id);
 "
     )
 }

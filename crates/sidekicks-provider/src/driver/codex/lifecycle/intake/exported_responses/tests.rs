@@ -12,11 +12,12 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_std::mutex_lock::lock;
-use tokio::time::Instant;
 
 use super::read_rollout_filing;
 use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
-use crate::driver::codex::telemetry::held_responses::{CodexExportedResponse, CodexRolloutFacts};
+use crate::driver::codex::telemetry::exported_response::{
+    CodexExportedResponse, CodexRolloutFacts,
+};
 use crate::driver::test_registry::new_session_id;
 use crate::port::usage_sink::{
     MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
@@ -136,7 +137,6 @@ fn rollout_response(is_root_tier: bool) -> CodexExportedResponse {
             observed_at_ms: RECORD_AT_MS,
             provider_account_id: Some(test_provider_account_id()),
         },
-        arrived_at: Instant::now(),
         placed: None,
         rollout: Some(CodexRolloutFacts {
             request_key: BoundedText::new("response-1".to_owned()).expect("a key"),

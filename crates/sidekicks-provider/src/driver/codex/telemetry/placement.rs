@@ -16,10 +16,10 @@ use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::telemetry::completed_response::{CodexCompletedResponse, SSE_EVENT_NAME};
 use crate::driver::codex::telemetry::copy_threads::CodexCopyThreads;
 use crate::driver::codex::telemetry::drain::push_exported_response;
-use crate::driver::codex::telemetry::exports::CODEX_EXPORT_INTERVAL;
-use crate::driver::codex::telemetry::held_responses::{
+use crate::driver::codex::telemetry::exported_response::{
     CodexExportedResponse, CodexOffStreamPlacement,
 };
+use crate::driver::codex::telemetry::exports::CODEX_EXPORT_INTERVAL;
 use crate::driver::codex::thread::ancestry::{
     CodexThreadPlacement, CodexUnplacedThread, place_codex_thread,
 };
@@ -80,7 +80,6 @@ enum CodexCachedPlacement {
 // already found its thread not listed.
 struct CodexKeptResponse {
     response: CodexCompletedResponse,
-    arrived_at: Instant,
     export_number: u64,
     is_unlisted: bool,
 }
@@ -232,12 +231,10 @@ impl CodexBucketRefusal {
 pub(crate) fn bucket_off_stream(
     launch: &Mutex<CodexLaunchPlacement>,
     response: CodexCompletedResponse,
-    arrived_at: Instant,
     export_number: u64,
 ) -> Option<CodexKeptBucket> {
     let kept = CodexKeptResponse {
         response,
-        arrived_at,
         export_number,
         is_unlisted: false,
     };
@@ -438,7 +435,6 @@ fn push_bucket(
     for kept in bucket {
         let exported = CodexExportedResponse {
             response: kept.response,
-            arrived_at: kept.arrived_at,
             placed: placed.cloned(),
             rollout: None,
         };

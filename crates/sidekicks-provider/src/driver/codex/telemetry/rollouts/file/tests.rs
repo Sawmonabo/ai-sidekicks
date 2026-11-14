@@ -77,7 +77,7 @@ fn turn_end(at: &str, kind: &str, turn: &str, error: Option<&str>) -> String {
 
 // A legacy fork's or a spawned helper's rollout: its own first line, the parent's history copied
 // whole (its line, turn, settings, record and running totals), then its own settings at
-// `own_tier`, its turn's context, `between`, and its two records, the first written again.
+// `own_tier`, its turn's context, `between`, and its two records.
 fn child_rollout(
     is_spawned: bool,
     own_tier: &str,
@@ -107,7 +107,6 @@ fn child_rollout(
         record(first, CHILD, CHILD_TURN, "child-response-1", 1_000, 100),
         token_count(first, 58_000),
         record(second, CHILD, CHILD_TURN, "child-response-2", 1_000, 100),
-        record(second, CHILD, CHILD_TURN, "child-response-1", 1_000, 100),
     ]);
     lines
 }
@@ -140,12 +139,11 @@ fn cost(request: &CodexRolloutRequest) -> u64 {
     }
 }
 
-// Each of the child's own records priced once at its own turn's model and its own tier, and
-// nothing else: 6,000 µ$ a request at `gpt-6.1-sol` priority, 3,000 at the standard rates.
-// Killed by pricing a copied record (the parent's 7,000 tokens), by no dedupe by `response_id` (a
-// third request), by pricing from a running total, by the last `turn_context` or the last
-// snapshot of any owner (the parent's lines between), and by a spawned helper's own snapshot
-// taken in place of its root thread's tier.
+// Each of the child's own records priced at its own turn's model and its own tier, and nothing
+// else: 6,000 µ$ a request at `gpt-6.1-sol` priority, 3,000 at the standard rates. Killed by
+// pricing a copied record (the parent's 7,000 tokens), by pricing from a running total, by the
+// last `turn_context` or the last snapshot of any owner (the parent's lines between), and by a
+// spawned helper's own snapshot taken in place of its root thread's tier.
 #[rstest]
 #[case::copied_history_skipped(
     false,
@@ -182,7 +180,7 @@ fn a_child_rollout_prices_its_own_records_once(
     let mut file = CodexRolloutFile::default();
     let requests: Vec<CodexRolloutRequest> = child_rollout(is_spawned, own_tier, between, stamps)
         .iter()
-        .filter_map(|line| file.read_line(line.as_bytes(), FROM_THE_EPOCH, &mut |_, _, _| false))
+        .filter_map(|line| file.read_line(line.as_bytes(), FROM_THE_EPOCH))
         .collect();
 
     let priced: Vec<&str> = requests
@@ -226,37 +224,7 @@ fn a_turn_settled_with_no_record_names_the_file_until_a_record_clears_it() {
     ];
     let mut file = CodexRolloutFile::default();
     for (index, (line, is_unreadable)) in steps.iter().enumerate() {
-        file.read_line(line.as_bytes(), FROM_THE_EPOCH, &mut |_, _, _| false);
+        file.read_line(line.as_bytes(), FROM_THE_EPOCH);
         assert_eq!(file.is_unreadable(), *is_unreadable, "after line {index}");
     }
-}
-
-// Of two equal responses on one thread, one exported, the exported one's record stamped before
-// the reading's start still takes the one exported match, so the unexported one after the start is
-// priced. Killed by a record offered to the exports only from the start on (the later one takes
-// the match and is counted nowhere).
-#[test]
-fn a_record_before_the_reading_s_start_takes_its_own_exported_match() {
-    let (before, after) = ("2026-11-09T10:00:01.000Z", "2026-11-09T10:00:20.000Z");
-    let lines = [
-        session_meta(before, CHILD, false),
-        turn_context(before, CHILD_TURN, "gpt-6.1-sol"),
-        record(before, CHILD, CHILD_TURN, "response-exported", 10, 1),
-        record(after, CHILD, CHILD_TURN, "response-unexported", 10, 1),
-    ];
-    let mut exported_matches = 1;
-    let mut file = CodexRolloutFile::default();
-    let priced: Vec<String> = lines
-        .iter()
-        .filter_map(|line| {
-            file.read_line(line.as_bytes(), unix_ms(after), &mut |_, _, _| {
-                let is_match = exported_matches > 0;
-                exported_matches -= u32::from(is_match);
-                is_match
-            })
-        })
-        .map(|request| request.response_id)
-        .collect();
-
-    assert_eq!(priced, ["response-unexported"]);
 }

@@ -729,12 +729,19 @@ fn late_row_statements(row: &LateAppendableRow) -> Vec<WriteStatement> {
     }
 }
 
-// The guard a usage row's sighting carries at `SIGHTING_GUARD_INDEX`; none for a row with none.
+// The guard a usage row's sighting carries at `SIGHTING_GUARD_INDEX`, on the row's session and
+// account; none for a row with none.
 fn sighting_statements(payload: &UsageTokenCountRecordedPayload) -> Vec<WriteStatement> {
     payload
         .sighting
         .as_ref()
-        .map(open_sighting_record_statement)
+        .map(|sighting| {
+            open_sighting_record_statement(
+                sighting,
+                payload.session_id,
+                &payload.provider_account_id,
+            )
+        })
         .into_iter()
         .collect()
 }
