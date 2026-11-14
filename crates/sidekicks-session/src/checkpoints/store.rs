@@ -33,11 +33,19 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
+use sidekicks_workspace::repo::mount::reattach::moved_captures::CommonFolderColumn;
 
 use crate::checkpoints::schema::{
     CheckpointVersionContent, CheckpointVersionKind, CheckpointVersionLeg, CopyMode, NotKeptReason,
 };
 use crate::checkpoints::store::shadows::ShadowId;
+
+/// A command window's common folder, which its captures are found by; a move of the repository
+/// rewrites it.
+pub const CHECKPOINT_COMMON_FOLDER: CommonFolderColumn = CommonFolderColumn {
+    table: "checkpoint_commands",
+    column: "git_common_dir",
+};
 
 // A prompt already kept keeps its first checkpoint: a steer that lands again writes nothing.
 static INSERT_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {

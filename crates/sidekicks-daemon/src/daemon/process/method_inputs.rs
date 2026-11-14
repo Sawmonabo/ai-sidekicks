@@ -394,6 +394,7 @@ pub(crate) async fn register_method_inputs(
         live_run_folders,
         checkout_lock,
         project_list_feed: Arc::clone(&project_list_feed),
+        data_folder: data_folder.to_path_buf(),
     });
     // The daemon's `Tokens per run`, which run admission admits each new lead run with.
     let token_limits = PortRegistration::new("run token limits");
@@ -815,6 +816,7 @@ pub(crate) async fn register_method_inputs(
                 sources: driver_methods,
                 provider_sessions: Arc::clone(&session.provider_sessions),
                 run_queue: Arc::clone(&session.queue),
+                binding_cursors: Arc::clone(&session.binding_cursors),
             },
             branches: Arc::clone(&repo.branches),
             working_folders: Arc::clone(&repo.folder_watch),

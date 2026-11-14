@@ -14,6 +14,7 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_session::changes::SessionChanges;
+use sidekicks_session::checkpoints::store::CHECKPOINT_COMMON_FOLDER;
 use sidekicks_session::convert::{
     SessionConversion, SessionConversionDeps, SessionConversionError,
 };
@@ -133,6 +134,8 @@ pub(crate) struct ExecutionRootStart<'start> {
     pub(crate) checkout_lock: Arc<KeyedLock<PathBuf>>,
     /// The live projects list, told when a run's held root changes.
     pub(crate) project_list_feed: Arc<ProjectListFeed>,
+    /// The daemon's data folder, whose owners' captures a move carries.
+    pub(crate) data_folder: PathBuf,
 }
 
 /// The workspace lifecycle and the execution roots, with the run setup gate built over them.
@@ -165,6 +168,7 @@ pub(crate) fn build_execution_root_services(
         live_run_folders,
         checkout_lock,
         project_list_feed,
+        data_folder,
     } = start;
     let workspaces = Arc::new(WorkspaceService::new(WorkspaceServiceDeps {
         reads: Arc::clone(&reads),
@@ -190,6 +194,9 @@ pub(crate) fn build_execution_root_services(
             worktree_events: Arc::clone(&repo.worktree_events),
             resolver: RepoRootResolver::new(git.clone()),
             holders: live_run_folders,
+            packing: Arc::clone(&repo.packing),
+            data_folder,
+            common_folder_columns: vec![CHECKPOINT_COMMON_FOLDER],
         },
     ));
     let session_working_folders = Arc::new(SessionWorkingFolders::new(SessionWorkingFoldersDeps {
@@ -412,6 +419,7 @@ pub(crate) fn build_workspace_services(start: WorkspaceServiceStart<'_>) -> Work
         work: WorkspaceWork {
             creation,
             conversion,
+            reattach: Arc::clone(&roots.reattach),
             cleanup,
             removed,
             start_tasks: Vec::new(),
@@ -558,15 +566,16 @@ impl WorktreeCleanup {
 pub(crate) struct WorkspaceWork {
     creation: Arc<SessionCreation>,
     conversion: Arc<SessionConversion>,
+    reattach: Arc<RepoMountReattachService>,
     cleanup: WorktreeCleanupRequests,
     removed: Arc<RemovedWorktreeStore>,
     start_tasks: Vec<(&'static str, JoinHandle<()>)>,
 }
 
 impl WorkspaceWork {
-    /// Begins in the background the finish of the creates and the removal of the copies a stop
-    /// cut off, and the worktree cleanup, now and on each wake. Called once the start's recovery
-    /// pass has ended.
+    /// Begins in the background the finish of the creates, the removal of the copies and the carry
+    /// of the moved mounts' captures a stop cut off, and the worktree cleanup, now and on each
+    /// wake. Called once the start's recovery pass has ended.
     pub(crate) fn start(&mut self) {
         let creation = Arc::clone(&self.creation);
         self.start_tasks.push((
@@ -580,6 +589,19 @@ impl WorkspaceWork {
             "stopped conversions' copy removal",
             tokio::spawn(async move {
                 log_unremoved_copies(conversion.remove_stopped_copies().await);
+            }),
+        ));
+        let reattach = Arc::clone(&self.reattach);
+        self.start_tasks.push((
+            "stopped moves' capture carry",
+            tokio::spawn(async move {
+                if let Err(error) = reattach.carry_moved_captures().await {
+                    tracing::warn!(
+                        error = &error as &(dyn Error + 'static),
+                        "a moved project's captures could not be carried to its new folder; its \
+                         next start tries again"
+                    );
+                }
             }),
         ));
         self.cleanup.start();

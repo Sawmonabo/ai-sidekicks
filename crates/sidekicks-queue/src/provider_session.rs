@@ -36,7 +36,7 @@ use sidekicks_provider::driver::contract::params_and_results::{
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{
-    CloseSessionParams, CreateSessionParams, SessionCloseCause,
+    CloseSessionParams, CreateSessionParams, SessionAccountPin, SessionCloseCause,
 };
 use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
 use sidekicks_provider::run::posture::{
@@ -730,5 +730,6 @@ fn spawn_config_of(params: &CreateSessionParams) -> RuntimeBindingSpawnConfig {
         output_schema: params.output_schema.clone(),
         provider_account_id: params.provider_account_id.clone(),
         output_speed: params.output_speed.clone(),
+        is_account_pinned: params.account_pin == SessionAccountPin::Pinned,
     }
 }

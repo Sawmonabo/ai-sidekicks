@@ -310,6 +310,32 @@ impl CapturePacking {
         self.folder_lock.acquire(folder.to_path_buf()).await
     }
 
+    /// Renames the capture folder `from` to `to` once each one's pack, fold or sweep pass under way
+    /// ends, carrying what this daemon run keeps of it, so a repository that moved keeps its
+    /// captures under its new path's name. Answers `false` when `from` is gone, as it is once an
+    /// earlier rename finished. Fails with `AlreadyExists` when `to` is there, which is never
+    /// replaced, and as the file system fails.
+    pub async fn move_capture_folder(&self, from: &Path, to: &Path) -> io::Result<bool> {
+        let _holds = self
+            .folder_lock
+            .acquire_all([from.to_path_buf(), to.to_path_buf()])
+            .await;
+        if !tokio::fs::try_exists(from).await? {
+            return Ok(false);
+        }
+        if tokio::fs::try_exists(to).await? {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("the capture folder {} is already there", to.display()),
+            ));
+        }
+        tokio::fs::rename(from, to).await?;
+        carry_kept(&mut lock(&self.packs_left_by_fold), from, to);
+        carry_kept(&mut lock(&self.failed_folds), from, to);
+        carry_kept(&mut lock(&self.failed_packs), from, to);
+        Ok(true)
+    }
+
     /// Packs what `captured` borrows from the repository beyond its base's tree into its capture
     /// folder, removes the loose copies, and starts a fold on a task of its own when one is due,
     /// running git for the project at `place`; a folder a purge removed before its turn is left
@@ -752,6 +778,13 @@ fn log_base_lost(folder: &Path, base: &GitObjectId, found_type: Option<String>) 
         found_type,
     }
     .warn();
+}
+
+// What `kept` holds for the folder `from`, moved to `to`.
+fn carry_kept<Value>(kept: &mut HashMap<PathBuf, Value>, from: &Path, to: &Path) {
+    if let Some(value) = kept.remove(from) {
+        kept.insert(to.to_path_buf(), value);
+    }
 }
 
 #[cfg(test)]

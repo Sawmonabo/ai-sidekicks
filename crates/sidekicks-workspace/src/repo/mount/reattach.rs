@@ -17,7 +17,10 @@
 //!   lists its folder; any other is retired and stamped cleaned there, so its folder stays on disk
 //!   as it is and no sweep removes it. Its `worktree.retired` follows the commit. A tree's kept
 //!   copies stay on the old mount.
+//! - A move carries each owner's captures of the repository to the new folder's name (see
+//!   `moved_captures`).
 
+pub mod moved_captures;
 mod moved_folder;
 mod moved_workspace;
 #[cfg(test)]
@@ -53,6 +56,7 @@ use sidekicks_store::database::stored_column::{optional_text_column, text_column
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 
+use self::moved_captures::{CaptureCarryError, CommonFolderColumn, RUN_CONTEXT_COMMON_FOLDER};
 use self::write::{
     DETACH_OLD_MOUNT_STATEMENT, IDENTITY_HOLDER_STATEMENT, RUNNING_RUN_STATEMENT, ReattachBindings,
     ReattachWritten, RebasedWorkspace, SELECT_IDENTITY_HOLDER_SQL, read_written,
@@ -61,6 +65,7 @@ use self::write::{
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::execution_root::{ExecutionRootError, ExecutionRootService};
 use crate::folder::canonical_path::canonical_folder_path;
+use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::git::worktree::event_emitter::{EmitWorktreeEventInput, WorktreeEventEmitter};
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
 use crate::projector::{HealthProjectionError, RepoMountHealthRow};
@@ -75,9 +80,10 @@ use crate::service::{AttachedMount, WorkspaceService, WorkspaceServiceError, roo
 use crate::trust_envelope::components_equal;
 
 /// The statements the re-attach's reads keep prepared on each read connection: the running run,
-/// the holder of the repository, the mount's live trees, the sessions on the new mount, and a
-/// move's recorded first commit and workspace paths.
-pub const REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY: usize = 6;
+/// the holder of the repository, the mount's live trees, the sessions on the new mount, a move's
+/// recorded first commit and workspace paths, the mounts whose captures are still to be carried,
+/// and the stored common folders of the run contexts and the command windows a carry rewrites.
+pub const REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY: usize = 9;
 
 // What a log line names a failed follow-up's group as.
 const FOLLOW_UP_OPERATION: &str = "a re-attach's follow-ups";
@@ -131,6 +137,9 @@ pub enum RepoMountReattachFollowUpFailure {
     /// The new mount's health, or the sessions on it, could not be read.
     #[error("the new mount's health could not be read")]
     Health(#[source] Box<dyn Error + Send + Sync>),
+    /// A move's captures were not carried to the new folder; the next start's carry finishes it.
+    #[error("a move's captures were not carried to the new folder")]
+    Captures(#[source] CaptureCarryError),
 }
 
 /// Why a re-attach failed: a refusal the wire carries, a failure inside the daemon before the
@@ -234,6 +243,13 @@ pub struct RepoMountReattachServiceDeps<W = RecommendedWatcher> {
     pub resolver: RepoRootResolver,
     /// Reads what a running run is.
     pub holders: Arc<dyn RunningHolderLookup>,
+    /// The capture folders' packing, through which a move renames each owner's capture folder.
+    pub packing: Arc<CapturePacking>,
+    /// The daemon's data folder, which holds each owner's folder.
+    pub data_folder: PathBuf,
+    /// Every stored common folder of a capture's repository outside this crate's tables, which a
+    /// move rewrites beside the run contexts' own.
+    pub common_folder_columns: Vec<CommonFolderColumn>,
 }
 
 /// Re-attaches a mount whose folder holds another repository now, or moves a lost one to a picked
@@ -248,6 +264,10 @@ pub struct RepoMountReattachService<W = RecommendedWatcher> {
     worktree_events: Arc<WorktreeEventEmitter>,
     resolver: RepoRootResolver,
     holders: Arc<dyn RunningHolderLookup>,
+    packing: Arc<CapturePacking>,
+    data_folder: PathBuf,
+    // The run contexts' common folder first, then the deps' columns.
+    common_folder_columns: Vec<CommonFolderColumn>,
     /// Where a test holds a re-attach between its checks and its write.
     #[cfg(test)]
     pub(crate) write_pause: PausePoint,
@@ -265,6 +285,12 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             worktree_events: deps.worktree_events,
             resolver: deps.resolver,
             holders: deps.holders,
+            packing: deps.packing,
+            data_folder: deps.data_folder,
+            common_folder_columns: [RUN_CONTEXT_COMMON_FOLDER]
+                .into_iter()
+                .chain(deps.common_folder_columns)
+                .collect(),
             #[cfg(test)]
             write_pause: PausePoint::default(),
         }
@@ -360,7 +386,8 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         self.refuse_running_run(repo_mount_id).await?;
         self.refuse_identity_holder(repo_mount_id, &common_dir, &canonical_root)
             .await?;
-        if !components_equal(&target.canonical_root, &mount.canonical_root) {
+        let is_moved = !components_equal(&target.canonical_root, &mount.canonical_root);
+        if is_moved {
             // A repair that did not finish refuses the move before its write, so no tree is
             // retired over a failure that would pass; a tree the new folder's repository never
             // held stays unlisted and is retired below.
@@ -368,10 +395,12 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 .repair_working_trees(&target.canonical_root)
                 .await?;
         }
+        let old_common_dir = old_anchor.to_string_lossy().into_owned();
         let bindings = ReattachBindings {
             repo_mount_id,
             new_repo_mount_id: new_repo_mount_id(),
-            old_common_dir: old_anchor.to_string_lossy().into_owned(),
+            captures_moved_from: is_moved.then(|| old_common_dir.clone()),
+            old_common_dir,
             common_dir,
             local_path: target.local_path.to_string_lossy().into_owned(),
             canonical_root,
@@ -410,6 +439,14 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         );
 
         // The re-attach is committed: every follow-up is tried, and the failures answered together.
+        // The captures go first, so a run admitted on the new mount finds them at the new name.
+        if is_moved
+            && let Err(failure) = self
+                .carry_captures(new_repo_mount_id, old_anchor, &target.common_folder)
+                .await
+        {
+            failures.push(RepoMountReattachFollowUpFailure::Captures(failure));
+        }
         for (worktree_id, session_id) in written.retired_worktrees {
             let retired = self
                 .worktree_events

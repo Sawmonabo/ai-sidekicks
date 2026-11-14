@@ -38,6 +38,8 @@ use super::{
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::process::{GitRunner, test_git_runner};
+use crate::git::turn_snapshot::capture::GitFloorReports;
+use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::git::worktree::creation::test_sources::{FixedNaming, NoSetupSteps, ScriptedLiveRuns};
 use crate::git::worktree::creation::{WorktreeCreator, WorktreeCreatorDeps};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
@@ -296,6 +298,12 @@ impl ExecutionRootFixture {
                 holders: Arc::new(RunsTableHolders {
                     reads: Arc::clone(&self.reads),
                 }),
+                packing: Arc::new(CapturePacking::new(
+                    test_git_runner(),
+                    Arc::new(GitFloorReports::default()),
+                )),
+                data_folder: self.scratch.path().join("data"),
+                common_folder_columns: Vec::new(),
             },
         ));
         let records = Arc::new(ProjectRecords::new(Arc::clone(&self.reads), sessions));

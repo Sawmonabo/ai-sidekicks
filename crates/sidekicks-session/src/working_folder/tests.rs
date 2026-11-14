@@ -27,6 +27,8 @@ use sidekicks_workspace::execution_root::test_fixture::{
     ExecutionRootFixture, MOUNT_ID, SESSION_ID,
 };
 use sidekicks_workspace::git::process::test_git_runner;
+use sidekicks_workspace::git::turn_snapshot::capture::GitFloorReports;
+use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::git::worktree::creation::{LiveRunFolder, LiveRunFolderReader};
 use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
 use sidekicks_workspace::git::worktree::removal::{WorktreeSessionSweep, WorktreeSweep};
@@ -635,6 +637,12 @@ async fn a_live_workflow_run_is_named_by_a_carrys_and_a_reattachs_refusal() {
         worktree_events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&roots.log.service))),
         resolver: RepoRootResolver::new(test_git_runner()),
         holders,
+        packing: Arc::new(CapturePacking::new(
+            test_git_runner(),
+            Arc::new(GitFloorReports::default()),
+        )),
+        data_folder: roots.scratch.path().join("data"),
+        common_folder_columns: Vec::new(),
     });
     roots.replace_repository().await;
     let refused = reattach

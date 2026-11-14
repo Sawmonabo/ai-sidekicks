@@ -1,7 +1,8 @@
 //! The re-attach's one write: the running and holder checks tested again, the old mount's detach
 //! and the new mount's insert, the workspaces' and listed trees' move, the other trees'
 //! retirement, and for a move to a picked folder the project's folder and the workspaces' paths
-//! inside the old root carried to the new one; and what the committed write read back.
+//! inside the old root carried to the new one, with the old common folder recorded for the carry of
+//! its captures; and what the committed write read back.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -16,6 +17,7 @@ use sidekicks_store::database::statement::{
 };
 use sidekicks_store::database::stored_column::returned_parsed;
 
+use super::moved_captures::CAPTURES_MOVED_FROM_METADATA_PATH;
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
 use crate::repo::mount::service::detach::SELECT_RUNNING_RUN_SQL;
 use crate::row_guards::{
@@ -157,6 +159,15 @@ const UPDATE_PROJECT_FOLDER_SQL: &str = "UPDATE projects
   WHERE id = (SELECT project_id FROM repo_mounts WHERE id = @new_repo_mount_id)
     AND folder_path <> @canonical_root";
 
+// A move records the common folder its captures are carried from until the carry clears it.
+static RECORD_CAPTURES_MOVED_FROM_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE repo_mounts
+    SET metadata = json_set(metadata, '{CAPTURES_MOVED_FROM_METADATA_PATH}', @captures_moved_from)
+  WHERE id = @new_repo_mount_id AND @captures_moved_from IS NOT NULL"
+    )
+});
+
 // A moved workspace's paths inside the old root, carried to the new one; the root guard leaves a
 // row whose root changed since it was read to its admission.
 const REBASE_WORKSPACE_SQL: &str = "UPDATE workspaces
@@ -185,6 +196,8 @@ pub(super) struct ReattachBindings {
     pub(super) new_repo_mount_id: RepoMountId,
     /// The old mount's anchor, which the detach compares.
     pub(super) old_common_dir: String,
+    /// For a move, the old anchor, recorded on the new mount until its captures are carried.
+    pub(super) captures_moved_from: Option<String>,
     /// The repository's common folder now, the new mount's anchor.
     pub(super) common_dir: String,
     /// The new mount's path as entered: the old one's for a re-attach in place.
@@ -298,6 +311,17 @@ pub(super) fn reattach_statements(bindings: &ReattachBindings) -> Vec<WriteState
         statement(
             UPDATE_PROJECT_FOLDER_SQL,
             vec![canonical_root, new_mount.clone(), now.clone()],
+            None,
+        ),
+        statement(
+            RECORD_CAPTURES_MOVED_FROM_SQL.as_str(),
+            vec![
+                new_mount.clone(),
+                nullable_text_binding(
+                    "@captures_moved_from",
+                    bindings.captures_moved_from.as_deref(),
+                ),
+            ],
             None,
         ),
     ];

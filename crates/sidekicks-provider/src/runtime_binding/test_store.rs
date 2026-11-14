@@ -79,6 +79,7 @@ pub fn spawn_config_on(provider_account_id: ProviderAccountId) -> RuntimeBinding
         output_schema: None,
         provider_account_id,
         output_speed: None,
+        is_account_pinned: false,
     }
 }
 

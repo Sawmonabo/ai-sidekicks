@@ -37,6 +37,7 @@ use sidekicks_provider::driver::session_control::{
 use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_queue::provider_session::controls::SideQuestionSource;
 use sidekicks_queue::service::RunQueue;
+use sidekicks_session::run::binding_cursors::RunBindingCursors;
 
 use crate::ipc::handlers::driver::DriverMethodSources;
 
@@ -49,6 +50,8 @@ pub(crate) struct SessionControlMethods {
     pub(crate) provider_sessions: Arc<ProviderSessions>,
     /// Queues a review as a session's next item.
     pub(crate) run_queue: Arc<RunQueue>,
+    /// The bindings' cursors, which mark a side question's copy in flight on its binding.
+    pub(crate) binding_cursors: Arc<RunBindingCursors>,
 }
 
 /// Registers the five session controls over `methods`, each refusing by the codes its method lists,
@@ -145,6 +148,10 @@ async fn ask_side_question(
     };
     let side_question_id =
         SideQuestionId::try_from(mint_uuid_v7()).expect("a minted UUID is a side question id");
+    // The driver answers once the copy has ended, so the copy rides its binding until then.
+    let _copy = methods
+        .binding_cursors
+        .hold_copy(session_id, binding_id.clone());
     driver
         .ask_side_question(AskSideQuestionParams {
             session_id,

@@ -21,7 +21,9 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::account::observer::AccountLiveTurns as _;
 use sidekicks_provider::driver::test_registry::first_provider;
 use sidekicks_provider::run::delivery::DeliveryOperation;
-use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, read_binding};
+use sidekicks_provider::runtime_binding::store::{
+    CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, read_binding,
+};
 use sidekicks_provider::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
 };
@@ -111,10 +113,18 @@ impl Harness {
     // A running bridged run under `parent`, queued for an agent of its own as its log says.
     fn running_bridged_run(&self, parent: RunId) -> RunId {
         let run_id = self.child_run(parent, ChildRunProvenance::BridgeRun, "running");
+        let reader = self.database.reader();
+        let sequence = reader
+            .query_row(
+                "SELECT coalesce(max(sequence), 0) + 1 FROM session_events WHERE session_id = ?1",
+                [self.session_id.text().as_str()],
+                |row| row.get(0),
+            )
+            .expect("the log's next sequence reads");
         write_log_row(
-            &self.database.reader(),
+            &reader,
             self.session_id,
-            1,
+            sequence,
             (
                 SessionEventType::AgentRunQueued,
                 &json!({ "agentId": mint_uuid_v7().to_string() }),
@@ -627,13 +637,15 @@ async fn a_binding_moved_onto_another_account_holds_a_live_turn_there() {
 // it left running still rides reads the new account in its row, and a usage frame on it is charged
 // to the new account the moment the lead's move returns, with no write of its own after; so does
 // the lead binding a helper rides whose parent helper has ended, and an older binding of the
-// moved lead's own run, which a copy asked before its relaunch rides. An ended lead run's binding
-// no agent rides stays. A helper charged to the old account between the two writes spends the
-// limit its lead left. Killed by the helpers' bindings moved in a later write or not at all, by a
+// moved lead's own run, which a copy asked before its relaunch rides, and the binding of an ended
+// lead run a side question's copy is still in flight on. An ended lead run's binding no agent or
+// copy rides stays. A helper charged to the old account between the two writes spends the limit
+// its lead left. Killed by the helpers' bindings moved in a later write or not at all, by a
 // helper's own run read in place of the run it runs under (it has no binding, so nothing rides),
 // by the walk up the parent runs dropped (the nested helper's lead stays), by the moved run's
-// own older binding left out, by the cursors left on the old account, and by every binding of the
-// session moved (the ended one moves).
+// own older binding left out, by the copies in flight left unread (the copy's binding stays), by
+// the cursors left on the old account, and by every binding of the session moved (the ended one
+// moves).
 #[tokio::test]
 async fn a_moved_binding_carries_the_bindings_its_helpers_ride_in_the_same_write() {
     let harness = Harness::new().await;
@@ -648,6 +660,10 @@ async fn a_moved_binding_carries_the_bindings_its_helpers_ride_in_the_same_write
     let nested_on = harness.bind(nested_lead).await;
     let ended_parent = harness.helper(nested_lead, "helper-parent-ended", "completed");
     harness.helper(ended_parent, "helper-nested", "running");
+    let copied_on = harness.bind(harness.run_in("completed")).await;
+    let copy = harness
+        .cursors
+        .hold_copy(harness.session_id, copied_on.clone());
     let current = harness.run();
     let before_relaunch = harness.bind(current).await;
     let current_binding = harness.bind(current).await;
@@ -660,11 +676,13 @@ async fn a_moved_binding_carries_the_bindings_its_helpers_ride_in_the_same_write
         .await
         .expect("the binding moves");
 
+    drop(copy);
     for moved in [
         &left_running_on,
         &nested_on,
         &before_relaunch,
         &current_binding,
+        &copied_on,
     ] {
         assert_eq!(harness.stored_account(moved), to);
         assert_eq!(harness.charged_account(moved), to);
@@ -674,9 +692,10 @@ async fn a_moved_binding_carries_the_bindings_its_helpers_ride_in_the_same_write
 }
 
 // A bridged run pinned to another account keeps its binding there when its lead moves, and so
-// does the binding its helper rides: pinned means pinned. Killed by the riders read off the
-// account the lead moves to (the pinned run's binding, not on it, moves) and by every rider moved
-// whatever its account.
+// does the binding its helper rides: pinned means pinned. So does a run pinned to the very account
+// the lead leaves. Killed by the riders read off the account the lead moves to (the pinned run's
+// binding, not on it, moves), by every rider moved whatever its account, and by the pin left
+// unread (the run pinned to the lead's account moves with it).
 #[tokio::test]
 async fn a_run_pinned_to_another_account_stays_on_it_when_its_lead_moves() {
     let harness = Harness::new().await;
@@ -689,6 +708,23 @@ async fn a_run_pinned_to_another_account_stays_on_it_when_its_lead_moves() {
     let bridged = harness.running_bridged_run(lead);
     let pinned_binding = harness.bind_on(bridged, pinned.clone()).await;
     harness.helper(bridged, "helper-of-the-pinned-run", "running");
+    let pinned_here = harness.running_bridged_run(lead);
+    let pinned_here_binding = harness
+        .cursors
+        .create(
+            harness.session_id,
+            CreateRuntimeBindingInput {
+                spawn_config: RuntimeBindingSpawnConfig {
+                    is_account_pinned: true,
+                    ..spawn_config_on(test_provider_account_id())
+                },
+                ..binding_of(pinned_here)
+            },
+        )
+        .await
+        .expect("the binding is recorded")
+        .id;
+    harness.helper(pinned_here, "helper-of-the-run-pinned-here", "running");
 
     harness
         .cursors
@@ -699,4 +735,12 @@ async fn a_run_pinned_to_another_account_stays_on_it_when_its_lead_moves() {
     assert_eq!(harness.stored_account(&lead_binding), to);
     assert_eq!(harness.stored_account(&pinned_binding), pinned);
     assert_eq!(harness.charged_account(&pinned_binding), pinned);
+    assert_eq!(
+        harness.stored_account(&pinned_here_binding),
+        test_provider_account_id()
+    );
+    assert_eq!(
+        harness.charged_account(&pinned_here_binding),
+        test_provider_account_id()
+    );
 }

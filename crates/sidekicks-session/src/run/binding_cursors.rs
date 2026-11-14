@@ -180,6 +180,25 @@ impl Drop for InFlightOperation<'_> {
     }
 }
 
+/// A throwaway copy of a session's conversation in flight on one of its bindings, such as a side
+/// question's, which an account move of the session's lead carries with it; it ends when this
+/// drops.
+pub struct CopyInFlight<'cursors> {
+    copies: &'cursors Mutex<HashMap<(SessionId, RuntimeBindingId), usize>>,
+    key: (SessionId, RuntimeBindingId),
+}
+
+impl Drop for CopyInFlight<'_> {
+    fn drop(&mut self) {
+        if let Entry::Occupied(mut entry) = lock(self.copies).entry(self.key.clone()) {
+            *entry.get_mut() -= 1;
+            if *entry.get() == 0 {
+                entry.remove();
+            }
+        }
+    }
+}
+
 /// Records each run's binding with its epoch cursor open, and drops the cursors runs left. The
 /// sessions' lock is taken before the cursors' and neither is held across an await.
 pub struct RunBindingCursors {
@@ -188,6 +207,8 @@ pub struct RunBindingCursors {
     store: Arc<RuntimeBindingStore>,
     epochs: Arc<Mutex<ExecutionEpochs>>,
     sessions: Mutex<HeldSessions>,
+    // How many copies of each session's conversation are in flight on each binding.
+    copies: Mutex<HashMap<(SessionId, RuntimeBindingId), usize>>,
     /// Holds an open once its run is read, before its cursor opens.
     #[cfg(test)]
     held_run_read_pause: sidekicks_std::pause_point::PausePoint,
@@ -209,8 +230,25 @@ impl RunBindingCursors {
             store,
             epochs,
             sessions: Mutex::new(HeldSessions::default()),
+            copies: Mutex::new(HashMap::new()),
             #[cfg(test)]
             held_run_read_pause: sidekicks_std::pause_point::PausePoint::default(),
+        }
+    }
+
+    /// Marks a copy of `session_id`'s conversation in flight on `binding_id` until the answer
+    /// drops, so an account move of the session's lead moves that binding with it, as it moves a
+    /// binding a helper rides.
+    pub fn hold_copy(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> CopyInFlight<'_> {
+        let key = (session_id, binding_id);
+        *lock(&self.copies).entry(key.clone()).or_insert(0) += 1;
+        CopyInFlight {
+            copies: &self.copies,
+            key,
         }
     }
 
@@ -548,13 +586,17 @@ impl RunBindingCursors {
     // that its session's agents ride: each binding of its own run, which a copy asked on an older
     // binding of it rides, and each binding of the run a live or interrupted agent below the lead
     // runs under or of any run above that one, so a helper whose parent helper ended still finds
-    // the lead's. A run pinned to another account keeps its binding there. None for a binding
-    // with no row or a run no session holds.
+    // the lead's, and each binding a copy of the session's conversation is in flight on. A run
+    // whose account was chosen for it keeps its binding there, the account the binding leaves
+    // included, and so does a run on another account. None for a binding with no row or a run no
+    // session holds.
     async fn read_riders(
         &self,
         binding_id: RuntimeBindingId,
     ) -> Result<Vec<RuntimeBindingId>, RunBindingCursorError> {
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
+        let copies: Vec<(SessionId, RuntimeBindingId)> =
+            lock(&self.copies).keys().cloned().collect();
         self.pool
             .read(ReadLength::Long, move |reader| {
                 let Some(moved) = read_binding(reader, &binding_id)? else {
@@ -594,13 +636,23 @@ impl RunBindingCursors {
                     }
                 }
                 let ridden: Vec<RunId> = ridden.into_iter().collect();
+                let mut riders = read_bindings_of_runs(reader, &ridden)?;
+                for (session_id, copy_binding_id) in copies {
+                    if session_id == run.session_id
+                        && !riders.iter().any(|rider| rider.id == copy_binding_id)
+                        && let Some(copy_binding) = read_binding(reader, &copy_binding_id)?
+                    {
+                        riders.push(copy_binding);
+                    }
+                }
                 let left = &moved.spawn_config.provider_account_id;
-                Ok(read_bindings_of_runs(reader, &ridden)?
+                Ok(riders
                     .into_iter()
                     .filter(|rider| {
                         rider.id != binding_id
                             && rider.provider_name == moved.provider_name
                             && rider.spawn_config.provider_account_id == *left
+                            && !rider.spawn_config.is_account_pinned
                     })
                     .map(|rider| rider.id)
                     .collect())

@@ -214,6 +214,10 @@ pub struct RuntimeBindingSpawnConfig {
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
     pub output_speed: Option<ProviderToken>,
+    /// Whether the account was chosen for the run, by the saved agent definition or the workflow
+    /// step it runs, so it stays there when the session's lead moves to another account.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_account_pinned: bool,
 }
 
 /// A runtime binding as the daemon reads it, its JSON columns parsed.
