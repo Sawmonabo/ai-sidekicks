@@ -418,7 +418,8 @@ impl CodexRolloutFallback {
                 {
                     tracing::debug!(
                         path = %forgotten.display(),
-                        "a codex launch keeps too many rollout files let go; the oldest is forgotten"
+                        "a codex launch keeps too many rollout files let go; \
+                         the oldest is forgotten"
                     );
                 }
             }

@@ -26,7 +26,7 @@ use tokio_util::sync::CancellationToken;
 use super::super::intake::USAGE_RECORDER_QUEUE;
 use super::{LiveCodexSession, TEST_TURN, driver_holding};
 use crate::account::usage_turns::sightings::{
-    mark_sighting_statements, open_sighting_record_statement,
+    is_sighting_passed_over, mark_sighting_statements, open_sighting_record_statement,
 };
 use crate::bounded_poll::poll_until;
 use crate::driver::codex::service::supervisor::test_service::{
@@ -132,7 +132,7 @@ impl GatedUsage {
                 .write(Vec::from(mark_sighting_statements(sighting)))
                 .await
                 .expect("the sighting's mark writes");
-            if marked.iter().any(|result| result.row_count > 0) {
+            if is_sighting_passed_over(&marked) {
                 return false;
             }
         }
@@ -389,6 +389,102 @@ async fn a_total_that_did_not_grow_records_and_prices_nothing() {
             (UsageCostSource::DerivedExact, vec![4_500]),
         ]
     );
+    assert!(lock(&usage.held).is_empty());
+}
+
+/// An `item/completed` frame on the session's thread and the test's turn completing the
+/// `webSearch` item `search_id` whose action is `action`.
+fn web_search_frame(search_id: &str, action: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "item/completed",
+        "params": {
+            "threadId": TEST_THREAD,
+            "turnId": TEST_TURN,
+            "item": {
+                "type": "webSearch", "id": search_id, "query": "steer order",
+                "action": {"type": action, "query": "steer order"},
+            },
+        },
+    })
+}
+
+// A turn's two billed searches, a page it opened and the first search stated again: on an API key
+// each billed search is charged once at OpenAI's published $0.01, since the model's row carries no
+// per-search rate, and on a plan each is part of the plan. Killed by no charge (no cost), by the
+// opened page or the repeat charged (three or four), by holding a row with no search rate
+// (nothing priced) and by charging a plan's searches.
+#[rstest]
+#[case::api_key(ProviderAuthMode::ApiKey, [10_000, 10_000])]
+#[case::plan(ProviderAuthMode::OauthSubscription, [0, 0])]
+#[tokio::test]
+async fn each_billed_search_is_charged_once_on_a_key_and_never_on_a_plan(
+    #[case] sign_in_kind: ProviderAuthMode,
+    #[case] expected: [u64; 2],
+) {
+    let mut live = LiveCodexSession::start(&[]).await;
+    let usage = Arc::new(GatedUsage::new(watch::channel(true).1));
+    let accounts = Arc::new(TestProviderAccounts::new(
+        CurrentProviderAccount::NoneRegistered,
+    ));
+    accounts.set_sign_in_kind(Some(sign_in_kind));
+    let scratch = TempDir::new().expect("a scratch folder");
+    let stop = CancellationToken::new();
+    let (price_list, _server) = started_list(
+        &scratch.path().join("price-list"),
+        r#"W/"gpt-5""#,
+        br#"{"m1": {"input_cost_per_token": 3e-06},
+            "seed-only": {"input_cost_per_token": 2e-06},
+            "gpt-5": {"input_cost_per_token": 1.25e-06, "output_cost_per_token": 1e-05}}"#,
+        &stop,
+    )
+    .await;
+    let ports = &live.driver.ports;
+    assert!(ports.usage.register(Arc::clone(&usage) as _).is_ok());
+    assert!(ports.request_held.register(Arc::clone(&usage) as _).is_ok());
+    assert!(ports.price_list.register(price_list).is_ok());
+    assert!(
+        ports
+            .provider_accounts
+            .register(accounts as Arc<dyn ProviderAccountReader>)
+            .is_ok()
+    );
+
+    for (search_id, action) in [
+        ("ws_1", "search"),
+        ("ws_2", "openPage"),
+        ("ws_3", "search"),
+        ("ws_1", "search"),
+    ] {
+        live.scripted
+            .script
+            .send(&web_search_frame(search_id, action));
+    }
+    answer_region_read(&mut live.scripted).await;
+
+    // The opened page is no row; the repeat is decided and passed over.
+    assert_eq!(usage.rows_once_decided(3).await.len(), 2);
+    poll_until(
+        || {
+            lock(&usage.costs)
+                .iter()
+                .map(|request| request.rows.len())
+                .sum::<usize>()
+        },
+        |priced| *priced >= 2,
+    )
+    .await;
+    stop.cancel();
+    let charged: Vec<Option<u64>> = lock(&usage.metered)
+        .iter()
+        .map(|metered| metered.delta.request.web_search_requests)
+        .collect();
+    assert_eq!(charged, [Some(1), Some(1)]);
+    let shares: Vec<u64> = lock(&usage.costs)
+        .iter()
+        .flat_map(|request| request.rows.iter().map(|row| row.cost_usd_micros.0.get()))
+        .collect();
+    assert_eq!(shares, expected);
     assert!(lock(&usage.held).is_empty());
 }
 

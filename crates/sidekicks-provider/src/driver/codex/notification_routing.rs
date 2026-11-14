@@ -39,6 +39,7 @@ use crate::driver::codex::token_usage::read_codex_token_usage;
 use crate::driver::codex::tools::normalize_codex_mcp_server_status_notification;
 use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
+use crate::driver::codex::web_search::CodexWebSearch;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -50,7 +51,7 @@ use crate::thread_frame_router::{
 };
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, MeteredUsageDelta, ThreadBaseEstablishment, UsageAxisCounts,
-    UsageDeltaAccountant, WindowTelemetry, derive_window_telemetry,
+    UsageDeltaAccountant, UsageRequestFacts, WindowTelemetry, derive_window_telemetry,
 };
 
 /// What the tool servers' startups on a session's conversation said: the round that is starting,
@@ -491,6 +492,7 @@ impl CodexSessionRouting {
             ThreadFrameRoute::Project | ThreadFrameRoute::RouteConnectionScoped => {
                 // Metered first, so no cumulative counter is passed on as a turn's own.
                 let usage = self.meter_usage_frame(record, frame, &route, routed);
+                self.meter_web_search(record, frame, false, routed);
                 // Only the session's own conversation fills its meter.
                 if let Some(usage) = usage
                     && route == ThreadFrameRoute::Project
@@ -513,6 +515,7 @@ impl CodexSessionRouting {
                 self.deliver(delivery, record, frame, route, routed).await;
             }
             ThreadFrameRoute::ChildTranscript { .. } => {
+                self.meter_web_search(record, frame, true, routed);
                 // A helper's rows go on its child run, which its last turn's end then closes.
                 self.deliver(delivery, record, frame, route, routed).await;
                 self.complete_child_on_terminal(delivery, record, frame)
@@ -523,10 +526,7 @@ impl CodexSessionRouting {
     }
 
     // Meters a usage frame and answers its reading; `None` for any other frame or no reading. A
-    // reading that cannot be read is reported, since a silent drop is spend no receipt shows. A
-    // helper's reading runs at the thread's tier and names the model its spawn or its
-    // conversation's read named; any other runs at its turn's sent tier and model, else the
-    // thread's, as for a turn the daemon started, which keeps none.
+    // reading that cannot be read is reported, since a silent drop is spend no receipt shows.
     fn meter_usage_frame(
         &mut self,
         record: &CodexSessionRecord,
@@ -549,27 +549,12 @@ impl CodexSessionRouting {
             return None;
         };
         let is_helper = matches!(route, ThreadFrameRoute::CarveOutUsage { .. });
-        let input = reading
-            .named_turn_id
-            .as_ref()
-            .filter(|_| !is_helper)
-            .and_then(|turn_id| record.turn_input_by_turn_id.get(turn_id));
-        let thread_speed = record
-            .declared_output_speed
-            .as_ref()
-            .map(|speed| speed.declared.as_str());
-        let speed = input
-            .and_then(|input| input.sent_output_speed_for_turn.as_deref())
-            .or(thread_speed);
-        reading.request.speed = speed.and_then(|speed| BoundedText::new(speed.to_owned()));
-        reading.request.thread_speed =
-            thread_speed.and_then(|speed| BoundedText::new(speed.to_owned()));
-        let model = if is_helper {
-            self.helper_models.get(&reading.thread_id)
-        } else {
-            Some(input.map_or(&record.thread_settings.model, |input| &input.model))
-        };
-        reading.request.model_id = model.and_then(|model| FreeFormText::new(model.clone()).ok());
+        reading.request = self.request_facts(
+            record,
+            &reading.thread_id,
+            reading.named_turn_id.as_deref(),
+            is_helper,
+        );
         // Only a metered delta is a sighting, so a stale `last`, a replay or a full window's
         // synthetic reading leaves nothing an export or a rollout line could be matched to.
         if let Some(mut delta) = self.accountant.meter_reading(reading.clone()) {
@@ -582,6 +567,56 @@ impl CodexSessionRouting {
             routed.metered_usage.push(delta);
         }
         Some(reading)
+    }
+
+    // Charges the billed hosted web search a completed item of a helper's conversation, where
+    // `is_helper`, or of any other states, at the facts its conversation's usage is priced by.
+    fn meter_web_search(
+        &self,
+        record: &CodexSessionRecord,
+        frame: &CodexRoutableFrame,
+        is_helper: bool,
+        routed: &mut CodexRoutedFrames,
+    ) {
+        let Some(search) = CodexWebSearch::read(&frame.method, &frame.params) else {
+            return;
+        };
+        let request = self.request_facts(record, search.thread_id(), search.turn_id(), is_helper);
+        routed.metered_usage.push(search.meter(request));
+    }
+
+    // The facts a request on `thread_id` under `turn_id` is priced by: a helper's runs at the
+    // thread's tier and names the model its spawn or its conversation's read named; any other runs
+    // at its turn's sent tier and model, else the thread's, as for a turn the daemon started,
+    // which keeps none.
+    fn request_facts(
+        &self,
+        record: &CodexSessionRecord,
+        thread_id: &str,
+        turn_id: Option<&str>,
+        is_helper: bool,
+    ) -> UsageRequestFacts {
+        let input = turn_id
+            .filter(|_| !is_helper)
+            .and_then(|turn_id| record.turn_input_by_turn_id.get(turn_id));
+        let thread_speed = record
+            .declared_output_speed
+            .as_ref()
+            .map(|speed| speed.declared.as_str());
+        let speed = input
+            .and_then(|input| input.sent_output_speed_for_turn.as_deref())
+            .or(thread_speed);
+        let model = if is_helper {
+            self.helper_models.get(thread_id)
+        } else {
+            Some(input.map_or(&record.thread_settings.model, |input| &input.model))
+        };
+        UsageRequestFacts {
+            model_id: model.and_then(|model| FreeFormText::new(model.clone()).ok()),
+            speed: speed.and_then(|speed| BoundedText::new(speed.to_owned())),
+            thread_speed: thread_speed.and_then(|speed| BoundedText::new(speed.to_owned())),
+            ..UsageRequestFacts::default()
+        }
     }
 
     // Settles a compaction wait on `thread/compacted`, keyed on the frame's own conversation,

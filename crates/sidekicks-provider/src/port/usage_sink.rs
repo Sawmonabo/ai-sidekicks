@@ -2,8 +2,8 @@
 //! windows go, a turn's push and an account read's whole set alike, and the sums the daemon already
 //! reported for a thread a resumed session meters on from. Recording a reading answers the event it
 //! became, so a priced request can name its rows, or nothing where the reading's sighting was
-//! passed over as a later sighting of a request already priced. The usage service registers it once it runs; until
-//! then a reading meters against a zero base and its delta goes nowhere.
+//! passed over as a later sighting of a request already priced. The usage service registers it
+//! once it runs; until then a reading meters against a zero base and its delta goes nowhere.
 
 use std::error::Error;
 

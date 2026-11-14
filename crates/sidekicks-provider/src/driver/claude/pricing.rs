@@ -149,6 +149,7 @@ impl RequestPricer for ClaudeRequestPricer {
                     },
                     web_searches: count(row.web_search_requests),
                     search_context_size: CLAUDE_SEARCH_CONTEXT_SIZE,
+                    published_search_rate: None,
                 }
             })
             .collect();

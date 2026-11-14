@@ -140,6 +140,7 @@ mod usage_limit_signal;
 #[cfg(test)]
 mod vendored_schema;
 mod version;
+mod web_search;
 mod written_names;
 
 pub(super) use self::descriptor::DESCRIPTOR;

@@ -481,6 +481,7 @@ mod tests {
                         },
                         web_searches: 0,
                         search_context_size: "medium",
+                        published_search_rate: None,
                     }
                 })
                 .collect();

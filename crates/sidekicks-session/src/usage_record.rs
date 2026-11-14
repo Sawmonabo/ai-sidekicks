@@ -16,10 +16,12 @@ pub(crate) mod reads;
 mod tests;
 
 use std::error::Error;
-use std::sync::Arc;
+use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use lru::LruCache;
 use sidekicks_contracts::event::usage::{
     UsageCostSource, UsageCostUpdatedPayload, UsagePricedEvent, UsageRateLimitUpdatedPayload,
     UsageRateLimitWindowKey, UsageSighting, UsageTokenCountRecordedPayload,
@@ -40,7 +42,9 @@ use sidekicks_contracts::wire::integer::{SafeInt, SafeSignedInt};
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::number::Number;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
-use sidekicks_provider::account::usage_turns::sightings::mark_sighting_statements;
+use sidekicks_provider::account::usage_turns::sightings::{
+    is_sighting_passed_over, mark_sighting_statements,
+};
 use sidekicks_provider::driver::run_control::HelperStopParams;
 use sidekicks_provider::port::usage_sink::{
     MeteredUsage, MeteredUsageOwner, PricedRequest, PricedUsageRow, ProviderQuotaWindow,
@@ -51,6 +55,7 @@ use sidekicks_provider::run::delivery::{
     SessionScopedRow,
 };
 use sidekicks_provider::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -75,6 +80,11 @@ use crate::usage_record::reads::{
 /// and turns before it, a thread's prior counts, and a session's thread tier and run at an
 /// instant.
 pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 13;
+
+// How many keys of requests filed as a session's own spend are kept for a later sighting on a
+// run; past it the oldest is forgotten, and its request then never reaches a run's count.
+const SESSION_FILED_KEYS_KEPT: NonZeroUsize =
+    NonZeroUsize::new(1024).expect("the bound is not zero");
 
 // The windows of an account's whole set, as each window's row carries them.
 type UsageRateLimitWholeSet = BoundedVec<UsageRateLimitWindowKey, 1, { usize::MAX }>;
@@ -144,6 +154,9 @@ pub struct UsageRecord {
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     dispatch: Arc<RunInboundDispatch>,
     engine: Arc<RunEngine>,
+    // The keys of requests whose first sighting was filed as the session's own spend, each with
+    // how many such requests it opened, so a later sighting passed over on a run counts once.
+    session_filed: Mutex<LruCache<String, u32>>,
     // The token-limit stops under way, each on a task of its own.
     stops: TaskTracker,
 }
@@ -165,6 +178,7 @@ impl UsageRecord {
             read_damaged_from_sequence,
             dispatch,
             engine,
+            session_filed: Mutex::new(LruCache::new(SESSION_FILED_KEYS_KEPT)),
             stops: TaskTracker::new(),
         }
     }
@@ -240,6 +254,10 @@ impl UsageRecord {
                     .await?
                 {
                     SightingWrite::Appended(outcome) => {
+                        if let Some(sighting) = &payload.sighting {
+                            *lock(&self.session_filed)
+                                .get_or_insert_mut_ref(sighting.match_key.as_str(), || 0) += 1;
+                        }
                         return Ok(recorded_usage(&outcome, target, helper));
                     }
                     SightingWrite::PassedOver => return Ok(None),
@@ -270,7 +288,7 @@ impl UsageRecord {
             }
         }
         let row_tokens = row_token_count(&payload);
-        let outcome = loop {
+        let recorded = loop {
             let delivered = self
                 .dispatch
                 .dispatch(InboundDelivery::SessionRow {
@@ -286,20 +304,48 @@ impl UsageRecord {
                 .settle_sighting(delivered, payload.sighting.as_ref())
                 .await?
             {
-                SightingWrite::Appended(outcome) => break outcome,
-                // A sighting passed over adds nothing to its run's count.
-                SightingWrite::PassedOver => return Ok(None),
+                SightingWrite::Appended(outcome) => {
+                    break recorded_usage(&outcome, target, helper.clone());
+                }
+                // A sighting passed over writes no row, and counts toward its run only where its
+                // request was filed as the session's spend, which it then takes off.
+                SightingWrite::PassedOver => {
+                    if !payload
+                        .sighting
+                        .as_ref()
+                        .is_some_and(|sighting| self.take_session_filed(sighting))
+                    {
+                        return Ok(None);
+                    }
+                    break None;
+                }
                 SightingWrite::Moved => {}
             }
         };
-        let recorded = recorded_usage(&outcome, target, helper.clone());
         // A run that has ended is stopped by no limit.
-        let Some(tally) = tally.as_mut() else {
-            return Ok(recorded);
-        };
-        tally.token_count = tally.token_count.saturating_add(row_tokens);
-        self.hold_to_token_limit(tally, &slot, session_id, run_id, helper);
+        if let Some(tally) = tally.as_mut() {
+            tally.token_count = tally.token_count.saturating_add(row_tokens);
+            self.hold_to_token_limit(tally, &slot, session_id, run_id, helper);
+        }
         Ok(recorded)
+    }
+
+    // Whether `sighting`'s request was filed as a session's own spend and not yet counted toward a
+    // run, taking one such request of its key off.
+    fn take_session_filed(&self, sighting: &UsageSighting) -> bool {
+        let mut session_filed = lock(&self.session_filed);
+        let key = sighting.match_key.as_str();
+        match session_filed.get_mut(key) {
+            Some(requests) if *requests > 1 => {
+                *requests -= 1;
+                true
+            }
+            Some(_) => {
+                session_filed.pop(key);
+                true
+            }
+            None => false,
+        }
     }
 
     // What a usage row's write did: `delivered` as it is, unless the row's sighting refused it as
@@ -320,7 +366,7 @@ impl UsageRecord {
                     .writer
                     .write(Vec::from(mark_sighting_statements(sighting)))
                     .await?;
-                Ok(if marked.iter().any(|result| result.row_count > 0) {
+                Ok(if is_sighting_passed_over(&marked) {
                     SightingWrite::PassedOver
                 } else {
                     SightingWrite::Moved

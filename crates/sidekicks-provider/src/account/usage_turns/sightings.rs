@@ -12,7 +12,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_store::database::statement::{
-    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+    StatementBindings, StatementResult, WriteStatement, nullable_text_binding, text_binding,
 };
 
 // A new record for a sighting, the first of its request, on its session and account: one row,
@@ -64,7 +64,8 @@ pub fn open_sighting_record_statement(
 /// The two statements of one write that pass `sighting` over: the first marks the oldest record of
 /// its key that holds no sighting from its source and changes one row where it did; the second
 /// returns a row where the source's own id is recorded already. Where neither did, the record
-/// moved since the row's write was refused, and the row's write is tried again.
+/// moved since the row's write was refused, and the row's write is tried again; the write's
+/// results read through [`is_sighting_passed_over`].
 pub fn mark_sighting_statements(sighting: &UsageSighting) -> [WriteStatement; 2] {
     [
         WriteStatement {
@@ -81,6 +82,12 @@ pub fn mark_sighting_statements(sighting: &UsageSighting) -> [WriteStatement; 2]
             expected_row_count: None,
         },
     ]
+}
+
+/// Whether the results of [`mark_sighting_statements`]' write passed its sighting over: a row in
+/// either, its record marked or its source's id recorded already; `false` where the record moved.
+pub fn is_sighting_passed_over(marked: &[StatementResult]) -> bool {
+    marked.iter().any(|result| result.row_count > 0)
 }
 
 fn sighting_bindings(sighting: &UsageSighting) -> Vec<(Cow<'static, str>, Value)> {

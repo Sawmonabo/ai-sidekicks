@@ -15,10 +15,7 @@ use crate::driver::codex::service::command_line::write_config_override;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceKind};
 use crate::driver::codex::service::record::KeptLaunchTelemetry;
 use crate::driver::codex::service::supervisor::CodexService;
-use crate::driver::codex::telemetry::exports::{
-    CODEX_EXPORT_BATCH_RECORDS, CODEX_EXPORT_INTERVAL, CODEX_EXPORT_QUEUE_RECORDS,
-    CODEX_EXPORT_TIMEOUT, CodexExportTag,
-};
+use crate::driver::codex::telemetry::exports::{CODEX_EXPORT_INTERVAL, CodexExportTag};
 use crate::pricing::receiver::bearers::TelemetryBearer;
 use crate::pricing::receiver::{LOGS_PATH_SUFFIX, TelemetryTarget};
 
@@ -58,15 +55,6 @@ const RESOURCE_ATTRIBUTES_VARIABLE: &str = "OTEL_RESOURCE_ATTRIBUTES";
 
 /// The environment variable the SDK reads its log batch interval from, in milliseconds.
 pub(crate) const BATCH_INTERVAL_VARIABLE: &str = "OTEL_BLRP_SCHEDULE_DELAY";
-
-/// The environment variable the log exporter reads its answer timeout from, in milliseconds.
-const LOGS_TIMEOUT_VARIABLE: &str = "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT";
-
-/// The environment variable the SDK reads its log queue's size from.
-const QUEUE_RECORDS_VARIABLE: &str = "OTEL_BLRP_MAX_QUEUE_SIZE";
-
-/// The environment variable the SDK reads a batch's largest size from.
-const BATCH_RECORDS_VARIABLE: &str = "OTEL_BLRP_MAX_EXPORT_BATCH_SIZE";
 
 /// The telemetry switches of one Codex service's launch.
 #[derive(Default)]
@@ -140,9 +128,9 @@ pub(crate) fn compose_command_telemetry_switches(home_kind: &CodexHomeKind) -> V
     }
 }
 
-// The log export to `target` and the token minted for the tag the launch of `service` takes from
-// the export register, with the batch schedule the rollout fallback's wait is reckoned from.
-// Fails when the token cannot be minted, which leaves the launch out of the register.
+// The log export to `target` at Codex's log batch interval and the token minted for the tag the
+// launch of `service` takes from the export register. Fails when the token cannot be minted, which
+// leaves the launch out of the register.
 fn compose_daemon_export(
     target: &TelemetryTarget,
     service: &Arc<CodexService>,
@@ -152,27 +140,10 @@ fn compose_daemon_export(
         .bearers()
         .mint(DESCRIPTOR.provider_id(), tag.holder())?;
     let mut environment = compose_daemon_export_environment(&bearer, &tag);
-    environment.extend(
-        [
-            (
-                BATCH_INTERVAL_VARIABLE,
-                CODEX_EXPORT_INTERVAL.as_millis().to_string(),
-            ),
-            (
-                LOGS_TIMEOUT_VARIABLE,
-                CODEX_EXPORT_TIMEOUT.as_millis().to_string(),
-            ),
-            (
-                QUEUE_RECORDS_VARIABLE,
-                CODEX_EXPORT_QUEUE_RECORDS.to_string(),
-            ),
-            (
-                BATCH_RECORDS_VARIABLE,
-                CODEX_EXPORT_BATCH_RECORDS.to_string(),
-            ),
-        ]
-        .map(|(name, value)| (name.to_owned(), value)),
-    );
+    environment.push((
+        BATCH_INTERVAL_VARIABLE.to_owned(),
+        CODEX_EXPORT_INTERVAL.as_millis().to_string(),
+    ));
     Ok(TelemetrySwitches {
         config_overrides: compose_daemon_export_overrides(target),
         environment,

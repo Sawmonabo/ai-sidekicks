@@ -29,6 +29,7 @@ use crate::driver::codex::token_usage::read_codex_token_usage;
 use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
+use crate::driver::codex::web_search::CodexWebSearch;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, MeteredUsageDelta, ThreadBaseEstablishment, UsageAxisCounts,
@@ -118,8 +119,14 @@ impl CopyTurnMeter {
     }
 
     /// Reads one frame of the turn, each usage reading metered on the turn's thread as the
-    /// stream's sighting of its request, whose export twin the copy's filing takes too.
+    /// stream's sighting of its request, whose export twin the copy's filing takes too, and each
+    /// billed hosted web search charged at the turn's facts.
     pub(crate) fn read_frame(&mut self, method: &str, params: &RawValue) -> CopyFrameReading {
+        if let Some(search) = CodexWebSearch::read(method, params)
+            .filter(|search| search.thread_id() == self.thread_id)
+        {
+            return CopyFrameReading::Usage(Box::new(search.meter(self.request.clone())));
+        }
         match method {
             CODEX_ITEM_COMPLETED_METHOD => read_codex_object::<CopyFrame>(params.get())
                 .and_then(|frame| frame.item)

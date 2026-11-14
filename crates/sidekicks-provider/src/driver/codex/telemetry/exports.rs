@@ -37,18 +37,6 @@ pub(crate) mod tests;
 /// SDK's default in place of the person's own value.
 pub(crate) const CODEX_EXPORT_INTERVAL: Duration = Duration::from_secs(1);
 
-/// How long Codex's exporter waits for the daemon to answer one batch before it drops it,
-/// `OTEL_EXPORTER_OTLP_LOGS_TIMEOUT`, which each service launch sets to the SDK's default.
-pub(crate) const CODEX_EXPORT_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// How many records Codex's log queue holds before it drops a new one, `OTEL_BLRP_MAX_QUEUE_SIZE`,
-/// which each service launch sets to the SDK's default.
-pub(crate) const CODEX_EXPORT_QUEUE_RECORDS: u32 = 2_048;
-
-/// How many records one of Codex's batches carries at most, `OTEL_BLRP_MAX_EXPORT_BATCH_SIZE`,
-/// which each service launch sets to the SDK's default.
-pub(crate) const CODEX_EXPORT_BATCH_RECORDS: u32 = 512;
-
 /// The resource attribute a service launch's tag is carried under.
 const SERVICE_TAG_KEY: &str = "sidekicks.codex.service";
 

@@ -6,10 +6,11 @@
 //!   region.
 //! - **An API key** takes the long-context rates once the request's input, cache reads and writes
 //!   pass the row's threshold, its region's multiplier where the service's host is one of the API's
-//!   regional hosts, and every cache write at the row's 30-minute rate. Any other host is unpriced.
+//!   regional hosts, and every cache write at the row's 30-minute rate, or at the input rate where
+//!   the row carries no write rate for the request. Any other host is unpriced. Each hosted web
+//!   search is one call at the row's per-search rate, or the API's published rate for the tool
+//!   where the row carries none.
 //! - **Any other sign-in kind**, or none read yet, holds the request for the kind.
-//!
-//! Web searches carry no count on Codex's usage, so none is priced.
 //!
 //! A session's recorder, and each side question's or hand-over's copy, prices each row as it
 //! records it: it reads its service's region once per service, stamps it on every row so the
@@ -24,6 +25,7 @@ use sidekicks_contracts::event::usage::UsageCostSource;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAuthMode;
 use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
+use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
@@ -36,9 +38,10 @@ use crate::driver::codex::config_read::{
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::port::usage_sink::{MeteredUsage, UsageSink};
 use crate::pricing::BoxedError;
-use crate::pricing::list::{PriceRow, PriceTable, SpeedPricing};
+use crate::pricing::decimal::ExactDecimal;
+use crate::pricing::list::{PriceRow, PriceTable, RateBase, SpeedPricing};
 use crate::pricing::live::{LivePricing, LiveUsageRow};
-use crate::pricing::quote::{RequestTokenCounts, RequestUsage, quote_request_rows};
+use crate::pricing::quote::{QuoteRefusal, RequestTokenCounts, RequestUsage, quote_request_rows};
 use crate::pricing::rule::{RequestPricer, RequestPricing};
 use crate::usage_delta_accountant::UsageRequestFacts;
 type RegionWord = BoundedText<1, EVENT_FIELD_MAX_LEN>;
@@ -46,6 +49,14 @@ type RegionWord = BoundedText<1, EVENT_FIELD_MAX_LEN>;
 // The region a service on a host that is neither the API's own nor one of its regional hosts
 // stamps on its rows; no regional prefix equals it, so the rule holds an API key's requests.
 const UNKNOWN_HOST_REGION: &str = "unknownHost";
+
+// OpenAI's published price of one call of the Responses API's hosted web search tool, in dollars:
+// $10.00 per 1,000 calls, whatever the model or context size.
+const OPENAI_WEB_SEARCH_CALL_RATE: &str = "0.01";
+
+// The context size Codex's hosted search runs at: the API's default, which Codex sends unless the
+// person's config names a size; every row prices the three sizes alike.
+const CODEX_SEARCH_CONTEXT_SIZE: &str = "medium";
 
 /// The models Codex's automatic reviewer runs by default, on a plan sign-in and on an API key.
 pub(crate) const CODEX_REVIEWER_MODELS: [&str; 2] = ["codex-auto-review", "gpt-5.6-luna"];
@@ -115,23 +126,54 @@ impl RequestPricer for CodexRequestPricer {
         if region.is_some_and(|region| !OPENAI_REGION_PREFIXES.contains(&region)) {
             return RequestPricing::HeldForPrice;
         }
-        let row_tokens: Vec<RequestTokenCounts> = request
+        match quote_codex_request(table, model_id.as_str(), key, request, region, is_plan) {
+            Ok(shares) => RequestPricing::Priced {
+                cost_source: UsageCostSource::DerivedExact,
+                shares,
+            },
+            Err(_refusal) => RequestPricing::HeldForPrice,
+        }
+    }
+}
+
+// The shares of `request`'s rows on `model_id` under the rule: a plan's at the standard rates with
+// each cache write at the input rate, a key's at its long-context sum and `region`, its searches
+// charged and each cache write at the row's 30-minute rate, or at the input rate where the row
+// carries no write rate at the request's threshold and tier.
+fn quote_codex_request(
+    table: &PriceTable,
+    model_id: &str,
+    key: &UnpricedUsageKey,
+    request: &UnpricedRequest,
+    region: Option<&str>,
+    is_plan: bool,
+) -> Result<Vec<UsdMicros>, QuoteRefusal> {
+    let quote = |is_write_at_input: bool| {
+        let row_tokens: Vec<(RequestTokenCounts, u64)> = request
             .rows
             .iter()
             .map(|row| {
-                let count = |axis: usize| row.tokens[axis].map_or(0, SafeInt::get);
-                let (input, cache_write) = if is_plan {
-                    (count(0).saturating_add(count(3)), 0)
+                let count = |figure: Option<SafeInt<0>>| figure.map_or(0, SafeInt::get);
+                let [input, output, cache_read, cache_write, _reasoning] = row.tokens.map(count);
+                let (input, cache_write) = if is_write_at_input {
+                    (input.saturating_add(cache_write), 0)
                 } else {
-                    (count(0), count(3))
+                    (input, cache_write)
                 };
-                RequestTokenCounts {
+                let tokens = RequestTokenCounts {
                     input,
-                    output: count(1),
-                    cache_read: count(2),
+                    output,
+                    cache_read,
                     cache_write,
                     cache_write_extended: 0,
-                }
+                };
+                // A plan's searches are part of the plan.
+                let searches = if is_plan {
+                    0
+                } else {
+                    count(row.web_search_requests)
+                };
+                (tokens, searches)
             })
             .collect();
         let long_context_tokens = if is_plan {
@@ -139,7 +181,7 @@ impl RequestPricer for CodexRequestPricer {
         } else {
             row_tokens
                 .iter()
-                .map(|tokens| {
+                .map(|(tokens, _searches)| {
                     tokens
                         .input
                         .saturating_add(tokens.cache_read)
@@ -149,8 +191,8 @@ impl RequestPricer for CodexRequestPricer {
         };
         let rows: Vec<RequestUsage<'_>> = row_tokens
             .into_iter()
-            .map(|tokens| RequestUsage {
-                model_id: model_id.as_str(),
+            .map(|(tokens, web_searches)| RequestUsage {
+                model_id,
                 speed: rate_speed(key),
                 region,
                 region_words: &OPENAI_REGION_PREFIXES,
@@ -158,17 +200,22 @@ impl RequestPricer for CodexRequestPricer {
                 // Codex writes the cache at one lifetime only, so no count reads this.
                 extended_cache_lifetime_hours: 1,
                 tokens,
-                web_searches: 0,
-                search_context_size: "medium",
+                web_searches,
+                search_context_size: CODEX_SEARCH_CONTEXT_SIZE,
+                published_search_rate: Some(
+                    ExactDecimal::parse_json_number(OPENAI_WEB_SEARCH_CALL_RATE)
+                        .expect("the published rate is a decimal"),
+                ),
             })
             .collect();
-        match quote_request_rows(table, &rows) {
-            Ok(shares) => RequestPricing::Priced {
-                cost_source: UsageCostSource::DerivedExact,
-                shares,
-            },
-            Err(_refusal) => RequestPricing::HeldForPrice,
-        }
+        quote_request_rows(table, &rows)
+    };
+    match quote(is_plan) {
+        Err(QuoteRefusal::RateAbsent {
+            base: RateBase::CacheWrite,
+            cache_lifetime_hours: None,
+        }) => quote(true),
+        quoted => quoted,
     }
 }
 
@@ -398,8 +445,8 @@ pub(crate) mod tests {
     // Killed by leaving cached input in the input count (24,000), by `>=` at the threshold
     // (814,400 for 272,000 tokens), by long context or the region on a plan (818,400; 450,120), by
     // a plan's write at the write rate (409,700), by `default` read as a tier (unpriced), by a
-    // write at the longer lifetime (5,000), by the region ignored (3,000) and by pricing a kind
-    // that holds.
+    // write at the longer lifetime (5,000), by a key's write on a row with no write rate held, by
+    // the region ignored (3,000) and by pricing a kind that holds.
     #[rstest]
     #[case::standard("gpt-6.1-sol", None, None, API_KEY, [1_000, 100, 10_000, 0], priced(4_000))]
     #[case::default_tier(
@@ -441,6 +488,14 @@ pub(crate) mod tests {
         API_KEY,
         [0, 0, 0, 1_000],
         priced(2_500)
+    )]
+    #[case::write_on_a_row_with_no_write_rate(
+        "gpt-5.3-codex",
+        None,
+        None,
+        API_KEY,
+        [0, 0, 0, 1_000],
+        priced(1_750)
     )]
     #[case::plan(
         "gpt-6.1-sol",
