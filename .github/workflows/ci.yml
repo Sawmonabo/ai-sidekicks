@@ -191,6 +191,7 @@ jobs:
         uses: ./.github/actions/restore-sqlite-shell
 
       - name: Install dependencies
+        id: install
         run: pnpm install --frozen-lockfile
 
       # Backs Turborepo's remote cache with the GitHub Actions cache (no third-party service).
@@ -242,28 +243,29 @@ jobs:
 
       # Every workspace but two kinds. The desktop: the `desktop` job's bundle leg builds it
       # whenever a file its filter names changes, so building it here too would build it twice. The
-      # packages the Rust port replaces, two crates among them: Turbo builds one only for a package
-      # that still depends on it, and `--continue` with the later steps' `!cancelled()` keeps a red
-      # build of one from stopping the checks of the packages that do not depend on it.
+      # packages the Rust port deletes, two crates among them: Turbo builds one only for a package
+      # that still depends on it, and `--continue` with the later steps' condition keeps a red build
+      # of one from stopping the checks of the packages that do not depend on it. A step that needs
+      # the installed packages, or serves only the tests, runs only when the install passed.
       - name: Build (excluding desktop)
         run: pnpm turbo run build --continue --filter='!@ai-sidekicks/desktop' --filter='!@ai-sidekicks/runtime-daemon' --filter='!@ai-sidekicks/cli' --filter='!@ai-sidekicks/crypto-paseto' --filter='!@ai-sidekicks/search-index' --filter='!@ai-sidekicks/control-plane' --filter='!search-index' --filter='!sidecar-rust-pty' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Typecheck
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm turbo run typecheck --continue ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Lint per-package
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm turbo run lint --continue ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Install zsh and fish for the shell-mark tests
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends zsh fish
 
       # The worktree cleanup's test starts git's file-watch daemon and proves the cleanup stops it;
       # Ubuntu's own git has no daemon on Linux, so the git maintainers' release takes its place.
       - name: Install a git with its file-watch daemon
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           sudo add-apt-repository -y ppa:git-core/ppa
           sudo apt-get update -qq
@@ -273,16 +275,16 @@ jobs:
       # Ubuntu's own zshrc runs compinit, which stops at a question when a completion folder is
       # writable by others, as some on the runner image are; this closes them as a machine would.
       - name: Close zsh's completion folders to other accounts
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: zsh -fc 'autoload -Uz compaudit; compaudit' | tee /dev/stderr | xargs -r sudo chmod go-w
 
       # The desktop package runs in the `desktop` matrix job, one tier per runner. Under turbo's
       # default concurrency (10), `@ai-sidekicks/desktop#test:smoke`, the one project that spawns a
       # full Electron tree and asserts a wall-clock boot deadline, would share a 4-vCPU runner with
       # `client-sdk#test` and the renderer suite. A filtered run tests each selected crate by
-      # itself, so the two crates the Rust port replaces are left out by name.
+      # itself, so the two crates the Rust port deletes are left out by name.
       - name: Test (excluding desktop)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm turbo run test --continue --filter='!@ai-sidekicks/desktop' --filter='!search-index' --filter='!sidecar-rust-pty' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       # Public-surface validation of the workspace libraries, run against the packed tarball so it
@@ -295,10 +297,10 @@ jobs:
       #     dynamic-import) while node16-from-ESM and bundler stay enforced.
       #
       # Libraries are found from `packages/*/package.json`, so a new package needs no list edit;
-      # `apps/*` are applications and out of scope, and the packages the Rust port replaces are
+      # `apps/*` are applications and out of scope, and the packages the Rust port deletes are
       # skipped.
       - name: Validate package public surface (publint + attw)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           fail=0
           tmp=$(mktemp -d)
