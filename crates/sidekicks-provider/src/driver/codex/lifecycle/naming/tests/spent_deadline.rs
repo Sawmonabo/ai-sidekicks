@@ -14,7 +14,7 @@ use super::{TITLE_THREAD, TITLE_TURN, driver_on_account};
 use crate::driver::codex::lifecycle::naming::CODEX_NAMING_DEADLINE;
 use crate::driver::codex::service::supervisor::test_service::bind_test_listener;
 use crate::driver::codex::session::test_fixture::{TestCodexSession, turn_reply};
-use crate::driver::session_control::NameSessionParams;
+use crate::driver::session_control::{NameSessionParams, NamingFirstMessage};
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -85,7 +85,7 @@ async fn a_live_pass_that_spends_the_deadline_leaves_the_one_shot_pass_no_time()
         .name_session(NameSessionParams {
             session_id: session.task.record.session_id,
             place: None,
-            first_message: "Fix the login page".to_owned(),
+            first_message: NamingFirstMessage::Words("Fix the login page".to_owned()),
             first_reply: "Looking at the form.".to_owned(),
             binding_id: mint_runtime_binding_id(),
             cancel: CancellationToken::new(),

@@ -40,7 +40,7 @@ use crate::driver::claude::spawn::legs::{
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{
-    NameSessionParams, SessionToolServer, SubagentPolicy, run_naming_pass_until,
+    NameSessionParams, NamingFirstMessage, SessionToolServer, SubagentPolicy, run_naming_pass_until,
 };
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::usage_sink::MeteredUsageOwner;
@@ -285,9 +285,16 @@ async fn run_naming_turn(
         .await
 }
 
-// What the session is about, as its first exchange shows it.
-fn compose_naming_description(first_message: &str, first_reply: &str) -> String {
-    format!("The person wrote:\n{first_message}\n\nThe reply began:\n{first_reply}")
+// What the session is about, as its first exchange shows it; a message of files alone is said to
+// be files, so its stand-in words are not read as the person's.
+fn compose_naming_description(first_message: &NamingFirstMessage, first_reply: &str) -> String {
+    let opening = match first_message {
+        NamingFirstMessage::Words(words) => format!("The person wrote:\n{words}"),
+        NamingFirstMessage::FilesAlone(carried) => {
+            format!("The person sent files with no words: {carried}.")
+        }
+    };
+    format!("{opening}\n\nThe reply began:\n{first_reply}")
 }
 
 // The one-turn pass's message.

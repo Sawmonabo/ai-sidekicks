@@ -284,8 +284,9 @@ pub struct ChildRunHead {
     #[schemars(with = "crate::wire::NullableSchema<WireInstant>")]
     #[garde(dive)]
     pub ended_at: Option<WireInstant>,
-    /// What it is doing: the newest action its tool calls recorded, at a call's start or at an
-    /// end that named what the start could not, kept once it ends; `null` before its first.
+    /// What it is doing: the action of its newest call that recorded one, as that call's start
+    /// recorded it, or as its end named it where the start named no subject; kept once it ends,
+    /// `null` before its first.
     #[serde(deserialize_with = "crate::wire::nullable")]
     #[schemars(with = "crate::wire::NullableSchema<ToolCallAction>")]
     pub activity: Option<ToolCallAction>,

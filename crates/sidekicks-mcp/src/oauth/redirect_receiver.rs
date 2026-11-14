@@ -338,37 +338,13 @@ fn owner_issued_address(callback: &RedirectAddress) -> Result<SocketAddr, Redire
             callback_url: callback_url.to_string(),
         });
     };
-    let port = if names_port(callback.as_str()) {
-        callback_url
-            .port_or_known_default()
-            .expect("an http address has a default port")
-    } else {
-        0
-    };
+    // The `url` crate drops a written port that is the scheme's default, so `http`'s parser reads
+    // the address's own text for an explicit `:80`.
+    let port = callback_url
+        .port()
+        .or_else(|| callback.as_str().parse::<http::Uri>().ok()?.port_u16())
+        .unwrap_or(0);
     Ok(SocketAddr::new(host, port))
-}
-
-// Whether the address `text` writes names a port, read from the text itself: the `url` crate drops
-// a port that is the scheme's default, so an explicit `:80` reads there as no port at all.
-fn names_port(text: &str) -> bool {
-    let after_scheme = text
-        .trim_matches(|character: char| character <= ' ')
-        .split_once(':')
-        .map_or("", |(_, rest)| rest)
-        .trim_start_matches(['/', '\\']);
-    let authority = after_scheme
-        .split(['/', '\\', '?', '#'])
-        .next()
-        .unwrap_or_default();
-    let host_and_port = authority
-        .rsplit_once('@')
-        .map_or(authority, |(_, rest)| rest);
-    let after_host = host_and_port
-        .rsplit_once(']')
-        .map_or(host_and_port, |(_, rest)| rest);
-    after_host
-        .rsplit_once(':')
-        .is_some_and(|(_, port)| !port.is_empty())
 }
 
 /// Whether an owner-issued path can sit beside the result pages in the router, which refuses a

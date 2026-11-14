@@ -403,6 +403,25 @@ pub struct CloseSessionParams {
     pub cause: SessionCloseCause,
 }
 
+/// A session's first message as its naming pass reads it: the person's words, or for a message of
+/// files and no words the words for what it carried, which the person did not write.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NamingFirstMessage {
+    /// The person's words, as the session's row previews them.
+    Words(String),
+    /// What a message of files alone carried, as the session's row previews it (`Attached image`).
+    FilesAlone(String),
+}
+
+impl NamingFirstMessage {
+    /// The text the session's row previews it as.
+    pub fn text(&self) -> &str {
+        match self {
+            Self::Words(text) | Self::FilesAlone(text) => text,
+        }
+    }
+}
+
 /// Params of `name_session`: the session, where it runs, and its first exchange, the reply cut
 /// to [`NAME_SESSION_REPLY_MAX_BYTES`] at a character boundary.
 #[derive(Clone, Debug)]
@@ -412,8 +431,8 @@ pub struct NameSessionParams {
     /// Where the session runs: `None` on macOS and Linux, Windows itself or a WSL 2 distribution
     /// on Windows.
     pub place: Option<Place>,
-    /// The person's first message.
-    pub first_message: String,
+    /// The session's first message.
+    pub first_message: NamingFirstMessage,
     /// The text of the first completed run's reply, cut.
     pub first_reply: String,
     /// The binding of the session's first completed run, which the pass's spend is recorded on as

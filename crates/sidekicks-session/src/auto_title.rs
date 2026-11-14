@@ -27,7 +27,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{is_blank, is_ecmascript_whitespace};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{
-    NAME_SESSION_REPLY_MAX_BYTES, NameSessionParams,
+    NAME_SESSION_REPLY_MAX_BYTES, NameSessionParams, NamingFirstMessage,
 };
 use sidekicks_provider::runtime_binding::store::read_bindings_of_runs;
 use sidekicks_std::mutex_lock::lock;
@@ -48,9 +48,9 @@ use crate::changes::SessionChanges;
 use crate::run::read::read_run_provider;
 
 /// The statements the self-naming prepares on a read connection: the first completed lead run,
-/// the name and first message, the run's reply, the unnamed sessions, the session's working folder
-/// and the run's provider.
-pub const SESSION_AUTO_TITLE_STATEMENT_CAPACITY: usize = 6;
+/// the name and first message, whether that message held words, the run's reply, the unnamed
+/// sessions, the session's working folder and the run's provider.
+pub const SESSION_AUTO_TITLE_STATEMENT_CAPACITY: usize = 7;
 
 /// What joins one reply message to the next in the reply the pass reads.
 const REPLY_MESSAGE_SEPARATOR: &str = "\n\n";
@@ -64,6 +64,12 @@ const FIRST_COMPLETED_RUN_SQL: &str = "SELECT event.run_id, event.sequence
 
 const NAMING_SOURCE_SQL: &str = "SELECT name, first_message_preview FROM sessions
   WHERE id = @sessionId";
+
+// The words of the session's first message, the one its row previews, through the type index.
+const FIRST_MESSAGE_WORDS_SQL: &str = "SELECT json_extract(payload, '$.message')
+  FROM session_events
+  WHERE session_id = @sessionId AND type = @sentType
+  ORDER BY sequence LIMIT 1";
 
 static RUN_REPLY_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -103,7 +109,7 @@ enum NamingReadError {
 /// What one session's naming reads: its first message, where it runs, the provider and newest
 /// binding of its first completed run, and that run's reply cut to the pass's bound.
 struct NamingInput {
-    first_message: String,
+    first_message: NamingFirstMessage,
     place: Option<Place>,
     provider: Option<ProviderId>,
     binding_id: Option<RuntimeBindingId>,
@@ -323,7 +329,7 @@ impl SessionAutoTitle {
         if cancel.is_cancelled() {
             return;
         }
-        let name = passed_name.unwrap_or_else(|| first_words_of(&first_message));
+        let name = passed_name.unwrap_or_else(|| first_words_of(first_message.text()));
         if let Err(error) = self.changes.name_unnamed(session_id, &name).await {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
@@ -612,8 +618,13 @@ fn read_naming_input(
     if completed_at.is_some_and(|sequence| i64::from(sequence) != first_sequence) {
         return Ok(None);
     }
-    let Some((None, Some(first_message))) = read_naming_source(&snapshot, session_id)? else {
+    let Some((None, Some(preview))) = read_naming_source(&snapshot, session_id)? else {
         return Ok(None);
+    };
+    let first_message = if read_is_first_message_files_alone(&snapshot, session_id)? {
+        NamingFirstMessage::FilesAlone(preview)
+    } else {
+        NamingFirstMessage::Words(preview)
     };
     let place = read_working_folder(&snapshot, session_id)?.place;
     let provider = read_run_provider(&snapshot, &run_id)?.map(|run| run.provider);
@@ -642,6 +653,26 @@ fn read_naming_source(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
+}
+
+// Whether `session_id`'s first message held no words, a message of files alone, whose preview is
+// what it carried.
+fn read_is_first_message_files_alone(
+    reader: &Connection,
+    session_id: &SessionId,
+) -> rusqlite::Result<bool> {
+    let message = reader
+        .prepare_cached(FIRST_MESSAGE_WORDS_SQL)?
+        .query_row(
+            named_params! {
+                "@sessionId": session_id.text().as_str(),
+                "@sentType": SessionEventType::UserMessageSent.as_str(),
+            },
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(message.is_some_and(|message| is_blank(&message)))
 }
 
 // The run's reply messages in order, joined, read only as far as the pass's bound and cut there

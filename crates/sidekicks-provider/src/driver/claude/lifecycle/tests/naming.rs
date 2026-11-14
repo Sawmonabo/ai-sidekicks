@@ -18,7 +18,7 @@ use crate::driver::claude::session::scripted::{binding_id, register_claude_price
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnReply};
 use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
-use crate::driver::session_control::NameSessionParams;
+use crate::driver::session_control::{NameSessionParams, NamingFirstMessage};
 use crate::driver::test_registry::new_session_id;
 use crate::port::usage_sink::MeteredUsageOwner;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -108,7 +108,7 @@ async fn a_naming_pass_at_rest_runs_its_one_turn_in_no_mode_of_its_own() {
         .name_session(NameSessionParams {
             session_id,
             place: None,
-            first_message: "Fix the login page".to_owned(),
+            first_message: NamingFirstMessage::Words("Fix the login page".to_owned()),
             first_reply: "Looking at the form.".to_owned(),
             binding_id: binding_id("naming"),
             cancel: CancellationToken::new(),
@@ -165,7 +165,7 @@ async fn a_naming_pass_at_rest_records_and_prices_its_one_turn_as_the_session_s_
         .name_session(NameSessionParams {
             session_id,
             place: None,
-            first_message: "Fix the login page".to_owned(),
+            first_message: NamingFirstMessage::Words("Fix the login page".to_owned()),
             first_reply: "Looking at the form.".to_owned(),
             binding_id: binding_id("naming"),
             cancel: CancellationToken::new(),
@@ -202,7 +202,7 @@ async fn a_canceled_naming_pass_s_spend_lands_after_the_cancel() {
         let mut naming = pin!(fixture.driver.name_session(NameSessionParams {
             session_id,
             place: None,
-            first_message: "Fix the login page".to_owned(),
+            first_message: NamingFirstMessage::Words("Fix the login page".to_owned()),
             first_reply: "Looking at the form.".to_owned(),
             binding_id: binding_id("naming"),
             cancel: cancel.clone(),

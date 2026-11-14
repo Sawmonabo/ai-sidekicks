@@ -35,7 +35,7 @@ use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, Claud
 use crate::driver::claude::spawn::launch::session_listing::ClaudeSessionListing;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::GetCapabilitiesResult;
-use crate::driver::session_control::{NameSessionParams, SubagentDefinition};
+use crate::driver::session_control::{NameSessionParams, NamingFirstMessage, SubagentDefinition};
 use crate::driver::test_registry::new_session_id;
 
 /// What a naming pass at rest never starts.
@@ -163,7 +163,7 @@ async fn a_naming_pass_whose_one_turn_never_answers_ends_with_none_at_its_deadli
     let params = NameSessionParams {
         session_id,
         place: None,
-        first_message: "Fix the login page".to_owned(),
+        first_message: NamingFirstMessage::Words("Fix the login page".to_owned()),
         first_reply: "Looking at the form.".to_owned(),
         binding_id: binding_id("naming"),
         cancel: cancel.clone(),

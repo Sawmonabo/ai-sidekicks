@@ -159,13 +159,13 @@ pub(crate) struct CodexDeliveryMemory {
     /// never the run's, and the run's binding stays for the turn the retry sends.
     pub(crate) retried_run_id_by_turn_id: HashMap<String, RunId>,
     /// The event of each tool call's start once written, by item id, which a reviewer flag about
-    /// the call points at; each leaves with its item's end.
+    /// the call points at; each leaves with its item's end or its turn's terminal.
     pub(crate) tool_row_event_id_by_item_id: HashMap<String, FreeFormText<EVENT_FIELD_MAX_LEN>>,
     /// The run each tool call's rows went on, by item id, which a review of the call blocks; each
-    /// leaves with its item's end.
+    /// leaves with its item's end or its turn's terminal.
     pub(crate) tool_row_run_by_item_id: HashMap<String, CodexRowRun>,
     /// Each tool call whose start's act named no subject yet, by item id, so its end records the
-    /// act it names; each leaves with its item's end.
+    /// act it names; each leaves with its item's end or its turn's terminal.
     pub(crate) unnamed_act_item_ids: HashSet<String>,
     /// Turns whose reply has started, by turn id; each leaves with its turn's terminal.
     pub(crate) reply_started_turn_ids: HashSet<String>,
@@ -184,7 +184,8 @@ pub(crate) struct CodexDeliveryMemory {
     pub(crate) item_started_at_ms_by_turn_id: HashMap<String, HashMap<String, u64>>,
     /// Each command whose row is open, by item id; it leaves on the command's own end.
     pub(crate) running_command_by_item_id: HashMap<String, CodexRunningCommand>,
-    /// The files each change item in flight touches, by item id, which its approval names.
+    /// The files each change item in flight touches, by item id, which its approval names; each
+    /// leaves with its item's end or its turn's terminal.
     pub(crate) changed_paths_by_item_id: HashMap<String, Vec<String>>,
     /// The turn Codex started by itself whose run is opening; `None` when none opens.
     pub(crate) self_started_turn_opening: Option<String>,
@@ -272,7 +273,8 @@ impl CodexDeliveryMemory {
             .or_insert_with(mint_epoch)
     }
 
-    /// Forgets what the memory held for a turn once its terminal was handled.
+    /// Forgets what the memory held for a turn once its terminal was handled, and for each of its
+    /// items that never ended, an item the turn's interrupt cut off among them.
     pub(crate) fn forget_turn(&mut self, turn_id: &str) {
         self.turn_epoch_by_turn_id.remove(turn_id);
         self.started_turn_by_turn_id.remove(turn_id);
@@ -281,7 +283,17 @@ impl CodexDeliveryMemory {
         self.retried_turn_ids.remove(turn_id);
         self.retried_run_id_by_turn_id.remove(turn_id);
         self.reply_started_turn_ids.remove(turn_id);
-        self.item_started_at_ms_by_turn_id.remove(turn_id);
+        for item_id in self
+            .item_started_at_ms_by_turn_id
+            .remove(turn_id)
+            .unwrap_or_default()
+            .keys()
+        {
+            self.tool_row_event_id_by_item_id.remove(item_id);
+            self.tool_row_run_by_item_id.remove(item_id);
+            self.unnamed_act_item_ids.remove(item_id);
+            self.changed_paths_by_item_id.remove(item_id);
+        }
         self.unowned_turn_ids.remove(turn_id);
         self.self_started_turn_ids.remove(turn_id);
     }

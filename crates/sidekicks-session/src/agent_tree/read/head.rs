@@ -17,9 +17,11 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_std::text_cut::cut_to_code_points;
+use sidekicks_store::database::schema::SESSION_EVENTS_TOOL_CALL_INDEX;
 use sidekicks_store::database::stored_column::{
     StoredJsonFault, optional_text_column, safe_int_column, text_column,
 };
+use sidekicks_store::events::session::insert::TOOL_CALL_ID_PAYLOAD_KEY;
 use sidekicks_store::events::session::read::{SessionEventReads, readable_event_sql};
 use sidekicks_store::transcript::rejoin::{RowReads, row_condition_sql};
 
@@ -38,22 +40,41 @@ static SELECT_TOOL_COUNTS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// Each listed run's newest readable action, as its driver recorded it at a tool call's start or
-// at an end that named what the start could not; a row with no action hides no older one. The bare
-// column reads from the row `MAX` picks.
+// Each listed run's newest readable call that recorded an action, taken by its start: one seek
+// newest first down the run's starts, past only the starts that recorded none. Where that start
+// named no subject, the newest readable end of the same call that names one, one seek on the
+// call's id, stands in its place; the end's read names the call's index, since unhinted the
+// planner takes the run's index and walks back across the run's other ends. A run with no such
+// call reads a null action.
 static SELECT_NEWEST_TOOLS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT acted.run_id, MAX(acted.sequence), json_extract(acted.payload, '$.action')
-  FROM session_events AS acted
-  WHERE acted.session_id = @session_id
-    AND acted.type IN ('{invoked}', '{completed}')
-    AND acted.run_id IN (SELECT value FROM json_each(@run_ids))
-    AND json_extract(acted.payload, '$.action') IS NOT NULL
-    AND {readable}
-  GROUP BY acted.run_id",
+        "SELECT listed.value,
+         (SELECT COALESCE(
+                   CASE WHEN json_extract(invoked.payload, '$.action.subject') IS NULL THEN
+                     (SELECT json_extract(completed.payload, '$.action')
+                        FROM session_events AS completed INDEXED BY {SESSION_EVENTS_TOOL_CALL_INDEX}
+                       WHERE completed.session_id = @session_id
+                         AND completed.tool_call_id
+                             = json_extract(invoked.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}')
+                         AND completed.type = '{completed}'
+                         AND completed.run_id = invoked.run_id
+                         AND json_extract(completed.payload, '$.action') IS NOT NULL
+                         AND {readable_completed}
+                       ORDER BY completed.sequence DESC LIMIT 1)
+                   END,
+                   json_extract(invoked.payload, '$.action'))
+            FROM session_events AS invoked
+           WHERE invoked.session_id = @session_id
+             AND invoked.type = '{invoked}'
+             AND invoked.run_id = listed.value
+             AND json_extract(invoked.payload, '$.action') IS NOT NULL
+             AND {readable_invoked}
+           ORDER BY invoked.sequence DESC LIMIT 1)
+    FROM json_each(@run_ids) AS listed",
         invoked = SessionEventType::AgentToolCallInvoked.as_str(),
         completed = SessionEventType::AgentToolCallCompleted.as_str(),
-        readable = readable_event_sql("acted"),
+        readable_invoked = readable_event_sql("invoked"),
+        readable_completed = readable_event_sql("completed"),
     )
 });
 
@@ -172,14 +193,18 @@ impl HeadLog {
                 |row| {
                     Ok((
                         run_id_column(row, 0)?,
-                        text_column(row, 2, |text| {
+                        optional_text_column(row, 1, |text| {
                             serde_json::from_str::<ToolCallAction>(&text)
                                 .map_err(StoredJsonFault::from)
                         })?,
                     ))
                 },
             )?
-            .collect::<rusqlite::Result<_>>()?;
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            // A run none of whose calls recorded an action has none.
+            .filter_map(|(run_id, action)| Some((run_id, action?)))
+            .collect();
         let ends = reader
             .prepare_cached(&SELECT_ENDS_SQL)?
             .query_map(
@@ -289,8 +314,8 @@ impl HeadLog {
             .unwrap_or(SafeInt::ZERO)
     }
 
-    /// The newest action `run_id`'s tool calls recorded, kept once it ends; `None` before the
-    /// first.
+    /// What `run_id`'s newest call that recorded an action does, by its start, or by its end where
+    /// the start named no subject; kept once the run ends, `None` before its first.
     pub(super) fn activity(&self, run_id: RunId) -> Option<ToolCallAction> {
         self.activities.get(&run_id).cloned()
     }

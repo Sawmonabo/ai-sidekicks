@@ -51,7 +51,9 @@ use crate::driver::codex::transport::connection::{
     CODEX_REQUEST_TIMEOUT, CodexAppServerConnection, read_codex_object,
 };
 use crate::driver::contract::error::DriverError;
-use crate::driver::session_control::{NameSessionParams, run_naming_pass_until};
+use crate::driver::session_control::{
+    NameSessionParams, NamingFirstMessage, run_naming_pass_until,
+};
 use crate::runtime_binding::store::RuntimeBinding;
 use crate::spawned_version::ResolvedProviderExecutable;
 
@@ -286,12 +288,16 @@ impl CodexDriver {
     }
 }
 
-// The person's first message and the reply, under the naming instructions.
-fn compose_title_prompt(first_message: &str, first_reply: &str) -> String {
-    format!(
-        "{TITLE_INSTRUCTIONS}\n\nThe person's message:\n{first_message}\n\nThe reply:\n\
-         {first_reply}"
-    )
+// The session's first message and the reply, under the naming instructions; a message of files
+// alone is said to be files, so its stand-in words are not read as the person's.
+fn compose_title_prompt(first_message: &NamingFirstMessage, first_reply: &str) -> String {
+    let opening = match first_message {
+        NamingFirstMessage::Words(words) => format!("The person's message:\n{words}"),
+        NamingFirstMessage::FilesAlone(carried) => {
+            format!("The person sent files with no message: {carried}.")
+        }
+    };
+    format!("{TITLE_INSTRUCTIONS}\n\n{opening}\n\nThe reply:\n{first_reply}")
 }
 
 // The schema the pass's answer meets: one title.

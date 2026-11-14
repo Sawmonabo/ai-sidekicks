@@ -79,7 +79,7 @@ interface ChildRunHead {
   spendUsdMicros: number; // integer micro-dollars, the same fold as the per-agent spend on session.budget.read
   startedAt: string;
   endedAt: string | null; // its terminal record's time, null while it is live; the duration runs from startedAt
-  activity: ToolCallAction | null; // the newest action its tool calls recorded, at a call's start or at an end that named what the start could not, kept once it ends; null before its first
+  activity: ToolCallAction | null; // the action of its newest call that recorded one, as the call's start recorded it, or as its end named it where the start named no subject; kept once it ends; null before its first
   result: string | null; // its newest message's opening, at most 4,096 code points, once it ended
   failureReason: {
     failureCause?: object; // the cause agent.run.failed recorded, tagged by `cause`

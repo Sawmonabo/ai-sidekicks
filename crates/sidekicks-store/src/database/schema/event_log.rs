@@ -12,7 +12,8 @@ use sidekicks_contracts::transcript::turn_attribution::{
 use strum::VariantArray as _;
 
 use crate::database::schema::{
-    SESSION_EVENTS_RUN_INDEX, SESSION_EVENTS_TABLE, SESSION_EVENTS_TYPE_INDEX,
+    SESSION_EVENTS_RUN_INDEX, SESSION_EVENTS_TABLE, SESSION_EVENTS_TOOL_CALL_INDEX,
+    SESSION_EVENTS_TYPE_INDEX,
 };
 use crate::database::sql_list::sql_list_of;
 use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
@@ -112,7 +113,7 @@ CREATE INDEX idx_session_events_target_run
   ON {SESSION_EVENTS_TABLE}(session_id, target_run_id, sequence)
   WHERE target_run_id IS NOT NULL;
 -- A tool call's completions, newest last, for the read of the patches it left out.
-CREATE INDEX idx_session_events_tool_call
+CREATE INDEX {SESSION_EVENTS_TOOL_CALL_INDEX}
   ON {SESSION_EVENTS_TABLE}(session_id, tool_call_id, sequence)
   WHERE tool_call_id IS NOT NULL;
 -- A run's newest piece of one type under one message and block, which a later piece joins.
