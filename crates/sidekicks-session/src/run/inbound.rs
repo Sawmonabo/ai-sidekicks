@@ -722,6 +722,7 @@ fn late_row_statements(row: &LateAppendableRow) -> Vec<WriteStatement> {
         | LateAppendableRow::AgentToolCallFailed(_)
         | LateAppendableRow::AgentCommandEnded(_)
         | LateAppendableRow::AgentSubagentStarted(_)
+        | LateAppendableRow::AgentSubagentBackgrounded(_)
         | LateAppendableRow::AgentSubagentCompleted(_)
         | LateAppendableRow::SessionProviderStatusReported(_)
         | LateAppendableRow::UsageContextWindowUpdated(_)
