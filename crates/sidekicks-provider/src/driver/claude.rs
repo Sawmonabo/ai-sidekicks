@@ -82,6 +82,7 @@ use crate::port::running_command_publisher::{
     RunningCommandParams, StopCommandParams, WriteCommandInputParams,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::pricing::receiver::TelemetryExportReader;
 use crate::pricing::rule::RequestPricer;
 
 mod account;
@@ -115,6 +116,7 @@ mod settings_rows;
 mod spawn;
 mod spent_retries_signal;
 mod switch_variable;
+mod telemetry;
 mod tools;
 mod turn_evidence;
 mod version;
@@ -149,6 +151,10 @@ const NO_HELD_TURN_REASON: &str = "Claude Code holds no turn for a safety check.
 impl ProviderDriver for ClaudeDriver {
     fn request_pricer(&self) -> Option<Arc<dyn RequestPricer>> {
         Some(Arc::new(pricing::ClaudeRequestPricer))
+    }
+
+    fn telemetry_export_reader(&self) -> Option<Arc<dyn TelemetryExportReader>> {
+        Some(Arc::clone(&self.exports) as _)
     }
 
     fn create_session(

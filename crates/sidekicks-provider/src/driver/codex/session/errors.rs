@@ -66,6 +66,10 @@ const CODEX_RESTART_REQUESTED_MESSAGE: &str = "Restart Codex";
 /// find.
 const CODEX_THREAD_NOT_FOUND_MESSAGE: &str = "thread not found";
 
+/// The words of Codex's refusal to read a thread it holds neither loaded nor stored: an internal
+/// worker's, or an ephemeral one's once it is unloaded.
+const CODEX_THREAD_NOT_LOADED_MESSAGE: &str = "thread not loaded";
+
 /// The `data.reason` a turn refused while another of the session's turns is in flight carries.
 const SESSION_TURN_IN_FLIGHT_REASON: &str = "sessionTurnInFlight";
 
@@ -330,6 +334,12 @@ impl CodexError {
     /// not found: <id>`.
     pub(crate) fn is_thread_not_found(&self) -> bool {
         self.is_invalid_request_saying(CODEX_THREAD_NOT_FOUND_MESSAGE)
+    }
+
+    /// Whether this is Codex's refusal to read a thread it holds neither loaded nor stored,
+    /// `thread not loaded: <id>`, which no listing or file will ever name.
+    pub(crate) fn is_thread_not_loaded(&self) -> bool {
+        self.is_invalid_request_saying(CODEX_THREAD_NOT_LOADED_MESSAGE)
     }
 
     // A `-32600` answer whose message holds `words`.

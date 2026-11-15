@@ -7,24 +7,30 @@
 //! fork let go, each turn's readings and the session's context reading published, and the spend it
 //! metered recorded in metering order. Each settled step publishes the session's context reading
 //! again with no usage when its model or window changed. The driver's own calls on the record take
-//! their place among the frames too. Each completed response the export states is passed over where
-//! the stream stated it, else held until its turn settles and two export intervals pass, then passed
-//! over or priced; a session let go decides every one it holds.
+//! their place among the frames too. Each completed response the export or a rollout file states
+//! is priced as it arrives, with its sighting, which the usage record passes over where another
+//! sighting of the same request was priced first; one the session cannot file, its record let go
+//! or no run's binding to file on, is charged as its account's spend outside any session through
+//! the session's recorder, after the spend metered before it, at the region its rows are stamped
+//! with, read before the charge goes out.
 //!
 //! A full usage queue holds the task until the sink takes a batch, so no spend is lost: while the
 //! database writer stalls, this session's frames, asks and calls wait behind it, as every other
 //! write of the session would. Its inbound queue stays unbounded, since the connection's reader
 //! serves every session of the service, and is logged as it grows past each depth mark.
 
+use std::error::Error;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::unix_time::read_unix_time_ms;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
@@ -47,7 +53,7 @@ use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnEndW
 use crate::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
 };
-use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::calls::{CodexSessionTask, run_codex_session_call};
 use crate::driver::codex::session::context_reading::{
     CodexFixedStart, CodexSessionContextReadings,
@@ -64,18 +70,18 @@ use crate::driver::codex::session::lifecycle_call::{
 };
 use crate::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_session};
 use crate::driver::codex::session::state::CodexSessionRecord;
-use crate::driver::codex::session::thread_turns::{
-    CodexEndedTurn, CodexSettledTurn, CodexThreadTurns, TurnFrame,
+use crate::driver::codex::session::thread_turns::{CodexSettledTurn, CodexThreadTurns, TurnFrame};
+use crate::driver::codex::telemetry::exported_response::CodexExportedResponse;
+use crate::driver::codex::telemetry::sessionless_spend::{
+    CodexSessionlessSpend, CodexSightedResponse,
 };
-use crate::driver::codex::telemetry::held_responses::{CodexExportedResponse, CodexHeldResponses};
-use crate::driver::codex::telemetry::read_unix_time_ms;
 use crate::driver::codex::thread::permission_profiles;
 use crate::driver::codex::transport::connection::{CodexForgottenRequest, read_codex_object};
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::contract::error::DriverError;
-use crate::port::usage_sink::MeteredUsage;
+use crate::port::usage_sink::{MeteredUsage, UsageSink};
 
-mod held;
+mod exported_responses;
 pub(crate) mod routed_frames;
 
 /// How many batches of metered spend a session's recorder holds while its sink is busy; past
@@ -101,22 +107,55 @@ pub(crate) struct CodexSessionIntake {
     parts: Arc<CodexDriverParts>,
     context_readings: CodexSessionContextReadings,
     // The live turn of each thread the session's stream carries, whose settle feeds its launch's
-    // export status and decides the exported responses held on it.
+    // export status and which an exported response is filed on.
     thread_turns: CodexThreadTurns,
-    // The exported responses the stream may yet state, held until each can be told apart.
-    held: CodexHeldResponses,
     // The session's one usage recorder, fed in metering order with the account moves between the
-    // spends; opened at the first spend metered once the usage service registered, and ended when
-    // the session's task ends.
+    // spends; opened at the first spend metered once the usage service registered or the first
+    // charge of what the session cannot file, and ended when the session's task ends.
     usage_recorder: Option<mpsc::Sender<UsageRecorderItem>>,
+    // The driver's charge of what the session cannot file.
+    sessionless: Arc<CodexSessionlessSpend>,
+    // Where that charge reads its region, as the record stood at its last charge or its let-go.
+    unfiled_place: CodexUnfiledPlace,
 }
 
-// What the session's usage recorder takes, in metering order: spend, with the service and folder
-// whose region prices it, or a move of the session's bindings onto another account, made once the
-// spend before it is recorded.
+// What the session's usage recorder takes, in metering order: spend, with the account its bindings
+// charge then, the service and folder whose region prices it and the sink it is recorded through;
+// what the session cannot file, charged at that region; or a move of the session's bindings onto
+// another account, made once the spend before it is recorded.
 enum UsageRecorderItem {
-    Usage(Vec<MeteredUsage>, Arc<CodexService>, PathBuf),
+    Usage {
+        batch: Vec<MeteredUsage>,
+        account: ProviderAccountId,
+        service: Arc<CodexService>,
+        folder: PathBuf,
+        sink: Arc<dyn UsageSink>,
+    },
+    Unfiled {
+        sighted: Vec<CodexSightedResponse>,
+        place: CodexUnfiledPlace,
+    },
     AccountMove(CodexBindingMove),
+}
+
+// The service and folder whose region what the session cannot file is charged at, held weakly so
+// a record let go keeps no service alive.
+#[derive(Clone)]
+struct CodexUnfiledPlace {
+    service: Weak<CodexService>,
+    service_id: CodexServiceId,
+    folder: PathBuf,
+}
+
+impl CodexUnfiledPlace {
+    // Where `record`'s rows are priced.
+    fn of(record: &CodexSessionRecord) -> Self {
+        Self {
+            service: Arc::downgrade(&record.service),
+            service_id: record.service.id(),
+            folder: record.thread_settings.working_directory.clone(),
+        }
+    }
 }
 
 impl CodexSessionIntake {
@@ -131,6 +170,8 @@ impl CodexSessionIntake {
     ) -> Self {
         parts.views.show(&record);
         let session_id = record.session_id;
+        let sessionless = Arc::clone(record.service.dependencies().exports.sessionless_spend());
+        let unfiled_place = CodexUnfiledPlace::of(&record);
         Self {
             session_id,
             record: Some(record),
@@ -139,8 +180,9 @@ impl CodexSessionIntake {
             parts,
             context_readings: CodexSessionContextReadings::new(session_id, fixed_start),
             thread_turns: CodexThreadTurns::default(),
-            held: CodexHeldResponses::default(),
             usage_recorder: None,
+            sessionless,
+            unfiled_place,
         }
     }
 
@@ -154,9 +196,6 @@ impl CodexSessionIntake {
         self.apply(routed).await;
         self.settle();
         drain_codex_session_inbound(receiver, &mut self).await;
-        // Every sender is gone with the record still held, so nothing settles a held turn now.
-        let held = self.held.take_all();
-        self.decide_held_responses(held).await;
     }
 
     // What applying a delivery's report acts through, borrowed from the driver's parts.
@@ -189,9 +228,10 @@ impl CodexSessionIntake {
                 arm_export_check(record, &settled);
             }
         }
-        let usage =
+        let (usage, unbound) =
             apply_codex_routed_frames(&Self::routed_frames_intake(parts), record, routed).await;
         self.record_usage(usage).await;
+        self.charge_unfiled(unbound).await;
     }
 
     // Hands `usage` to the session's recorder, which records each delta in metering order on the
@@ -205,55 +245,119 @@ impl CodexSessionIntake {
         if usage.is_empty() {
             return;
         }
-        let provider_account_id = record.provider_account_id.clone();
+        // Before the usage service registers its record there is nothing to record into.
+        let Some(sink) = self.parts.ports.usage.port().map(Arc::clone) else {
+            return;
+        };
+        let item = UsageRecorderItem::Usage {
+            batch: usage,
+            account: record.provider_account_id.clone(),
+            service: Arc::clone(&record.service),
+            folder: record.thread_settings.working_directory.clone(),
+            sink,
+        };
+        self.send_to_recorder(item).await;
+    }
+
+    // Charges `unfiled`, what the session cannot file, as its accounts' spend outside any session
+    // through the session's recorder, so it follows the spend metered before it and goes out at
+    // the region the session's rows are stamped with, once that is read.
+    async fn charge_unfiled(&mut self, unfiled: Vec<CodexSightedResponse>) {
+        if unfiled.is_empty() {
+            return;
+        }
+        if let Some(record) = &self.record {
+            self.unfiled_place = CodexUnfiledPlace::of(record);
+        }
+        let item = UsageRecorderItem::Unfiled {
+            sighted: unfiled,
+            place: self.unfiled_place.clone(),
+        };
+        self.send_to_recorder(item).await;
+    }
+
+    // Sends `item` to the session's recorder, opening it first; one the recorder can no longer
+    // take is reported with the deltas or charges it held.
+    async fn send_to_recorder(&mut self, item: UsageRecorderItem) {
+        let report = self.compose_usage_report();
+        let recorder = self.usage_recorder.get_or_insert_with(|| {
+            Self::open_recorder(&self.parts, &self.sessionless, report.clone())
+        });
+        if let Err(refused) = recorder.send(item).await {
+            let lost = match refused.0 {
+                UsageRecorderItem::Usage { batch, .. } => batch.len(),
+                UsageRecorderItem::Unfiled { sighted, .. } => sighted.len(),
+                UsageRecorderItem::AccountMove(_) => 0,
+            };
+            report(Box::new(UsageRecorderEnded { lost }));
+        }
+    }
+
+    // How the recorder reports a failure: as a failed usage delivery of the session, under the
+    // account its record runs on.
+    fn compose_usage_report(
+        &self,
+    ) -> impl Fn(Box<dyn Error + Send + Sync>) + Clone + Send + Sync + use<> {
+        let provider_account_id = self
+            .record
+            .as_ref()
+            .map(|record| record.provider_account_id.clone());
         let session_id = self.session_id;
-        let report = move |error: Box<dyn std::error::Error + Send + Sync>| {
+        move |error: Box<dyn Error + Send + Sync>| {
             CodexTransportDiagnostic::PortDeliveryFailed {
-                provider_account_id: Some(provider_account_id.clone()),
+                provider_account_id: provider_account_id.clone(),
                 port: CodexDeliveryPort::Usage,
                 session_id: Some(session_id),
                 error,
             }
             .report();
-        };
-        if self.usage_recorder.is_none() {
-            // Before the usage service registers its record there is nothing to record into.
-            let Some(sink) = self.parts.ports.usage.port().map(Arc::clone) else {
-                return;
-            };
-            let (sender, mut items) = mpsc::channel::<UsageRecorderItem>(USAGE_RECORDER_QUEUE);
-            let report = report.clone();
-            let bindings = Arc::clone(&self.parts.runtime_bindings);
-            let account_moves = Arc::clone(&self.parts.ports.session_account_moves);
-            let mut pricing = CodexRecorderPricing::new(Arc::clone(&self.parts.pricing));
-            self.parts.tasks.spawn(async move {
-                while let Some(item) = items.recv().await {
-                    match item {
-                        UsageRecorderItem::Usage(batch, service, folder) => {
-                            pricing
-                                .record(&*sink, batch, &service, &folder, &report)
-                                .await;
-                        }
-                        UsageRecorderItem::AccountMove(binding_move) => {
-                            binding_move.land(&*bindings, &account_moves).await;
-                        }
+        }
+    }
+
+    // Opens the session's recorder on the driver's tasks: it records each batch, charges what the
+    // session cannot file and lands each account move, in the order they were sent.
+    fn open_recorder(
+        parts: &CodexDriverParts,
+        sessionless: &Arc<CodexSessionlessSpend>,
+        report: impl Fn(Box<dyn Error + Send + Sync>) + Send + Sync + 'static,
+    ) -> mpsc::Sender<UsageRecorderItem> {
+        let (sender, mut items) = mpsc::channel::<UsageRecorderItem>(USAGE_RECORDER_QUEUE);
+        let bindings = Arc::clone(&parts.runtime_bindings);
+        let account_moves = Arc::clone(&parts.ports.session_account_moves);
+        let sessionless = Arc::clone(sessionless);
+        let mut pricing = CodexRecorderPricing::new(Arc::clone(&parts.pricing));
+        parts.tasks.spawn(async move {
+            while let Some(item) = items.recv().await {
+                match item {
+                    UsageRecorderItem::Usage {
+                        batch,
+                        account,
+                        service,
+                        folder,
+                        sink,
+                    } => {
+                        pricing
+                            .record(&*sink, batch, &account, &service, &folder, &report)
+                            .await;
+                    }
+                    UsageRecorderItem::Unfiled { sighted, place } => {
+                        let region = pricing
+                            .read_unfiled_region(
+                                &place.service,
+                                place.service_id,
+                                &place.folder,
+                                &report,
+                            )
+                            .await;
+                        sessionless.charge(sighted, region.as_ref());
+                    }
+                    UsageRecorderItem::AccountMove(binding_move) => {
+                        binding_move.land(&*bindings, &account_moves).await;
                     }
                 }
-            });
-            self.usage_recorder = Some(sender);
-        }
-        let Some(recorder) = &self.usage_recorder else {
-            return;
-        };
-        let folder = record.thread_settings.working_directory.clone();
-        let item = UsageRecorderItem::Usage(usage, Arc::clone(&record.service), folder);
-        if let Err(refused) = recorder.send(item).await {
-            let lost = match refused.0 {
-                UsageRecorderItem::Usage(batch, ..) => batch.len(),
-                UsageRecorderItem::AccountMove(_) => 0,
-            };
-            report(Box::new(UsageRecorderEnded { lost }));
-        }
+            }
+        });
+        sender
     }
 
     // Moves the session onto `account_move`'s account at this place among its frames: its record
@@ -296,9 +400,8 @@ impl CodexSessionIntake {
 
     async fn handle_frame(&mut self, method: String, params: Box<RawValue>) {
         let parts = Arc::clone(&self.parts);
-        self.note_exporting();
-        // Before a side question's divert, so the hold knows its copy's turns too.
-        let ended = self.thread_turns.observe(&method, &params, Instant::now());
+        // Before a side question's divert, so its copy's turns are known too.
+        let settled = self.thread_turns.observe(&method, &params, Instant::now());
         // The session's own live turn, which an unplaced reviewer request may be given to; a
         // copy's or a helper's start leaves it as it is.
         if method == CODEX_TURN_STARTED_METHOD
@@ -316,12 +419,7 @@ impl CodexSessionIntake {
             );
         }
         if let Some(diverted) = parts.side_questions.divert(&method, &params) {
-            if let Some(usage) = diverted.usage
-                && self
-                    .routing
-                    .streamed_responses()
-                    .record(&usage.delta.thread_id, usage.delta.axis_deltas)
-            {
+            if let Some(usage) = diverted.usage {
                 // The copy's turn made the request, so its settle below arms an export check.
                 if let (Some(settled), Some(record)) = (
                     self.thread_turns.request_made(&usage.delta.thread_id),
@@ -331,11 +429,11 @@ impl CodexSessionIntake {
                 }
                 self.record_usage(vec![usage]).await;
             }
-            self.settle_ended(ended);
+            self.settle_turn(settled);
             return;
         }
         if self.record.is_none() {
-            self.settle_ended(ended);
+            self.settle_turn(settled);
             return;
         }
         let Some(record) = self.record.as_mut() else {
@@ -370,44 +468,25 @@ impl CodexSessionIntake {
             .await;
         self.apply(routed).await;
         // After the frames its completion released apply, so their readings count toward it.
-        self.settle_ended(ended);
+        self.settle_turn(settled);
         if let (Some(turn_id), Some(record)) = (step_turn_id, self.record.as_mut()) {
             parts.run_control.observe_step_end(record, &turn_id);
         }
     }
 
-    // Whether the session's launch exports, read before each frame and call, so the stream keeps
-    // a ledger of its responses only while an export's twin can arrive.
-    fn note_exporting(&mut self) {
-        if let Some(record) = &self.record {
-            let exports = &record.service.dependencies().exports;
-            let is_exporting = exports.is_exporting(record.service.id());
-            self.routing
-                .streamed_responses()
-                .set_exporting(is_exporting);
-        }
-    }
-
-    // A turn a frame ended: the responses held on it may be decided and the ledger's priced ones
-    // filed on it expire; a settled one's settle, as it stands once its released frames applied,
-    // goes to the export status, which a replaced one never reported, and ends its place in the
-    // launch's joins.
-    fn settle_ended(&mut self, ended: Option<CodexEndedTurn>) {
-        let (thread_id, turn_id, is_settled) = match ended {
-            Some(CodexEndedTurn::Settled(settled)) => (settled.thread_id, settled.turn_id, true),
-            Some(CodexEndedTurn::Replaced { thread_id, turn_id }) => (thread_id, turn_id, false),
-            None => return,
-        };
-        self.held.turn_settled(&thread_id, &turn_id);
-        self.routing
-            .streamed_responses()
-            .turn_settled(&thread_id, &turn_id);
-        let Some(record) = &self.record else {
+    // A turn a frame settled: its settle, as it stands once its released frames applied, goes to
+    // the export status and ends its place in the launch's joins.
+    fn settle_turn(&mut self, settled: Option<CodexSettledTurn>) {
+        let (
+            Some(CodexSettledTurn {
+                thread_id, turn_id, ..
+            }),
+            Some(record),
+        ) = (settled, &self.record)
+        else {
             return;
         };
-        if is_settled
-            && let Some(settled) = self.thread_turns.hand_off_settled(&thread_id, &turn_id)
-        {
+        if let Some(settled) = self.thread_turns.hand_off_settled(&thread_id, &turn_id) {
             arm_export_check(record, &settled);
             if thread_id == record.thread_id {
                 record.service.dependencies().exports.turn_ended(
@@ -506,12 +585,11 @@ impl CodexSessionIntake {
     // Lets the record go on the task: its routes, waits and conversation, then its place on every
     // service it was attached to and its view.
     async fn let_go(&mut self, exit: CodexRecordExit) {
-        // Decided while the record still files them, since no held turn settles past here.
-        let held = self.held.take_all();
-        self.decide_held_responses(held).await;
         let Some(record) = self.record.take() else {
             return;
         };
+        // What the session cannot file after this is charged at the region it was priced at.
+        self.unfiled_place = CodexUnfiledPlace::of(&record);
         if let Some(turn_id) = self.thread_turns.live_turn(&record.thread_id) {
             let exports = &record.service.dependencies().exports;
             exports.turn_ended(
@@ -590,24 +668,17 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
 
     fn side_question_released(&mut self, thread_id: String) {
         // The copy's stopped turn's completion reaches no session, so its turn ends here.
-        if let Some(turn_id) = self.thread_turns.end_live_turn(&thread_id) {
-            self.settle_ended(Some(CodexEndedTurn::Replaced { thread_id, turn_id }));
-        }
+        self.thread_turns.end_live_turn(&thread_id);
     }
 
     fn call(&mut self, call: CodexSessionCall) -> BoxFuture<'_, ()> {
         async move {
-            self.note_exporting();
             if matches!(call, CodexSessionCall::DropTurns { .. }) {
                 // The process that ran the session's turns ended, so none of them settles.
                 let ended_at_ms = read_unix_time_ms();
                 let live_turns: Vec<(String, String)> =
                     self.thread_turns.take_live_turns().collect();
-                for (thread_id, turn_id) in live_turns {
-                    self.held.turn_settled(&thread_id, &turn_id);
-                    self.routing
-                        .streamed_responses()
-                        .turn_settled(&thread_id, &turn_id);
+                for (_thread_id, turn_id) in live_turns {
                     if let Some(record) = &self.record {
                         let exports = &record.service.dependencies().exports;
                         exports.turn_ended(
@@ -653,16 +724,14 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
         self.move_account(account_move).boxed()
     }
 
-    fn exported_response(&mut self, exported: CodexExportedResponse) -> BoxFuture<'_, ()> {
-        self.hold_exported_response(exported).boxed()
+    fn exported_responses(&mut self, exported: Vec<CodexExportedResponse>) -> BoxFuture<'_, ()> {
+        self.price_exported_responses(exported).boxed()
     }
 
     fn next_deadline(&self) -> Option<Instant> {
-        let delivery = self
-            .record
+        self.record
             .as_ref()
-            .and_then(|record| record.delivery.next_deadline());
-        delivery.into_iter().chain(self.held.next_decision()).min()
+            .and_then(|record| record.delivery.next_deadline())
     }
 
     fn deadline_reached(&mut self, now: Instant) -> BoxFuture<'_, ()> {
@@ -670,8 +739,6 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
             if let Some(record) = self.record.as_mut() {
                 self.parts.delivery.deliver_due(record, now).await;
             }
-            let due = self.held.take_due(now);
-            self.decide_held_responses(due).await;
         }
         .boxed()
     }
@@ -753,6 +820,7 @@ fn read_ended_turn_id(record: &CodexSessionRecord, params: &RawValue) -> Option<
 fn arm_export_check(record: &CodexSessionRecord, settled: &CodexSettledTurn) {
     record.service.dependencies().exports.turn_settled(
         record.service.id(),
+        record.session_id,
         settled.made_request,
         settled.started_at,
     );

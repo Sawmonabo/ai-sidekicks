@@ -464,6 +464,7 @@ pub(crate) fn build_session_services(
     ));
     let usage = Arc::new(UsageRecord::new(
         Arc::clone(&reads),
+        Arc::clone(&writer),
         Arc::clone(&read_damaged_from_sequence),
         Arc::clone(&inbound_dispatch),
         Arc::clone(&engine),

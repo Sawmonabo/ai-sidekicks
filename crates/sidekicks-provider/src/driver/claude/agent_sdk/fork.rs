@@ -345,11 +345,12 @@ mod tests {
             programs.path(),
             "bun",
             &StandInProgram {
-                answers_by_first_argument: Vec::new(),
+                answers_by_argument: Vec::new(),
                 otherwise: StandInAnswer {
                     standard_output: standard_output.to_owned(),
                     exit_code,
                     argument_record: None,
+                    ..StandInAnswer::default()
                 },
                 first_call_wait: None,
             },

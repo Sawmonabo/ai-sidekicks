@@ -409,10 +409,10 @@ struct UnrecordedServiceError {
 /// `spawner`'s thread: its log begun again at `log_file`, the former start's tail kept beside it,
 /// taking the service's error output; a session or job of its own apart from the daemon's, pinned,
 /// then moved out of the daemon's scope where the system has one, keeping `telemetry`, the
-/// launch's export tag and own token, until the service is dropped. The caller keeps its record in the folder's
-/// record file. Fails when the log cannot be opened, or the start cannot be spawned
-/// or pinned (on Windows a refused breakaway from the daemon's job among them), with the log's
-/// tail beside the cause.
+/// launch's export tag and own token, until the service is dropped. The caller keeps its record in
+/// the folder's record file. Fails when the log cannot be opened, or the start cannot be spawned or
+/// pinned (on Windows a refused breakaway from the daemon's job among them), with the log's tail
+/// beside the cause.
 pub(crate) async fn start_lasting_codex_service(
     spawner: &Spawner,
     mut launch: CodexProcessLaunch,

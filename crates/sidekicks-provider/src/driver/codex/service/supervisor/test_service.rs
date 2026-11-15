@@ -58,6 +58,7 @@ use crate::driver::child_records::{DaemonChildRecords, UnrecordedChildren};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::exec_relay::CodexExecRelayDependencies;
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
+use crate::driver::codex::pricing::compose_codex_live_pricing;
 use crate::driver::codex::service::command_line::{
     TerminalServiceHooks, read_terminal_service_hooks,
 };
@@ -92,6 +93,7 @@ use crate::driver::codex::transport::connection::scripted_service::{
     SCRIPTED_MESSAGE_LIMIT, ScriptedService, connect_scripted_service,
 };
 use crate::driver::contract::error::DriverError;
+use crate::driver::ports::DriverPorts;
 #[cfg(test)]
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
@@ -249,6 +251,7 @@ pub(crate) fn test_codex_service_dependencies(
         tasks: TaskTracker::new(),
     });
     let provider_accounts = Arc::new(PortRegistration::new("provider accounts"));
+    let request_held = Arc::new(PortRegistration::new("request held"));
     Arc::new(CodexServiceDependencies {
         spawner,
         provider_services: Arc::new(ProviderServiceProcesses::default()),
@@ -270,11 +273,17 @@ pub(crate) fn test_codex_service_dependencies(
         switching: Arc::new(CodexSwitchingAccount::new(Arc::clone(&provider_accounts))),
         provider_accounts,
         telemetry_target: Arc::new(PortRegistration::new("telemetry target")),
-        exports: Arc::new(CodexExports::new(Arc::new(Scheduler::start(
-            Arc::new(TestWallClock::default()),
-            None,
-            watch::channel(0).1,
-        )))),
+        exports: Arc::new(CodexExports::new(
+            Arc::new(Scheduler::start(
+                Arc::new(TestWallClock::default()),
+                None,
+                watch::channel(0).1,
+            )),
+            Arc::clone(&request_held),
+            compose_codex_live_pricing(&DriverPorts::new()),
+            TaskTracker::new(),
+        )),
+        request_held,
         raw_messages: Arc::new(PortRegistration::new("raw provider messages")),
     })
 }
@@ -752,11 +761,12 @@ pub(crate) fn write_failing_codex(folder: &Path) -> PathBuf {
         folder,
         "codex",
         &StandInProgram {
-            answers_by_first_argument: Vec::new(),
+            answers_by_argument: Vec::new(),
             otherwise: StandInAnswer {
                 standard_output: String::new(),
                 exit_code: 1,
                 argument_record: None,
+                ..StandInAnswer::default()
             },
             first_call_wait: None,
         },

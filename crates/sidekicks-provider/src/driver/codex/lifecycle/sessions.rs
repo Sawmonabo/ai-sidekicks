@@ -317,9 +317,11 @@ impl CodexDriver {
         if timeout_at(deadline, records_let_go).await.is_err() {
             cut_step = cut_step.or(Some("letting each live record go"));
         }
+        // The sessions' tasks first: a session still draining its queue charges what it cannot
+        // file on the export tasks, so each such write is spawned before their wait begins.
         let tasks_ended = async {
-            self.export_tasks.wait().await;
             self.tasks.wait().await;
+            self.export_tasks.wait().await;
         };
         if timeout_at(deadline, tasks_ended).await.is_err() {
             cut_step = cut_step.or(Some("waiting for the driver's tasks"));

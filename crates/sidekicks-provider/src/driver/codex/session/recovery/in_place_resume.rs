@@ -294,7 +294,7 @@ fn reopen_released_codex_helpers(
                 service_id: reopen_on,
             };
             // The session's task ended where the push fails, so no helper of it is reopened.
-            if inbound.push(CodexSessionInbound::Call(call)) {
+            if inbound.push(CodexSessionInbound::Call(call)).is_ok() {
                 // A parent with no helper waiting on it has no one to tell.
                 let _unwatched = queued.send(true);
             }

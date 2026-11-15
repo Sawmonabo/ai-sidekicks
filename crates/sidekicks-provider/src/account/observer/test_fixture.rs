@@ -49,7 +49,9 @@ use crate::driver::contract::account::{
     ProviderWindowTurnLegs, TokenLimitsReading, WindowTurnAnswer, WindowTurnSpend,
 };
 use crate::driver::contract::error::DriverError;
-use crate::driver::ports::{HeldRequest, RequestHeldListener};
+use crate::driver::ports::{
+    HeldRequest, RequestHeldListener, SessionlessOutcome, SessionlessRequest,
+};
 use crate::driver::test_registry::new_session_id;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
@@ -117,6 +119,7 @@ pub(super) fn turn_spend() -> WindowTurnSpend {
     let count = |count| SafeInt::new(count);
     WindowTurnSpend {
         model_id: Some(FreeFormText::new("haiku".to_owned()).expect("a model id")),
+        speed: None,
         input_tokens: count(395),
         output_tokens: count(51),
         cache_read_tokens: None,
@@ -150,7 +153,7 @@ impl ProviderWindowTurnLegs for ScriptedTurns {
         _folders: ProviderAccountFolders,
     ) -> BoxFuture<'_, Result<WindowTurnAnswer, DriverError>> {
         self.window_starts.fetch_add(1, Ordering::SeqCst);
-        async { Ok(WindowTurnAnswer::Spent(turn_spend())) }.boxed()
+        async { Ok(WindowTurnAnswer::Spent(vec![turn_spend()])) }.boxed()
     }
 }
 
@@ -284,6 +287,25 @@ impl UsageSink for RecordedQuotaSets {
     ) -> BoxFuture<'_, Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>> {
         async { Ok(UsageAxisCounts::default()) }.boxed()
     }
+
+    fn read_thread_speed_at(
+        &self,
+        _session_id: SessionId,
+        _at: sidekicks_contracts::wire::instant::WireInstant,
+    ) -> BoxFuture<'_, Result<Option<String>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
+
+    fn read_run_at(
+        &self,
+        _session_id: SessionId,
+        _at: sidekicks_contracts::wire::instant::WireInstant,
+    ) -> BoxFuture<
+        '_,
+        Result<Option<sidekicks_contracts::run::id::RunId>, Box<dyn Error + Send + Sync>>,
+    > {
+        async { Ok(None) }.boxed()
+    }
 }
 
 // Each notification the observer published, in order.
@@ -319,6 +341,13 @@ impl RequestHeldListener for RecordedHeldRequests {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         lock(&self.0).push((held.key.provider, held.key.account_id));
         async { Ok(()) }.boxed()
+    }
+
+    fn sessionless_requests_held(
+        &self,
+        _requests: Vec<SessionlessRequest>,
+    ) -> BoxFuture<'_, Result<Vec<SessionlessOutcome>, Box<dyn Error + Send + Sync>>> {
+        unreachable!("the observer writes its own rows no session owns")
     }
 }
 

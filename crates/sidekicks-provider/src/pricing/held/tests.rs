@@ -171,6 +171,22 @@ impl UsageSink for CostRecord {
     ) -> BoxedAnswer<'_, UsageAxisCounts> {
         async { Err("the cost record keeps no sum".into()) }.boxed()
     }
+
+    fn read_thread_speed_at(
+        &self,
+        _session_id: SessionId,
+        _at: sidekicks_contracts::wire::instant::WireInstant,
+    ) -> BoxedAnswer<'_, Option<String>> {
+        async { Ok(None) }.boxed()
+    }
+
+    fn read_run_at(
+        &self,
+        _session_id: SessionId,
+        _at: sidekicks_contracts::wire::instant::WireInstant,
+    ) -> BoxedAnswer<'_, Option<sidekicks_contracts::run::id::RunId>> {
+        async { Ok(None) }.boxed()
+    }
 }
 
 // A session log beside the accounts `account-a` of `table-rule` and `account-b` of
@@ -297,6 +313,7 @@ impl Bench {
         let turn_id = mint_sessionless_turn_id();
         let spend = WindowTurnSpend {
             model_id: Some(FreeFormText::new(model.to_owned()).expect("a model id")),
+            speed: None,
             input_tokens: SafeInt::new(7),
             output_tokens: None,
             cache_read_tokens: None,
@@ -311,6 +328,9 @@ impl Bench {
                 &instant(THIS_START),
                 &instant(THIS_START),
                 &spend,
+                None,
+                None,
+                None,
             )],
         );
         turn_id

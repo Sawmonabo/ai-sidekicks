@@ -1,7 +1,10 @@
 //! Whether one provider process's telemetry exports are arriving: each export marks them arriving,
 //! and a turn that made a model request with no export from its start to two export intervals
-//! after its settle marks them stopped. One tracker per process, dropped with it.
+//! after its settle marks them stopped. The status published beside it names the files its driver
+//! reads in the exports' place and cannot. It also holds one wake its driver asks for while a read
+//! in the exports' place waits on a turn's end. One tracker per process, dropped with it.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -25,21 +28,36 @@ pub(crate) enum ExportStatus {
     Stopped,
 }
 
+/// What one process's export status publishes: whether its exports arrive, and the files its
+/// driver reads in their place but cannot, which the export status line names.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PublishedExportStatus {
+    /// `None` until an export arrives or a request turn's check finds none.
+    pub(crate) status: Option<ExportStatus>,
+    /// How many times the status turned stopped, so a stop an export ended before a reader looked
+    /// is still seen.
+    pub(crate) stops: u64,
+    /// The files read in the exports' place that cannot be read, by path.
+    pub(crate) unreadable_files: Vec<PathBuf>,
+}
+
 /// One provider process's export status, fed by its driver's telemetry: an export arriving, and a
-/// turn settling. Holds at most one scheduled check, canceled by an export or by the drop.
+/// turn settling. Holds at most one scheduled check, canceled by an export or by the drop, and at
+/// most one wake, canceled by the next one armed or by the drop.
 pub(crate) struct ExportStatusTracker {
     scheduler: Arc<Scheduler>,
     export_interval: Duration,
     state: Arc<Mutex<TrackerState>>,
-    status: watch::Receiver<Option<ExportStatus>>,
+    status: watch::Receiver<PublishedExportStatus>,
 }
 
 // What the tracker and its scheduled check share.
 struct TrackerState {
     last_export_at: Option<Instant>,
     check: Option<PendingCheck>,
+    wake: Option<ScheduledJobHandle>,
     next_check_id: u64,
-    status: watch::Sender<Option<ExportStatus>>,
+    status: watch::Sender<PublishedExportStatus>,
 }
 
 // The check armed for a request turn that settled unexported, its id telling a run of a check an
@@ -53,13 +71,14 @@ impl ExportStatusTracker {
     /// A tracker for a process exporting every `export_interval`, its checks run on `scheduler`;
     /// its status reads `None` until an export arrives or a check finds none.
     pub(crate) fn new(scheduler: Arc<Scheduler>, export_interval: Duration) -> Self {
-        let (sender, status) = watch::channel(None);
+        let (sender, status) = watch::channel(PublishedExportStatus::default());
         Self {
             scheduler,
             export_interval,
             state: Arc::new(Mutex::new(TrackerState {
                 last_export_at: None,
                 check: None,
+                wake: None,
                 next_check_id: 0,
                 status: sender,
             })),
@@ -67,17 +86,20 @@ impl ExportStatusTracker {
         }
     }
 
-    /// An export from the process arrived: the armed check is canceled and the status reads
-    /// `Arriving`.
-    pub(crate) fn export_arrived(&self) {
+    /// An export from the process arrived: `read` runs with the count of stops so far, under the
+    /// tracker's lock, so no stop comes between it and the turn; then the armed check is canceled
+    /// and the status reads `Arriving`.
+    pub(crate) fn export_arrived(&self, read: impl FnOnce(u64)) {
         let mut state = lock(&self.state);
+        let stops = state.status.borrow().stops;
+        read(stops);
         state.last_export_at = Some(Instant::now());
         if let Some(check) = state.check.take() {
             check.job.cancel();
         }
-        state.status.send_if_modified(|status| {
-            let was_arriving = *status == Some(ExportStatus::Arriving);
-            *status = Some(ExportStatus::Arriving);
+        state.status.send_if_modified(|published| {
+            let was_arriving = published.status == Some(ExportStatus::Arriving);
+            published.status = Some(ExportStatus::Arriving);
             !was_arriving
         });
     }
@@ -115,9 +137,12 @@ impl ExportStatusTracker {
                         let mut state = lock(&shared);
                         if state.check.as_ref().is_some_and(|check| check.id == id) {
                             state.check = None;
-                            state.status.send_if_modified(|status| {
-                                let was_stopped = *status == Some(ExportStatus::Stopped);
-                                *status = Some(ExportStatus::Stopped);
+                            state.status.send_if_modified(|published| {
+                                let was_stopped = published.status == Some(ExportStatus::Stopped);
+                                if !was_stopped {
+                                    published.status = Some(ExportStatus::Stopped);
+                                    published.stops += 1;
+                                }
                                 !was_stopped
                             });
                         }
@@ -131,24 +156,57 @@ impl ExportStatusTracker {
         Ok(())
     }
 
-    /// The process's export status, `None` until an export arrives or a check finds none.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the export status line and the usage-file fallback read it"
-        )
-    )]
-    pub(crate) fn status(&self) -> watch::Receiver<Option<ExportStatus>> {
+    /// Arms one wake two export intervals out, which runs `wake` and leaves the status as it is;
+    /// a wake still armed is canceled, so the process holds one. Fails only once the scheduler has
+    /// stopped.
+    pub(crate) fn arm_wake(
+        &self,
+        wake: impl FnOnce() + Send + 'static,
+    ) -> Result<(), ScheduleError> {
+        let mut wake = Some(wake);
+        let job = self.scheduler.schedule(
+            "telemetry export wake",
+            JobCondition::Always,
+            self.export_interval * INTERVALS_WAITED,
+            move |_| {
+                if let Some(wake) = wake.take() {
+                    wake();
+                }
+                async { Ok(()) }.boxed()
+            },
+        )?;
+        if let Some(armed) = lock(&self.state).wake.replace(job) {
+            armed.cancel();
+        }
+        Ok(())
+    }
+
+    /// The process's published export status.
+    pub(crate) fn status(&self) -> watch::Receiver<PublishedExportStatus> {
         self.status.clone()
+    }
+
+    /// Publishes `files`, by path, as the files read in the exports' place that cannot be read.
+    pub(crate) fn publish_unreadable_files(&self, files: Vec<PathBuf>) {
+        lock(&self.state).status.send_if_modified(|published| {
+            let is_changed = published.unreadable_files != files;
+            if is_changed {
+                published.unreadable_files = files;
+            }
+            is_changed
+        });
     }
 }
 
 impl Drop for ExportStatusTracker {
-    // The process is gone, so its armed check would decide nothing.
+    // The process is gone, so its armed check would decide nothing and its wake read nothing.
     fn drop(&mut self) {
-        if let Some(check) = lock(&self.state).check.take() {
+        let mut state = lock(&self.state);
+        if let Some(check) = state.check.take() {
             check.job.cancel();
+        }
+        if let Some(wake) = state.wake.take() {
+            wake.cancel();
         }
     }
 }
@@ -176,10 +234,11 @@ mod tests {
         ExportStatusTracker::new(Arc::new(scheduler), INTERVAL)
     }
 
-    // A request turn with no export reads stopped only two intervals after its settle, the next
-    // export reads arriving again, and a turn with no request leaves that as it was. Killed by
-    // deciding at the settle, by stopping on a turn with no request, and by an export that leaves
-    // the stop standing.
+    // A request turn with no export reads stopped only two intervals after its settle, counted as
+    // the first stop, which the next export's read sees; the export reads arriving again, and a
+    // turn with no request leaves that as it was. Killed by deciding at the settle, by stopping on
+    // a turn with no request, by an export that leaves the stop standing, and by a stop never
+    // counted.
     #[tokio::test(start_paused = true)]
     async fn an_unexported_request_turn_reads_stopped_until_the_next_export() {
         let tracker = tracker();
@@ -190,19 +249,27 @@ mod tests {
             .turn_settled(true, settled_at)
             .expect("the scheduler runs");
         sleep((INTERVAL * 2).saturating_sub(Duration::from_millis(1))).await;
-        assert_eq!(*status.borrow(), None);
+        assert_eq!(status.borrow().status, None);
         status.changed().await.expect("the tracker is held");
-        assert_eq!(*status.borrow_and_update(), Some(ExportStatus::Stopped));
+        assert_eq!(
+            status.borrow_and_update().status,
+            Some(ExportStatus::Stopped)
+        );
         assert!(settled_at.elapsed() >= INTERVAL * 2);
 
-        tracker.export_arrived();
-        assert_eq!(*status.borrow_and_update(), Some(ExportStatus::Arriving));
+        let mut stops_read = None;
+        tracker.export_arrived(|stops| stops_read = Some(stops));
+        assert_eq!(stops_read, Some(1));
+        assert_eq!(
+            status.borrow_and_update().status,
+            Some(ExportStatus::Arriving)
+        );
 
         tracker
             .turn_settled(false, Instant::now())
             .expect("the scheduler runs");
         sleep(INTERVAL * 3).await;
-        assert_eq!(*status.borrow(), Some(ExportStatus::Arriving));
+        assert_eq!(status.borrow().status, Some(ExportStatus::Arriving));
     }
 
     // An export the turn's last record left before the turn settled counts for that turn. Killed by
@@ -214,13 +281,13 @@ mod tests {
 
         let started_at = Instant::now();
         sleep(INTERVAL / 2).await;
-        tracker.export_arrived();
+        tracker.export_arrived(|_stops| {});
         sleep(INTERVAL / 2).await;
         tracker
             .turn_settled(true, started_at)
             .expect("the scheduler runs");
         sleep(INTERVAL * 3).await;
 
-        assert_eq!(*status.borrow(), Some(ExportStatus::Arriving));
+        assert_eq!(status.borrow().status, Some(ExportStatus::Arriving));
     }
 }

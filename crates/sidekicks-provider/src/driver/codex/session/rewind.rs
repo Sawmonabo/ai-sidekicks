@@ -176,12 +176,14 @@ impl CodexConversationRewind {
                 .await?;
         let turn_id = from_history.get(message_id).cloned();
         // A session whose task ended keeps no turns to record.
-        let _unheard = inbound.push(CodexSessionInbound::Call(
-            CodexSessionCall::RecordMessageTurns {
-                thread_id: recorded.thread_id.clone(),
-                turn_id_by_client_message_id: from_history,
-            },
-        ));
+        let _unheard = inbound
+            .push(CodexSessionInbound::Call(
+                CodexSessionCall::RecordMessageTurns {
+                    thread_id: recorded.thread_id.clone(),
+                    turn_id_by_client_message_id: from_history,
+                },
+            ))
+            .is_ok();
         Ok(turn_id.map(|turn_id| (recorded.thread_id, turn_id)))
     }
 }

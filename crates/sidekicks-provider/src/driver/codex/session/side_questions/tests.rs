@@ -579,7 +579,7 @@ async fn a_live_copy_reading_carries_its_model_and_declared_tier() {
             request.thread_speed.as_ref().map(BoundedText::as_str),
             request.model_id.as_ref().map(FreeFormText::as_str),
         ),
-        (Some("priority"), Some("priority"), Some("gpt-5"))
+        (Some("priority"), None, Some("gpt-5"))
     );
 }
 
