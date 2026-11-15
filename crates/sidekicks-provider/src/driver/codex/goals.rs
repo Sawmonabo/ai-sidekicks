@@ -455,10 +455,12 @@ impl CodexSessionGoals {
         let params = serde_json::value::to_raw_value(&json!({"threadId": thread_id, "goal": goal}))
             .expect("a goal Codex sent serializes");
         // A session whose task ended draws no row.
-        inbound.push(CodexSessionInbound::Frame {
-            method: CODEX_THREAD_GOAL_UPDATED_METHOD.to_owned(),
-            params,
-        });
+        let _is_drawn = inbound
+            .push(CodexSessionInbound::Frame {
+                method: CODEX_THREAD_GOAL_UPDATED_METHOD.to_owned(),
+                params,
+            })
+            .is_ok();
     }
 
     // Clears the goal a set of `refused_objective` made where no goal was held before, drawing no
