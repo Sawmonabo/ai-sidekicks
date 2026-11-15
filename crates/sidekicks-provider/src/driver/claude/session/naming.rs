@@ -262,6 +262,8 @@ async fn run_naming_turn(
             pre_approvals: ClaudePreApprovals::Kept,
             text,
             stop: stop.clone(),
+            // Its helper tool is withheld.
+            helper_count: None,
         })
         .await
 }

@@ -13,7 +13,6 @@ pub(crate) mod resume;
 pub(crate) mod spawn_sources;
 
 use std::error::Error;
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -49,7 +48,9 @@ use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSession
 use crate::driver::claude::frame_routing::ClaudeFrameRouting;
 use crate::driver::claude::goals::file::{ClaudeGoalFile, ClaudeGoalFork, ClaudeProcessGoal};
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
-use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
+use crate::driver::claude::hooks::helper_limit::{
+    ClaudeHelperLimit, ClaudeHelperProcess, answer_admitted_starts,
+};
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
@@ -94,9 +95,7 @@ use crate::driver::claude::spawn::legs::{
     ClaudeSpawnLegsRequest, bind_claude_callback_tools, build_claude_spawn_binding,
     build_claude_spawn_bound_legs,
 };
-use crate::driver::claude::spawn::settings::{
-    ClaudeHelperCaps, ClaudePreApprovals, ClaudeSessionAdvisor,
-};
+use crate::driver::claude::spawn::settings::{ClaudePreApprovals, ClaudeSessionAdvisor};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::diagnostics::DriverDiagnosticKind;
@@ -619,7 +618,6 @@ impl ClaudeSessionEstablishment {
                 permission_mode: requested_mode,
                 messaging_socket: messaging_socket.as_deref(),
                 pre_approvals: ClaudePreApprovals::Kept,
-                helper_caps: ClaudeHelperCaps::Lifted,
             })
             .await;
         let started = match started {
@@ -738,17 +736,18 @@ impl ClaudeSessionEstablishment {
             self.end_unadopted_live(&started, &live).await;
             return Err(ClaudeEstablishmentError::Closed);
         }
-        self.adopt(&live, stream, band, receiver, level_reports, &started);
+        self.adopt(&live, stream, band, receiver, level_reports, &started)
+            .await;
         self.account_servers
             .read_at_session_start(&live.admitted_provider_account_id());
         Ok(started.spawned_version)
     }
 
     // The adopted process's stream, task and notices; the helper limit counts the helpers its
-    // routing `band` holds, and an interrupt reads there the helpers the session waits on. The
-    // follow of Claude Code's own mode moves reads `level_reports`, subscribed at the record's
-    // making.
-    fn adopt(
+    // routing `band` holds beside any copy's, and an interrupt reads there the helpers the session
+    // waits on. The follow of Claude Code's own mode moves reads `level_reports`, subscribed at
+    // the record's making.
+    async fn adopt(
         &self,
         live: &Arc<LiveClaudeSession>,
         stream: Arc<ClaudeSessionStream>,
@@ -784,16 +783,16 @@ impl ClaudeSessionEstablishment {
             &live.provider_session_id,
             &started.initialize.commands,
         );
-        if let Some(SubagentPolicy::Enabled {
-            helpers_at_once: Some(helpers_at_once),
-            ..
-        }) = &live.spawn_bound_legs.subagent_policy
+        if let Some(limit) =
+            ClaudeHelperLimit::limit_of(live.spawn_bound_legs.subagent_policy.as_ref())
         {
-            let limit = usize::try_from(helpers_at_once.get())
-                .ok()
-                .and_then(NonZeroUsize::new)
-                .unwrap_or(NonZeroUsize::MAX);
-            lock(&self.helpers).limit_session(&session_id, limit, band);
+            let process = ClaudeHelperProcess {
+                band,
+                channel: Arc::clone(&live.channel),
+                account: live.account.clone(),
+            };
+            let admitted = lock(&self.helpers).limit_session(&session_id, limit, process);
+            answer_admitted_starts(&session_id, admitted).await;
         }
         let mut task = ClaudeSessionTask::new(
             Arc::clone(&self.task_services),

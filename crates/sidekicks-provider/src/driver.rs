@@ -150,6 +150,9 @@ pub struct ProviderDescriptor {
     /// The variables taken off the provider's processes even when the person's shell sets them; a
     /// command the person's project runs keeps them.
     pub(crate) withheld_environment_names: &'static [&'static str],
+    /// The variables a host app that runs the provider sets about its own session, which the
+    /// daemon drops from the environment every process it starts is built on.
+    pub(crate) host_session_environment_names: &'static [&'static str],
     /// The variables a Terminal pane's shell is given while `Simplify for a screen reader` is on.
     pub(crate) screen_reader_environment_names: &'static [&'static str],
     /// The voice kinds the provider offers, each at most once.
@@ -284,6 +287,12 @@ impl ProviderDescriptor {
     /// The variables a Terminal pane's shell is given while `Simplify for a screen reader` is on.
     pub fn screen_reader_environment_names(&self) -> &'static [&'static str] {
         self.screen_reader_environment_names
+    }
+
+    /// The variables a host app that runs the provider sets about its own session, which no
+    /// process the daemon starts carries.
+    pub fn host_session_environment_names(&self) -> &'static [&'static str] {
+        self.host_session_environment_names
     }
 
     /// The transports and declaration members the provider takes for a tool server, which a

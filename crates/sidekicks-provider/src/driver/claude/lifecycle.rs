@@ -50,6 +50,7 @@ use crate::driver::claude::goals::endings::ClaudeGoalEndings;
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::driver::claude::hooks::command_capture::ClaudeCommandWindows;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
+use crate::driver::claude::hooks::helper_limit::copy::ClaudeSessionHelperCount;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::inbox::address::ClaudeRegisteredPlacesAddresser;
@@ -484,6 +485,10 @@ impl ClaudeDriver {
                 ClaudeOneTurnPricing {
                     usage: Arc::clone(&ports.usage),
                     live: Arc::clone(&pricing),
+                },
+                ClaudeSessionHelperCount {
+                    limit: Arc::clone(&helpers),
+                    agent_tree_lookup: Arc::clone(&ports.agent_tree_lookup),
                 },
             ));
             let run_controls = ClaudeRunControls {

@@ -31,6 +31,10 @@ use crate::driver::{
     ProviderDescriptor, ProviderMemoryEstimates, ProviderSwitchBoundaries,
 };
 
+/// A host app's own id for the session it runs Claude Code in, which only that app sets; Claude
+/// Code writes it into its registry entry, where other sessions send to it.
+const CLAUDE_HOST_SESSION_ID_VARIABLE: &str = "CLAUDE_CODE_HOST_SESSION_ID";
+
 /// Claude Code's fixed facts. Its plan ids read as their own words, and it reads no tool-server
 /// declaration member beyond the shared ones.
 pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
@@ -147,9 +151,8 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         "CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT",
         // Joins the per-session memories the daemon keeps apart.
         "CLAUDE_CODE_REMOTE_MEMORY_DIR",
-        // A host app's own session id, which only that app sets; Claude Code writes it into its
-        // registry entry, where other sessions send to it.
-        "CLAUDE_CODE_HOST_SESSION_ID",
+        // Also withheld here, so an environment row that sets it reaches no Claude Code process.
+        CLAUDE_HOST_SESSION_ID_VARIABLE,
         // A shell's own sign-in token, which would beat the account's.
         OAUTH_TOKEN_VARIABLE,
         // Names the pipe a pasted token is handed on, which only the daemon's start sets.
@@ -160,6 +163,7 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         CLAUDE_RESUME_PROMPT_KEY,
         CLAUDE_RESUME_MAX_AGE_KEY,
     ],
+    host_session_environment_names: &[CLAUDE_HOST_SESSION_ID_VARIABLE],
     screen_reader_environment_names: &["CLAUDE_AX_SCREEN_READER"],
     voice_kinds: &[VoiceKind::Dictation],
     mcp_transports: &[McpTransport::Stdio, McpTransport::Http, McpTransport::Sse],

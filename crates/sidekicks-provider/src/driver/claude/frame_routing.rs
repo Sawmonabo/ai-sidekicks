@@ -243,19 +243,12 @@ impl ClaudeFrameRouting {
                 .await,
             },
         };
-        band.accountant
-            .establish_thread(provider_session_id.to_owned(), base);
-        let released = band
-            .router
-            .register_session_thread(provider_session_id.to_owned());
-        // The frames held for the session's own thread route as its own, so none is a helper's.
-        Self::route_released(band, released);
+        bind_thread(band, provider_session_id, base);
     }
 
     /// Routes one `frame` of `session_id`'s process and hands it back with what the band read off
-    /// it and the helper frames it released. A helper's start registers its child before the
-    /// frame routes, or the frame would be held for its own registration; a helper's end completes
-    /// it after, so the end is still kept out of the session's transcript.
+    /// it and the helper frames it released, as [`route_in_band`] does, once the session thread's
+    /// own handshake, command list and compaction boundary are tapped.
     pub(crate) fn route_frame(
         &self,
         band: &mut ClaudeSessionRoutingBand,
@@ -264,13 +257,7 @@ impl ClaudeFrameRouting {
         frame: ClaudeStreamFrame,
     ) -> ClaudeRoutedFrames {
         let observation = &frame.observation;
-        let mut released_helper_frames = Vec::new();
-        let mut routed = ClaudeRoutedObservation {
-            route: ThreadFrameRoute::Quarantined,
-            helper_lifecycle: Vec::new(),
-            metered: std::mem::take(&mut band.usage_tally.unrouted),
-            settled_output_speed: None,
-        };
+        let mut settled_output_speed = None;
         // Only the session's own thread counts; a helper's handshake or compaction says nothing
         // about the session's process.
         if observation.subagent_id.is_none() {
@@ -279,7 +266,7 @@ impl ClaudeFrameRouting {
                     .replace_commands(session_id, provider_session_id, commands);
             }
             if let Some(handshake) = &observation.handshake {
-                routed.settled_output_speed = self.handshakes.observe_handshake_declaration(
+                settled_output_speed = self.handshakes.observe_handshake_declaration(
                     session_id,
                     provider_session_id,
                     handshake.clone(),
@@ -290,70 +277,9 @@ impl ClaudeFrameRouting {
                     .observe_boundary(&session_id.to_string(), boundary.boundary_position);
             }
         }
-        // A helper a `SendMessage` call wakes runs on past the call's result, whether its start
-        // came before the call or comes after it.
-        for call_id in &observation.message_call_ids {
-            let waiting_helper_id = band
-                .router
-                .child_waiting_on_call(call_id)
-                .map(str::to_owned);
-            if let Some(helper_id) = waiting_helper_id {
-                band.router.stop_waiting_on_child(&helper_id);
-            }
-            band.message_call_ids.insert(call_id.clone());
-        }
-        // Read before the frame routes, so a held helper frame's call is known when the call
-        // reaches the daemon's tool server right after it.
-        for call_id in &observation.daemon_tool_call_ids {
-            let thread = observation
-                .subagent_id
-                .clone()
-                .map_or(ClaudeToolCallThread::Session, ClaudeToolCallThread::Helper);
-            band.daemon_tool_calls.insert(call_id.clone(), thread);
-        }
-        for call_id in &observation.answered_call_ids {
-            band.daemon_tool_calls.remove(call_id);
-        }
-        // A start naming a call answered earlier in the turn waits on nothing, so the ids are kept
-        // until the lead's turn ends.
-        if observation.subagent_id.is_none() && observation.frame_kind == "result" {
-            band.message_call_ids.clear();
-        }
-        if let Some(signal) = &observation.subagent_lifecycle
-            && signal.signal == ClaudeSubagentSignal::SubagentStart
-        {
-            released_helper_frames = Self::register_helper(
-                band,
-                session_id,
-                provider_session_id,
-                observation,
-                &mut routed,
-            );
-        }
-        // A helper moved to the background runs on past its call's result.
-        if let Some(helper_id) = &observation.backgrounded_helper_id {
-            band.router.stop_waiting_on_child(helper_id);
-        }
-        let frame = ClaudeRoutableFrame {
-            // Claude Code's frames carry no thread id: a helper's own id, else the session's.
-            thread_id: observation
-                .subagent_id
-                .clone()
-                .unwrap_or_else(|| provider_session_id.to_owned()),
-            family_class: classify_claude_frame_family_for_routing(
-                &observation.frame_kind,
-                observation.cumulative_usage.is_some(),
-            ),
-            frame,
-        };
-        let route = band.router.route_frame(&frame, Instant::now());
-        apply_route(band, &frame, &route, &mut routed);
-        routed.route = route;
-        ClaudeRoutedFrames {
-            frame: frame.frame,
-            routed,
-            released_helper_frames,
-        }
+        let mut routed = route_in_band(band, session_id, provider_session_id, frame);
+        routed.routed.settled_output_speed = settled_output_speed;
+        routed
     }
 
     // Registers a started helper's child thread at a zero usage base and reports its start once,
@@ -438,6 +364,107 @@ impl ClaudeFrameRouting {
             }
         }
         helper_frames
+    }
+}
+
+/// Binds `provider_session_id`'s own thread into `band` at `base`: its base registers first, since
+/// a released usage frame meters at once and an unestablished thread refuses it, then the frames
+/// held for it routed again, as its own, so none is a helper's.
+pub(crate) fn bind_thread(
+    band: &mut ClaudeSessionRoutingBand,
+    provider_session_id: &str,
+    base: ThreadBaseEstablishment,
+) {
+    band.accountant
+        .establish_thread(provider_session_id.to_owned(), base);
+    let released = band
+        .router
+        .register_session_thread(provider_session_id.to_owned());
+    ClaudeFrameRouting::route_released(band, released);
+}
+
+/// Routes one `frame` of `session_id`'s process through `band` alone, whose session thread is
+/// `provider_session_id`, and hands it back with what the band read off it and the helper frames
+/// it released. A helper's start registers its child before the frame routes, or the frame would
+/// be held for its own registration; a helper's end completes it after, so the end is still kept
+/// out of the session's transcript.
+pub(crate) fn route_in_band(
+    band: &mut ClaudeSessionRoutingBand,
+    session_id: SessionId,
+    provider_session_id: &str,
+    frame: ClaudeStreamFrame,
+) -> ClaudeRoutedFrames {
+    let observation = &frame.observation;
+    let mut released_helper_frames = Vec::new();
+    let mut routed = ClaudeRoutedObservation {
+        route: ThreadFrameRoute::Quarantined,
+        helper_lifecycle: Vec::new(),
+        metered: std::mem::take(&mut band.usage_tally.unrouted),
+        settled_output_speed: None,
+    };
+    // A helper a `SendMessage` call wakes runs on past the call's result, whether its start
+    // came before the call or comes after it.
+    for call_id in &observation.message_call_ids {
+        let waiting_helper_id = band
+            .router
+            .child_waiting_on_call(call_id)
+            .map(str::to_owned);
+        if let Some(helper_id) = waiting_helper_id {
+            band.router.stop_waiting_on_child(&helper_id);
+        }
+        band.message_call_ids.insert(call_id.clone());
+    }
+    // Read before the frame routes, so a held helper frame's call is known when the call
+    // reaches the daemon's tool server right after it.
+    for call_id in &observation.daemon_tool_call_ids {
+        let thread = observation
+            .subagent_id
+            .clone()
+            .map_or(ClaudeToolCallThread::Session, ClaudeToolCallThread::Helper);
+        band.daemon_tool_calls.insert(call_id.clone(), thread);
+    }
+    for call_id in &observation.answered_call_ids {
+        band.daemon_tool_calls.remove(call_id);
+    }
+    // A start naming a call answered earlier in the turn waits on nothing, so the ids are kept
+    // until the lead's turn ends.
+    if observation.subagent_id.is_none() && observation.frame_kind == "result" {
+        band.message_call_ids.clear();
+    }
+    if let Some(signal) = &observation.subagent_lifecycle
+        && signal.signal == ClaudeSubagentSignal::SubagentStart
+    {
+        released_helper_frames = ClaudeFrameRouting::register_helper(
+            band,
+            session_id,
+            provider_session_id,
+            observation,
+            &mut routed,
+        );
+    }
+    // A helper moved to the background runs on past its call's result.
+    if let Some(helper_id) = &observation.backgrounded_helper_id {
+        band.router.stop_waiting_on_child(helper_id);
+    }
+    let frame = ClaudeRoutableFrame {
+        // Claude Code's frames carry no thread id: a helper's own id, else the session's.
+        thread_id: observation
+            .subagent_id
+            .clone()
+            .unwrap_or_else(|| provider_session_id.to_owned()),
+        family_class: classify_claude_frame_family_for_routing(
+            &observation.frame_kind,
+            observation.cumulative_usage.is_some(),
+        ),
+        frame,
+    };
+    let route = band.router.route_frame(&frame, Instant::now());
+    apply_route(band, &frame, &route, &mut routed);
+    routed.route = route;
+    ClaudeRoutedFrames {
+        frame: frame.frame,
+        routed,
+        released_helper_frames,
     }
 }
 

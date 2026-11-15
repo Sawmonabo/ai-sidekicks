@@ -1,9 +1,10 @@
 //! The one-turn process: a session's process brought up over a copy of its conversation that
 //! Claude Code keeps no file of, sent one message, and read until its lead `result`. No one watches
-//! it, so every tool ask is denied, the daemon's hooks pass, Claude Code's own helper caps hold, its
-//! in-process tool servers answer as on the session's own process, and a stop ends it at once. A
-//! process given a channel apart from the session's, a staged review's, makes each of its commands
-//! a row under its run, any left open ending with the process.
+//! it, so every tool ask is denied and the daemon's hooks pass, but for the helper limit: a copy of
+//! a session counts its helpers with the session's, under the session's limit. Its in-process tool
+//! servers answer as on the session's own process, and a stop ends it at once. A process given a
+//! channel apart from the session's, a staged review's, makes each of its commands a row under its
+//! run, any left open ending with the process.
 
 use std::sync::Arc;
 
@@ -23,6 +24,10 @@ use crate::driver::claude::delivery::streamed_blocks::{
 use crate::driver::claude::delivery::system::read_claude_refusal_without_fallback;
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::hooks::callbacks::answer_claude_request;
+use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
+use crate::driver::claude::hooks::helper_limit::copy::{
+    ClaudeCopyHelpers, ClaudeSessionHelperCount,
+};
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{ClaudeCodeProcess, ClaudeStreamFrame};
 use crate::driver::claude::session::tool_server_calls::{
@@ -47,7 +52,7 @@ use crate::driver::claude::spawn::launch::control_only::{
     ClaudeShortProcessArrival, ForwardedArrivals,
 };
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
-use crate::driver::claude::spawn::settings::{ClaudeHelperCaps, ClaudePreApprovals};
+use crate::driver::claude::spawn::settings::ClaudePreApprovals;
 use crate::lenient_json::read_lenient;
 use crate::outbound_text::OutboundText;
 use crate::spawned_version::ResolvedProviderExecutable;
@@ -73,6 +78,9 @@ pub(crate) struct ClaudeOneTurnRequest<'a> {
     pub(crate) text: OutboundText,
     /// Ends the turn and its process at once when canceled.
     pub(crate) stop: CancellationToken,
+    /// The session's helper limit a copy of the session counts its helpers under; `None` for a
+    /// process that starts no helper.
+    pub(crate) helper_count: Option<ClaudeSessionHelperCount>,
 }
 
 // What the lead frames so far say about the turn's reply.
@@ -207,17 +215,17 @@ pub(crate) async fn run_claude_one_turn(
     let apart_run = command_channel
         .as_deref()
         .and_then(ClaudeCommandChannel::apart_run);
-    // Its hooks pass, so nothing but Claude Code's own caps bounds its helpers.
-    let helper_caps = ClaudeHelperCaps::one_turn(request.spawn.legs.subagent_policy.as_ref());
+    let helper_limit = ClaudeHelperLimit::limit_of(request.spawn.legs.subagent_policy.as_ref());
     let (listener, mut arrivals) = ForwardedArrivals::open();
     let provider_session_id = mint_uuid_v7().to_string();
+    let account = ClaudeProcessAccount::new(Some(provider_account_id.clone()));
     let brought_up = match bring_up_claude_process(
         launcher,
         executable,
         ClaudeBringUpRequest {
             spawn: request.spawn,
             provider_session_id: provider_session_id.clone(),
-            account: ClaudeProcessAccount::new(Some(provider_account_id.clone())),
+            account: account.clone(),
             conversation: ClaudeConversationStart::Unkept {
                 resume_handle: request.resume_handle,
             },
@@ -226,7 +234,6 @@ pub(crate) async fn run_claude_one_turn(
             permission_mode: request.permission_mode,
             messaging_socket: None,
             pre_approvals: request.pre_approvals,
-            helper_caps,
         },
     )
     .await
@@ -247,6 +254,21 @@ pub(crate) async fn run_claude_one_turn(
     if let Some(apart_run) = apart_run {
         apart_run.serve(Arc::clone(&process) as Arc<dyn ClaudeProcessChannel>);
     }
+    // Counted only where the session limits its helpers, the one case its hook is registered.
+    let mut helpers = request
+        .helper_count
+        .zip(helper_limit)
+        .map(|(count, limit)| {
+            let channel = Arc::clone(&process) as Arc<dyn ClaudeProcessChannel>;
+            ClaudeCopyHelpers::count(
+                count,
+                session_id,
+                limit,
+                channel,
+                account,
+                provider_session_id.clone(),
+            )
+        });
     let calls = ClaudeToolServerCalls::default();
     let mut spend = ClaudeOneTurnSpend {
         thread_id: provider_session_id,
@@ -262,6 +284,10 @@ pub(crate) async fn run_claude_one_turn(
         while let Some(arrival) = arrivals.recv().await {
             match arrival {
                 ClaudeShortProcessArrival::Frame(frame) => {
+                    let frame = match &mut helpers {
+                        Some(helpers) => helpers.take_frame(*frame),
+                        None => *frame,
+                    };
                     spend.read_frame(&frame.observation);
                     // A helper's commands are rows under the run too.
                     if let Some(apart_run) = apart_run {
@@ -276,6 +302,13 @@ pub(crate) async fn run_claude_one_turn(
                     read_lead_frame(&frame, &mut reading);
                 }
                 ClaudeShortProcessArrival::Request(ClaudeInboundRequestEvent::Request(asked)) => {
+                    let asked = match &helpers {
+                        Some(helpers) => helpers.take_request(asked).await,
+                        None => Some(asked),
+                    };
+                    let Some(asked) = asked else {
+                        continue;
+                    };
                     let context = ClaudeToolServerCallContext {
                         session_id,
                         provider_account_id: provider_account_id.clone(),
@@ -288,6 +321,9 @@ pub(crate) async fn run_claude_one_turn(
                     request_id,
                 }) => {
                     calls.cancel(&request_id);
+                    if let Some(helpers) = &helpers {
+                        helpers.withdraw(&request_id);
+                    }
                 }
                 ClaudeShortProcessArrival::Exit => break,
             }
@@ -302,6 +338,10 @@ pub(crate) async fn run_claude_one_turn(
     };
     calls.cancel_all();
     end_process(&process, request.stop.is_cancelled()).await;
+    // Its helpers ended with it, whichever way it ended.
+    if let Some(helpers) = helpers {
+        helpers.release().await;
+    }
     if let Some(apart_run) = apart_run {
         apart_run.end();
     }
@@ -311,8 +351,9 @@ pub(crate) async fn run_claude_one_turn(
     }
 }
 
-// A tool ask is denied and every other request passes, since no one watches this process; a
-// message for an in-process tool server goes to its server as on the session's own process.
+// A tool ask is denied and every other request the helper limit left passes, since no one watches
+// this process; a message for an in-process tool server goes to its server as on the session's own
+// process.
 async fn answer_unwatched(
     calls: &ClaudeToolServerCalls,
     context: ClaudeToolServerCallContext,
@@ -382,8 +423,8 @@ fn read_lead_frame(frame: &ClaudeStreamFrame, reading: &mut OneTurnReading) {
 }
 
 /// The answer of a process no one watches to a request it holds: a tool ask is denied, since no one
-/// can approve it, and every other request passes; a process that names no tool server sends no
-/// message for one.
+/// can approve it, and every other request passes, a helper-limit callback where no session's
+/// limit counts the process; a process that names no tool server sends no message for one.
 pub(crate) fn compose_unwatched_answer(body: &ClaudeInboundRequestBody) -> Value {
     match body {
         ClaudeInboundRequestBody::CanUseTool(_) => {

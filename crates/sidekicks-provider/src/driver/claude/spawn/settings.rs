@@ -1,9 +1,9 @@
 //! The `--settings` document every Claude Code process starts with: how long Claude Code keeps a
 //! conversation, its agent view held off, every message from another session let in, a session's
 //! whole permission rules, its advisor and output style, the command sandbox at Sandboxed, and in
-//! its `env` the telemetry switches and Claude Code's own helper caps, lifted for a session's own
-//! process and kept for a one-turn one; for a process pre-approved nothing, no allow rule and no
-//! sandbox, the person's own deny rules carried beside the session's.
+//! its `env` the telemetry switches and Claude Code's own helper caps, lifted; for a process
+//! pre-approved nothing, no allow rule and no sandbox, the person's own deny rules carried beside
+//! the session's.
 
 pub(crate) mod private_file;
 pub(crate) mod telemetry_switches;
@@ -17,7 +17,6 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::ProviderAskRule;
 
@@ -32,7 +31,6 @@ use crate::driver::claude::session::transport::control::{
 use crate::driver::claude::spawn::settings::telemetry_switches::{
     NoOtelHeadersHelper, compose_claude_telemetry_switches,
 };
-use crate::driver::session_control::SubagentPolicy;
 use crate::pricing::receiver::TelemetryTarget;
 use crate::pricing::receiver::bearers::TelemetryBearer;
 use crate::run::posture::{CredentialDenyPath, CredentialDenyPathKind};
@@ -70,61 +68,20 @@ impl Serialize for CrossSessionInboundAccepted {
     }
 }
 
-/// Claude Code's own setting for how many helpers run at once, a whole number of at least 1.
-const CLAUDE_HELPERS_AT_ONCE_SETTING: &str = "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS";
-
-/// Claude Code's own helper caps, each at its largest value, which only a session's own process
-/// carries: its pre-tool hook applies the person's limit to each helper's start, and nothing bounds
-/// how deep helpers nest. The document carries them in its `env`, which outranks an `env` in the
-/// person's own settings files.
+/// Claude Code's own helper caps, each at its largest value, which every process a session starts
+/// carries: the daemon's pre-tool hook applies the person's limit to each helper's start, and
+/// nothing bounds how deep helpers nest. The document carries them in its `env`, which outranks an
+/// `env` in the person's own settings files.
 const CLAUDE_LIFTED_HELPER_CAPS: [(&str, &str); 2] = [
     (
         "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
         "9223372036854775807",
     ),
-    (CLAUDE_HELPERS_AT_ONCE_SETTING, "9223372036854775807"),
+    (
+        "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+        "9223372036854775807",
+    ),
 ];
-
-/// Which helper caps a process runs under.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ClaudeHelperCaps {
-    /// Claude Code's own caps lifted: a session's own process, whose pre-tool hook holds each
-    /// helper's start at the person's limit.
-    Lifted,
-    /// Claude Code's own caps: a one-turn process, whose hooks pass, its helpers at once held to
-    /// the person's limit through Claude Code's own setting where the person set one.
-    ClaudeCodes {
-        /// The person's limit on helpers at once; `None` keeps Claude Code's own.
-        helpers_at_once: Option<SafeInt<1>>,
-    },
-}
-
-impl ClaudeHelperCaps {
-    /// The caps of a one-turn process under `subagent_policy`.
-    pub(crate) fn one_turn(subagent_policy: Option<&SubagentPolicy>) -> Self {
-        let helpers_at_once = match subagent_policy {
-            Some(SubagentPolicy::Enabled {
-                helpers_at_once, ..
-            }) => *helpers_at_once,
-            Some(SubagentPolicy::Disabled {}) | None => None,
-        };
-        Self::ClaudeCodes { helpers_at_once }
-    }
-
-    // The variables the document's `env` carries for these caps.
-    fn env(self) -> BTreeMap<&'static str, String> {
-        match self {
-            Self::Lifted => CLAUDE_LIFTED_HELPER_CAPS
-                .into_iter()
-                .map(|(name, value)| (name, value.to_owned()))
-                .collect(),
-            Self::ClaudeCodes { helpers_at_once } => helpers_at_once
-                .map(|limit| (CLAUDE_HELPERS_AT_ONCE_SETTING, limit.get().to_string()))
-                .into_iter()
-                .collect(),
-        }
-    }
-}
 
 /// The `--settings` document. `advisor_model` is `""` when the session's advisor is off, which
 /// outranks the person's own advisor, and absent where no advisor was picked, so Claude Code's own
@@ -373,8 +330,8 @@ pub(crate) fn compose_claude_permissions(
 
 /// The `--settings` document for a process at the session's current `posture`, advisor, output
 /// style and own rules, its commands reaching `command_channel` where one opened, pre-approved
-/// what `pre_approvals` keeps and under `helper_caps`. Fails as [`compose_claude_permissions`]
-/// does.
+/// what `pre_approvals` keeps and with Claude Code's own helper caps lifted. Fails as
+/// [`compose_claude_permissions`] does.
 pub(crate) fn compose_claude_spawn_settings(
     request: &ClaudePermissionsRequest<'_>,
     posture: Option<&ExecutionPosture>,
@@ -382,7 +339,6 @@ pub(crate) fn compose_claude_spawn_settings(
     output_style: Option<&str>,
     command_channel: Option<&ClaudeCommandChannel>,
     pre_approvals: ClaudePreApprovals<'_>,
-    helper_caps: ClaudeHelperCaps,
 ) -> Result<ClaudeSpawnSettings, ClaudeRulesError> {
     let writable_roots = posture
         .map(ExecutionPosture::writable_roots)
@@ -408,7 +364,10 @@ pub(crate) fn compose_claude_spawn_settings(
         output_style: output_style.map(str::to_owned),
         sandbox,
         disable_all_hooks: false,
-        env: helper_caps.env(),
+        env: CLAUDE_LIFTED_HELPER_CAPS
+            .into_iter()
+            .map(|(name, value)| (name, value.to_owned()))
+            .collect(),
         otel_headers_helper: None,
     })
 }
@@ -457,22 +416,19 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use rstest::rstest;
     use serde_json::{Value, json};
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
-    use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_platforms::PathRules;
 
     use sidekicks_contracts::free_form_string::FilesystemPath;
 
     use super::{
-        ClaudeHelperCaps, ClaudePermissionsRequest, ClaudePreApprovals, ClaudeSessionAdvisor,
-        ClaudeSpawnSettings, compose_claude_permissions, compose_claude_spawn_settings,
+        ClaudePermissionsRequest, ClaudePreApprovals, ClaudeSessionAdvisor, ClaudeSpawnSettings,
+        compose_claude_permissions, compose_claude_spawn_settings,
     };
     use crate::background_work::BackgroundWorkForms;
     use crate::driver::PROVIDERS;
     use crate::driver::claude::DESCRIPTOR;
-    use crate::driver::session_control::SubagentPolicy;
     use crate::pricing::receiver::TelemetryTarget;
     use crate::pricing::receiver::bearers::{TelemetryBearers, TelemetryHolderId};
     use crate::run::posture::{
@@ -609,7 +565,6 @@ mod tests {
                 None,
                 None,
                 pre_approvals,
-                ClaudeHelperCaps::Lifted,
             )
             .expect("the settings compose");
 
@@ -641,7 +596,6 @@ mod tests {
                 None,
                 None,
                 ClaudePreApprovals::Kept,
-                ClaudeHelperCaps::Lifted,
             )
             .expect("the settings compose");
             serde_json::to_value(settings).expect("the settings serialize")["advisorModel"].clone()
@@ -685,7 +639,6 @@ mod tests {
                 None,
                 None,
                 pre_approvals,
-                ClaudeHelperCaps::Lifted,
             )
             .expect("the settings compose")
         };
@@ -715,32 +668,12 @@ mod tests {
         );
     }
 
-    // A session's own process lifts Claude Code's helper caps, and a one-turn process, whose hooks
-    // pass, keeps them, taking the person's limit on helpers at once through Claude Code's own
-    // setting where one is set. Killed by a document whose `env` drops a lifted cap or lowers it,
-    // which lets an `env` in the person's own settings files cap the session's helpers below the
-    // person's limit, by a one-turn process that lifts them, which lets an ask copy start helpers
-    // with nothing bounding them, and by a one-turn process left without the person's limit.
-    #[rstest]
-    #[case::the_sessions_own(ClaudeHelperCaps::Lifted, json!({
-        "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "9223372036854775807",
-        "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "9223372036854775807",
-    }))]
-    #[case::a_one_turn_under_a_limit(
-        ClaudeHelperCaps::one_turn(Some(&SubagentPolicy::from_helper_limit(
-            SafeInt::new(3),
-            Vec::new(),
-        ))),
-        json!({"CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "3"}),
-    )]
-    #[case::a_one_turn_under_no_limit(
-        ClaudeHelperCaps::one_turn(Some(&SubagentPolicy::from_helper_limit(None, Vec::new()))),
-        Value::Null,
-    )]
-    fn only_a_sessions_own_process_lifts_claude_codes_helper_caps(
-        #[case] helper_caps: ClaudeHelperCaps,
-        #[case] env: Value,
-    ) {
+    // Every process a session starts lifts Claude Code's helper caps, since the daemon's hook holds
+    // its helpers to the person's limit. Killed by a document whose `env` drops a lifted cap or
+    // lowers it, which lets an `env` in the person's own settings files, or Claude Code's own 20,
+    // cap the session's helpers below the person's limit or where the person set none.
+    #[test]
+    fn a_sessions_processes_lift_claude_codes_helper_caps() {
         let request = ClaudePermissionsRequest {
             credential_deny_paths: &[],
             memory_folders: &[],
@@ -756,13 +689,15 @@ mod tests {
             None,
             None,
             ClaudePreApprovals::Kept,
-            helper_caps,
         )
         .expect("the settings compose");
 
         assert_eq!(
             serde_json::to_value(settings).expect("the settings serialize")["env"],
-            env
+            json!({
+                "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "9223372036854775807",
+                "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "9223372036854775807",
+            })
         );
     }
 }

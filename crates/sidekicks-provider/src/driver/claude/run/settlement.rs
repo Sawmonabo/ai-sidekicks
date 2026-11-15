@@ -10,9 +10,7 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
-use crate::driver::claude::hooks::callbacks::answer_claude_request;
-use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
-use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
+use crate::driver::claude::hooks::helper_limit::{ClaudeHelperLimit, answer_admitted_starts};
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::port::run_host::RunHost;
@@ -56,17 +54,7 @@ impl ClaudeTurnSettlement {
         self.pending_compactions
             .observe_turn_end(&session_id.to_string());
         let admitted = lock(&self.helpers).turn_ended(&session_id);
-
-        for request_id in admitted {
-            answer_claude_request(
-                &*live.channel,
-                &session_id,
-                &live.admitted_provider_account_id(),
-                request_id,
-                &ClaudeHookAnswer::Pass,
-            )
-            .await;
-        }
+        answer_admitted_starts(&session_id, admitted).await;
         !self.routes.is_turn_held(session_id)
     }
 }

@@ -5,7 +5,8 @@
 //! provider installed later are present with no terminal open. A shell that fails, stalls past
 //! five seconds, prints past what an environment can hold or prints no markers is ended with its
 //! whole group, and the start goes on with the account's default environment: the start never
-//! waits on a shell. Where the system has none, the daemon's own environment is the base.
+//! waits on a shell. Where the system has none, the daemon's own environment is the base. Either
+//! way, a host app's own session id is left out, so no process the daemon starts names its session.
 
 pub(crate) mod printing;
 
@@ -17,6 +18,8 @@ use sidekicks_platforms::{
     BaseEnvironmentSource, PathRules, SessionCommand, Spawner, base_environment_source,
     name_as_login_shell, quote_powershell_literal, start_session_child, windows_drive_mounts,
 };
+use sidekicks_provider::driver::PROVIDERS;
+use sidekicks_provider::spawn_environment::remove_environment_names;
 use sidekicks_std::random_hex::random_hex;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tokio_util::sync::CancellationToken;
@@ -53,9 +56,21 @@ const MARKER_RANDOM_BYTES: usize = 16;
 /// is canceled first. Never fails for a shell that fails, stalls, prints no markers or is
 /// abandoned: it says why in the service log and answers the account's default environment,
 /// `HOME` from `home_folder`, `SHELL` where the account names one, `USER` and `LOGNAME`, `PATH` as
-/// `/usr/bin:/bin`, and `TMPDIR` where the system keeps one per account. Fails with the system's
-/// error only when the account cannot be read.
+/// `/usr/bin:/bin`, and `TMPDIR` where the system keeps one per account. Every variable a
+/// provider's host app sets about its own session is left out. Fails with the system's error only
+/// when the account cannot be read.
 pub(crate) async fn capture_provider_base_environment(
+    spawner: &Spawner,
+    home_folder: &Path,
+    stop: &CancellationToken,
+) -> std::io::Result<Vec<(String, String)>> {
+    let mut pairs = capture_from_source(spawner, home_folder, stop).await?;
+    leave_out_host_session_names(&mut pairs);
+    Ok(pairs)
+}
+
+// The daemon's own environment or the login shell's, as the system's source says.
+async fn capture_from_source(
     spawner: &Spawner,
     home_folder: &Path,
     stop: &CancellationToken,
@@ -93,6 +108,17 @@ pub(crate) async fn capture_provider_base_environment(
         return Ok(account.pairs());
     };
     Ok(capture_login_shell_environment(spawner, &shell, LOGIN_SHELL_DEADLINE, stop, account).await)
+}
+
+// A host app that started the daemon, or the person's shell, can hold the app's own session id,
+// which would make every provider process and command the daemon starts claim that session.
+fn leave_out_host_session_names(pairs: &mut Vec<(String, String)>) {
+    let names: Vec<&str> = PROVIDERS
+        .iter()
+        .flat_map(|descriptor| descriptor.host_session_environment_names())
+        .copied()
+        .collect();
+    remove_environment_names(pairs, &names, PathRules::NATIVE);
 }
 
 // Runs the capture with `shell` and answers what it printed, the search path without the Windows
@@ -472,12 +498,13 @@ mod tests {
         BaseEnvironmentSource, Spawner, base_environment_source, create_new_file,
         pin_running_process,
     };
+    use sidekicks_provider::driver::PROVIDERS;
     use tokio::io::AsyncReadExt as _;
     use tokio_util::sync::CancellationToken;
 
     use super::{
         CaptureMarkers, CaptureOutcome, DefaultEnvironment, MAX_CAPTURE_BYTES, capture_launch,
-        capture_login_shell_environment, read_capture, run_capture,
+        capture_login_shell_environment, leave_out_host_session_names, read_capture, run_capture,
     };
 
     fn markers() -> CaptureMarkers {
@@ -507,6 +534,30 @@ mod tests {
             outcome,
             CaptureOutcome::Failed("printed more than an environment can hold".to_owned())
         );
+    }
+
+    // Fails when a name some provider's host app sets about its own session stays in the base.
+    #[test]
+    fn a_captured_host_session_id_is_left_out_of_the_base() {
+        let names: Vec<&str> = PROVIDERS
+            .iter()
+            .flat_map(|descriptor| descriptor.host_session_environment_names())
+            .copied()
+            .collect();
+        assert!(
+            !names.is_empty(),
+            "some provider names a host session variable"
+        );
+        let home = ("HOME".to_owned(), "/home/ada".to_owned());
+        let mut pairs: Vec<(String, String)> = names
+            .iter()
+            .map(|name| ((*name).to_owned(), "local_0123abcd".to_owned()))
+            .chain([home.clone()])
+            .collect();
+
+        leave_out_host_session_names(&mut pairs);
+
+        assert_eq!(pairs, [home]);
     }
 
     #[test]

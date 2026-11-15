@@ -458,6 +458,7 @@ mod tests {
         launch_environment_names: &["APP_LAUNCH"],
         credential_home_environment_names: &["APP_HOME"],
         withheld_environment_names: &["APP_WITHHELD"],
+        host_session_environment_names: &[],
         screen_reader_environment_names: &[],
         voice_kinds: &[],
         mcp_transports: &[McpTransport::Stdio],

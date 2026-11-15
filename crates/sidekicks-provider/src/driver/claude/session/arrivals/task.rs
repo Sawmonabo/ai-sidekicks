@@ -41,7 +41,9 @@ use crate::driver::claude::hooks::callbacks::{
 };
 use crate::driver::claude::hooks::command_capture::{ClaudeCommandOwner, ClaudeCommandWindows};
 use crate::driver::claude::hooks::edit_checkpoint::keep_copy_then_answer;
-use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
+use crate::driver::claude::hooks::helper_limit::{
+    ClaudeCountedProcess, ClaudeHelperLimit, answer_admitted_starts,
+};
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::hold_renewal::arm_hold_renewal;
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudeRunPauses};
@@ -215,9 +217,10 @@ impl ClaudeSessionTask {
             }
         }
         // A helper's end, or a counted call answered with no helper started, frees the starts the
-        // helper limit held behind it.
+        // helper limit held behind it, on this process or a copy of the session.
         let admitted = lock(&services.helpers).observe_lifecycle(
             &session_id,
+            ClaudeCountedProcess::Session,
             &routed.routed.helper_lifecycle,
             &observation.answered_call_ids,
         );
@@ -227,16 +230,7 @@ impl ClaudeSessionTask {
                 self.close_remaining_commands(&helper);
             }
         }
-        for request_id in admitted {
-            answer_claude_request(
-                &*live.channel,
-                &session_id,
-                &live.admitted_provider_account_id(),
-                request_id,
-                &ClaudeHookAnswer::Pass,
-            )
-            .await;
-        }
+        answer_admitted_starts(&session_id, admitted).await;
         let lead_costs = (observation.subagent_id.is_none())
             .then(|| observation.model_costs.clone())
             .flatten();
@@ -623,7 +617,10 @@ impl ClaudeSessionTask {
         services.controls.forget_process(session_id).await;
         lock(&services.prompts).forget_session(session_id);
         lock(&services.pauses).forget_session(&session_id);
-        lock(&services.helpers).forget_session(&session_id);
+        // A copy's start the gone process's helpers held back may start now.
+        let admitted =
+            lock(&services.helpers).forget_process(&session_id, ClaudeCountedProcess::Session);
+        answer_admitted_starts(&session_id, admitted).await;
         if let Some(live) = slots.release_exited(session_id, &self.live.channel) {
             services.restarts.process_exited(live, exit).await;
         }

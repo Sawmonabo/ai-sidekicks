@@ -135,6 +135,9 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         // Sends the service's sign-in to another issuer than the one its login names.
         "CODEX_APP_SERVER_LOGIN_ISSUER",
     ],
+    // Codex reads no variable a host app sets about its own session; the session and thread ids
+    // it sets are on the commands it runs, over any inherited.
+    host_session_environment_names: &[],
     screen_reader_environment_names: &[],
     voice_kinds: &[VoiceKind::Call],
     // It reaches no server over server-sent events.

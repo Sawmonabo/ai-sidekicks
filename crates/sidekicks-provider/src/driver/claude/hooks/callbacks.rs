@@ -27,7 +27,9 @@ use crate::driver::claude::hooks::command_capture::{
     ClaudeCommandEnd, ClaudeCommandTarget, ClaudeCommandWindows, read_claude_command_target,
 };
 use crate::driver::claude::hooks::edit_checkpoint::{keep_copy_then_answer, read_claude_edit};
-use crate::driver::claude::hooks::helper_limit::{ClaudeHelperLimit, ClaudeHelperStartAnswer};
+use crate::driver::claude::hooks::helper_limit::{
+    ClaudeCountedProcess, ClaudeHelperLimit, ClaudeHelperStartAnswer,
+};
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::{
     ClaudeHookAnswer, ClaudePauseAnswer, ClaudeReleasedCallback, ClaudeRunPauses,
@@ -182,9 +184,9 @@ pub(crate) struct ClaudeHeldHelper {
     pub(crate) has_taken_effect: bool,
 }
 
-// The members of a hook's input the daemon's hooks read.
+/// The members of a hook's input the daemon's hooks read.
 #[derive(Deserialize)]
-struct HookInput {
+pub(in crate::driver::claude::hooks) struct HookInput {
     #[serde(default, deserialize_with = "read_lenient")]
     agent_id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -341,7 +343,8 @@ pub(crate) fn route_claude_request(
     let request = match event {
         ClaudeInboundRequestEvent::Cancel { request_id } => {
             pauses.withdraw_callback(session_id, &request_id);
-            let held_call_id = helpers.withdraw_start(session_id, &request_id);
+            let held_call_id =
+                helpers.withdraw_start(session_id, ClaudeCountedProcess::Session, &request_id);
             return ClaudeRequestRoute::Withdrawn {
                 request_id,
                 held_call_id,
@@ -360,19 +363,9 @@ pub(crate) fn route_claude_request(
         .as_ref()
         .and_then(|input| input.agent_id.clone())
         .filter(|id| !id.is_empty());
-    let is_helper_start = input.as_ref().and_then(|input| input.tool_name.as_deref())
-        == Some(CLAUDE_HELPER_TOOL_NAME);
-    let message_to = input
-        .as_ref()
-        .filter(|input| input.tool_name.as_deref() == Some(CLAUDE_MESSAGE_TOOL_NAME))
-        .and_then(|input| input.tool_input.as_ref()?.to.clone())
-        .filter(|to| !to.is_empty());
-    // The call's id: the callback's, else its input's, never empty.
-    let call_id = callback
-        .tool_use_id
-        .clone()
-        .or_else(|| input.as_ref()?.tool_use_id.clone())
-        .filter(|id| !id.is_empty());
+    let is_helper_start = is_helper_tool_call(input.as_ref());
+    let message_to = message_recipient(input.as_ref());
+    let call_id = hooked_call_id(callback, input.as_ref());
     let request_id = request.request_id.clone();
     let pass_off_level = |at: PermissionLevel, request| {
         if level == Some(at) {
@@ -433,7 +426,9 @@ pub(crate) fn route_claude_request(
         RegisteredHook::HelperLimit => {
             let tool_use_id = call_id.unwrap_or_else(|| request.request_id.clone());
             if is_helper_start {
-                let answer = helpers.answer_start(session_id, &request.request_id, &tool_use_id);
+                let own = ClaudeCountedProcess::Session;
+                let answer =
+                    helpers.answer_start(session_id, own, &request.request_id, &tool_use_id);
                 return helper_limit_route(answer, request.request_id);
             }
             match message_to {
@@ -646,7 +641,8 @@ pub(crate) async fn route_helper_wake(
             {
                 return pass(request_id);
             }
-            let answer = lock(helpers).answer_start(session_id, &request_id, tool_use_id);
+            let own = ClaudeCountedProcess::Session;
+            let answer = lock(helpers).answer_start(session_id, own, &request_id, tool_use_id);
             helper_limit_route(answer, request_id)
         }
         Ok(Some(_) | None) => pass(request_id),
@@ -854,11 +850,41 @@ fn read_hooked_capture(
     .map(ClaudeToolCapture::Command)
 }
 
-fn read_hook_input(callback: &ClaudeHookCallback) -> Option<HookInput> {
+/// The hook's input, `None` where it carries none or none the hooks read.
+pub(in crate::driver::claude::hooks) fn read_hook_input(
+    callback: &ClaudeHookCallback,
+) -> Option<HookInput> {
     callback
         .input
         .as_deref()
         .and_then(|input: &RawValue| serde_json::from_str(input.get()).ok())
+}
+
+/// Whether the hooked call is one of the helper tool.
+pub(in crate::driver::claude::hooks) fn is_helper_tool_call(input: Option<&HookInput>) -> bool {
+    input.and_then(|input| input.tool_name.as_deref()) == Some(CLAUDE_HELPER_TOOL_NAME)
+}
+
+/// The recipient a call of the message tool names, never empty; `None` for any other call.
+pub(in crate::driver::claude::hooks) fn message_recipient(
+    input: Option<&HookInput>,
+) -> Option<String> {
+    input
+        .filter(|input| input.tool_name.as_deref() == Some(CLAUDE_MESSAGE_TOOL_NAME))
+        .and_then(|input| input.tool_input.as_ref()?.to.clone())
+        .filter(|to| !to.is_empty())
+}
+
+/// The hooked call's id: the callback's, else its input's, never empty.
+pub(in crate::driver::claude::hooks) fn hooked_call_id(
+    callback: &ClaudeHookCallback,
+    input: Option<&HookInput>,
+) -> Option<String> {
+    callback
+        .tool_use_id
+        .clone()
+        .or_else(|| input?.tool_use_id.clone())
+        .filter(|id| !id.is_empty())
 }
 
 #[cfg(test)]

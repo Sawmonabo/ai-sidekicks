@@ -277,6 +277,7 @@ async fn a_real_session_asks_copy_refuses_a_pre_approved_write_and_leaves_no_fil
                 origin: OutboundTextOrigin::DriverCommand,
             },
             stop: CancellationToken::new(),
+            helper_count: None,
         },
     );
     tokio::time::timeout(Duration::from_secs(180), turn)

@@ -41,6 +41,7 @@ use tokio_util::task::TaskTracker;
 use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeCommandChannels};
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
+use crate::driver::claude::hooks::helper_limit::copy::ClaudeSessionHelperCount;
 use crate::driver::claude::pricing::{ClaudeOneTurnCharge, ClaudeOneTurnPricing};
 use crate::driver::claude::run::start::ClaudeRunStart;
 use crate::driver::claude::session::answered_commands::{
@@ -113,6 +114,8 @@ pub(crate) struct ClaudeSessionControls {
     read_commands: ClaudeCommandListReader,
     command_channels: Arc<ClaudeCommandChannels>,
     one_turn_pricing: Arc<ClaudeOneTurnPricing>,
+    // The helper limit a copy's helpers count under with its session's.
+    helper_count: ClaudeSessionHelperCount,
     // The one-turn processes whose spend is recorded apart from their caller, which the daemon's
     // stop waits for.
     recorded_turns: TaskTracker,
@@ -176,8 +179,8 @@ impl ClaudeSideQuestionCopy {
 impl ClaudeSessionControls {
     /// The controls, which start the session's own runs through `run_start`, its one-turn
     /// processes through `starts`, a staged review's on a channel of `command_channels`, whose
-    /// spend `one_turn_pricing` records and prices, and read its command list through
-    /// `read_commands`.
+    /// spend `one_turn_pricing` records and prices and whose helpers count through `helper_count`,
+    /// and read its command list through `read_commands`.
     #[expect(
         clippy::too_many_arguments,
         reason = "the controls take each port and service their session's controls reach"
@@ -191,6 +194,7 @@ impl ClaudeSessionControls {
         read_commands: ClaudeCommandListReader,
         command_channels: Arc<ClaudeCommandChannels>,
         one_turn_pricing: ClaudeOneTurnPricing,
+        helper_count: ClaudeSessionHelperCount,
     ) -> Self {
         Self {
             run_start,
@@ -201,6 +205,7 @@ impl ClaudeSessionControls {
             read_commands,
             command_channels,
             one_turn_pricing: Arc::new(one_turn_pricing),
+            helper_count,
             recorded_turns: TaskTracker::new(),
             tables: Arc::new(Mutex::new(ClaudeControlTables::default())),
         }
@@ -628,6 +633,7 @@ impl ClaudeSessionControls {
         let starts = Arc::clone(&self.starts);
         let session_rules = Arc::clone(&self.session_rules);
         let in_process_tool_servers = Arc::clone(&self.in_process_tool_servers);
+        let helper_count = self.helper_count.clone();
         async move {
             let session_rules =
                 match read_claude_session_rules(&session_rules, legs.session_id).await {
@@ -689,6 +695,7 @@ impl ClaudeSessionControls {
                         origin: OutboundTextOrigin::DriverCommand,
                     },
                     stop,
+                    helper_count: Some(helper_count),
                 })
                 .await
         }
