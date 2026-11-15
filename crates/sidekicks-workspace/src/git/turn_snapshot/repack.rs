@@ -362,6 +362,10 @@ impl CapturePacking {
         carry_kept(&mut lock(&self.packs_left_by_fold), from, to);
         carry_kept(&mut lock(&self.failed_folds), from, to);
         carry_kept(&mut lock(&self.failed_packs), from, to);
+        let mut swept_folders = lock(&self.swept_folders);
+        if swept_folders.remove(from) {
+            swept_folders.insert(to.to_path_buf());
+        }
         Ok(true)
     }
 
