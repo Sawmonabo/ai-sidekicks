@@ -1,5 +1,6 @@
 //! The ports of the tick loop's test harness that keep what the loop calls: the approval cards
-//! and questions it asks, the snapshot points its runs take, and the one order log of both.
+//! and questions it asks, the cards it withdraws, the snapshot points its runs take, and the one
+//! order log of the asks and the points.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -8,15 +9,15 @@ use futures::future::BoxFuture;
 use rusqlite::{Connection, params};
 use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
 use sidekicks_contracts::question::QuestionId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 
 use crate::engine::ports::{
-    ApprovalCardRaiser, FormQuestionRequest, PersonWaitQuestions, PortError, REFUSED_PORT_CALL,
-    ReplyQuestionRequest, RunSnapshotPoints, WorkflowApprovalCardRequest,
-    WorkflowRunSnapshotPointRequest,
+    ApprovalCardRaiser, FormQuestionRequest, PersonWaitQuestions, PortError, ReplyQuestionRequest,
+    RunSnapshotPoints, WorkflowApprovalCardRequest, WorkflowRunSnapshotPointRequest,
 };
 
 /// Every call of the test's asks and snapshot points, in the order the loop made them.
@@ -54,12 +55,24 @@ pub(in crate::engine::tick::turns) struct RecordedAsk {
     pub(in crate::engine::tick::turns) run_statuses: Vec<(String, String)>,
 }
 
+/// A card the loop withdrew: its wait, and whether a step row still held the wait at the call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::engine::tick::turns) struct WithdrawnCard {
+    /// The wait the card answered.
+    pub(in crate::engine::tick::turns) wait_id: UuidTextForm,
+    /// Whether a step row held the wait when the withdraw was called.
+    pub(in crate::engine::tick::turns) is_wait_stored: bool,
+}
+
 /// The approval cards and questions of a test, over their own connection to its database: each
-/// call is kept with what the step's row reads at the call, and every call fails while told to.
+/// call is kept with what the step's row reads at the call, every ask fails while told to, and
+/// every question read fails while told to.
 pub(in crate::engine::tick::turns) struct RecordingAsks {
     rows: Mutex<Connection>,
     calls: Mutex<Vec<RecordedAsk>>,
+    withdrawn: Mutex<Vec<WithdrawnCard>>,
     is_refusing: AtomicBool,
+    is_refusing_reattaches: AtomicBool,
     order: Arc<OrderLog>,
 }
 
@@ -69,14 +82,32 @@ impl RecordingAsks {
         Self {
             rows: Mutex::new(rows),
             calls: Mutex::new(Vec::new()),
+            withdrawn: Mutex::new(Vec::new()),
             is_refusing: AtomicBool::new(false),
+            is_refusing_reattaches: AtomicBool::new(false),
             order,
         }
+    }
+
+    /// Every card withdrawn, in order.
+    pub(in crate::engine::tick::turns) fn withdrawn(&self) -> Vec<WithdrawnCard> {
+        lock(&self.withdrawn).clone()
     }
 
     /// Makes every later call fail, as a card or question that cannot be written.
     pub(in crate::engine::tick::turns) fn refuse_every_call(&self) {
         self.is_refusing.store(true, Ordering::SeqCst);
+    }
+
+    /// Makes every later read of a question fail, as a question store that cannot be read.
+    pub(in crate::engine::tick::turns) fn refuse_reattaches(&self) {
+        self.is_refusing_reattaches.store(true, Ordering::SeqCst);
+    }
+
+    /// Forgets every call taken, so no question asked so far reads as open, as a stop that lost
+    /// its open questions leaves them.
+    pub(in crate::engine::tick::turns) fn forget_questions(&self) {
+        lock(&self.calls).clear();
     }
 
     /// Every call taken, in order.
@@ -140,6 +171,30 @@ impl ApprovalCardRaiser for RecordingAsks {
         let taken = self.take("approval", step, request.wait_id);
         Box::pin(async move { taken })
     }
+
+    fn withdraw(
+        &self,
+        _session_id: SessionId,
+        wait_ids: Vec<UuidTextForm>,
+    ) -> BoxFuture<'_, Result<Vec<Result<(), PortError>>, PortError>> {
+        let rows = lock(&self.rows);
+        let mut withdrawn = lock(&self.withdrawn);
+        for &wait_id in &wait_ids {
+            let is_wait_stored = rows
+                .query_row(
+                    "SELECT EXISTS (SELECT 1 FROM workflow_steps WHERE wait_id = ?1)",
+                    [wait_id.text().as_str()],
+                    |row| row.get(0),
+                )
+                .expect("the step rows read");
+            withdrawn.push(WithdrawnCard {
+                wait_id,
+                is_wait_stored,
+            });
+        }
+        let answers = wait_ids.iter().map(|_| Ok(())).collect();
+        Box::pin(async { Ok(answers) })
+    }
 }
 
 impl PersonWaitQuestions for RecordingAsks {
@@ -159,11 +214,18 @@ impl PersonWaitQuestions for RecordingAsks {
         Box::pin(async move { taken.map(|()| fresh_question_id()) })
     }
 
-    fn reattach<'call>(
-        &'call self,
-        _wait_id: &'call UuidTextForm,
-    ) -> BoxFuture<'call, Result<(), PortError>> {
-        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+    // A question asked earlier in the test is still open; any other is not; every read fails
+    // while told to.
+    fn reattach(
+        &self,
+        _session_id: SessionId,
+        wait_id: UuidTextForm,
+    ) -> BoxFuture<'_, Result<Option<QuestionId>, PortError>> {
+        if self.is_refusing_reattaches.load(Ordering::SeqCst) {
+            return Box::pin(async { Err("the test's questions refuse every read".into()) });
+        }
+        let is_asked = lock(&self.calls).iter().any(|call| call.wait_id == wait_id);
+        Box::pin(async move { Ok(is_asked.then(fresh_question_id)) })
     }
 }
 

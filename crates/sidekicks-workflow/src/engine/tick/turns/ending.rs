@@ -3,8 +3,6 @@
 //! over writing its ending, a run a stop ended once none of its steps runs, is held, pending or
 //! waiting, and a run no stop touched once every step settled.
 
-use std::collections::HashMap;
-
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
@@ -14,11 +12,12 @@ use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWai
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use tokio::sync::oneshot;
 
-use super::reports::{stop_agent_run, stop_steps};
+use super::reports::stop_steps;
 use super::{EngineTick, ReadiedNext, RunTurn};
 use crate::engine::results::run_posts_results;
 use crate::engine::tick::commit::RunEnding;
 use crate::engine::tick::commit::SessionEventId;
+use crate::engine::tick::dispatch::stop_agent_run;
 use crate::engine::tick::live_runs::{LiveRun, LiveStep};
 use crate::engine::tick::step_failure::{RunStop, run_cap_failure, step_failure_error};
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
@@ -44,7 +43,7 @@ pub(crate) struct RunCancelIntake {
 }
 
 /// Why the tick did not take a person's cancel.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RunCancelRefusal {
     /// The tick does not hold the run, so its cancel writes the run's rows itself.
     NotHeld,
@@ -55,24 +54,6 @@ pub(crate) enum RunCancelRefusal {
 }
 
 impl EngineTick {
-    /// Routes `intake` to the live run it names, the run added to `order` where it is not there
-    /// yet; a run the tick does not hold is answered [`RunCancelRefusal::NotHeld`] at once.
-    pub(super) fn route_cancel(
-        &self,
-        intake: RunCancelIntake,
-        order: &mut Vec<WorkflowRunId>,
-        cancels: &mut HashMap<WorkflowRunId, Vec<RunCancelIntake>>,
-    ) {
-        if self.runs.contains_key(&intake.run_id) {
-            if !order.contains(&intake.run_id) {
-                order.push(intake.run_id);
-            }
-            cancels.entry(intake.run_id).or_default().push(intake);
-        } else {
-            let _unheard = intake.reply.send(Err(RunCancelRefusal::NotHeld));
-        }
-    }
-
     /// Takes the person's cancel `intake` of the run of `live` in `turn`: the run's ending becomes
     /// `canceled` with the cancel's reason and error, and every step stops as an end's, the
     /// earliest running one carrying the wave; the reply waits for the ending's write. A second
@@ -95,7 +76,7 @@ impl EngineTick {
                 live.cancel_replies.push(reply);
                 return;
             }
-            Some(RunEnding::Completed | RunEnding::Failed { .. }) => {
+            Some(RunEnding::Completed | RunEnding::Failed { .. } | RunEnding::Crashed { .. }) => {
                 let _unheard = reply.send(Err(RunCancelRefusal::Ending));
                 return;
             }
@@ -109,9 +90,14 @@ impl EngineTick {
             let _unheard = reply.send(Err(RunCancelRefusal::Ending));
             return;
         }
-        live.ending = Some(RunEnding::Canceled { reason, error });
+        let now = WireInstant::now();
+        live.decide_ending(
+            RunEnding::Canceled { reason, error },
+            &mut turn.commit,
+            &now,
+        );
         live.cancel_replies.push(reply);
-        stop_steps(live, turn, None, &WireInstant::now(), RunStop::End).await;
+        stop_steps(&self.dispatch, live, turn, None, &now, RunStop::End).await;
     }
 
     /// Ends the run of `live` on its cap of `limit_ms` at `at`, which the clock reported on
@@ -142,22 +128,24 @@ impl EngineTick {
                 return;
             }
             let error = step_failure_error(&reported.node_id, &failure);
-            live.ending = Some(RunEnding::Failed {
+            let ending = RunEnding::Failed {
                 step: reported.clone(),
                 error,
-            });
+            };
+            live.decide_ending(ending, &mut turn.commit, &at);
             self.deadlines.skip_cap(live.scope.run_id);
-            stop_steps(live, turn, None, &at, RunStop::End).await;
+            stop_steps(&self.dispatch, live, turn, None, &at, RunStop::End).await;
             return;
         };
         self.deadlines.skip_cap(live.scope.run_id);
         let step = capped.step.clone();
         if capped.status == WorkflowStepStatus::Failed {
             let error = step_failure_error(&step.node_id, &failure);
-            live.ending = Some(RunEnding::Failed {
+            let ending = RunEnding::Failed {
                 step: step.clone(),
                 error,
-            });
+            };
+            live.decide_ending(ending, &mut turn.commit, &at);
             self.stop_run(live, turn, &step, &at, RunStop::End).await;
             return;
         }
@@ -174,7 +162,8 @@ impl EngineTick {
             .get_mut(&step.execution_index.get())
             .and_then(|live_step| live_step.parked_agent_run.take())
             .map(|parked| parked.run);
-        stop_agent_run(live, &step, parked_agent_run).await;
+        stop_agent_run(&live.record, &step, Ok(parked_agent_run)).await;
+        live.stop_taken_back(&self.dispatch, &step).await;
         let failed = StepReport {
             step: step.clone(),
             at: at.clone(),

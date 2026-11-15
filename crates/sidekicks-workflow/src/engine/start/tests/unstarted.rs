@@ -32,6 +32,7 @@ enum NothingWritten {
     UnknownSession,
     UnknownVersion,
     ProjectOnProjectSession,
+    ProjectUnattached,
     BindingFailed,
     NoLiveWorkspace,
     RepositoryMismatch,
@@ -45,7 +46,8 @@ enum NothingWritten {
 }
 
 /// Mutations: a refusal checked after the write (a run row or an event is kept); a wrong code; a
-/// project named beside a project session let through; a project session's run written before its
+/// project named beside a project session let through; a named project with no attached folder
+/// read as no project named (the chat's run starts); a project session's run written before its
 /// binding, or its binding's failure dropped (the run starts); a binding's refusal answered as a
 /// fault (a detached project's session, a checkout of another repository); the context write's
 /// refusal read at a wrong statement, or not read as the binding's (a fault, not a refusal); the
@@ -60,6 +62,7 @@ enum NothingWritten {
 #[case::unknown_session(NothingWritten::UnknownSession)]
 #[case::unknown_version(NothingWritten::UnknownVersion)]
 #[case::project_on_project_session(NothingWritten::ProjectOnProjectSession)]
+#[case::project_unattached(NothingWritten::ProjectUnattached)]
 #[case::binding_failed(NothingWritten::BindingFailed)]
 #[case::no_live_workspace(NothingWritten::NoLiveWorkspace)]
 #[case::repository_mismatch(NothingWritten::RepositoryMismatch)]
@@ -84,6 +87,7 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
             TestSession::Project
         }
         NothingWritten::UnknownVersion
+        | NothingWritten::ProjectUnattached
         | NothingWritten::InputLeftOut
         | NothingWritten::RepositoryRequired
         | NothingWritten::ProviderRequired
@@ -114,6 +118,7 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         NothingWritten::UnknownSession
         | NothingWritten::UnknownVersion
         | NothingWritten::ProjectOnProjectSession
+        | NothingWritten::ProjectUnattached
         | NothingWritten::BindingFailed
         | NothingWritten::NoLiveWorkspace
         | NothingWritten::RepositoryMismatch
@@ -142,6 +147,7 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         NothingWritten::UnknownSession
         | NothingWritten::UnknownVersion
         | NothingWritten::ProjectOnProjectSession
+        | NothingWritten::ProjectUnattached
         | NothingWritten::BindingFailed
         | NothingWritten::NoLiveWorkspace
         | NothingWritten::RepositoryMismatch
@@ -161,8 +167,14 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         request.workflow_version_id =
             WorkflowVersionId::new(UNKNOWN_VERSION_ID).expect("a version id");
     }
-    if let NothingWritten::ProjectOnProjectSession = case {
+    if let NothingWritten::ProjectOnProjectSession | NothingWritten::ProjectUnattached = case {
         request.project_id = Some(ProjectId::new(MOUNT_ID).expect("the project's id"));
+    }
+    if let NothingWritten::ProjectUnattached = case {
+        fixture
+            .rows
+            .execute("UPDATE repo_mounts SET state = 'detached'", [])
+            .expect("the project's mount is detached");
     }
     if let NothingWritten::HeldOnChain = case {
         fixture.store_chain_root(25);
@@ -228,6 +240,10 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
                 refusal.code,
                 RefusalCode::WorkflowRunProjectOnProjectSession
             );
+        }
+        NothingWritten::ProjectUnattached => {
+            let refusal = refusal(outcome.expect_err("the start is refused"));
+            assert_eq!(refusal.code, RefusalCode::ProjectNotFound);
         }
         NothingWritten::BindingFailed => {
             let error = outcome.expect_err("the binding fails");

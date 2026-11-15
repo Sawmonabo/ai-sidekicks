@@ -1,41 +1,39 @@
 //! The run's own share of a turn's write: the status its steps leave it in, stored with its
 //! person-wait columns and recorded by the run event the move implies, the write's last, or the
-//! run's ending in its place; and the two moves that take a step out of a wait, a gate's answer
-//! and the step's resume, which a person's answer and Keep going share.
+//! run's ending in its place; the two moves that take a step out of a wait, a gate's answer with
+//! its approval card's, and the step's resume, which a person's answer and Keep going share; the
+//! ending a turn decides while the run's steps wind down; and the mark that settles a form or reply
+//! wait's question in the write that ends the wait.
 
-use std::borrow::Cow;
-
-use rusqlite::types::Value;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::question::{QuestionWaitOutcome, QuestionWaitSettledPayload};
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
 use sidekicks_contracts::workflow::run::events::{
     WorkflowResumedStep, WorkflowResumptionPoint, WorkflowRunCanceledPayload,
-    WorkflowRunCompletedPayload, WorkflowRunEndingStep, WorkflowRunFailedOutcome,
-    WorkflowRunFailedPayload, WorkflowRunResumedPayload, WorkflowRunWaitingPayload,
+    WorkflowRunCancelingPayload, WorkflowRunCompletedPayload, WorkflowRunCrashedPayload,
+    WorkflowRunEndingStep, WorkflowRunFailedOutcome, WorkflowRunFailedPayload,
+    WorkflowRunFailingPayload, WorkflowRunResumedPayload, WorkflowRunWaitingPayload,
 };
+use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
 };
 use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseResumedPayload;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
-use sidekicks_store::database::statement::{
-    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
-};
+use sidekicks_store::database::statement::WriteStatement;
 
 use super::{RunEnding, RunTurnCommit};
 use crate::engine::results::results_posted_event;
 use crate::engine::tick::run_status::{
     GoingRunStatus, RunStatusChange, going_run_status, person_wait_after, run_status_change,
+    run_status_statement, run_version_statement,
 };
-use crate::runs::gate_resolution::{WorkflowGateAnswer, gate_resolved_payload};
+use crate::runs::cancellation::cancel_steps_statement;
+use crate::runs::gate_resolution::{ApprovalCardAnswer, WorkflowGateAnswer, gate_resolved_payload};
 use crate::runs::record::end_run_statements;
 use crate::runs::step_rows;
-
-// Only a going or parked run's status moves here; an ended run's row is never written again.
-const RUN_STATUS_SQL: &str = "UPDATE workflow_runs SET status = @status,
-    person_wait_since = @person_wait_since, person_wait_ms = @person_wait_ms
-  WHERE id = @id AND finished_at IS NULL";
 
 /// A step of the run the tick keeps live after the turn, as a resumption point names it.
 #[derive(Clone, Copy, Debug)]
@@ -50,15 +48,23 @@ pub(crate) struct RunLiveStep<'tick> {
 }
 
 impl RunTurnCommit {
-    /// Writes `statements`, a gate answer's row and what its write guards, then `answer`'s
-    /// `workflow.gate.resolved` at `at`; the answer is recorded once the write commits.
+    /// Writes `statements`, a gate answer's row and what its write guards, then `card`'s statements
+    /// that settle the approval card; appends the card's answer event, then `answer`'s
+    /// `workflow.gate.resolved`, both at `at`. The answer is recorded once the write commits.
     pub(crate) fn answer_gate(
         &mut self,
         answer: &WorkflowGateAnswer,
+        card: ApprovalCardAnswer,
         statements: Vec<WriteStatement>,
         at: &WireInstant,
     ) {
+        let ApprovalCardAnswer {
+            statements: card_statements,
+            event: card_event,
+        } = card;
         self.statements.extend(statements);
+        self.statements.extend(card_statements);
+        self.push(at, card_event);
         self.push(
             at,
             SessionEvent::WorkflowGateResolved(gate_resolved_payload(answer, self.keys)),
@@ -92,6 +98,113 @@ impl RunTurnCommit {
         );
     }
 
+    /// Records at `at` the ending `ending` the turn decided while the run's steps still wind down:
+    /// `workflow.run.canceling` for a person's cancel, `workflow.run.failing` for a failure's end,
+    /// so a restart finishes the run as decided; a completion or a crash, written in the turn that
+    /// finds it, records none.
+    pub(crate) fn stopping(&mut self, ending: &RunEnding, at: &WireInstant) {
+        let event = match ending {
+            RunEnding::Canceled { reason, error } => {
+                SessionEvent::WorkflowRunCanceling(run_payload!(
+                    WorkflowRunCancelingPayload,
+                    self.keys,
+                    self.run_id,
+                    reason: reason.clone(),
+                    error: error.clone(),
+                ))
+            }
+            RunEnding::Failed { step, error } => SessionEvent::WorkflowRunFailing(run_payload!(
+                WorkflowRunFailingPayload,
+                self.keys,
+                self.run_id,
+                ending_step: WorkflowRunEndingStep {
+                    node_id: step.node_id.clone(),
+                    attempt: step.attempt,
+                    execution_index: step.execution_index,
+                },
+                error: error.clone(),
+            )),
+            RunEnding::Completed | RunEnding::Crashed { .. } => return,
+        };
+        self.push(at, event);
+    }
+
+    /// Writes `question.wait.settled` at `at` in the run's session: the question the form or reply
+    /// wait `wait_id` holds settled as `outcome`, its row settled by the event's own write.
+    pub(crate) fn settle_wait_question(
+        &mut self,
+        wait_id: &UuidTextForm,
+        outcome: QuestionWaitOutcome,
+        at: &WireInstant,
+    ) {
+        let session_id = self.keys.session_id;
+        self.push(
+            at,
+            SessionEvent::QuestionWaitSettled(QuestionWaitSettledPayload {
+                session_id,
+                wait_id: *wait_id,
+                outcome,
+            }),
+        );
+    }
+
+    /// Writes a person's Resume at `at` as `workflow.run.resumed` opening the run's execution
+    /// `epoch`, lifting `lifted_parks` failed parks; the steps it runs again ride it, and the
+    /// turn's status move fills in where the run picks up. Where the Resume moves the run to the
+    /// version `repinned_to`, keeping the steps beside it, the event names the version it left,
+    /// that one and the kept steps, the run's row takes it, and the event and every later one of
+    /// the turn name it. Answers the event's index.
+    pub(crate) fn resume_run(
+        &mut self,
+        at: &WireInstant,
+        epoch: WorkflowRunEpoch,
+        lifted_parks: usize,
+        repinned_to: Option<(WorkflowVersionId, &[WorkflowStepKey])>,
+    ) -> usize {
+        for _ in 0..lifted_parks {
+            self.counts.unparked();
+        }
+        self.epoch = epoch;
+        let mut repinned_from = None;
+        let mut joined_version = None;
+        let mut kept_steps = Vec::new();
+        if let Some((joined, kept)) = repinned_to {
+            repinned_from = Some(self.keys.workflow_version_id);
+            joined_version = Some(joined);
+            self.keys.workflow_version_id = joined;
+            self.statements
+                .push(run_version_statement(self.run_id, joined));
+            kept_steps = kept
+                .iter()
+                .map(|step| WorkflowResumedStep {
+                    node_id: step.node_id.clone(),
+                    attempt: step.attempt,
+                    execution_index: step.execution_index,
+                })
+                .collect();
+        }
+        self.push(
+            at,
+            SessionEvent::WorkflowRunResumed(run_payload!(
+                WorkflowRunResumedPayload,
+                self.keys,
+                self.run_id,
+                epoch: epoch,
+                resumption_point: WorkflowResumptionPoint {
+                    active_steps: Vec::new(),
+                    pending_gates: Vec::new(),
+                },
+                repinned_from_workflow_version_id: repinned_from,
+                repinned_to_workflow_version_id: joined_version,
+                kept_steps: kept_steps,
+                readied: Vec::new(),
+            )),
+        );
+        let resumed = self.events.len() - 1;
+        self.resumed_event = Some(resumed);
+        resumed
+    }
+
     /// Adds the run's status move to the turn, at the instant of its last event: the run event
     /// the move implies as the turn's last event, and the statement that stores the status and
     /// the person-wait columns after every other, written only where either changes. A run whose
@@ -114,12 +227,18 @@ impl RunTurnCommit {
         let change = run_status_change(moved_from, after);
         let had_open_wait = self.person_wait.since.is_some();
         let total_before = self.person_wait.total_ms;
+        // The wait moves at the instant of the run event that records the change: a person's
+        // Resume wrote its own, which other reports of the turn may follow.
+        let change_at = match (change, self.resumed_event) {
+            (Some(RunStatusChange::Resumed), Some(resumed)) => self.events[resumed].at.clone(),
+            _ => at.clone(),
+        };
         self.person_wait = person_wait_after(
             std::mem::take(&mut self.person_wait),
             change,
             false,
             self.counts.account_waits,
-            &at,
+            &change_at,
         );
         let is_status_moved = after != self.status_before;
         if !is_status_moved
@@ -128,11 +247,22 @@ impl RunTurnCommit {
         {
             return None;
         }
-        if let Some(change) = change {
-            let event = self.run_event(change, live_steps);
-            self.push(&at, event);
+        match (change, self.resumed_event) {
+            // A person's Resume already wrote the event; only where the run picks up is new.
+            (Some(RunStatusChange::Resumed), Some(resumed)) => {
+                let point = self.resumption_point(live_steps);
+                if let SessionEvent::WorkflowRunResumed(payload) = &mut self.events[resumed].event {
+                    payload.resumption_point = point;
+                }
+            }
+            (Some(change), _) => {
+                let event = self.run_event(change, live_steps);
+                self.push(&at, event);
+            }
+            (None, _) => {}
         }
-        self.statements.push(self.run_status_statement(stored));
+        self.statements
+            .push(run_status_statement(self.run_id, stored, &self.person_wait));
         is_status_moved.then_some(stored)
     }
 
@@ -178,6 +308,16 @@ impl RunTurnCommit {
                     error: Some(error),
                 )),
             ),
+            RunEnding::Crashed { error } => (
+                WorkflowRunStatus::Crashed,
+                error.clone(),
+                SessionEvent::WorkflowRunCrashed(run_payload!(
+                    WorkflowRunCrashedPayload,
+                    self.keys,
+                    self.run_id,
+                    error: error,
+                )),
+            ),
             RunEnding::Canceled { reason, error } => (
                 WorkflowRunStatus::Canceled,
                 error.clone(),
@@ -199,6 +339,11 @@ impl RunTurnCommit {
         }
         self.statements
             .extend(end_run_statements(self.run_id, status, &at, error.as_ref()));
+        // A crashed run's steps left unsettled end with it, as a canceled run's do.
+        if status == WorkflowRunStatus::Crashed {
+            self.statements
+                .push(cancel_steps_statement(self.run_id, &at));
+        }
         (status, ending_event)
     }
 
@@ -219,9 +364,11 @@ impl RunTurnCommit {
                 WorkflowRunResumedPayload,
                 self.keys,
                 self.run_id,
+                epoch: self.epoch,
                 resumption_point: self.resumption_point(live_steps),
                 repinned_from_workflow_version_id: None,
                 repinned_to_workflow_version_id: None,
+                kept_steps: Vec::new(),
                 readied: Vec::new(),
             )),
             RunStatusChange::FailedPark => SessionEvent::WorkflowRunFailed(run_payload!(
@@ -276,28 +423,6 @@ impl RunTurnCommit {
                 .into_iter()
                 .map(|step| step.node_id.clone())
                 .collect(),
-        }
-    }
-
-    /// The statement that stores `status` and the turn's person-wait columns on the run's row,
-    /// refusing the write unless the run is still going or parked.
-    fn run_status_statement(&self, status: WorkflowRunStatus) -> WriteStatement {
-        WriteStatement {
-            sql: Cow::Borrowed(RUN_STATUS_SQL),
-            bindings: StatementBindings::Named(vec![
-                text_binding("@status", <&'static str>::from(status)),
-                nullable_text_binding(
-                    "@person_wait_since",
-                    self.person_wait.since.as_ref().map(WireInstant::as_str),
-                ),
-                (
-                    Cow::Borrowed("@person_wait_ms"),
-                    // No run waits the 292 million years past which the milliseconds overflow.
-                    Value::Integer(i64::try_from(self.person_wait.total_ms).unwrap_or(i64::MAX)),
-                ),
-                text_binding("@id", self.run_id.text().as_str()),
-            ]),
-            expected_row_count: Some(1),
         }
     }
 }

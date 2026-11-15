@@ -12,8 +12,11 @@ pub(crate) mod step_failure;
 mod turns;
 mod walk;
 
-pub(crate) use self::branch_cancellation::BranchCancelReason;
-pub(crate) use self::walk::{RunGraph, RunGraphError};
+pub(crate) use self::turns::{
+    EngineTickInput, RepinReadError, RepinRefusal, RunCancelIntake, RunCancelRefusal,
+    RunResumeIntake, RunResumeRefusal,
+};
+pub(crate) use self::walk::{ReusedSeedStep, ReusedStepRecord, RunGraph, RunGraphError};
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -76,8 +79,8 @@ pub(crate) struct RunScope {
     pub(crate) nodes: HashMap<WorkflowNodeId, WorkflowNode>,
     /// Each node's params as the pinned version stores them, by node id.
     pub(crate) node_params: Arc<HashMap<WorkflowNodeId, JsonRecord>>,
-    /// The test items pinned onto nodes with their hashes, by node id; empty outside a manual run,
-    /// the only run that honors them.
+    /// The test items pinned onto nodes with their hashes, by node id; empty outside a manual run
+    /// and a retry of one, the only runs that honor them.
     pub(crate) pins: HashMap<WorkflowNodeId, RunPin>,
     /// When the run started, the one instant its expressions read as now.
     pub(crate) run_started_at: Timestamp,
@@ -91,6 +94,9 @@ pub(crate) struct RunScope {
     pub(crate) project: Option<ProjectId>,
     /// The folder the run's steps work in.
     pub(crate) working_folder: PathBuf,
+    /// Whether the run holds an execution context in a repository, so its end sweeps its session
+    /// out of a tree removed while the run worked there; a run that bound nothing sweeps nothing.
+    pub(crate) is_bound: bool,
     /// The workflow's provider as the run started, whose sandbox and shell its command steps use;
     /// `None` when the workflow names none, which a start allows only when no step runs in a
     /// sandbox.
@@ -102,6 +108,7 @@ pub(crate) struct RunScope {
 }
 
 /// The test items pinned onto one node for a manual run, hashed once at the run's start.
+#[derive(Clone)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunPin {
     /// The pinned items, which the node gives in place of running.
@@ -145,6 +152,7 @@ pub(crate) fn test_run_scope(mode: WorkflowRunMode, nodes: Vec<WorkflowNode>) ->
         kept_values: Arc::new([]),
         project: None,
         working_folder: PathBuf::from("/workspace"),
+        is_bound: false,
         provider: Some(
             ProviderId::new("test-provider".to_owned()).expect("the test's provider id"),
         ),
@@ -181,6 +189,9 @@ pub(crate) struct ReadyStep {
     pub(crate) inputs: Vec<Vec<WorkflowItem>>,
     /// The input exactly as the pending row stored it, which `workflow.step.started` repeats.
     pub(crate) input_ref: WorkflowPayloadRef,
+    /// Whether the restart took the step back undispatched, so an agent step takes again the run
+    /// it made before the stop, where it made one, rather than making a second.
+    pub(crate) is_taken_back: bool,
 }
 
 /// What one step reported to the tick, which the commit turns into events and rows. The commit
@@ -203,8 +214,8 @@ pub(crate) struct StepReport {
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum StepReportKind {
     /// The memory gate holds the step; every report of one hold carries the instant of its first,
-    /// so the first is the one whose `at` equals `hold_started_at`.
-    WaitingOnPool {
+    /// which the step makes while no hold report of it stands.
+    WaitingOnMemory {
         /// When the hold began: the `at` of its first report.
         hold_started_at: WireInstant,
     },
@@ -224,13 +235,19 @@ pub(crate) enum StepReportKind {
     },
     /// The step passed a turn end or a tool call.
     Progressed,
-    /// The step was asked to stop and is winding down.
-    Canceling,
+    /// The step was asked to stop and is winding down, a member of the wave `deciding`'s turn
+    /// canceled for `reason`.
+    Canceling {
+        /// The step whose turn decided the wave.
+        deciding: WorkflowStepKey,
+        /// Why the wave was canceled.
+        reason: WorkflowPhaseCancellationReason,
+    },
     /// The step's turn canceled a wave of its run's other branches, and the last running one has
     /// settled; the report sits on the deciding step.
     BranchesCanceled {
         /// Why the branches were canceled.
-        reason: BranchCancelReason,
+        reason: WorkflowPhaseCancellationReason,
         /// How many running branches the wave canceled.
         count: usize,
     },
@@ -303,7 +320,7 @@ pub(crate) enum StepSettlement {
         records: StepRecords,
     },
     /// The step was canceled. A step canceled while the gate held it adds its hold to the step's
-    /// pool wait.
+    /// memory wait.
     Canceled {
         /// When the hold the cancel ended began, `None` when the gate was not holding the step.
         hold_started_at: Option<WireInstant>,

@@ -1,7 +1,8 @@
 //! The question tables as the log keeps them in step: each record from its `question.asked`, each
 //! opening of one that waited for its run from its `question.opened`, each cancellation from its
-//! `question.canceled`, a held question's answer from the `user.message.sent` that names it, and a
-//! queued answer's pairing, withdrawal and admission from the send and the queue's own events. A
+//! `question.canceled`, a held question's answer from the `user.message.sent` that names it, a
+//! workflow wait's question settled from its `question.wait.settled`, and a queued answer's
+//! pairing, withdrawal and admission from the send and the queue's own events. A
 //! rebuild writes every row at the event's own instant through the live write's own statements and
 //! guards, so the rows it writes are the rows the live writes wrote.
 
@@ -21,7 +22,7 @@ use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
 use crate::questions::QuestionSettledState;
 use crate::questions::store::{
     insert_question_statement, open_waiting_question_statement, queued_answer_statements,
-    settle_question_statement,
+    settle_question_statement, wait_settled_statement,
 };
 
 const CLEAR_ANSWER_ITEMS_SQL: &str = "DELETE FROM question_answer_items
@@ -29,22 +30,29 @@ const CLEAR_ANSWER_ITEMS_SQL: &str = "DELETE FROM question_answer_items
 
 const CLEAR_QUESTIONS_SQL: &str = "DELETE FROM questions WHERE session_id = ?";
 
-// Every type the fold reads: a record, its opening, its cancellation, a send that answers it, and
-// what becomes of a queued answer.
-const QUESTION_EVENT_TYPES: [SessionEventType; 7] = [
+// Every type the fold reads: a record, its opening, its cancellation, a send that answers it, a
+// wait's question settled, and what becomes of a queued answer.
+const QUESTION_EVENT_TYPES: [SessionEventType; 8] = [
     SessionEventType::QuestionAsked,
     SessionEventType::QuestionOpened,
     SessionEventType::QuestionCanceled,
+    SessionEventType::QuestionWaitSettled,
     SessionEventType::UserMessageSent,
     SessionEventType::AgentQueueItemAdmitted,
     SessionEventType::AgentQueueItemCanceled,
     SessionEventType::AgentQueueItemSuperseded,
 ];
 
-/// The statements that keep the queued answers of every question in step with an append, run in
-/// the append's own write for each event it stores.
+/// The statements that keep the queued answers of every question, and the question a workflow
+/// wait's end settles, in step with an append, run in the append's own write for each event it
+/// stores.
 pub fn question_projection_statements(envelope: &UnsequencedEventEnvelope) -> Vec<WriteStatement> {
-    queued_answer_statements(envelope.event_type(), envelope.payload())
+    let mut statements = queued_answer_statements(envelope.event_type(), envelope.payload());
+    statements.extend(wait_settled_statement(
+        envelope.event_type(),
+        envelope.payload(),
+    ));
+    statements
 }
 
 /// The `questions` and `question_answer_items` rows as a rebuild replaces them. Its fold keeps no
@@ -106,6 +114,10 @@ impl SessionProjectionFold for QuestionsProjection {
             ));
         }
         statements.extend(queued_answer_statements(
+            event.event_type(),
+            &envelope.payload,
+        ));
+        statements.extend(wait_settled_statement(
             event.event_type(),
             &envelope.payload,
         ));

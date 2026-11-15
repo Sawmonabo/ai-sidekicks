@@ -376,7 +376,7 @@ macro_rules! workflow_step {
                 pub child_workflow_run_id: Option<WorkflowRunId>,
                 /// The milliseconds the memory gate held the step before it started, summed over
                 /// every hold; `0` where it was never held.
-                pub total_pool_wait_ms: SafeInt<0>,
+                pub total_memory_wait_ms: SafeInt<0>,
                 $($own)*
             }
         }

@@ -8,6 +8,7 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
+use sidekicks_store::database::writer::WriteError;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 use sidekicks_store::events::session::appender::{SessionEventAppendError, SessionEventDraftError};
 use sidekicks_store::machine::registry::MachineRegistryReadError;
@@ -17,15 +18,20 @@ use sidekicks_workspace::working_folder::{ProjectEnvironmentReadError, WorkingFo
 use crate::definitions::kept_values::WorkflowKeptValueError;
 use crate::definitions::stored_document::StoredDocumentError;
 use crate::definitions::versions::history::WorkflowVersionsError;
+use crate::engine::partial_run::PartialRunPlanError;
+use crate::engine::payload_reservations::ReservedPayloadError;
 use crate::engine::ports::PortError;
+use crate::runs::step_payload::{StepPayloadReadError, StepPayloadWriteError};
 
 /// Why a start did not end in an outcome; nothing of the run was written.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkflowRunStartError {
     /// The start was refused: `workflow.run.startDenied`, `workflow.run.projectOnProjectSession`,
-    /// `workflow.run.inputRequired`, `workflow.run.repositoryRequired`,
+    /// `project.notFound`, `workflow.run.inputRequired`, `workflow.run.repositoryRequired`,
     /// `workflow.run.providerRequired`, `workflow.run.nodeKindUnavailable` or
-    /// `workflow.run.handleUndeclared`.
+    /// `workflow.run.handleUndeclared`; a retry also `workflow.run.notFound`,
+    /// `workflow.run.stillRunning`, `workflow.step.notFound` or `workflow.invalidTransition`; a
+    /// node run also `workflow.node.notFound`.
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// The version did not read; `workflow.version.notFound` when no saved version has its id.
@@ -48,7 +54,8 @@ pub(crate) enum WorkflowRunStartError {
     /// The read pool is closed, a connection did not open, or the read's task did not finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
-    /// The workflow's level, pins or provider, or the session's project, did not read.
+    /// The workflow's level, pins or provider, the session's project or the named project's folder
+    /// did not read.
     #[error("the run's scope did not read")]
     Scope(#[from] rusqlite::Error),
     /// The environment rows of the session's project did not read, or its project has no row.
@@ -57,10 +64,11 @@ pub(crate) enum WorkflowRunStartError {
     /// The values the workflow keeps did not read.
     #[error(transparent)]
     KeptValues(#[from] WorkflowKeptValueError),
-    /// A project session's run could not be bound to the session's working folder: refused
+    /// A run could not be bound: a project session's to the session's working folder, refused
     /// `workspace.executionRoot.unresolved` wrapping why, a session holding no live workspace and
-    /// the write of its context included, or a failure in the daemon, such as a session that never
-    /// held a workspace.
+    /// the write of its context included; a named project's in a workspace of its own, refused as
+    /// a workspace bind refuses before that workspace is made and so after; or a failure in the
+    /// daemon, such as a session that never held a workspace.
     #[error(transparent)]
     #[cfg_attr(
         not(test),
@@ -74,6 +82,35 @@ pub(crate) enum WorkflowRunStartError {
         expect(dead_code, reason = "the engine's run start handlers")
     )]
     Folder(#[source] io::Error),
+    /// The run a retry retries, its named node's latest step, its trigger's first input or its
+    /// nodes' steps did not read.
+    #[error("the run the retry retries did not read")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the workflow.run.retry handler")
+    )]
+    SourceRun(#[source] rusqlite::Error),
+    /// A step output, or the trigger input, that a retry or a node run reuses did not read back or
+    /// split by its stored counts.
+    #[error("an output the run reuses did not read back")]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the workflow.run.retry and workflow.node.execute handlers"
+        )
+    )]
+    ReusedOutput(#[source] StepPayloadReadError),
+    /// A node run's plan did not read.
+    #[error(transparent)]
+    Plan(#[from] PartialRunPlanError),
+    /// An output a node run reuses from another session could not be stored in the run's session.
+    #[error("a reused output could not be stored in the run's session")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the workflow.node.execute handler")
+    )]
+    ReusedOutputStore(#[source] StepPayloadWriteError),
     /// The trigger step's input does not write as JSON.
     #[error("the trigger step's input does not write as JSON")]
     #[cfg_attr(
@@ -88,6 +125,20 @@ pub(crate) enum WorkflowRunStartError {
         expect(dead_code, reason = "the engine's run start handlers")
     )]
     Payload(#[source] PortError),
+    /// A payload of the start could not be reserved under its run, so nothing was stored.
+    #[error("a payload of the start could not be reserved under its run")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
+    PayloadReservation(#[source] WriteError),
+    /// The pins the retried run's start stored as a payload did not read back.
+    #[error("the pins the retried run started on did not read back")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the workflow.run.retry handler")
+    )]
+    SourcePins(#[source] StepPayloadReadError),
     /// The started event broke one of its type's checks.
     #[error("the run's started event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
@@ -124,15 +175,15 @@ pub(crate) enum WorkflowRunStartError {
         #[source]
         removal: io::Error,
     },
-    /// The start failed and the trigger step's input it stored could not be deleted; `ended` is how
-    /// it failed.
-    #[error("the trigger step's stored input {artifact_id} was left behind")]
+    /// The start failed and a payload it stored, the trigger step's input or a reused output, could
+    /// not be deleted; `ended` is how it failed.
+    #[error("the start's stored payload {artifact_id} was left behind")]
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
     )]
     PayloadLeft {
-        /// The stored input.
+        /// The stored payload.
         artifact_id: ArtifactId,
         /// How the start failed.
         ended: Box<WorkflowRunStartError>,
@@ -140,6 +191,38 @@ pub(crate) enum WorkflowRunStartError {
         #[source]
         removal: PortError,
     },
+    /// The start failed and the workspace a named project's binding made for its run could not
+    /// be deleted; `ended` is how it failed.
+    #[error("the workspace made for run {workflow_run_id} was left behind")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
+    WorkspaceLeft {
+        /// The run the workspace was made for, which was not started.
+        workflow_run_id: WorkflowRunId,
+        /// How the start failed.
+        ended: Box<WorkflowRunStartError>,
+        /// Why the deletion failed.
+        #[source]
+        removal: RunSetupGateError,
+    },
+}
+
+impl WorkflowRunStartError {
+    /// The start's error for a payload of its own, its trigger input or its pins, that could not
+    /// be reserved or stored.
+    pub(super) fn from_start_payload(error: ReservedPayloadError) -> Self {
+        match error {
+            ReservedPayloadError::Write(StepPayloadWriteError::Json(error)) => {
+                Self::InputJson(error)
+            }
+            ReservedPayloadError::Write(StepPayloadWriteError::Artifact(error)) => {
+                Self::Payload(error)
+            }
+            ReservedPayloadError::Reservation(error) => Self::PayloadReservation(error),
+        }
+    }
 }
 
 impl From<WorkflowRunStartError> for HandlerError {
@@ -163,13 +246,20 @@ impl From<WorkflowRunStartError> for HandlerError {
             | WorkflowRunStartError::ProjectEnvironment(_)
             | WorkflowRunStartError::Binding(RunSetupGateError::Failed(_))
             | WorkflowRunStartError::Folder(_)
+            | WorkflowRunStartError::SourceRun(_)
+            | WorkflowRunStartError::ReusedOutput(_)
+            | WorkflowRunStartError::Plan(_)
+            | WorkflowRunStartError::ReusedOutputStore(_)
             | WorkflowRunStartError::InputJson(_)
             | WorkflowRunStartError::Payload(_)
+            | WorkflowRunStartError::PayloadReservation(_)
+            | WorkflowRunStartError::SourcePins(_)
             | WorkflowRunStartError::Draft(_)
             | WorkflowRunStartError::Append(_)
             | WorkflowRunStartError::ChainRootMissing { .. }
             | WorkflowRunStartError::FolderLeft { .. }
-            | WorkflowRunStartError::PayloadLeft { .. }) => Self::Internal(Box::new(fault)),
+            | WorkflowRunStartError::PayloadLeft { .. }
+            | WorkflowRunStartError::WorkspaceLeft { .. }) => Self::Internal(Box::new(fault)),
         }
     }
 }

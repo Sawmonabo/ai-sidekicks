@@ -208,16 +208,23 @@ CREATE TABLE workspaces (
   -- the bind admitted, where a bound-root run works, never cleared; checkoutRoot, the top level of
   -- the working tree the workspace works in now, the bound checkout's or its worktree's.
   metadata        TEXT NOT NULL DEFAULT '{{}}',
+  -- The workflow run a run-owned workspace serves, NULL for a session's own; the session's reads
+  -- leave a run-owned workspace out. Run ids are event-sourced, so no foreign key.
+  workflow_run_id TEXT,
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 ) STRICT;
 
 CREATE INDEX idx_workspaces_session ON workspaces(session_id);
 CREATE INDEX idx_workspaces_repo ON workspaces(repo_mount_id);
--- A session has one live workspace on a mount, so binding it again answers that one; an archived
--- row is history and does not count.
+-- A session has one live workspace of its own on a mount, so binding it again answers that one;
+-- an archived row is history and a run-owned one is its run's, so neither counts.
 CREATE UNIQUE INDEX idx_workspaces_live_session_mount
-  ON workspaces(session_id, repo_mount_id) WHERE state <> '{archived_workspace}';
+  ON workspaces(session_id, repo_mount_id)
+  WHERE state <> '{archived_workspace}' AND workflow_run_id IS NULL;
+-- A workflow run owns at most one workspace.
+CREATE UNIQUE INDEX idx_workspaces_workflow_run
+  ON workspaces(workflow_run_id) WHERE workflow_run_id IS NOT NULL;
 "
     )
 }
