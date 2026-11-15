@@ -36,7 +36,7 @@ use crate::driver::codex::session::recovery::in_place_resume::{
     reopen_released_codex_helper, resume_codex_session_in_place, take_codex_helper_reopen_waits,
 };
 use crate::driver::codex::session::rewind::{
-    read_codex_message_turn, record_codex_message_turns, revert_codex_turns,
+    adopt_codex_cut, read_codex_message_turn, record_codex_message_turn, revert_codex_turns,
 };
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
@@ -252,10 +252,16 @@ pub(crate) async fn run_codex_session_call(
         CodexSessionCall::ReadMessageTurn { message_id, reply } => {
             let _unheard = reply.send(read_codex_message_turn(task.record, &message_id));
         }
-        CodexSessionCall::RecordMessageTurns {
+        CodexSessionCall::RecordMessageTurn {
             thread_id,
-            turn_id_by_client_message_id,
-        } => record_codex_message_turns(task.record, &thread_id, turn_id_by_client_message_id),
+            message_id,
+            turn_id,
+        } => record_codex_message_turn(task.record, &thread_id, message_id, turn_id),
+        CodexSessionCall::AdoptCut {
+            thread_id,
+            listed_turn_ids,
+            message_id,
+        } => adopt_codex_cut(task.record, &thread_id, listed_turn_ids, message_id),
         CodexSessionCall::ForkForRetry {
             turn_id,
             model,

@@ -207,6 +207,7 @@ impl ProviderCommandSearch {
             request,
             VERSION_READ_DEADLINE,
             VERSION_OUTPUT_BOUND,
+            None,
         )
         .await
         .map_err(VersionReadError::Run)?;

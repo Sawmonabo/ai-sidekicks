@@ -15,6 +15,8 @@ use super::{
     listening_relay, next_forwarded, next_line, next_text, relay_for, send_text,
 };
 use crate::bounded_poll::poll_until;
+use crate::driver::codex::exec_relay::CODEX_RELAY_ENVIRONMENT_ID;
+use crate::driver::codex::exec_relay::executor::{QUEUE_STALL_BOUND, RelayConnectionId};
 use crate::driver::test_registry::new_session_id;
 
 // Two connections that each send `initialize` under id 1 and are each answered from the relay's
@@ -177,23 +179,34 @@ fn metadata(modified_at_ms: i64) -> Value {
     })
 }
 
-// A connection whose queue toward its socket stays full is let go, its socket told to close,
-// and the executor's next line for another connection still reaches it. Killed by the executor's
-// reader waiting on a full connection's queue, which holds every later line.
-#[tokio::test]
-async fn a_connection_that_stops_reading_holds_up_no_other() {
+// A connection whose writer stops taking lines holds up none of the executor's lines for another
+// connection. A burst past its queue waits in order and reaches it once it reads again, the
+// connection kept, and a queue its writer then takes nothing from for the stall bound lets it go,
+// its socket told to close. Killed by the reader waiting on a full queue (the third answer never
+// comes), by a full queue letting its connection go at once (the burst's check) and by a stall
+// that never lets it go (the last wait).
+#[tokio::test(start_paused = true)]
+async fn a_connection_that_stops_reading_holds_up_no_other_and_goes_only_past_its_bound() {
     let folder = tempfile::tempdir().expect("a test folder");
     let relay = relay_for(new_session_id(), folder.path());
     let (executor, mut fake) = initialized_executor().await;
     relay.take_executor(Arc::clone(&executor));
-    let (stalled_client, _never_read) = mpsc::channel(1);
+    let (stalled_client, mut stalled_received) = mpsc::channel(1);
     let stalled_closed = CancellationToken::new();
     let (executor, stalled) = relay
-        .attach_client(stalled_client, stalled_closed.clone())
+        .attach_client(
+            stalled_client,
+            stalled_closed.clone(),
+            CODEX_RELAY_ENVIRONMENT_ID.into(),
+        )
         .expect("an executor runs");
     let (client, mut received) = mpsc::channel(16);
     let (_, reading) = relay
-        .attach_client(client, CancellationToken::new())
+        .attach_client(
+            client,
+            CancellationToken::new(),
+            CODEX_RELAY_ENVIRONMENT_ID.into(),
+        )
         .expect("an executor runs");
     let start = |id: u64, process: &str| {
         json!({ "id": id, "method": "process/start", "params": {
@@ -206,12 +219,7 @@ async fn a_connection_that_stops_reading_holds_up_no_other() {
         }})
         .to_string()
     };
-
-    for (connection, id, process) in [
-        (stalled, 1, "first"),
-        (stalled, 2, "second"),
-        (reading, 3, "third"),
-    ] {
+    let mut answer_start = async |connection: RelayConnectionId, id: u64, process: &str| {
         relay
             .take_client_message(&executor, connection, start(id, process))
             .await;
@@ -219,11 +227,23 @@ async fn a_connection_that_stops_reading_holds_up_no_other() {
         let relay_process = sent["params"]["processId"].clone();
         fake.write(&json!({ "id": sent["id"], "result": { "processId": relay_process } }))
             .await;
-    }
+    };
 
+    answer_start(stalled, 1, "first").await;
+    answer_start(stalled, 2, "second").await;
+    answer_start(reading, 3, "third").await;
     assert_eq!(next_line(&mut received).await["id"], 3);
     assert!(
-        stalled_closed.is_cancelled(),
-        "the stalled connection is let go"
+        !stalled_closed.is_cancelled(),
+        "a burst keeps its connection"
     );
+    for id in [1, 2] {
+        assert_eq!(next_line(&mut stalled_received).await["id"], id);
+    }
+
+    answer_start(stalled, 4, "fourth").await;
+    answer_start(stalled, 5, "fifth").await;
+    tokio::time::timeout(QUEUE_STALL_BOUND * 2, stalled_closed.cancelled())
+        .await
+        .expect("a queue its writer takes nothing from past the bound lets the connection go");
 }

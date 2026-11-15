@@ -15,6 +15,7 @@ use sidekicks_std::mutex_lock::lock;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::intervention::send_claude_interrupt;
+use crate::driver::claude::run::routes::ClaudeTurnOpener;
 use crate::driver::claude::run::start::{ClaudeDaemonTurnOpening, ClaudeRunStart};
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::diagnostics::{
@@ -69,7 +70,11 @@ impl ClaudeSelfStartedTurns {
             return;
         }
         let paused = lock(&self.pauses).reported_lead_pause(&session_id).copied();
-        if paused.is_some_and(|run_id| routes.hold_turn_again(run_id).is_ok()) {
+        if paused.is_some_and(|run_id| {
+            routes
+                .hold_turn_again(run_id, ClaudeTurnOpener::ClaudeCode)
+                .is_ok()
+        }) {
             return;
         }
         let Err(error) = self

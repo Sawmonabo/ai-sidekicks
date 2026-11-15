@@ -91,17 +91,53 @@ impl ClaudeTerminalReason {
 struct ResultNaming {
     #[serde(default, deserialize_with = "read_lenient")]
     user_message_uuids: Option<LenientList<String>>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    origin: Option<ResultOrigin>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    num_turns: Option<u64>,
 }
 
-lenient_object!(ResultNaming);
+// What started the turn a `result` frame ends, where Claude Code started it by itself.
+#[derive(Deserialize)]
+struct ResultOrigin {
+    #[serde(default, deserialize_with = "read_lenient")]
+    kind: Option<String>,
+}
 
-/// The messages a lead `result` names as taken into the turn it ends, by uuid; none when the frame
-/// names none or is no object.
-pub(crate) fn read_claude_result_message_uuids(text: &str) -> Vec<String> {
+lenient_object!(ResultNaming, ResultOrigin);
+
+// The `origin` kind of a turn Claude Code started by itself to report a task's notification.
+const TASK_NOTIFICATION_ORIGIN: &str = "task-notification";
+
+// A `result` frame's members the reader reads, `None` for a frame that is no object.
+fn read_result_naming(text: &str) -> Option<ResultNaming> {
     let mut deserializer = serde_json::Deserializer::from_str(text);
     <ResultNaming as Lenient>::read(&mut deserializer)
         .ok()
         .flatten()
+}
+
+/// Whether a lead `result` is one Claude Code wrote for a task's notification with no model turn
+/// and no message, as a relaunched or forked process does before any input for a task the last
+/// process left running: it answers nothing the daemon sent. One naming a message the daemon sent
+/// is that message's turn end.
+pub(crate) fn is_claude_task_notification_result(text: &str) -> bool {
+    read_result_naming(text).is_some_and(|naming| {
+        naming.num_turns == Some(0)
+            && naming
+                .user_message_uuids
+                .is_none_or(|uuids| uuids.0.is_empty())
+            && naming
+                .origin
+                .and_then(|origin| origin.kind)
+                .is_some_and(|kind| kind == TASK_NOTIFICATION_ORIGIN)
+    })
+}
+
+/// The messages a lead `result` names as taken into the turn it ends, by uuid; none when the frame
+/// names none or is no object.
+pub(crate) fn read_claude_result_message_uuids(text: &str) -> Vec<String> {
+    read_result_naming(text)
         .and_then(|naming| naming.user_message_uuids)
         .map(|uuids| uuids.0)
         .unwrap_or_default()

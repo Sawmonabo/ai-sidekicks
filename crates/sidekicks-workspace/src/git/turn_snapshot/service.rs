@@ -396,6 +396,7 @@ impl TurnSnapshotService {
             &self.git,
             place,
             &self.checkout_lock,
+            &self.packing,
             &self.floor_reports,
             checkout.roots(),
         )

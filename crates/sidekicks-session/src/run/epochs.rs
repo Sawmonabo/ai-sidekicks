@@ -318,6 +318,14 @@ impl ExecutionEpochs {
         }
     }
 
+    /// Lifts the freeze a fork and restart set on `binding_id` when the fork was not taken up, so
+    /// its cursor counts on from where it stood; one with no cursor open is already gone.
+    pub(crate) fn lift_freeze(&mut self, binding_id: &RuntimeBindingId) {
+        if let Some(cursor) = self.cursors.get_mut(binding_id) {
+            cursor.frozen_at = None;
+        }
+    }
+
     fn insert_cursor(&mut self, cursor: BindingCursor) -> Result<(), EpochCursorError> {
         match self.cursors.entry(cursor.binding.id.clone()) {
             Entry::Occupied(occupied) => Err(EpochCursorError::AlreadyOpen {

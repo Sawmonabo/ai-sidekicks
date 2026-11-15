@@ -244,6 +244,7 @@ pub(crate) fn build_repo_services(
     let command_captures = Arc::new(CommandCaptureService::new(
         git.clone(),
         Arc::clone(&checkout_lock),
+        Arc::clone(&packing),
         floor_reports,
     ));
     let worktrees = Arc::new(WorktreeService::new(WorktreeServiceDeps {

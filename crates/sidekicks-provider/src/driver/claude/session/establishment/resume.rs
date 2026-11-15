@@ -28,7 +28,9 @@ use super::{
     ClaudeResumeAnswer, ClaudeSessionEstablishment, ClaudeSessionStart, ClaudeSpawnRequest,
 };
 use crate::driver::claude::output_speed::resolve_claude_output_speed;
-use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes};
+use crate::driver::claude::run::routes::{
+    ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes, ClaudeTurnOpener,
+};
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::conversation_file::read_turn_count;
 use crate::driver::claude::session::conversation_home::read_claude_conversation_home;
@@ -232,7 +234,12 @@ impl ClaudeSessionEstablishment {
                 if let Some(run_id) = continued_run_id
                     && self
                         .routes
-                        .hold_turn(run_id, session_id, binding_id.clone())
+                        .hold_turn(
+                            run_id,
+                            session_id,
+                            binding_id.clone(),
+                            ClaudeTurnOpener::Daemon,
+                        )
                         .is_err()
                 {
                     start.callback_tools.roll_back();

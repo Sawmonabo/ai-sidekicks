@@ -438,6 +438,47 @@ pub(crate) fn read_resumable_bindings(
     rows.collect()
 }
 
+/// The statements of one write recording `relaunch`: a new row on the predecessor's run, provider,
+/// legs and recovery data, so the new binding holds that data from its first instant, with the
+/// relaunched build's own version and path, naming the conversation the leg runs on now, and each
+/// conversation it left; the row's statement is refused where the predecessor has no row. Fails
+/// with [`RuntimeBindingStoreError::InvalidOutput`] for an invalid resume handle.
+pub fn compose_relaunch_statements(
+    relaunch: &RuntimeBindingRelaunch,
+) -> Result<Vec<WriteStatement>, RuntimeBindingStoreError> {
+    check_resume_handle(&relaunch.resume_handle)?;
+    let timestamp = WireInstant::now().as_str().to_owned();
+    let cli_version = &relaunch.spawned_version.cli_version;
+    let mut statements = Vec::with_capacity(1 + relaunch.left_conversations.len());
+    statements.push(WriteStatement {
+        sql: Cow::Borrowed(INSERT_RELAUNCHED_BINDING_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@id", relaunch.binding_id.as_str()),
+            text_binding("@cli_version_raw", &cli_version.raw_version),
+            nullable_text_binding("@cli_version_semver", cli_version.parsed_version.as_deref()),
+            text_binding("@resume_handle", &relaunch.resume_handle),
+            text_binding(
+                "@resolved_executable_path",
+                &relaunch
+                    .spawned_version
+                    .resolved_executable_path
+                    .to_string_lossy(),
+            ),
+            text_binding(
+                "@path_member",
+                &format!("$.{RESOLVED_EXECUTABLE_PATH_MEMBER}"),
+            ),
+            text_binding("@timestamp", &timestamp),
+            text_binding("@predecessor_id", relaunch.predecessor_id.as_str()),
+        ]),
+        expected_row_count: Some(1),
+    });
+    statements.extend(relaunch.left_conversations.iter().map(|conversation| {
+        compose_left_conversation_insert(&relaunch.binding_id, &timestamp, conversation)
+    }));
+    Ok(statements)
+}
+
 /// Writes runtime bindings through the database writer, reading a stored one first through the
 /// read pool where a write is gated on it.
 pub struct RuntimeBindingStore {
@@ -590,48 +631,18 @@ impl RuntimeBindingStore {
         }
     }
 
-    /// Records the binding a driver minted when it resumed a session on its own: a new row on the
-    /// predecessor's run, provider, legs and recovery data, so the new binding holds that data from
-    /// its first instant, with the relaunched build's own version and path, naming the
-    /// conversation the leg runs on now, and each conversation it left in the same write. Fails
-    /// with [`RuntimeBindingStoreError::InvalidOutput`] for an invalid resume handle, and with
+    /// Records the binding a driver minted when it resumed a session on its own, as
+    /// [`compose_relaunch_statements`] composes it, in one write. Fails with
+    /// [`RuntimeBindingStoreError::InvalidOutput`] for an invalid resume handle, and with
     /// [`RuntimeBindingStoreError::Write`] when the predecessor has no row, so nothing was
     /// recorded.
     pub async fn record_relaunch(
         &self,
-        relaunch: RuntimeBindingRelaunch,
+        relaunch: &RuntimeBindingRelaunch,
     ) -> Result<(), RuntimeBindingStoreError> {
-        check_resume_handle(&relaunch.resume_handle)?;
-        let timestamp = WireInstant::now().as_str().to_owned();
-        let cli_version = &relaunch.spawned_version.cli_version;
-        let mut statements = Vec::with_capacity(1 + relaunch.left_conversations.len());
-        statements.push(WriteStatement {
-            sql: Cow::Borrowed(INSERT_RELAUNCHED_BINDING_SQL),
-            bindings: StatementBindings::Named(vec![
-                text_binding("@id", relaunch.binding_id.as_str()),
-                text_binding("@cli_version_raw", &cli_version.raw_version),
-                nullable_text_binding("@cli_version_semver", cli_version.parsed_version.as_deref()),
-                text_binding("@resume_handle", &relaunch.resume_handle),
-                text_binding(
-                    "@resolved_executable_path",
-                    &relaunch
-                        .spawned_version
-                        .resolved_executable_path
-                        .to_string_lossy(),
-                ),
-                text_binding(
-                    "@path_member",
-                    &format!("$.{RESOLVED_EXECUTABLE_PATH_MEMBER}"),
-                ),
-                text_binding("@timestamp", &timestamp),
-                text_binding("@predecessor_id", relaunch.predecessor_id.as_str()),
-            ]),
-            expected_row_count: Some(1),
-        });
-        statements.extend(relaunch.left_conversations.iter().map(|conversation| {
-            compose_left_conversation_insert(&relaunch.binding_id, &timestamp, conversation)
-        }));
-        self.writer.write(statements).await?;
+        self.writer
+            .write(compose_relaunch_statements(relaunch)?)
+            .await?;
         Ok(())
     }
 

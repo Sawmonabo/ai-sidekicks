@@ -13,6 +13,7 @@ use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
+use sidekicks_contracts::run::events::CutGroupStart;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
@@ -62,6 +63,8 @@ pub(crate) struct RecordedDelivery {
     pub(crate) steered_turn_number: Option<SafeInt<1>>,
     /// The queue item whose message a steer delivery says the provider took.
     pub(crate) message_id: Option<QueueItemId>,
+    /// Where a steer delivery says its message's cut group begins.
+    pub(crate) cut_group_start: Option<CutGroupStart>,
     /// The run the delivery names.
     pub(crate) run_id: Option<RunId>,
     /// The run a child run delivery starts beneath, or a parent correction moves its run under.
@@ -474,6 +477,7 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         is_daemon_interrupt_end: false,
         steered_turn_number: None,
         message_id: None,
+        cut_group_start: None,
         run_id: None,
         parent_run_id: None,
         subagent: None,
@@ -491,11 +495,13 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
             binding_id,
             turn_number,
             message_id,
+            cut_group_start,
         } => {
             recorded.kind = "turnSteered";
             recorded.binding_id = Some(binding_id.clone());
             recorded.steered_turn_number = Some(*turn_number);
             recorded.message_id = Some(*message_id);
+            recorded.cut_group_start.clone_from(cut_group_start);
         }
         InboundDelivery::RunLifecycle {
             binding,

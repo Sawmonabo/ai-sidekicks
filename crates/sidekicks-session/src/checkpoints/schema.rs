@@ -144,6 +144,11 @@ CREATE TABLE session_checkpoints (
 -- A turn's checkpoints, its start's first, which an undo to a steer reads its turn's start by.
 CREATE INDEX idx_session_checkpoints_turn ON session_checkpoints(run_id, turn_number, position);
 
+-- A session's checkpoints in the order their runs ran them, which the newest checkpoint and an
+-- undo's reach are read by.
+CREATE INDEX idx_session_checkpoints_run_position
+  ON session_checkpoints(session_id, run_id, epoch, position);
+
 -- One row per command window: the captures before and after a command the agent ran, and
 -- whether its before-capture was taken before it ran.
 CREATE TABLE checkpoint_commands (
@@ -270,6 +275,32 @@ CREATE TABLE session_restores (
   client_idempotency_key  TEXT NOT NULL,
   outcome                 TEXT NOT NULL,        -- JSON: the undo's result as the wire carries it
   created_at              TEXT NOT NULL,
+  PRIMARY KEY (session_id, client_idempotency_key)
+) STRICT;
+
+-- An undo's conversation cut, recorded once the cut applied, so a retry under the same key never
+-- cuts again, finishes the files to the checkpoint the cut read and sends the resend the cut was
+-- made for.
+CREATE TABLE session_restore_cuts (
+  session_id              TEXT NOT NULL,
+  client_idempotency_key  TEXT NOT NULL,
+  checkpoint_id           TEXT NOT NULL,        -- the checkpoint the undo's files go back to
+  resend                  TEXT,                 -- JSON: the message the undo resends
+  files_outcome           TEXT,                 -- JSON: what the files' put-back did, once it ended
+  cut_sequence            INTEGER NOT NULL,     -- the session's last log sequence at the cut
+  created_at              TEXT NOT NULL,
+  PRIMARY KEY (session_id, client_idempotency_key)
+) STRICT;
+
+-- An undo's edited message, kept from before its cut until its hold is let go; a row a stop left
+-- goes back into the session's draft at the next start and stays, marked returned, so no retry
+-- under its key sends the words the draft now holds.
+CREATE TABLE session_restore_resends (
+  session_id              TEXT NOT NULL,
+  client_idempotency_key  TEXT NOT NULL,
+  resend                  TEXT NOT NULL,        -- JSON: the edited message as the wire carries it
+  created_at              TEXT NOT NULL,
+  returned_at             TEXT,                 -- when a start put it back into the draft
   PRIMARY KEY (session_id, client_idempotency_key)
 ) STRICT;
 "

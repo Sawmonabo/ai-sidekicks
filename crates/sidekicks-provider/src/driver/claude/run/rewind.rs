@@ -13,6 +13,7 @@ use serde::Deserialize;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -24,12 +25,16 @@ use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSession
 use crate::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
+use crate::driver::claude::session::conversation_file::cut_rows::read_claude_cut_rows;
+use crate::driver::claude::session::conversation_file::{
+    conversation_file_of, find_claude_command_holding,
+};
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
 use crate::driver::contract::error::DriverError;
-use crate::driver::rewind::RewindConversationResult;
+use crate::driver::rewind::{RewindConversationResult, RewindTargetPresence};
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
@@ -131,21 +136,32 @@ struct ClaudeCutRefusal {
 }
 
 impl ClaudeCutRefusal {
+    // Whether Claude Code found no entry for the cut's target: its flag, or the code.
+    fn is_target_missing(&self) -> bool {
+        self.is_target_not_found || self.refusal == Some(ClaudeRewindRefusal::TargetNotFound)
+    }
+
     // A cut refused for a code Claude Code marks sendable again, with its target found, goes once
     // more; a missing target is no resend, and a word outside the set is final.
     fn may_be_sent_again(&self) -> bool {
-        !self.is_target_not_found
-            && self.refusal.is_some_and(|refusal| {
-                refusal != ClaudeRewindRefusal::TargetNotFound && refusal.may_be_sent_again()
-            })
+        !self.is_target_missing()
+            && self
+                .refusal
+                .is_some_and(ClaudeRewindRefusal::may_be_sent_again)
     }
 
-    fn into_degraded(self) -> RewindConversationResult {
-        RewindConversationResult::Degraded {
-            fallback_action: self
-                .reason
-                .filter(|reason| !reason.is_empty())
-                .map(|reason| format!("rewind-refused: {reason}")),
+    // A missing target is `TargetNotHeld`, which the daemon reads the cut's own rows for; any
+    // other refusal is `Degraded`. Each names Claude Code's reason.
+    fn into_result(self) -> RewindConversationResult {
+        let is_target_missing = self.is_target_missing();
+        let fallback_action = self
+            .reason
+            .filter(|reason| !reason.is_empty())
+            .map(|reason| format!("rewind-refused: {reason}"));
+        if is_target_missing {
+            RewindConversationResult::TargetNotHeld { fallback_action }
+        } else {
+            RewindConversationResult::Degraded { fallback_action }
         }
     }
 }
@@ -170,9 +186,12 @@ impl ClaudeConversationCuts {
     /// dropped once the cut lands and delivered as sent when it does not. A refusal Claude Code
     /// marks sendable again, but a missing target, is sent once more after the session's turn
     /// settles; any other refusal, a second one, or a turn still held at the request deadline is
-    /// `Degraded` with Claude Code's reason. Fails as the settle or a request
-    /// fails. An applied cut lets go the held `Allow once` presses of every binding the process
-    /// served, through `reviewer_denials` once the approvals are registered.
+    /// `Degraded` with Claude Code's reason. A target Claude Code finds missing that it merged with
+    /// other messages into one command is cut once more before that command, whose answer is
+    /// final; a target still missing then is `TargetNotHeld`, Claude Code having changed nothing.
+    /// Fails as the settle, a request or the conversation file's read fails. An
+    /// applied cut lets go the held `Allow once` presses of every binding the process served,
+    /// through `reviewer_denials` once the approvals are registered.
     pub(crate) async fn rewind(
         &self,
         live: &LiveClaudeSession,
@@ -180,19 +199,7 @@ impl ClaudeConversationCuts {
         reviewer_denials: &PortRegistration<Arc<dyn ReviewerDenialPort>>,
     ) -> Result<RewindConversationResult, DriverError> {
         let session_id = live.session_id;
-        // A run whose end the settle already delivered takes no second end from the cut.
-        let mut settled_run = None;
-        if let Some(lead) = self.routes.lead_run_on(session_id)
-            && settle_claude_choice(
-                &self.dialogs,
-                live,
-                lead.run_id,
-                ClaudeChoiceSettling::Interrupt,
-            )
-            .await?
-        {
-            settled_run = Some(lead.run_id);
-        }
+        let settled_run = self.settle_lead_choice(live).await?;
         let stream = self.streams.get(session_id);
         let stream = stream.as_deref();
         // Taken before the first send, so a turn released while it goes still wakes the wait.
@@ -215,10 +222,95 @@ impl ClaudeConversationCuts {
                 .cut_holding_lead(live, target_message_id, stream, settled_run)
                 .await?;
         }
+        // Claude Code finds no entry for a message it merged into a command with others, and its
+        // cut finds only the whole command, which every member's undo reaches.
+        if let ClaudeCutAnswer::Refused(refusal) = &answer
+            && refusal.is_target_missing()
+            && let Some(command_uuid) = find_command_holding(live, target_message_id).await?
+        {
+            (answer, held_lead) = self
+                .cut_holding_lead(live, &command_uuid, stream, settled_run)
+                .await?;
+        }
         let cut_message_text = match answer {
             ClaudeCutAnswer::Applied { cut_message_text } => cut_message_text,
-            ClaudeCutAnswer::Refused(refusal) => return Ok(refusal.into_degraded()),
+            ClaudeCutAnswer::Refused(refusal) => return Ok(refusal.into_result()),
         };
+        self.settle_landed_cut(live, stream, held_lead, reviewer_denials)
+            .await;
+        Ok(RewindConversationResult::Applied {
+            fork: None,
+            cut_message_text,
+        })
+    }
+
+    /// Brings the session to a cut before one of the person's messages that Claude Code already
+    /// made, as a landed [`Self::rewind`] leaves it, asking Claude Code for nothing: a choice the
+    /// running turn is held on is settled as an interrupt's is, the run holding the turn ends
+    /// interrupted, its open turn ended, and every run's binding goes, the held `Allow once`
+    /// presses of every binding the process served let go through `reviewer_denials`. Fails as
+    /// the settle fails.
+    pub(crate) async fn adopt(
+        &self,
+        live: &LiveClaudeSession,
+        reviewer_denials: &PortRegistration<Arc<dyn ReviewerDenialPort>>,
+    ) -> Result<(), DriverError> {
+        let settled_run = self.settle_lead_choice(live).await?;
+        let stream = self.streams.get(live.session_id);
+        let stream = stream.as_deref();
+        let held_lead = self.hold_lead_turn_end(live.session_id, stream, settled_run);
+        self.settle_landed_cut(live, stream, held_lead, reviewer_denials)
+            .await;
+        Ok(())
+    }
+
+    // Settles a choice the lead's running turn is held on as an interrupt's is, and answers the
+    // lead when it did, since the settle delivered its end and the cut gives it no second one.
+    async fn settle_lead_choice(
+        &self,
+        live: &LiveClaudeSession,
+    ) -> Result<Option<RunId>, DriverError> {
+        let Some(lead) = self.routes.lead_run_on(live.session_id) else {
+            return Ok(None);
+        };
+        let is_settled = settle_claude_choice(
+            &self.dialogs,
+            live,
+            lead.run_id,
+            ClaudeChoiceSettling::Interrupt,
+        )
+        .await?;
+        Ok(is_settled.then_some(lead.run_id))
+    }
+
+    // Holds for the daemon's end a turn end the lead sends from now, unless the settle already
+    // ended it, and answers the lead held.
+    fn hold_lead_turn_end(
+        &self,
+        session_id: SessionId,
+        stream: Option<&ClaudeSessionStream>,
+        settled_run: Option<RunId>,
+    ) -> Option<ClaudeBoundRun> {
+        let stream = stream?;
+        let lead = self
+            .routes
+            .lead_run_on(session_id)
+            .filter(|lead| Some(lead.run_id) != settled_run)?;
+        stream.hold_turn_end_for_interrupt(lead.run_id);
+        Some(lead)
+    }
+
+    // What a landed cut leaves on the driver: the held lead ends interrupted, its open turn ended,
+    // before its binding goes, since no end can reach it after; every run's routes and the
+    // session's sent messages go, and so do the presses every binding the process served held.
+    async fn settle_landed_cut(
+        &self,
+        live: &LiveClaudeSession,
+        stream: Option<&ClaudeSessionStream>,
+        held_lead: Option<ClaudeBoundRun>,
+        reviewer_denials: &PortRegistration<Arc<dyn ReviewerDenialPort>>,
+    ) {
+        let session_id = live.session_id;
         if let (Some(stream), Some(lead)) = (stream, &held_lead) {
             let turn_end = stream
                 .take_open_turn_number(lead.run_id)
@@ -245,10 +337,6 @@ impl ClaudeConversationCuts {
         self.lock_prompts().forget_session(session_id);
         // Every run the process served is retired, so none still needs its presses.
         live.release_served_presses(reviewer_denials);
-        Ok(RewindConversationResult::Applied {
-            fork: None,
-            cut_message_text,
-        })
     }
 
     // Sends the cut back to before `target_message_id`, naming the newest message written as it
@@ -262,14 +350,7 @@ impl ClaudeConversationCuts {
         stream: Option<&ClaudeSessionStream>,
         settled_run: Option<RunId>,
     ) -> Result<(ClaudeCutAnswer, Option<ClaudeBoundRun>), ClaudeSessionError> {
-        let held_lead = stream.and_then(|stream| {
-            let lead = self
-                .routes
-                .lead_run_on(live.session_id)
-                .filter(|lead| Some(lead.run_id) != settled_run)?;
-            stream.hold_turn_end_for_interrupt(lead.run_id);
-            Some(lead)
-        });
+        let held_lead = self.hold_lead_turn_end(live.session_id, stream, settled_run);
         let newest = self
             .lock_prompts()
             .newest_for(live.session_id)
@@ -404,6 +485,50 @@ async fn cut_claude_conversation(
     Ok(ClaudeCutAnswer::Applied {
         cut_message_text: reply.prefill_text.filter(|text| !text.is_empty()),
     })
+}
+
+// The uuid of the command Claude Code merged `message_id` into with others, read from the live
+// conversation's file; `None` where the file holds no such command or no file is found.
+async fn find_command_holding(
+    live: &LiveClaudeSession,
+    message_id: &str,
+) -> Result<Option<String>, DriverError> {
+    let read_failure = |error: std::io::Error| DriverError::Internal(Box::new(error));
+    let file = conversation_file_of(
+        &live.signed_in_spawn_environment(),
+        &live.provider_session_id,
+    )
+    .await
+    .map_err(read_failure)?;
+    match file {
+        Some(file) => find_claude_command_holding(&file, message_id)
+            .await
+            .map_err(read_failure),
+        None => Ok(None),
+    }
+}
+
+/// Whether a cut Claude Code made took the person's message `message_id`, read from the live
+/// conversation's file once Claude Code refused a cut for it: `CutAway` only where a cut's own row,
+/// written after the last turn and never taken back, names the entry holding the message, and
+/// `Held` otherwise, no file included. Fails as the file cannot be found or read.
+pub(crate) async fn read_claude_rewind_target(
+    live: &LiveClaudeSession,
+    message_id: &str,
+) -> Result<RewindTargetPresence, DriverError> {
+    let read_failure = |error: std::io::Error| DriverError::Internal(Box::new(error));
+    let file = conversation_file_of(
+        &live.signed_in_spawn_environment(),
+        &live.provider_session_id,
+    )
+    .await
+    .map_err(read_failure)?;
+    match file {
+        Some(file) => read_claude_cut_rows(&file, message_id)
+            .await
+            .map_err(read_failure),
+        None => Ok(RewindTargetPresence::Held),
+    }
 }
 
 #[cfg(test)]

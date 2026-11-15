@@ -15,7 +15,7 @@ mod cancel;
 mod interrupt;
 #[cfg(test)]
 mod tests;
-mod undo;
+pub mod undo;
 pub mod withdrawal;
 
 use std::sync::{Arc, Weak};
@@ -41,6 +41,9 @@ use sidekicks_provider::driver::ports::{ContinueGivenBackListener, ProcessGoneLi
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_session::changes::refuse_unchangeable_session;
+use sidekicks_session::checkpoints::resends::{
+    read_staged_resends, return_staged_resend_statements,
+};
 use sidekicks_session::interventions::store::read_sessions_with_unreleased_interrupts;
 use sidekicks_session::queue_store::summary::summary_of;
 use sidekicks_session::queue_store::{
@@ -569,20 +572,28 @@ impl RunQueue {
     /// Reads every session's waiting messages again from the record, once the daemon has started
     /// and its recovery has settled the runs it found live: an interrupt's release left unsettled
     /// before the restart is settled again, a run the messages wait for that ended before the
-    /// restart is ended as at its end, and a queued run is started. Answers each session whose
-    /// settle or read failed, with why, every session tried; fails as the read of the sessions
-    /// fails.
+    /// restart is ended as at its end, and a queued run is started. An undo's edited message the
+    /// stop left kept goes back into its session's draft first, since the undo it served ended
+    /// with the process. Answers each session whose settle, return or read failed, with why,
+    /// every session tried; fails as the read of the sessions fails.
     pub async fn recover(&self) -> Result<Vec<(SessionId, QueueError)>, QueueError> {
-        let (unreleased, waiting) = self
+        let (staged, unreleased, waiting) = self
             .pool
             .read(ReadLength::Short, move |reader| {
                 Ok::<_, QueueError>((
+                    read_staged_resends(reader)?,
                     read_sessions_with_unreleased_interrupts(reader)?,
                     QueueItemReader::new(reader).list_sessions_with_unstarted_waiting()?,
                 ))
             })
             .await?;
         let mut failures = Vec::new();
+        for staged in staged {
+            let returned = return_staged_resend_statements(&staged, &WireInstant::now());
+            if let Err(error) = self.writer.write(returned).await {
+                failures.push((staged.session_id, error.into()));
+            }
+        }
         for session_id in unreleased {
             let (_hold, settled) = self.session_lock.hold_settled(session_id).await;
             if let Err(error) = settled {

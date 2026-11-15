@@ -1,6 +1,7 @@
-//! The line-by-line read of a conversation file every reader of its entries shares: a ceiling on
-//! each line, the first line skipped past it logged once, and a lenient parse of each line that is
-//! a JSON object. A file is read whole from a byte, or handed in chunk by chunk as it grows.
+//! The line-by-line read of a conversation file every forward reader of its entries shares: a
+//! ceiling on each line, the first line skipped past it logged once, and a lenient parse of each
+//! line that is a JSON object. A file is read whole from a byte, or handed in chunk by chunk as it
+//! grows.
 
 use std::io;
 use std::ops::ControlFlow;
@@ -158,7 +159,7 @@ pub(crate) async fn read_conversation_lines<Entry: Lenient>(
     }
 }
 
-// Hands `line` to `visit` where it is one JSON object reading as an `Entry`.
+/// Hands `line` to `visit` where it is one JSON object reading as an `Entry`.
 fn read_line<Entry: Lenient>(
     line: &[u8],
     is_terminated: bool,

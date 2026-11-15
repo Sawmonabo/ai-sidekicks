@@ -96,6 +96,9 @@ pub(super) struct RoutedParams<'line> {
     /// A body delta's failure, which also makes it its request's last, as raw JSON.
     #[serde(borrow)]
     pub(super) error: Option<&'line RawValue>,
+    /// The session an `initialize` resumes, that of a connection that dropped.
+    #[serde(borrow)]
+    pub(super) resume_session_id: Option<Cow<'line, str>>,
 }
 
 impl<'line> RoutedParams<'line> {

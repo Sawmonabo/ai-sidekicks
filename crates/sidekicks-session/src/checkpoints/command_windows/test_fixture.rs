@@ -32,8 +32,10 @@ use tempfile::TempDir;
 use super::{COMMAND_WINDOWS_STATEMENT_CAPACITY, CommandWindows, CommandWindowsDeps};
 use crate::checkpoints::copies::CopyStore;
 use crate::checkpoints::schema::{CheckpointVersionContent, schema_parts};
+use crate::checkpoints::store::kept::read_kept_checkpoint;
 use crate::checkpoints::store::{
-    Checkpoint, CheckpointVersion, insert_checkpoint_statement, uncovered_commands, versions_after,
+    Checkpoint, CheckpointVersion, UncoveredCommand, insert_checkpoint_statement,
+    uncovered_commands, versions_after,
 };
 use crate::run::engine::test_fixture;
 
@@ -116,12 +118,13 @@ impl Fixture {
         let log = open_log(&database, None).await;
         let floor_reports = Arc::new(GitFloorReports::default());
         let data_folder = root.path().join("data");
+        let packing = Arc::new(CapturePacking::new(git.clone(), Arc::clone(&floor_reports)));
         let captures = Arc::new(CommandCaptureService::new(
             git.clone(),
             Arc::new(KeyedLock::new()),
-            Arc::clone(&floor_reports),
+            Arc::clone(&packing),
+            floor_reports,
         ));
-        let packing = Arc::new(CapturePacking::new(git.clone(), floor_reports));
         let windows = Arc::new(CommandWindows::new(CommandWindowsDeps {
             pool: Arc::new(DatabaseReadPool::new(
                 database.path(),
@@ -203,9 +206,23 @@ impl Fixture {
         FilesystemPath::new(utf8(&real.join(relative)).to_owned()).expect("a recorded path")
     }
 
+    /// The session's checkpoint as its row holds it, the point every read of what came after it
+    /// starts at; `None` before it is written.
+    fn point(&self) -> Option<Checkpoint> {
+        read_kept_checkpoint(
+            &self.database.reader(),
+            self.session_id,
+            &self.checkpoint_id,
+        )
+        .expect("the checkpoint reads")
+    }
+
     /// Every path's earliest version in the session.
     pub(crate) fn versions(&self) -> Vec<CheckpointVersion> {
-        versions_after(&self.database.reader(), self.session_id, SafeInt::ZERO)
+        let Some(point) = self.point() else {
+            return Vec::new();
+        };
+        versions_after(&self.database.reader(), self.session_id, &point, &[])
             .expect("the versions read")
             .into_iter()
             .map(|stored| stored.version)
@@ -232,11 +249,18 @@ impl Fixture {
             .expect("the window's row reads")
     }
 
+    /// The session's commands recorded uncovered, in the order they ran.
+    pub(crate) fn uncovered(&self) -> Vec<UncoveredCommand> {
+        let Some(point) = self.point() else {
+            return Vec::new();
+        };
+        uncovered_commands(&self.database.reader(), self.session_id, &point, &[])
+            .expect("the uncovered commands read")
+    }
+
     /// How many of the session's commands are recorded uncovered.
     pub(crate) fn uncovered_count(&self) -> usize {
-        uncovered_commands(&self.database.reader(), self.session_id, SafeInt::ZERO)
-            .expect("the uncovered commands read")
-            .len()
+        self.uncovered().len()
     }
 
     /// The bytes the copy named `hash` keeps.

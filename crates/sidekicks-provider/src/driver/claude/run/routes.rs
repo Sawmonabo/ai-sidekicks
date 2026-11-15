@@ -86,11 +86,25 @@ pub(crate) enum HoldAgainRefusal {
 /// the run's end itself, so the run must not end it again.
 pub(crate) type ClaudeApartRunStop = Box<dyn FnOnce(bool) + Send>;
 
+/// Who opened the turn a run holds: the daemon, with a message it writes or a turn it continues,
+/// or Claude Code by itself, with no input the daemon wrote.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeTurnOpener {
+    /// The daemon's message or continuation.
+    Daemon,
+    /// Claude Code by itself, as for a background task's notification.
+    ClaudeCode,
+}
+
 /// What holds a session's turn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TurnHolder {
     /// A run, which keeps the turn through its settlement when it carries it over.
-    Run { run_id: RunId, is_carried: bool },
+    Run {
+        run_id: RunId,
+        is_carried: bool,
+        opener: ClaudeTurnOpener,
+    },
     /// A command Claude Code runs as a turn of its own.
     Command,
 }
@@ -264,14 +278,33 @@ impl ClaudeRunRoutes {
             .is_some_and(|turn| turn.borrow().holder.is_some())
     }
 
+    /// Whether the session's turn is held for input the daemon wrote: a command, or a run whose
+    /// turn the daemon opened, rather than one Claude Code started by itself.
+    pub(crate) fn is_turn_held_by_daemon(&self, session_id: SessionId) -> bool {
+        self.lock().turns.get(&session_id).is_some_and(|turn| {
+            matches!(
+                turn.borrow().holder,
+                Some(
+                    TurnHolder::Command
+                        | TurnHolder::Run {
+                            opener: ClaudeTurnOpener::Daemon,
+                            ..
+                        }
+                )
+            )
+        })
+    }
+
     /// Binds a run to the session its opening frame goes to and the binding its deliveries are
-    /// attributed on, and gives it the session's turn; a run that holds the turn already takes the
-    /// new binding. Fails with [`TurnHeld`] when another run or a command holds the turn.
+    /// attributed on, and gives it the session's turn, opened by `opener`; a run that holds the
+    /// turn already takes the new binding and keeps its opener. Fails with [`TurnHeld`] when
+    /// another run or a command holds the turn.
     pub(crate) fn hold_turn(
         &self,
         run_id: RunId,
         session_id: SessionId,
         binding_id: RuntimeBindingId,
+        opener: ClaudeTurnOpener,
     ) -> Result<(), TurnHeld> {
         let mut tables = self.lock();
         tables.change_turn(session_id, |state| match state.holder {
@@ -279,6 +312,7 @@ impl ClaudeRunRoutes {
                 state.holder = Some(TurnHolder::Run {
                     run_id,
                     is_carried: false,
+                    opener,
                 });
                 (true, Ok(()))
             }
@@ -296,9 +330,14 @@ impl ClaudeRunRoutes {
     }
 
     /// Gives a run the session's turn again on the binding it already holds, as a paused run's
-    /// next turn does. Fails with [`HoldAgainRefusal::NoBinding`] for a run the routes hold no
-    /// binding for, and [`HoldAgainRefusal::TurnHeld`] when another run or a command holds it.
-    pub(crate) fn hold_turn_again(&self, run_id: RunId) -> Result<(), HoldAgainRefusal> {
+    /// next turn does, opened by `opener`. Fails with [`HoldAgainRefusal::NoBinding`] for a run the
+    /// routes hold no binding for, and [`HoldAgainRefusal::TurnHeld`] when another run or a command
+    /// holds it.
+    pub(crate) fn hold_turn_again(
+        &self,
+        run_id: RunId,
+        opener: ClaudeTurnOpener,
+    ) -> Result<(), HoldAgainRefusal> {
         let mut tables = self.lock();
         let Some(&(session_id, _)) = tables.bindings.get(&run_id) else {
             return Err(HoldAgainRefusal::NoBinding);
@@ -308,6 +347,7 @@ impl ClaudeRunRoutes {
                 state.holder = Some(TurnHolder::Run {
                     run_id,
                     is_carried: false,
+                    opener,
                 });
                 (true, Ok(()))
             }
@@ -355,6 +395,7 @@ impl ClaudeRunRoutes {
             Some(TurnHolder::Run {
                 run_id: held,
                 is_carried,
+                ..
             }) if *held == run_id => {
                 *is_carried = true;
                 (false, ())
@@ -593,11 +634,13 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-    use super::{ClaudeRunRoutes, TurnHeld};
+    use super::{ClaudeRunRoutes, ClaudeTurnOpener, TurnHeld};
 
     fn binding() -> RuntimeBindingId {
         RuntimeBindingId::new("binding".to_owned()).expect("a binding id")
     }
+
+    const DAEMON: ClaudeTurnOpener = ClaudeTurnOpener::Daemon;
 
     fn run() -> RunId {
         RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
@@ -615,23 +658,29 @@ mod tests {
         let session = session();
         let (lead, other) = (run(), run());
         routes
-            .hold_turn(lead, session, binding())
+            .hold_turn(lead, session, binding(), DAEMON)
             .expect("the turn is free");
-        assert_eq!(routes.hold_turn(other, session, binding()), Err(TurnHeld));
+        assert_eq!(
+            routes.hold_turn(other, session, binding(), DAEMON),
+            Err(TurnHeld)
+        );
 
         routes.carry_turn_over(lead);
         routes.settle_turn_holds(session);
-        assert_eq!(routes.hold_turn(other, session, binding()), Err(TurnHeld));
+        assert_eq!(
+            routes.hold_turn(other, session, binding(), DAEMON),
+            Err(TurnHeld)
+        );
         routes.settle_turn_holds(session);
-        assert_eq!(routes.hold_turn(other, session, binding()), Ok(()));
+        assert_eq!(routes.hold_turn(other, session, binding(), DAEMON), Ok(()));
 
         routes.carry_turn_over(other);
         routes.unbind_run(other);
         routes
-            .hold_turn(lead, session, binding())
+            .hold_turn(lead, session, binding(), DAEMON)
             .expect("the unbound run's carry went with its hold");
         routes.settle_turn_holds(session);
-        assert_eq!(routes.hold_turn(other, session, binding()), Ok(()));
+        assert_eq!(routes.hold_turn(other, session, binding(), DAEMON), Ok(()));
     }
 
     const DEADLINE: Duration = Duration::from_secs(60);
@@ -646,7 +695,7 @@ mod tests {
         let session = session();
         let (first, second) = (run(), run());
         routes
-            .hold_turn(first, session, binding())
+            .hold_turn(first, session, binding(), DAEMON)
             .expect("the turn is free");
         let before = routes.turn_mark(session);
         routes.note_run_end_written(session);
@@ -669,7 +718,7 @@ mod tests {
             tokio::task::yield_now().await;
             routes.unbind_run(first);
             routes
-                .hold_turn(second, session, binding())
+                .hold_turn(second, session, binding(), DAEMON)
                 .expect("the turn was released");
         };
         let (is_changed, ()) = tokio::join!(changed, hand_over);
@@ -686,10 +735,10 @@ mod tests {
         let (session, other) = (session(), session());
         let lead = run();
         routes
-            .hold_turn(lead, session, binding())
+            .hold_turn(lead, session, binding(), DAEMON)
             .expect("the turn is free");
         routes
-            .hold_turn(run(), other, binding())
+            .hold_turn(run(), other, binding(), DAEMON)
             .expect("the other session's turn is free");
         assert_eq!(routes.lock().turns.len(), 2);
 

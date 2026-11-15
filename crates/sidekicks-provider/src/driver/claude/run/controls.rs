@@ -32,7 +32,7 @@ use crate::driver::claude::intervention::{
     ClaudeInterventions, background_claude_task, interrupt_claude_turn,
     request_claude_background_task, stop_on_cut_write,
 };
-use crate::driver::claude::run::routes::ClaudeRunRoute;
+use crate::driver::claude::run::routes::{ClaudeRunRoute, ClaudeTurnOpener};
 use crate::driver::claude::run::start::{
     ClaudeRunStart, claude_attachment_failure, claude_session_unavailable,
 };
@@ -266,7 +266,7 @@ impl ClaudeRunControls {
         if (params.is_continuation_owed || !params.messages.is_empty()) && !is_lead {
             self.start
                 .routes
-                .hold_turn_again(params.run_id)
+                .hold_turn_again(params.run_id, ClaudeTurnOpener::Daemon)
                 .map_err(|_refused| {
                     DriverError::from(claude_session_unavailable(
                         ClaudeSessionUnavailableReason::SessionTurnInFlight,
@@ -320,7 +320,12 @@ impl ClaudeRunControls {
             .ok_or_else(|| unavailable(ClaudeSessionUnavailableReason::NoLiveSession))?;
         self.start
             .routes
-            .hold_turn(run_id, session_id, turn.run.binding_id.clone())
+            .hold_turn(
+                run_id,
+                session_id,
+                turn.run.binding_id.clone(),
+                ClaudeTurnOpener::Daemon,
+            )
             .map_err(|_held| unavailable(ClaudeSessionUnavailableReason::SessionTurnInFlight))?;
         // Continued before the write, so the process's first frames for the answers, which can
         // arrive before the write returns, read as the lead's turn.
@@ -339,7 +344,9 @@ impl ClaudeRunControls {
                 true,
             )
             .await;
-        if written.is_err() {
+        if written.is_ok() {
+            stream.confirm_continued_turn(before);
+        } else {
             self.start.routes.unbind_run(run_id);
             stream.restore_turn(before);
             lock(&self.start.prompts).record_dropped(session_id, &message_uuid);
@@ -548,8 +555,8 @@ impl ClaudeRunControls {
     // own words: a helper at its next tool call, a process apart from the session's own (`apart`)
     // in its running turn, and the lead in its running turn or as its own run while no run holds
     // its turn. The words open no process: with none of the session's live, or the session asleep,
-    // the start refuses them, so nothing is written and nothing failed. The stop stands whether or not the words reach it,
-    // so a failed write is recorded.
+    // the start refuses them, so nothing is written and nothing failed. The stop stands whether or
+    // not the words reach it, so a failed write is recorded.
     async fn tell_command_stopped(
         &self,
         session_id: SessionId,

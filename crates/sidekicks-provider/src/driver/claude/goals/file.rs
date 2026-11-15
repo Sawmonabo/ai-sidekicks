@@ -199,6 +199,7 @@ mod tests {
     use super::{ClaudeGoalFile, ClaudeGoalFork, read_new_records, restored_condition};
     use crate::driver::claude::goals::records::GoalStatusRecord;
     use crate::driver::claude::goals::records::tests::{append, goal_status_line, record};
+    use crate::driver::claude::run::routes::ClaudeTurnOpener;
     use crate::driver::claude::session::scripted::binding_id;
     use crate::driver::claude::session::scripted::driver::{ScriptedDriver, resume_params};
     use crate::driver::test_registry::new_run_id;
@@ -328,7 +329,12 @@ mod tests {
             .expect("the pieces are composed")
             .run_start
             .routes
-            .hold_turn(new_run_id(), session_id, binding_id("lead"))
+            .hold_turn(
+                new_run_id(),
+                session_id,
+                binding_id("lead"),
+                ClaudeTurnOpener::Daemon,
+            )
             .expect("the session's turn is free");
 
         fixture.end_turn(&start, session_id);

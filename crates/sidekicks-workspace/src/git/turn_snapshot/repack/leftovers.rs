@@ -3,7 +3,8 @@
 //! and the lock beside it, and a capture folder still being made. Each is removed by its name once
 //! it is an hour old, as git's prune removes its own temporaries, and a scratch index also once it
 //! was written before this daemon run began; nothing else is touched. The walk of the loose objects
-//! also finds those an hour old, which a capture whose own pack failed left loose.
+//! also finds those an hour old, and those written before this daemon run began at any age, which
+//! a capture whose own pack failed left loose.
 
 use std::ffi::OsStr;
 use std::fs;
@@ -15,6 +16,7 @@ use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_platforms::remove_tree;
 use sidekicks_std::missing_entry::{MissingEntry as _, is_gone};
 
+use super::reclaim::RECLAIM_PACK_PREFIX;
 use super::{PACK_EXTENSION, PACK_INDEX_EXTENSION, PACK_REVERSE_INDEX_EXTENSION, PACK_SEGMENT};
 use crate::git::turn_snapshot::capture_folder::{
     CAPTURES_SEGMENT, INDEXES_SEGMENT, OBJECTS_SEGMENT, is_partial_capture_folder_name,
@@ -27,7 +29,8 @@ use crate::git::turn_snapshot::capture_folder::{
 pub(super) const STALE_LEFTOVER_AGE: Duration = Duration::from_hours(1);
 
 /// The coarsest step a file system keeps a file's time in (FAT's two seconds), taken off the run's
-/// start so a scratch index this run writes never reads as written before it began.
+/// start so a scratch index or a loose object this run writes never reads as written before it
+/// began.
 const FILE_TIME_STEP: Duration = Duration::from_secs(2);
 
 /// The name prefixes of the temporary files a pack write keeps in the pack folder until it
@@ -38,14 +41,54 @@ const TEMPORARY_PACK_PREFIXES: [&str; 2] = ["tmp_", ".tmp-"];
 /// it finishes.
 const TEMPORARY_OBJECT_PREFIX: &str = "tmp_obj_";
 
-/// Removes from `pack_folder` each temporary pack, a file or a folder, and each index or reverse
-/// index whose pack's data file is gone, as a reclaim stopped between the two leaves one, each last
-/// written an hour or more ago, and answers how many it removed. Blocking. Fails as a listing, a
-/// stat or a removal does; a folder or an entry already gone is none.
+/// Puts back in place each pack data file a reclaim stopped after setting it aside left beside its
+/// index, then removes from `pack_folder` each temporary pack, a file or a folder, and each index
+/// or reverse index whose pack's data file is gone, as a reclaim stopped between the two leaves
+/// one, each last written an hour or more ago, and answers how many it removed. Run under the
+/// folder's lock, so no reclaim is under way. Blocking. Fails as a listing, a stat, a rename or a
+/// removal does; a folder or an entry already gone is none.
 pub(super) fn remove_stale_temporary_packs(pack_folder: &Path) -> io::Result<u64> {
+    restore_set_aside_packs(pack_folder)?;
     remove_stale_entries(pack_folder, stale_cutoff(), |name| {
         has_any_prefix(name, &TEMPORARY_PACK_PREFIXES) || is_index_without_pack(pack_folder, name)
     })
+}
+
+// Renames each data file a reclaim set aside under its own prefix back to its pack's name where the
+// pack's index still stands and no data file took its place: the reclaim stopped before it either
+// removed the pack or put it back, and a pack kept costs nothing where one lost loses a capture.
+fn restore_set_aside_packs(pack_folder: &Path) -> io::Result<()> {
+    let Some(entries) = fs::read_dir(pack_folder).none_if_missing()? else {
+        return Ok(());
+    };
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(pack_name) = name
+            .to_str()
+            .and_then(|name| name.strip_prefix(RECLAIM_PACK_PREFIX))
+            .filter(|pack_name| {
+                pack_name.starts_with(PACK_SEGMENT)
+                    && Path::new(pack_name)
+                        .extension()
+                        .is_some_and(|extension| extension == PACK_EXTENSION)
+            })
+        else {
+            continue;
+        };
+        let pack = pack_folder.join(pack_name);
+        let is_index_standing = fs::symlink_metadata(pack.with_extension(PACK_INDEX_EXTENSION))
+            .none_if_missing()?
+            .is_some();
+        if is_index_standing && fs::symlink_metadata(&pack).none_if_missing()?.is_none() {
+            match fs::rename(entry.path(), &pack) {
+                Ok(()) => {}
+                Err(gone) if is_gone(&gone) => {}
+                Err(failure) => return Err(failure),
+            }
+        }
+    }
+    Ok(())
 }
 
 // Whether `name` in `pack_folder` is a pack's index or reverse index whose data file reads as
@@ -68,7 +111,9 @@ fn is_index_without_pack(pack_folder: &Path, name: &OsStr) -> bool {
 /// Removes the stale leftovers of the capture folder `folder`: its temporary packs, then, when
 /// `is_object_folder_walked`, the temporary loose objects in its fan-out folders, then its scratch
 /// indexes and their locks, a scratch index written before `run_began_at` at any age. Answers the
-/// loose objects the walk found an hour old, none when it did not walk. Blocking. Fails as a
+/// loose objects the walk found an hour old or written before `run_began_at`, none when it did not
+/// walk; the record of a capture whose own pack failed is lost with the run, so its loose objects
+/// are packed at the run's first pass, before any fold rolls them up. Blocking. Fails as a
 /// listing, a stat or a removal does; a folder or an entry already gone is none.
 pub(super) fn clear_capture_folder_leftovers(
     folder: &Path,
@@ -77,6 +122,9 @@ pub(super) fn clear_capture_folder_leftovers(
 ) -> io::Result<Vec<GitObjectId>> {
     let objects = folder.join(OBJECTS_SEGMENT);
     remove_stale_temporary_packs(&objects.join(PACK_SEGMENT))?;
+    let run_cutoff = run_began_at
+        .checked_sub(FILE_TIME_STEP)
+        .unwrap_or(SystemTime::UNIX_EPOCH);
     let mut stale_objects = Vec::new();
     if is_object_folder_walked && let Some(entries) = fs::read_dir(&objects).none_if_missing()? {
         for entry in entries {
@@ -89,13 +137,15 @@ pub(super) fn clear_capture_folder_leftovers(
                 remove_stale_entries(&fan_out_folder, stale_cutoff(), |name| {
                     has_any_prefix(name, &[TEMPORARY_OBJECT_PREFIX])
                 })?;
-                read_stale_loose_objects(&fan_out_folder, fan_out, &mut stale_objects)?;
+                read_stale_loose_objects(
+                    &fan_out_folder,
+                    fan_out,
+                    stale_cutoff().max(run_cutoff),
+                    &mut stale_objects,
+                )?;
             }
         }
     }
-    let run_cutoff = run_began_at
-        .checked_sub(FILE_TIME_STEP)
-        .unwrap_or(SystemTime::UNIX_EPOCH);
     remove_stale_entries(
         &folder.join(INDEXES_SEGMENT),
         stale_cutoff().max(run_cutoff),
@@ -117,16 +167,16 @@ pub(super) fn clear_partial_capture_folders(owner_folder: &Path) -> io::Result<u
 }
 
 // Adds to `stale_objects` each loose object in the fan-out folder `fan_out_folder`, named
-// `fan_out`, last written an hour or more ago; a name that is no object id is passed over.
+// `fan_out`, last written at or before `cutoff`; a name that is no object id is passed over.
 fn read_stale_loose_objects(
     fan_out_folder: &Path,
     fan_out: &str,
+    cutoff: SystemTime,
     stale_objects: &mut Vec<GitObjectId>,
 ) -> io::Result<()> {
     let Some(entries) = fs::read_dir(fan_out_folder).none_if_missing()? else {
         return Ok(());
     };
-    let cutoff = stale_cutoff();
     for entry in entries {
         let entry = entry?;
         let Some(object) = entry
