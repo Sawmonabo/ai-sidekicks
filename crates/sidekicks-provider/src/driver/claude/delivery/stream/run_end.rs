@@ -17,6 +17,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
+use super::taken_messages::batch_landings;
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, bound, report_engine_failure};
 use crate::driver::claude::delivery::run_readings::{
     ClaudeEndedAs, ClaudeOpenTurn, ClaudeTurnEndDelivery,
@@ -41,7 +42,8 @@ impl ClaudeDeliveryStream {
     // taken before it opened rode that command with it, so the turn opens at the first of them all
     // in send order and the others land after its start naming that first one; an opening the
     // daemon made, a review's, stays the turn's opening and the person's messages land after it
-    // naming it. Every other run's are dropped.
+    // naming it. A turn Claude Code started itself with the messages it kept opens at none of
+    // them, and they land after its start as one batch. Every other run's are dropped.
     pub(super) async fn open_turn(&self, session: &ClaudeSessionStream, lead: &ClaudeBoundRun) {
         let routes = &self.dependencies.routes;
         if session
@@ -121,7 +123,9 @@ impl ClaudeDeliveryStream {
             members.extend(opening);
         }
         members.sort_unstable();
-        let first = if is_daemons_opening {
+        // A turn the daemon made keeps its opening; one Claude Code started itself with the
+        // messages it kept has none.
+        let opened_at = if is_daemons_opening || opening.is_none() {
             opening
         } else {
             members.first().copied()
@@ -129,7 +133,7 @@ impl ClaudeDeliveryStream {
         let started = match self
             .dependencies
             .engine
-            .start_turn(lead.run_id, turn_id, session.step_bound, first)
+            .start_turn(lead.run_id, turn_id, session.step_bound, opened_at)
             .await
         {
             Ok(started) => started,
@@ -148,24 +152,24 @@ impl ClaudeDeliveryStream {
             return;
         };
         // Claude Code merged them into one command, which its cut finds only whole.
-        let Some(first) = first else {
-            return;
-        };
-        let (landed, cut_group_start) = if is_daemons_opening {
-            (members.as_slice(), CutGroupStart::TurnOpening)
+        let landings: Vec<InboundDelivery> = if is_daemons_opening {
+            members
+                .into_iter()
+                .map(|message_id| InboundDelivery::TurnSteered {
+                    binding_id: lead.binding_id.clone(),
+                    turn_number: started.turn_number,
+                    message_id,
+                    cut_group_start: Some(CutGroupStart::TurnOpening),
+                })
+                .collect()
         } else {
-            (
-                members.get(1..).unwrap_or_default(),
-                CutGroupStart::Message { message_id: first },
-            )
+            // The first lands nothing where the turn opened at it.
+            batch_landings(&lead.binding_id, started.turn_number, members)
+                .into_iter()
+                .skip(usize::from(opened_at.is_some()))
+                .collect()
         };
-        for message_id in landed.iter().copied() {
-            let steered = InboundDelivery::TurnSteered {
-                binding_id: lead.binding_id.clone(),
-                turn_number: started.turn_number,
-                message_id,
-                cut_group_start: Some(cut_group_start.clone()),
-            };
+        for steered in landings {
             self.send(session, steered, None).await;
         }
     }

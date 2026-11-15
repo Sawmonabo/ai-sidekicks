@@ -5,9 +5,11 @@
 //! that turn, else kept for that run's next turn.
 
 use serde_json::{Map, Value};
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::events::CutGroupStart;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
+use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream};
 use crate::driver::claude::delivery::run_readings::ClaudeTakenMessage;
@@ -77,46 +79,30 @@ impl ClaudeDeliveryStream {
 
     // Lands, ahead of the frame being read, the messages a continued turn took over from the time
     // no turn of their run was open, in that turn, once its continue settled; one whose run's turn
-    // is no longer open waits for the run's next turn. Claude Code took them in one batch, which
-    // it merged into one command its cut finds only whole, so each of several names the first in
-    // send order.
+    // is no longer open waits for the run's next turn.
     pub(super) async fn land_continued(&self, session: &ClaudeSessionStream) {
         session.wait_for_continue().await;
-        let landings: Vec<InboundDelivery> = {
+        let landings = {
             let mut readings = session.lock();
             let taken = std::mem::take(&mut readings.continued_landings);
-            let mut landed = Vec::with_capacity(taken.len());
-            for taken in taken {
-                let turn = readings
-                    .turn
-                    .as_ref()
-                    .filter(|turn| turn.run_id == taken.run_id)
-                    .and_then(|turn| Some((turn.binding_id.clone(), turn.turn_number?)));
-                match turn {
-                    Some((binding_id, turn_number)) => {
-                        landed.push((binding_id, turn_number, taken.message_id));
-                    }
-                    None => readings.taken_without_turn.push(taken),
-                }
+            let turn = readings
+                .turn
+                .as_ref()
+                .and_then(|turn| Some((turn.run_id, turn.binding_id.clone(), turn.turn_number?)));
+            let (landed, waiting): (Vec<ClaudeTakenMessage>, _) =
+                taken.into_iter().partition(|taken| {
+                    turn.as_ref()
+                        .is_some_and(|(run_id, _, _)| *run_id == taken.run_id)
+                });
+            readings.taken_without_turn.extend(waiting);
+            match turn {
+                Some((_, binding_id, turn_number)) => batch_landings(
+                    &binding_id,
+                    turn_number,
+                    landed.into_iter().map(|taken| taken.message_id).collect(),
+                ),
+                None => Vec::new(),
             }
-            // A queue item's id is minted as the person sends it, so the ids sort in send order.
-            landed.sort_unstable_by_key(|(_, _, message_id)| *message_id);
-            let first = landed.first().map(|(_, _, message_id)| *message_id);
-            landed
-                .into_iter()
-                .enumerate()
-                .map(|(index, (binding_id, turn_number, message_id))| {
-                    InboundDelivery::TurnSteered {
-                        binding_id,
-                        turn_number,
-                        message_id,
-                        // The first begins the group, so it names none.
-                        cut_group_start: first
-                            .filter(|_| index > 0)
-                            .map(|message_id| CutGroupStart::Message { message_id }),
-                    }
-                })
-                .collect()
         };
         for steered in landings {
             self.send(session, steered, None).await;
@@ -158,4 +144,28 @@ impl ClaudeDeliveryStream {
             self.send(session, steered, None).await;
         }
     }
+}
+
+/// The landings in turn `turn_number` of `members`, messages Claude Code took in one batch, which
+/// it merged into one command its cut finds only whole: in send order, the first naming no group
+/// start and each other naming the first.
+pub(super) fn batch_landings(
+    binding_id: &RuntimeBindingId,
+    turn_number: SafeInt<1>,
+    mut members: Vec<QueueItemId>,
+) -> Vec<InboundDelivery<'static>> {
+    // A queue item's id is minted as the person sends it, so the ids sort in send order.
+    members.sort_unstable();
+    let first = members.first().copied();
+    members
+        .into_iter()
+        .map(|message_id| InboundDelivery::TurnSteered {
+            binding_id: binding_id.clone(),
+            turn_number,
+            message_id,
+            cut_group_start: first
+                .filter(|first| *first != message_id)
+                .map(|first| CutGroupStart::Message { message_id: first }),
+        })
+        .collect()
 }
