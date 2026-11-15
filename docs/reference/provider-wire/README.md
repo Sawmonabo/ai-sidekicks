@@ -1,6 +1,6 @@
 # Provider Wire Reference
 
-Measured reference for the wire surfaces of the provider CLIs the local runtime daemon drives, one file per provider: the Codex `app-server` JSON-RPC protocol (`codex-driver`) and the Claude Code headless CLI (`claude-driver`). Each provider file records the CLI version its shapes were measured at and labels every claim on two independent axes — how much we **trust** the shape is correct and current (the TRUST axis), and **where the claim came from** (the orthogonal PROVENANCE axis).
+Measured reference for the wire surfaces of the provider CLIs the local runtime daemon drives, one file per provider: the Codex `app-server` JSON-RPC protocol (`codex-driver`), with its conversation cut in a file of its own, and the Claude Code headless CLI (`claude-driver`). Each provider file records the CLI version its shapes were measured at and labels every claim on two independent axes — how much we **trust** the shape is correct and current (the TRUST axis), and **where the claim came from** (the orthogonal PROVENANCE axis).
 
 These are **non-governance** reference docs (the `docs/reference/` tree): no status lifecycle, no cross-plan ownership-map row. They exist so that a spec or plan describing provider wire behavior cites a stable, version-anchored target instead of hand-transcribing shapes that rot as the CLIs move (both ship frequently). The provider drivers regenerate their own bindings from the provider binary at build time; these docs are the human-readable record, not the source of truth the code compiles against.
 
@@ -9,6 +9,7 @@ These are **non-governance** reference docs (the `docs/reference/` tree): no sta
 | File                     | Provider                       | Measured at         | Anchor                                                         |
 | ------------------------ | ------------------------------ | ------------------- | -------------------------------------------------------------- |
 | [`codex.md`](codex.md)   | Codex CLI (`codex app-server`) | `codex-cli 0.162.1` | the binary's own generated schema + the tagged upstream source |
+| [`codex-conversation-cut.md`](codex-conversation-cut.md) | Codex CLI, the undo's conversation cut | `codex-cli 0.162.1` | as `codex.md` |
 | [`claude.md`](claude.md) | Claude Code headless CLI       | `2.1.300`           | a string census of the measured binary + the official docs census |
 
 The app works with whatever provider version is installed. A missing or changed feature degrades that one feature and shows in the daemon's logs and the transcript, and is investigated when seen. The version in this table is the build a file's shapes were measured at, a record and not a requirement.
