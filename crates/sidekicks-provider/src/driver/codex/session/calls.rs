@@ -31,7 +31,7 @@ use crate::driver::codex::session::fork::{CodexForkDependencies, move_codex_sess
 use crate::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
 };
-use crate::driver::codex::session::recovery::drop_codex_turns;
+use crate::driver::codex::session::recovery::dropped_turns::drop_codex_turns;
 use crate::driver::codex::session::recovery::in_place_resume::{
     reopen_released_codex_helper, resume_codex_session_in_place, take_codex_helper_reopen_waits,
 };

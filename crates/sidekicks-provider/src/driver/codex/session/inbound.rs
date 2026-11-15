@@ -41,7 +41,7 @@ use crate::driver::codex::session::calls::CodexSessionReading;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::CodexInPlaceOutcome;
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
-use crate::driver::codex::session::recovery::CodexDroppedTurns;
+use crate::driver::codex::session::recovery::dropped_turns::CodexDroppedTurns;
 use crate::driver::codex::session::recovery::in_place_resume::CodexInPlaceResumeCall;
 use crate::driver::codex::session::rewind::CodexMessageTurn;
 use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;

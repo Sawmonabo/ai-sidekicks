@@ -14,6 +14,7 @@ use futures::future::{BoxFuture, Shared};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::Spawner;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::terminal_text::strip_terminal_controls;
 
 use super::ClaudeDroppedSetting;
 use crate::driver::claude::session::rules::{
@@ -23,7 +24,6 @@ use crate::driver::claude::session::settings_file::{
     ClaudeSettingsSources, list_managed_settings_files,
 };
 use crate::driver::claude::spawn::one_shot_command::run_claude_one_shot;
-use crate::driver::claude::terminal_text::strip_terminal_controls;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The arguments after the Claude Code command that print its checks.
@@ -278,7 +278,7 @@ async fn run_claude_doctor(
 fn read_invalid_settings(output: &str) -> Vec<ClaudeDroppedSetting> {
     let mut lines = output
         .lines()
-        .map(|line| strip_terminal_controls(line.as_bytes()));
+        .map(|line| strip_terminal_controls(line.as_bytes()).trim().to_owned());
     if !lines.any(|line| line == INVALID_SETTINGS_HEADING) {
         return Vec::new();
     }

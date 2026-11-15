@@ -33,8 +33,8 @@ pub enum RunRefusedOrigin {
 
 /// Why a run failed, on `agent.run.failed`, discriminated on `cause`: the refusal, the provider's
 /// usage limit, the provider's spent retries, a setup gate's failure, a turn too long for the
-/// context window, or no flex capacity for a turn on flex. A reload redraws the run's last row from
-/// this cause alone.
+/// context window, no flex capacity for a turn on flex, or a helper's lead's process ending. A
+/// reload redraws the run's last row from this cause alone.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "cause",
@@ -131,6 +131,12 @@ pub enum RunFailureCause {
     FlexCapacityUnavailable {
         /// Always `provider`.
         origin: ProviderFailureOrigin,
+    },
+    /// A provider's own helper that ended because the process it ran inside, its lead's, ended on
+    /// its own; the lead's end carries how that process ended.
+    LeadProcessEnded {
+        /// Always `daemon`.
+        origin: DaemonFailureOrigin,
     },
 }
 

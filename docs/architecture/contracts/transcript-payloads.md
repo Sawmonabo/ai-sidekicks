@@ -289,6 +289,9 @@ interface ChildRunSummary {
   runId: RunId;
   parentRunId: RunId;
   state: RunState;
+  // the cause its newest agent.run.failed recorded, null unless it reads `failed` with one; a
+  // provider's own helper whose lead's process ended reads `leadProcessEnded`
+  failureCause: RunFailureCause | null;
   // on the incomplete arm this is a LOWER BOUND — the count this daemon currently holds, not the
   // child run's true total, which by definition it cannot know
   eventCount: number;

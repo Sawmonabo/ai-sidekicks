@@ -58,6 +58,7 @@ use crate::driver::session_control::{
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
+use crate::run::state_entry::ProviderProcessExit;
 
 // Every session's crash window and the sessions the driver brings back itself.
 #[derive(Default)]
@@ -219,9 +220,13 @@ impl ClaudeSessionRestarts {
         for run in &runs {
             // Forgotten first with the helpers beneath it, so nothing is delivered to it after.
             self.routes.forget_run(run.run_id);
+            let process_exit = ProviderProcessExit {
+                provider: DESCRIPTOR.provider_id(),
+                exit: exit.clone(),
+            };
             if let Err(error) = self
                 .engine
-                .end_turn_on_process_exit(run.run_id, exit.clone())
+                .end_turn_on_process_exit(run.run_id, process_exit)
                 .await
             {
                 record_unheard_claude_failure(

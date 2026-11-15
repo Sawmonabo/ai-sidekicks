@@ -1,19 +1,20 @@
 //! Child runs in the transcript. A child's creation row, the `agent.run.queued` that names its
-//! parent, carries the child's summary: its state, the events the daemon holds for it through the
-//! read's head, and whether those are all of them, counted for every child of a page in one
-//! statement. `transcript.childRun.expand` reads one child's rows as a window of their own: its
+//! parent, carries the child's summary: its state and why it failed, the events the daemon holds
+//! for it through the read's head, and whether those are all of them, counted for every child of a
+//! page in one statement. `transcript.childRun.expand` reads one child's rows as a window of their own: its
 //! events, the events filed under it, and its own children's creation rows, live or finished alike.
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::LazyLock;
 
-use rusqlite::{Connection, named_params};
+use rusqlite::{Connection, OptionalExtension, Row, named_params};
 use serde_json::json;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_one_frame};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::event_cursor::{EventCursor, encode_event_cursor};
@@ -31,7 +32,9 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::{SafeInt, count_bound};
 use sidekicks_contracts::wire::{False, True};
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_store::database::stored_column::{closed_word, text_column};
+use sidekicks_store::database::stored_column::{
+    StoredJsonFault, closed_word, optional_text_column, text_column,
+};
 use sidekicks_store::events::session::read::{
     SELECTED_COLUMNS, SessionEventReads, readable_event_sql, resolve_event_cursor,
 };
@@ -74,11 +77,25 @@ static RUN_ROWS_AFTER_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// Each child's state and its events through the head: all of them, and those the log can read; a
-// completion's stored parts are no events, so neither count takes them.
+// The cause on the newest readable `agent.run.failed` of the child in `runs` while it reads
+// `failed`, as a column, found on the index of one session's runs' events by type.
+static CHILD_FAILURE_CAUSE_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "(SELECT json_extract(failed.payload, '$.failureCause') FROM session_events AS failed
+          WHERE runs.state = '{failed_state}' AND failed.session_id = @session_id
+            AND failed.run_id = runs.run_id AND failed.type = '{failed}' AND {readable}
+          ORDER BY failed.sequence DESC LIMIT 1)",
+        failed_state = <&'static str>::from(RunState::Failed),
+        failed = SessionEventType::AgentRunFailed.as_str(),
+        readable = readable_event_sql("failed"),
+    )
+});
+
+// Each child's state, why it failed, and its events through the head: all of them, and those the
+// log can read; a completion's stored parts are no events, so neither count takes them.
 static CHILD_COUNTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT runs.run_id, runs.state,
+        "SELECT runs.run_id, runs.state, {failure_cause},
             (SELECT count(*) FROM session_events AS held
               WHERE held.session_id = @session_id AND held.run_id = runs.run_id
                 AND held.sequence <= @head AND NOT {held_part}),
@@ -87,20 +104,36 @@ static CHILD_COUNTS_SQL: LazyLock<String> = LazyLock::new(|| {
                 AND event.sequence <= @head AND {readable} AND NOT {event_part})
        FROM runs
       WHERE runs.run_id IN (SELECT value FROM json_each(@run_ids))",
+        failure_cause = *CHILD_FAILURE_CAUSE_SQL,
         held_part = stored_patch_part_sql("held"),
         readable = readable_event_sql("event"),
         event_part = stored_patch_part_sql("event"),
     )
 });
 
-// Each child's state alone, read when its events could not be counted.
-const CHILD_STATES_SQL: &str =
-    "SELECT run_id, state FROM runs WHERE run_id IN (SELECT value FROM json_each(@run_ids))";
+// Each child's state and why it failed alone, read when its events could not be counted.
+static CHILD_STATES_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT runs.run_id, runs.state, {} FROM runs
+          WHERE runs.run_id IN (SELECT value FROM json_each(@run_ids))",
+        *CHILD_FAILURE_CAUSE_SQL,
+    )
+});
+
+// One child's failure cause.
+static CHILD_FAILURE_CAUSE_OF_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {} FROM runs WHERE runs.run_id = @run_id",
+        *CHILD_FAILURE_CAUSE_SQL
+    )
+});
 
 /// A child's state and its events through a head, as one count read them.
 pub(crate) struct ChildCount {
     /// The child's state.
     pub(crate) state: RunState,
+    /// The cause its newest readable `agent.run.failed` recorded, while it reads `failed`.
+    pub(crate) failure_cause: Option<RunFailureCause>,
     /// Every event the log holds for it.
     pub(crate) total: u64,
     /// Those the log can read.
@@ -178,6 +211,7 @@ where
             run_id,
             parent_run_id,
             state: count.state,
+            failure_cause: count.failure_cause.clone(),
             event_count: SafeInt::new(count.readable).expect("an event count is a safe integer"),
             completeness,
         };
@@ -186,10 +220,11 @@ where
     Ok(())
 }
 
-/// The state and event counts through `head` of each of `run_ids` in `session_id`, by run id, read
-/// on `reader`; `read_bound` is where the session's reads stop. A run the runs table does not hold
-/// is left out. When the count fails, it is logged and each run comes with its state alone, not
-/// counted. Fails when SQLite refuses the states' read too.
+/// The state, failure cause and event counts through `head` of each of `run_ids` in `session_id`,
+/// by run id, read on `reader`; `read_bound` is where the session's reads stop. A run the runs
+/// table does not hold is left out. When the count fails, it is logged and each run comes with its
+/// state and cause alone, not counted. Fails when SQLite refuses the states' read too, or a stored
+/// cause does not read as one.
 pub(crate) fn read_child_counts(
     reader: &Connection,
     session_id: &SessionId,
@@ -206,18 +241,26 @@ pub(crate) fn read_child_counts(
                 "child runs' events could not be counted; their summaries are marked incomplete"
             );
             reader
-                .prepare_cached(CHILD_STATES_SQL)?
-                .query_map(named_params! { "@run_ids": run_ids_json }, |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        ChildCount {
-                            state: text_column(row, 1, closed_word)?,
-                            total: 0,
-                            readable: 0,
-                            is_counted: false,
-                        },
-                    ))
-                })?
+                .prepare_cached(&CHILD_STATES_SQL)?
+                .query_map(
+                    named_params! {
+                        "@session_id": session_id.text().as_str(),
+                        "@run_ids": run_ids_json,
+                        "@read_bound": read_bound,
+                    },
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            ChildCount {
+                                state: text_column(row, 1, closed_word)?,
+                                failure_cause: failure_cause_column(row, 2)?,
+                                total: 0,
+                                readable: 0,
+                                is_counted: false,
+                            },
+                        ))
+                    },
+                )?
                 .collect()
         }
     }
@@ -241,12 +284,13 @@ fn count_child_events(
                 "@read_bound": read_bound,
             },
             |row| {
-                let total: i64 = row.get(2)?;
-                let readable: i64 = row.get(3)?;
+                let total: i64 = row.get(3)?;
+                let readable: i64 = row.get(4)?;
                 Ok((
                     row.get::<_, String>(0)?,
                     ChildCount {
                         state: text_column(row, 1, closed_word)?,
+                        failure_cause: failure_cause_column(row, 2)?,
                         total: u64::try_from(total).expect("a count is not negative"),
                         readable: u64::try_from(readable).expect("a count is not negative"),
                         is_counted: true,
@@ -255,6 +299,36 @@ fn count_child_events(
             },
         )?
         .collect()
+}
+
+/// The cause on `run_id`'s newest readable `agent.run.failed` in `session_id` while it reads
+/// `failed`, read on `reader` up to `read_bound`; `None` for a run that does not, or a failure with
+/// no cause. Fails when SQLite refuses the read or the stored cause does not read as one.
+pub(crate) fn read_child_failure_cause(
+    reader: &Connection,
+    session_id: &SessionId,
+    run_id: &RunId,
+    read_bound: i64,
+) -> rusqlite::Result<Option<RunFailureCause>> {
+    Ok(reader
+        .prepare_cached(&CHILD_FAILURE_CAUSE_OF_RUN_SQL)?
+        .query_row(
+            named_params! {
+                "@session_id": session_id.text().as_str(),
+                "@run_id": run_id.text().as_str(),
+                "@read_bound": read_bound,
+            },
+            |row| failure_cause_column(row, 0),
+        )
+        .optional()?
+        .flatten())
+}
+
+// The stored failure cause in the column at `index`.
+fn failure_cause_column(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<RunFailureCause>> {
+    optional_text_column(row, index, |text| {
+        serde_json::from_str::<RunFailureCause>(&text).map_err(StoredJsonFault::from)
+    })
 }
 
 fn set_child_run_summary(row: &mut TranscriptReadRow, summary: ChildRunSummary) {

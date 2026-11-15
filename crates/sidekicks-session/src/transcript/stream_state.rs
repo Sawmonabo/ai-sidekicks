@@ -1,7 +1,7 @@
 //! What a session stream keeps between frames so each change says what its transcript row needs:
 //! for every row still taking pieces, its id, where its next piece starts and, for a reply drawn as
 //! markdown, its block cut past its last frozen start, and for every child run the stream met, its
-//! running event count. A stream that first meets a row or a child partway seeds it with one
+//! running event count and why it failed. A stream that first meets a row or a child partway seeds it with one
 //! indexed read; a row is let go, with the starts its cut left unsent, at its run's turn end or
 //! rollback, and a child at its end. A large piece's text is loaded only for a row whose cut
 //! reads it. Only a reply's or reasoning's pieces are placed: a tool completion goes out whole.
@@ -14,6 +14,7 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -38,7 +39,7 @@ use sidekicks_store::transcript::rejoin::is_row_ending_event_type;
 use crate::run::read::RunStateReader;
 use crate::run::transitions::is_run_terminal_event_type;
 use crate::transcript::block_cut::{BlockCutError, BlockParse, StreamingBlockCut, prose_body_of};
-use crate::transcript::child_run::read_child_counts;
+use crate::transcript::child_run::{read_child_counts, read_child_failure_cause};
 use crate::transcript::projector::TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES;
 
 // Each page event's place in the rows: the row it continues, whether it is a piece of a run's
@@ -249,6 +250,7 @@ struct OpenRow {
 struct ChildTally {
     parent_run_id: RunId,
     state: RunState,
+    failure_cause: Option<RunFailureCause>,
     total: u64,
     readable: u64,
     /// Whether its events were counted when the stream met it.
@@ -391,8 +393,9 @@ impl TranscriptStreamState {
 
     /// The summary `event`, filed under `run_id`, carries when that run is a child: its count
     /// through this event, read on `reader` when the stream first meets the child, and complete
-    /// unless some of its events cannot be read, as of `observed_at`. Fails when SQLite refuses a
-    /// read.
+    /// unless some of its events cannot be read, as of `observed_at`, with the cause of its own
+    /// failure, read again at its `agent.run.failed`. Fails when SQLite refuses a read or a stored
+    /// cause does not read as one.
     pub fn child_run_summary(
         &mut self,
         reader: &Connection,
@@ -410,6 +413,12 @@ impl TranscriptStreamState {
                 tally.state = RunStateReader::new(reader)
                     .read_run_parentage(&run_id)?
                     .map_or(tally.state, |run| run.state);
+                if tally.state != RunState::Failed {
+                    tally.failure_cause = None;
+                } else if event.event_type.0.as_str() == SessionEventType::AgentRunFailed.as_str() {
+                    tally.failure_cause =
+                        read_child_failure_cause(reader, &event.session_id, &run_id, read_bound)?;
+                }
             }
             tally
         } else {
@@ -423,6 +432,7 @@ impl TranscriptStreamState {
             run_id,
             parent_run_id: tally.parent_run_id,
             state: tally.state,
+            failure_cause: tally.failure_cause.clone(),
             event_count: SafeInt::new(tally.readable).expect("an event count is a safe integer"),
             completeness: if tally.is_counted && tally.readable == tally.total {
                 ChildRunCompleteness::Complete {}
@@ -507,6 +517,7 @@ fn seed_child_tally(
     Ok(counts.remove(&run_key).map(|count| ChildTally {
         parent_run_id,
         state: count.state,
+        failure_cause: count.failure_cause,
         total: count.total,
         readable: count.readable,
         is_counted: count.is_counted,

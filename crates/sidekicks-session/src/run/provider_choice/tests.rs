@@ -36,7 +36,7 @@ use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
 use sidekicks_provider::run::delivery::{DeliveryBinding, InboundDelivery};
-use sidekicks_provider::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_provider::run::state_entry::{ProviderProcessExit, RunStateEntry, RunStateReport};
 use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_std::pause_point::ArmedPause;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -125,10 +125,13 @@ impl Fixture {
         self.engine
             .end_turn_on_process_exit(
                 self.run_id,
-                serde_json::from_value(
-                    json!({ "exitCode": 1, "outputTail": "the provider stopped" }),
-                )
-                .expect("the test's exit reads as one"),
+                ProviderProcessExit {
+                    provider: test_provider(),
+                    exit: serde_json::from_value(
+                        json!({ "exitCode": 1, "outputTail": "the provider stopped" }),
+                    )
+                    .expect("the test's exit reads as one"),
+                },
             )
             .await
             .expect("the run ends on its process's exit");

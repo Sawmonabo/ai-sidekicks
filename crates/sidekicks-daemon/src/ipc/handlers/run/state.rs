@@ -340,9 +340,9 @@ fn run_state_stream_event_of(
         return Ok(None);
     };
     let timestamp = WireInstant::try_from(event.occurred_at.as_str().to_owned())?;
-    Ok(Some(RunStateStreamEvent::StateChange(
+    Ok(Some(RunStateStreamEvent::StateChange(Box::new(
         run_state_change_event_of(change, timestamp),
-    )))
+    ))))
 }
 
 /// `change` as the stream carries it, without its session, stamped with `timestamp`.
@@ -364,6 +364,7 @@ fn run_state_change_event_of(
                 execution_posture: $execution_posture,
                 failure_cause: None,
                 process_exit: None,
+                provider: None,
                 trigger: None,
                 timestamp,
             }
@@ -403,6 +404,7 @@ fn run_state_change_event_of(
                 execution_posture: None,
                 failure_cause: None,
                 process_exit: None,
+                provider: None,
                 trigger: payload.trigger,
                 timestamp,
             })
@@ -419,6 +421,7 @@ fn run_state_change_event_of(
                 execution_posture: None,
                 failure_cause: None,
                 process_exit: None,
+                provider: None,
                 trigger: payload.trigger,
                 timestamp,
             })
@@ -435,6 +438,7 @@ fn run_state_change_event_of(
                 execution_posture: None,
                 failure_cause: payload.failure_cause,
                 process_exit: payload.process_exit,
+                provider: payload.provider,
                 trigger: None,
                 timestamp,
             })

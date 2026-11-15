@@ -5,6 +5,7 @@
 use sidekicks_contracts::orchestration::InterruptReason;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::control::{ProcessExit, RunFailureCategory, StopTrigger};
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
@@ -58,9 +59,19 @@ pub enum RunStateEntry {
         failure_cause: Option<RunFailureCause>,
         /// The provider's own words on why it failed the run.
         provider_failure_detail: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
-        /// How the provider process ended under the turn, where it ended on its own.
-        process_exit: Option<ProcessExit>,
+        /// How the provider process ended under the turn, where it ended on its own; boxed, as
+        /// the largest member of any state's entry.
+        process_exit: Option<Box<ProviderProcessExit>>,
     },
+}
+
+/// A provider process that ended on its own under a run: whose process it was, and how it ended.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProviderProcessExit {
+    /// The provider whose process ended.
+    pub provider: ProviderId,
+    /// How it ended.
+    pub exit: ProcessExit,
 }
 
 impl RunStateEntry {

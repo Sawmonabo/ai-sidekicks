@@ -3,9 +3,11 @@
 //! once it runs again, and the sessions hear what the person needs to: the crash loop that keeps
 //! the service down, the person's restart that brought it back, and the build a move left them
 //! on. The daemon's own restarts write no notice. The moves to a new build are in `build_move`,
-//! and the resume in place a session's task runs is in `in_place_resume`.
+//! what an exit drops from a session is in `dropped_turns`, and the resume in place a session's
+//! task runs is in `in_place_resume`.
 
 pub(crate) mod build_move;
+pub(crate) mod dropped_turns;
 pub(crate) mod in_place_resume;
 #[cfg(test)]
 mod tests;
@@ -19,8 +21,8 @@ use futures::future::BoxFuture;
 use serde_json::json;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
+use sidekicks_contracts::run::failure_cause::{DaemonFailureOrigin, RunFailureCause};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
@@ -30,16 +32,13 @@ use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::run::control::fail_codex_run;
 use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
-use crate::driver::codex::session::calls::{
-    CodexSessionCallDependencies, CodexSessionTask, call_codex_session,
-};
+use crate::driver::codex::session::calls::call_codex_session;
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::answer_steer::CodexAnswerSteers;
@@ -65,22 +64,15 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
+use crate::run::state_entry::ProviderProcessExit;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 
 use self::build_move::ServiceRestart;
+use self::dropped_turns::CodexDroppedTurns;
 use self::in_place_resume::{CodexInPlaceResumeCall, CodexReleasedConversations};
 
 /// The words a run is failed with when its service ended with no exit the daemon could read.
 const CODEX_EXIT_UNREAD_FAILURE: &str = "The Codex service ended";
-
-/// What a process exit took from one session: the runs whose turns ended with it, its helpers'
-/// child runs, and the binding its conversation ran under.
-pub(crate) struct CodexDroppedTurns {
-    /// The runs, each once, oldest turn first, then the helpers' child runs.
-    pub(crate) run_ids: Vec<RunId>,
-    /// The binding, `None` before the session's first run.
-    pub(crate) binding_id: Option<RuntimeBindingId>,
-}
 
 /// Answers whether the runtime that still wrote a conversation let it go, so a refused resume is
 /// tried again; `false` ends the tries.
@@ -201,7 +193,8 @@ impl CodexServiceRecovery {
     /// then the turns' safety holds, then the held presses of `Allow once` released, and only then
     /// the queue told the process is gone, which settles the messages the process kept. The
     /// conversations stay to be resumed. With no `exit` read, a lasting service a former daemon
-    /// started, each run fails as a provider failure.
+    /// started, each run fails as a provider failure, and each helper's child run as one its lead's
+    /// process ended.
     pub(crate) async fn end_turns_on_exit(
         &self,
         service: &Arc<CodexService>,
@@ -218,9 +211,18 @@ impl CodexServiceRecovery {
                 // The session closed meanwhile; its close ended what it held.
                 continue;
             };
-            for run_id in &dropped.run_ids {
-                self.end_run_on_exit(service, session_id, *run_id, exit.as_ref(), &dropped)
-                    .await;
+            let helpers = dropped.helper_run_ids.iter().map(|run_id| (*run_id, true));
+            let runs = dropped.run_ids.iter().map(|run_id| (*run_id, false));
+            for (run_id, is_helper) in runs.chain(helpers) {
+                self.end_run_on_exit(
+                    service,
+                    session_id,
+                    run_id,
+                    exit.as_ref(),
+                    &dropped,
+                    is_helper,
+                )
+                .await;
             }
             // A session whose task ended has no hold left to end.
             let _ended =
@@ -721,8 +723,9 @@ impl CodexServiceRecovery {
         }
     }
 
-    // Ends one run whose turns the exit took: through the run engine with the exit read, else
-    // failed as a provider failure on the session's binding.
+    // Ends one run whose turns the exit took: through the run engine with the exit read, which
+    // tells a helper's child run by its own record, else failed on the session's binding as a
+    // provider failure, a helper's child run (`is_helper`) as one its lead's process ended.
     async fn end_run_on_exit(
         &self,
         service: &CodexService,
@@ -730,13 +733,18 @@ impl CodexServiceRecovery {
         run_id: RunId,
         exit: Option<&ProcessExit>,
         dropped: &CodexDroppedTurns,
+        is_helper: bool,
     ) {
         match exit {
             Some(exit) => {
+                let process_exit = ProviderProcessExit {
+                    provider: DESCRIPTOR.provider_id(),
+                    exit: exit.clone(),
+                };
                 if let Err(error) = self
                     .dependencies
                     .run_ends
-                    .end_turn_on_process_exit(run_id, exit.clone())
+                    .end_turn_on_process_exit(run_id, process_exit)
                     .await
                 {
                     CodexTransportDiagnostic::PortDeliveryFailed {
@@ -755,12 +763,16 @@ impl CodexServiceRecovery {
                             .to_owned(),
                         cause: None,
                     };
+                    let failure_cause = is_helper.then_some(RunFailureCause::LeadProcessEnded {
+                        origin: DaemonFailureOrigin::Value,
+                    });
                     fail_codex_run(
                         &*self.dependencies.dispatch,
                         run_id,
                         binding_id.clone(),
                         CODEX_EXIT_UNREAD_FAILURE,
                         &error,
+                        failure_cause,
                     )
                     .await;
                 }
@@ -799,59 +811,6 @@ impl CodexServiceRecovery {
 // the conversation.
 fn never_left() -> CodexWriterLeft {
     Box::new(|| async { false }.boxed())
-}
-
-/// Drops every turn the session held on a service whose process ended, on the session's task: the
-/// live, interrupted, paused and retried turns with their routes, pauses and continues, the
-/// helpers' child runs, the marks of the turns held on the person, the compaction wait on the
-/// conversation and the waits on its turns, which no turn ends now. Answers each run those turns
-/// belonged to, then each helper's child run, once.
-pub(crate) fn drop_codex_turns(
-    task: &mut CodexSessionTask<'_>,
-    dependencies: &CodexSessionCallDependencies,
-) -> CodexDroppedTurns {
-    let record = &mut *task.record;
-    let mut run_ids: Vec<RunId> = Vec::new();
-    let held = record
-        .active_turns
-        .drain(..)
-        .chain(record.interrupted_run_by_turn_id.drain(..))
-        .chain(record.paused_run_id_by_interrupted_turn_id.drain())
-        .chain(record.delivery.retried_run_id_by_turn_id.drain());
-    // A helper's child run ends with the process even where no turn of its lead was live.
-    let helpers = record
-        .delivery
-        .child_run_by_thread_id
-        .drain()
-        .filter_map(|(_, child)| child.bound.map(|bound| bound.child_run_id));
-    for run_id in held.map(|(_, run_id)| run_id).chain(helpers) {
-        if !run_ids.contains(&run_id) {
-            run_ids.push(run_id);
-        }
-    }
-    record.continues_awaiting_pause.clear();
-    record.held_continuation_turn_ids.clear();
-    record.answer_steer_by_turn_id.clear();
-    record.answer_turn_owed_run_ids.clear();
-    record.pause_run_id_by_turn_id.clear();
-    record.interrupting_turn_ids.clear();
-    record.turn_input_by_turn_id.clear();
-    record.delivery.unowned_turn_ids.clear();
-    record.delivery.turn_opening_by_turn_id.clear();
-    dependencies
-        .runs
-        .run_routes
-        .forget_run_routes(record.session_id);
-    dependencies
-        .forks
-        .pending_compactions
-        .release_binding(&codex_compaction_wait_key(record, &record.thread_id));
-    task.waiters
-        .abandon(record.session_id, CodexRecordExit::SessionContinues);
-    CodexDroppedTurns {
-        run_ids,
-        binding_id: record.binding_id.clone(),
-    }
 }
 
 // Records that the service runs again in place of a process that ended, with how it ended where

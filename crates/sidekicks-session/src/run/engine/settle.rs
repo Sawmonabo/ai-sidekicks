@@ -17,8 +17,9 @@ use rusqlite::types::Value;
 use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
-use sidekicks_contracts::run::control::{ProcessExit, RunFailureCategory};
+use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::events::{TurnEndCause, TurnEndOrigin};
+use sidekicks_contracts::run::failure_cause::{DaemonFailureOrigin, RunFailureCause};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::run::queue::QueueItemId;
@@ -28,7 +29,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::error::bound_failure_detail;
-use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_provider::run::state_entry::{ProviderProcessExit, RunStateEntry};
 use sidekicks_provider::run::turn_end::TurnOutcome;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
@@ -42,7 +43,7 @@ use crate::run::engine::turns::TurnEnd;
 use crate::run::engine::{RunEngine, settled};
 use crate::run::provider_choice::run_end::{WaitingRefusal, read_waiting_refusal};
 use crate::run::provider_choice::{ChoiceDialog, refused_end};
-use crate::run::read::{LiveRun, RunRead, RunStateReader};
+use crate::run::read::{LiveRun, RunRead, RunStateReader, read_helper_lead};
 use crate::run::refusals::RunRefusal;
 use crate::run::restart::{
     RestartDecision, RestartFacts, RestartSettlement, RestartTurnEnd,
@@ -279,13 +280,14 @@ impl RunEngine {
 
     /// Ends the turns a provider process left when it ended on its own: the run, and each run the
     /// provider dispatched beneath it as its own subagent, at any depth, that is live or holds a
-    /// turn with no end, each in its own write: a live run settles by its stops, else fails with
-    /// the exit, and every open turn ends interrupted with the limit that cut it, else failed with
-    /// the exit. Every run is ended before the failures return, together.
+    /// turn with no end, each in its own write: a live run settles by its stops, else fails, a lead
+    /// with the exit and a provider's own helper as one its lead's process ended, and every open
+    /// turn ends interrupted with the limit that cut it, else failed with the exit. Every run is
+    /// ended before the failures return, together.
     pub(crate) async fn end_turn_on_process_exit(
         &self,
         run_id: RunId,
-        process_exit: ProcessExit,
+        process_exit: ProviderProcessExit,
     ) -> Result<(), RunEngineError> {
         self.end_turns_on_process_end(
             run_id,
@@ -309,30 +311,36 @@ impl RunEngine {
     }
 
     // Ends `run_id` and each run its provider dispatched beneath it that is unsettled, each in its
-    // own write, as `end` decides; every run is ended before the failures return, together.
+    // own write, as `end` decides, a provider's own helper, `run_id` among them where it is one, as
+    // its lead's end reaches it; every run is ended before the failures return, together.
     async fn end_turns_on_process_end(
         &self,
         run_id: RunId,
         end: RunProcessEnd<'_>,
         what: &'static str,
     ) -> Result<(), RunEngineError> {
-        let subagents = self
+        let (is_helper, subagents) = self
             .pool
             .read(ReadLength::Short, move |reader| {
-                Ok::<_, RunEngineError>(
+                Ok::<_, RunEngineError>((
+                    read_helper_lead(reader, &run_id)?.is_some(),
                     RunStateReader::new(reader).list_unsettled_provider_subagents(&run_id)?,
-                )
+                ))
             })
             .await?;
+        let helper_end = end.helper_end();
+        let run_end = if is_helper { helper_end } else { end };
         let mut outcomes = Vec::with_capacity(1 + subagents.len());
-        for ended_run_id in iter::once(run_id).chain(subagents) {
-            outcomes.push(self.end_on_process_end(ended_run_id, end).await);
+        let helper_ends = subagents.into_iter().map(|subagent| (subagent, helper_end));
+        for (ended_run_id, ended_run_end) in iter::once((run_id, run_end)).chain(helper_ends) {
+            outcomes.push(self.end_on_process_end(ended_run_id, ended_run_end).await);
         }
         settled(outcomes, what)
     }
 
     /// One run's end when its provider process ended. A live run settles as a restart settles it
-    /// by its stops, else fails with the exit or, on a close, ends interrupted: its newest open
+    /// by its stops, else fails with the exit, as one its lead's process ended where it is a
+    /// provider's own helper, or, on a close, ends interrupted: its newest open
     /// turn's end rides that write and every older one is written before it, each pending
     /// interrupt applied in it, refused once an interrupt it did not read is pending, which reads
     /// the run again and decides once more. A run resting, ended or queued keeps its state and its
@@ -346,7 +354,7 @@ impl RunEngine {
         end: RunProcessEnd<'_>,
     ) -> Result<(), RunEngineError> {
         let (uncut_end, intended_close) = match end {
-            RunProcessEnd::Exited(_) => {
+            RunProcessEnd::Exited(_) | RunProcessEnd::LeadExited => {
                 (TurnOutcome::Failed(Some(TurnEndCause::ProcessExit)), None)
             }
             RunProcessEnd::Closed => (TurnOutcome::Interrupted(None), Some(True::default())),
@@ -393,7 +401,21 @@ impl RunEngine {
                                 intended_close: None,
                                 failure_cause: None,
                                 provider_failure_detail: None,
-                                process_exit: Some(process_exit.clone()),
+                                process_exit: Some(Box::new(process_exit.clone())),
+                            },
+                        )
+                    },
+                    RunProcessEnd::LeadExited => RunStateChange {
+                        failure_category: Some(RunFailureCategory::ProviderFailure),
+                        ..RunStateChange::new(
+                            run_id,
+                            RunStateEntry::Failed {
+                                intended_close: None,
+                                failure_cause: Some(RunFailureCause::LeadProcessEnded {
+                                    origin: DaemonFailureOrigin::Value,
+                                }),
+                                provider_failure_detail: None,
+                                process_exit: None,
                             },
                         )
                     },
@@ -744,12 +766,23 @@ impl RunEngine {
     }
 }
 
-// How a run's provider process ended under it: on its own, or closed by the daemon with its
-// session.
+// How a run's provider process ended under it: on its own, under a lead or under a provider's own
+// helper, whose lead's end carries the exit, or closed by the daemon with its session.
 #[derive(Clone, Copy)]
 enum RunProcessEnd<'exit> {
-    Exited(&'exit ProcessExit),
+    Exited(&'exit ProviderProcessExit),
+    LeadExited,
     Closed,
+}
+
+impl RunProcessEnd<'_> {
+    // How the end reaches a provider's own helper running in the process.
+    fn helper_end(self) -> Self {
+        match self {
+            Self::Exited(_) | Self::LeadExited => Self::LeadExited,
+            Self::Closed => Self::Closed,
+        }
+    }
 }
 
 // The change that settles `run_id` as `settlement` decides, an interrupted or stopped end carrying

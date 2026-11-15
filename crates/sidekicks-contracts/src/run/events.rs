@@ -226,8 +226,8 @@ run_state_change_payloads! {
         pub trigger: Option<StopTrigger>,
     }
 
-    /// The `agent.run.failed` payload, with its typed cause, the provider's own words and its
-    /// process's own exit.
+    /// The `agent.run.failed` payload, with its typed cause, the provider's own words, and its
+    /// process's own exit with the provider whose process it was.
     pub struct AgentRunFailedPayload: AgentRunFailedNewState {
         /// Present only on a terminal the daemon itself closed, which is never a crash.
         #[serde(
@@ -262,6 +262,15 @@ run_state_change_payloads! {
         )]
         #[schemars(with = "ProcessExit")]
         pub process_exit: Option<ProcessExit>,
+        /// The provider whose process ended under the turn, present exactly where `processExit`
+        /// is.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ProviderId")]
+        pub provider: Option<ProviderId>,
     }
 }
 

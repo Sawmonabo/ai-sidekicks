@@ -1,5 +1,6 @@
 //! The tail of what a child process printed by its exit: the last stretch of its output decoded
-//! across chunks and cut on a grapheme boundary, read from its pipe chunk by chunk.
+//! across chunks, read as a terminal shows it and cut on a grapheme boundary, read from its pipe
+//! chunk by chunk.
 
 use std::error::Error;
 use std::io;
@@ -9,6 +10,7 @@ use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 use unicode_segmentation::GraphemeCursor;
 
+use crate::terminal_text::strip_terminal_controls;
 use crate::utf8_stream::Utf8StreamDecoder;
 
 /// The most of a child's output one read of its pipe takes, so the buffer each reader holds stays
@@ -51,34 +53,39 @@ impl<const CAP: usize> OutputTail<CAP> {
         self.decoder = decoder;
     }
 
-    /// The tail as text: the last `CAP` code points, moved forward to the next
-    /// grapheme boundary so no character is split from its marks, each NUL read as U+FFFD, and
-    /// `(no output)` for output that was empty or only whitespace.
+    /// The tail as text: what the kept output shows on a terminal, its printed characters, line
+    /// breaks and tabs with every other control left out, cut to its last `CAP` code points moved
+    /// forward to the next grapheme boundary so no character is split from its marks, and
+    /// `(no output)` for output that shows nothing but whitespace. A sequence the kept output's
+    /// front cut through reads as what is left of it, and one the output ends inside shows nothing.
     pub fn into_text(mut self) -> String {
         mem::take(&mut self.decoder).finish(|text| self.push_text(text));
-        let cut = self
-            .text
-            .char_indices()
-            .nth(self.text_len.saturating_sub(CAP))
-            .map_or(self.text.len(), |(offset, _)| offset);
+        let mut shown = strip_terminal_controls(self.text.as_bytes());
+        let cut = CAP.checked_sub(1).map_or(shown.len(), |back| {
+            shown
+                .char_indices()
+                .rev()
+                .nth(back)
+                .map_or(0, |(offset, _)| offset)
+        });
         let start = if cut == 0 {
             0
         } else {
-            let mut cursor = GraphemeCursor::new(cut, self.text.len(), true);
-            match cursor.is_boundary(&self.text, 0) {
+            let mut cursor = GraphemeCursor::new(cut, shown.len(), true);
+            match cursor.is_boundary(&shown, 0) {
                 Ok(true) => cut,
                 _ => cursor
-                    .next_boundary(&self.text, 0)
+                    .next_boundary(&shown, 0)
                     .ok()
                     .flatten()
-                    .unwrap_or(self.text.len()),
+                    .unwrap_or(shown.len()),
             }
         };
-        let tail = self.text[start..].replace('\0', "\u{FFFD}");
-        if tail.chars().all(is_ecmascript_whitespace) {
+        shown.drain(..start);
+        if shown.chars().all(is_ecmascript_whitespace) {
             NO_OUTPUT.to_owned()
         } else {
-            tail
+            shown
         }
     }
 

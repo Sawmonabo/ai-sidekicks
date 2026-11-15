@@ -31,6 +31,7 @@ pub mod scheduler;
 pub mod settle_all;
 pub mod standard_error;
 pub mod standard_output;
+pub mod terminal_text;
 pub mod text_cut;
 pub mod utf8_stream;
 pub(crate) mod wall_clock_deadline;

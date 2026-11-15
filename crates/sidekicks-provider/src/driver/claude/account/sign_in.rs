@@ -23,6 +23,7 @@ use sidekicks_contracts::provider::account::sign_in::{
 };
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{ChildEnd, NO_BROWSER_OPENER, can_open_browser, wrap_child_command};
+use sidekicks_std::terminal_text::strip_terminal_controls;
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader, Take};
 use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
 use tokio::sync::{mpsc, oneshot};
@@ -44,7 +45,6 @@ use crate::driver::claude::spawn::launch::control_only::{
     CLAUDE_SUBSCRIPTION_SOURCE, ClaudeSignInSources, probe_claude_sign_in,
 };
 use crate::driver::claude::spawn::one_shot_command::compose_claude_subcommand_arguments;
-use crate::driver::claude::terminal_text::strip_terminal_controls;
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInObservation,
     read_sign_in_address,
@@ -298,7 +298,7 @@ async fn start_flow(
     let read = tokio::time::timeout(ADDRESS_WAIT, read_address_line(&mut output, &mut scan)).await;
     let address = match read {
         Ok(Ok(Some(line))) => {
-            read_sign_in_address(&strip_terminal_controls(&line), &hosts_of(hosts))
+            read_sign_in_address(strip_terminal_controls(&line).trim(), &hosts_of(hosts))
                 .ok_or(ClaudeSignInError::AddressRefused)
         }
         Ok(Ok(None)) | Err(_) => Err(ClaudeSignInError::NoAddress),
@@ -639,7 +639,7 @@ impl Flow {
 
 // Keeps `line` in `last_error` where it holds text once its terminal controls are left out.
 fn keep_error_line(line: &[u8], last_error: &mut Option<ErrorReason>) {
-    if let Some(reason) = bound_provider_words(&strip_terminal_controls(line)) {
+    if let Some(reason) = bound_provider_words(strip_terminal_controls(line).trim()) {
         *last_error = Some(reason);
     }
 }

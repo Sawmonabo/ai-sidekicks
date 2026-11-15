@@ -26,7 +26,7 @@ use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_provider::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_provider::run::state_entry::{ProviderProcessExit, RunStateEntry, RunStateReport};
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
@@ -212,16 +212,25 @@ impl RunStateChange {
                 failure_cause,
                 provider_failure_detail,
                 process_exit,
-            } => SessionEvent::AgentRunFailed(state_change_payload!(
-                transition,
-                AgentRunFailedPayload,
-                AgentRunFailedNewState {
-                    intended_close,
-                    failure_cause,
-                    provider_failure_detail,
-                    process_exit
-                }
-            )),
+            } => {
+                let (provider, process_exit) = process_exit
+                    .map(|ended| {
+                        let ProviderProcessExit { provider, exit } = *ended;
+                        (provider, exit)
+                    })
+                    .unzip();
+                SessionEvent::AgentRunFailed(state_change_payload!(
+                    transition,
+                    AgentRunFailedPayload,
+                    AgentRunFailedNewState {
+                        intended_close,
+                        failure_cause,
+                        provider_failure_detail,
+                        process_exit,
+                        provider
+                    }
+                ))
+            }
         }
     }
 }

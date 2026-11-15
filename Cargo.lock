@@ -8961,7 +8961,6 @@ dependencies = [
  "unicode-normalization",
  "url",
  "uuid",
- "vte",
  "zeroize",
  "zstd",
 ]
@@ -9148,6 +9147,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "unicode-segmentation",
+ "vte",
  "yaml-edit",
 ]
 

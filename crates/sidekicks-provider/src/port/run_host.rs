@@ -10,7 +10,6 @@ use std::error::Error;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
-use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
@@ -18,6 +17,7 @@ use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::run::start_request::DaemonTurnStartRequest;
+use crate::run::state_entry::ProviderProcessExit;
 use crate::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
 use crate::runtime_binding::store::RuntimeBinding;
 
@@ -86,11 +86,13 @@ pub trait RunHost: Send + Sync {
         request: DaemonTurnStartRequest,
     ) -> BoxFuture<'_, Result<RunId, RunHostError>>;
 
-    /// Ends `run_id`'s turn, and the helpers beneath it, on the exit of the process that ran it.
+    /// Ends `run_id`'s turn, and the helpers beneath it, on the exit of the process that ran it,
+    /// `process_exit` naming the provider whose process it was; a helper's own run ends as one its
+    /// lead's process ended.
     fn end_turn_on_process_exit(
         &self,
         run_id: RunId,
-        process_exit: ProcessExit,
+        process_exit: ProviderProcessExit,
     ) -> BoxFuture<'_, Result<(), RunHostError>>;
 
     /// Ends `run_id`'s turn, and the helpers beneath it, as the daemon closed its session.

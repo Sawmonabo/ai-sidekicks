@@ -268,6 +268,14 @@ macro_rules! run_state_change_members {
             )]
             #[schemars(with = "Never")]
             pub process_exit: Option<Never>,
+            /// Never present outside `failed`.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Never")]
+            pub provider: Option<Never>,
             $($extra)*
         });
     };
@@ -281,7 +289,7 @@ macro_rules! run_state_change_members {
 
 run_state_change_members! {
     /// A transition into any state but `interrupted`, `stopped` or `failed`, which carries no
-    /// failure cause, process exit or trigger.
+    /// failure cause, process exit, provider or trigger.
     pub struct RunStateChangeMembers: not_failed {
         /// Never present outside `interrupted` and `stopped`.
         #[serde(
@@ -317,7 +325,8 @@ run_state_change_members! {
         pub trigger: Option<StopTrigger>,
     }
 
-    /// A transition into `failed`, with its typed cause and its provider process's own exit.
+    /// A transition into `failed`, with its typed cause and its provider process's own exit with the
+    /// provider whose process it was.
     pub struct RunFailedStateChangeMembers: failed {
         /// The run's typed failure cause.
         #[serde(
@@ -336,6 +345,15 @@ run_state_change_members! {
         )]
         #[schemars(with = "ProcessExit")]
         pub process_exit: Option<ProcessExit>,
+        /// The provider whose process ended under the turn, present exactly where `processExit`
+        /// is.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ProviderId")]
+        pub provider: Option<ProviderId>,
         /// Never present outside `interrupted` and `stopped`.
         #[serde(
             default,
@@ -348,9 +366,9 @@ run_state_change_members! {
 }
 
 /// One run state transition as `agent.run.subscribe` delivers it, tagged on its new state, with its
-/// new run version; only a transition into `failed` carries a failure cause or a process exit, and
-/// only one into `interrupted` or `stopped` carries the daemon's own trigger. `sessionId` is
-/// carried by the subscription's scope, not repeated per event.
+/// new run version; only a transition into `failed` carries a failure cause or a process exit with
+/// its provider, and only one into `interrupted` or `stopped` carries the daemon's own trigger.
+/// `sessionId` is carried by the subscription's scope, not repeated per event.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(tag = "newState", rename_all = "camelCase")]
 pub enum RunStateChangeEvent {
@@ -400,8 +418,8 @@ pub struct AgentRunRolledBackEvent {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 pub enum RunStateStreamEvent {
-    /// A state transition.
-    StateChange(#[garde(dive)] RunStateChangeEvent),
+    /// A state transition, boxed since it is several times the size of the other deliveries.
+    StateChange(#[garde(dive)] Box<RunStateChangeEvent>),
     /// A rollback.
     RolledBack(#[garde(skip)] AgentRunRolledBackEvent),
     /// The provider's safety hold or its release.

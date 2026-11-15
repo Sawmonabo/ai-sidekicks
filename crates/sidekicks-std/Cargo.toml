@@ -37,6 +37,7 @@ tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 unicode-segmentation.workspace = true
+vte.workspace = true
 yaml-edit.workspace = true
 
 [dev-dependencies]

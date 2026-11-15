@@ -6,6 +6,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::run::failure_cause::RunFailureCause;
 use crate::run::id::RunId;
 use crate::run::state::RunState;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -56,8 +57,8 @@ pub fn refuse_self_parenting_run(run_id: &RunId, parent_run_id: &RunId) -> garde
     }
 }
 
-/// The summarized child-run projection: its parent, state, event count and completeness. No run
-/// is its own parent.
+/// The summarized child-run projection: its parent, state and why it failed, event count and
+/// completeness. No run is its own parent.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -72,6 +73,12 @@ pub struct ChildRunSummary {
     pub parent_run_id: RunId,
     /// The child's state.
     pub state: RunState,
+    /// The typed cause its newest `agent.run.failed` recorded; `null` unless it reads `failed`
+    /// with one.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<RunFailureCause>")]
+    #[garde(dive)]
+    pub failure_cause: Option<RunFailureCause>,
     /// How many events the daemon holds for it; on the `incomplete` arm a lower bound.
     pub event_count: SafeInt<0>,
     /// Whether the summary is the whole picture.

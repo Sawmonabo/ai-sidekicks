@@ -5,7 +5,6 @@
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
-use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
@@ -14,6 +13,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::run_control::DaemonTurnBindingError;
 use sidekicks_provider::port::run_host::{DaemonTurnHeld, RunHost, RunHostError};
 use sidekicks_provider::run::start_request::DaemonTurnStartRequest;
+use sidekicks_provider::run::state_entry::ProviderProcessExit;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
 use sidekicks_provider::runtime_binding::store::RuntimeBinding;
 
@@ -97,7 +97,7 @@ impl RunHost for RunEngine {
     fn end_turn_on_process_exit(
         &self,
         run_id: RunId,
-        process_exit: ProcessExit,
+        process_exit: ProviderProcessExit,
     ) -> BoxFuture<'_, Result<(), RunHostError>> {
         async move { Ok(RunEngine::end_turn_on_process_exit(self, run_id, process_exit).await?) }
             .boxed()

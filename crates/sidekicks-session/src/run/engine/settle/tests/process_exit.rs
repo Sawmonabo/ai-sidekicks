@@ -1,8 +1,9 @@
 use rstest::rstest;
 use serde_json::json;
-use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::registry::test_provider;
+use sidekicks_provider::run::state_entry::ProviderProcessExit;
 use sidekicks_store::database::statement::DATABASE_NOW_SQL;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::open_log;
@@ -17,9 +18,32 @@ use crate::run::engine::tests::{
 };
 
 // The provider process's exit the tests report.
-fn process_exit() -> ProcessExit {
-    serde_json::from_value(json!({ "exitCode": 1, "outputTail": "the provider stopped" }))
-        .expect("the test's exit reads as one")
+fn process_exit() -> ProviderProcessExit {
+    ProviderProcessExit {
+        provider: test_provider(),
+        exit: serde_json::from_value(
+            json!({ "exitCode": 1, "outputTail": "the provider stopped" }),
+        )
+        .expect("the test's exit reads as one"),
+    }
+}
+
+// The cause, exit and provider on the run's `agent.run.failed`.
+fn failed_end(database: &TestDatabase, run_id: &RunId) -> serde_json::Value {
+    let payload: String = database
+        .reader()
+        .query_row(
+            "SELECT payload FROM session_events WHERE run_id = ?1 AND type = 'agent.run.failed'",
+            [run_id.text().as_str()],
+            |row| row.get(0),
+        )
+        .expect("the run's failed end is stored");
+    let payload: serde_json::Value = serde_json::from_str(&payload).expect("the payload is JSON");
+    json!({
+        "failureCause": payload["failureCause"],
+        "processExit": payload["processExit"],
+        "provider": payload["provider"],
+    })
 }
 
 // The trigger of the run's end of type `end_type`.
@@ -270,8 +294,10 @@ enum SubagentTree {
 // Killed by the exit's subagent read cutting off a subagent that has ended, at the first level
 // (`ended`) or deeper (`ended_two_deep`), by its walk stopping at an ended subagent
 // (`ended_two_deep`, `live_beneath_ended`), by its read keeping only the subagents holding an open
-// turn (`live_beneath_ended`), and by an ended run's open turn left without its end, or with its
-// state or version moved (`ended`, `ended_two_deep`).
+// turn (`live_beneath_ended`), by an ended run's open turn left without its end, or with its
+// state or version moved (`ended`, `ended_two_deep`), and by a live subagent failed with its lead's
+// exit instead of as one its lead's process ended, or its lead's failure without the provider
+// (`live_beneath_ended`).
 #[rstest]
 #[case::ended(SubagentTree::Ended)]
 #[case::ended_two_deep(SubagentTree::EndedTwoDeep)]
@@ -343,6 +369,22 @@ async fn a_process_exit_ends_the_open_turns_of_every_provider_subagent_beneath_i
         assert_eq!(
             stored_run_state(&database, &subagent),
             ("failed".to_owned(), 2)
+        );
+        assert_eq!(
+            failed_end(&database, &subagent),
+            json!({
+                "failureCause": { "cause": "leadProcessEnded", "origin": "daemon" },
+                "processExit": null,
+                "provider": null,
+            })
+        );
+        assert_eq!(
+            failed_end(&database, &lead),
+            json!({
+                "failureCause": null,
+                "processExit": { "exitCode": 1, "outputTail": "the provider stopped" },
+                "provider": "test-provider",
+            })
         );
     } else {
         assert_eq!(

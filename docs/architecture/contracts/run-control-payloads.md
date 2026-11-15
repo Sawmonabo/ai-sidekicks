@@ -371,8 +371,9 @@ interface RunStateChangeEvent {
   // failed, so `Limit reached · resets at <time>` is redrawn after a reload from this record alone;
   // the spent retries draw `<Provider> did not answer`; a setup gate's failure carries the gate's
   // own error; a turn too long for the window returns its message; no flex capacity draws `Use
-  // standard` beside `Try again`. `origin` is `provider` where the driver normalized the provider's
-  // own cause and `daemon` where the app's own refusal or failure ended the run.
+  // standard` beside `Try again`; a provider's own helper whose lead's process ended draws `ended
+  // with the process`. `origin` is `provider` where the driver normalized the provider's own cause
+  // and `daemon` where the app's own refusal or failure ended the run.
   failureCause?:
     | {
         cause: "refused";
@@ -415,6 +416,12 @@ interface RunStateChangeEvent {
         // it does not retry: `Flex capacity unavailable · Try again · Use standard`.
         cause: "flexCapacityUnavailable";
         origin: "provider";
+      }
+    | {
+        // A provider's own helper, run inside its lead's process, that ended because that process
+        // ended on its own; the lead's own `agent.run.failed` carries the exit, the helper's none.
+        cause: "leadProcessEnded";
+        origin: "daemon";
       };
   // The provider's own failure prose on an `agent.run.failed` with failureCategory
   // "providerFailure", shown as given; a typed cause is `failureCause`, never this text.
@@ -422,11 +429,15 @@ interface RunStateChangeEvent {
   // Present only on an `agent.run.failed` whose provider process ended on its own under the turn,
   // or a Codex service the daemon ended for answering nothing for 2 minutes: exactly one of the
   // exit code, the signal and the seconds it answered nothing, and the last lines the process
-  // printed. A process the daemon closed itself for any other reason, or a sleep, records none.
+  // printed as a terminal shows them, every control sequence left out. A process the daemon closed
+  // itself for any other reason, or a sleep, records none, and so does a provider's own helper that
+  // ran inside the process, whose end carries `leadProcessEnded`.
   processExit?:
     | { exitCode: number; signal?: never; silentSeconds?: never; outputTail: string }
     | { signal: string; exitCode?: never; silentSeconds?: never; outputTail: string }
     | { silentSeconds: number; exitCode?: never; signal?: never; outputTail: string };
+  // The provider whose process it was, present exactly where `processExit` is.
+  provider?: ProviderId;
   // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent
   // on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-005 §Run
   // Lifecycle "Intended-close discriminator")

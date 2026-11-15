@@ -12,7 +12,6 @@ use serde_json::Value;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
@@ -32,7 +31,7 @@ use crate::run::delivery::{
     SessionScopedRow, UnstampedRow,
 };
 use crate::run::start_request::DaemonTurnStartRequest;
-use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::run::state_entry::{ProviderProcessExit, RunStateEntry, RunStateReport};
 use crate::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
 use crate::runtime_binding::store::RuntimeBinding;
 
@@ -450,7 +449,7 @@ impl RunHost for RecordingRunEngine {
     fn end_turn_on_process_exit(
         &self,
         run_id: RunId,
-        _process_exit: ProcessExit,
+        _process_exit: ProviderProcessExit,
     ) -> BoxFuture<'_, Result<(), RunHostError>> {
         self.record(EngineCall::EndTurnOnProcessExit(run_id));
         async { Ok(()) }.boxed()

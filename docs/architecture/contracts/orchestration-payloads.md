@@ -82,7 +82,7 @@ interface ChildRunHead {
   activity: ToolCallAction | null; // the action of its newest call that recorded one, as the call's start recorded it, or as its end named it where the start named no subject; kept once it ends; null before its first
   result: string | null; // its newest message's opening, at most 4,096 code points, once it ended
   failureReason: {
-    failureCause?: object; // the cause agent.run.failed recorded, tagged by `cause`
+    failureCause?: object; // the cause agent.run.failed recorded, tagged by `cause`; a provider's own helper whose lead's process ended reads `leadProcessEnded`
     providerFailureDetail?: string; // the provider's own words, where it sent them
   } | null; // null unless it failed
   ancestry: AgentTreeMember[]; // from the lead down to this child's parent

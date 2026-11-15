@@ -69,7 +69,7 @@ mod tests {
             panic!("an exit with no signal carries its code");
         };
 
-        assert_eq!(exit.output_tail.as_str(), "failed\u{FFFD}here");
+        assert_eq!(exit.output_tail.as_str(), "failedhere");
     }
 
     // Kills the tail sent unscrubbed.
