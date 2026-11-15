@@ -145,7 +145,7 @@ export class FindMatchList {
 /**
  * Runs a query over the rows one window holds, counting every match and holding those around
  * `selected`: up to half the cap before it and the rest from it on, or the first `FIND_MATCH_CAP`
- * with nothing selected. Rows are in sequence order, as a log is.
+ * with nothing selected. Rows are in the order they are drawn.
  *
  * Case-insensitive literal substring, not the palette's subsequence matcher, which would match
  * nearly every row on a short query. An empty or whitespace-only query matches nothing.
@@ -170,15 +170,24 @@ export function findInTranscript(
   let totalMatchCount = 0;
   let firstRow: ProjectedTranscriptRow | undefined;
   let lastRow: ProjectedTranscriptRow | undefined;
+  // A waiting message stands below agent rows newer than it, so a selection the rows still hold
+  // splits them where it is drawn; only one that has left is placed by its sequence.
+  const isSelectionHeld = selected !== undefined && rows.some((row) => row.id === selected.rowId);
+  let isPastSelection = false;
 
   for (const row of rows) {
+    isPastSelection ||= row.id === selected?.rowId;
     if (!rowMatches(row, needle, systemMessageByRowId)) {
       continue;
     }
     totalMatchCount += 1;
     firstRow ??= row;
     lastRow = row;
-    if (selected !== undefined && row.sequence < selected.sequence) {
+    if (
+      selected !== undefined &&
+      !isPastSelection &&
+      (isSelectionHeld || row.sequence < selected.sequence)
+    ) {
       matchBeforeCount += 1;
       rowsBefore.push(row);
       if (rowsBefore.length === FIND_MATCH_CAP) {

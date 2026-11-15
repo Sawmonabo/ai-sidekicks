@@ -185,9 +185,6 @@
         // A saved workflow's row in the Workflows tab's table of definitions.
         "src/renderer/src/features/workflows/definitions/components/DefinitionListItem.tsx",
         "src/renderer/src/features/workflows/definitions/rows.ts",
-        // The run queue's and run state's live feeds (`agent.run.subscribe`, `agent.queueItem.subscribe`),
-        // for the run controls and the queue rows.
-        "src/renderer/src/services/daemon/streams.ts",
         // The window's one attention read, for the rail's bell, its Notifications list and the
         // sessions list.
         "src/renderer/src/store/attention/AttentionProvider.tsx",

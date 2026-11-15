@@ -16,6 +16,8 @@ import { TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE } from "@ai-sidekicks/contracts/trans
 import { processEndCause, processEndWords, type ProcessEnd } from "#shared/signal-words.js";
 
 import { formatWholeDuration } from "#renderer/lib/wire/figures.js";
+import { readWireString } from "#renderer/lib/wire/strings.js";
+import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
 import type { SessionPartitions } from "#renderer/store/session/entities/partitions.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
@@ -30,7 +32,14 @@ export const SYSTEM_MESSAGE_KINDS = [
   "compaction",
   "rollback",
   "turn-ended",
+  "send-failed",
 ] as const;
+
+/**
+ * The row type of a send this window made that failed: the window's own row, which no event of the
+ * service's log records, drawn where the send's row stood until the session's store closes.
+ */
+export const SEND_FAILED_ROW_TYPE = "send-failed";
 
 /** The closed set of system message kinds. */
 export type SystemMessageKind = (typeof SYSTEM_MESSAGE_KINDS)[number];
@@ -53,7 +62,7 @@ export interface SystemMessageBinding {
   ) => string | undefined;
   /** The last lines a process printed, drawn verbatim under the label, on a kind that has them. */
   readonly lastLinesOf?: (row: ProjectedTranscriptRow) => string | undefined;
-  /** The wire event types that produce this system message, verbatim. */
+  /** The wire event types that produce this system message, verbatim; none for a window's own. */
   readonly wireTypes: readonly SessionEventType[];
   /** Whether the system message is drawn as a caution: a failed switch and a turn a crash ended. */
   readonly isCaution: boolean;
@@ -93,6 +102,13 @@ export const SYSTEM_MESSAGE_BINDINGS: Readonly<Record<SystemMessageKind, SystemM
     labelOf: turnEndedLabel,
     lastLinesOf: (row) => processExitOf(row)?.outputTail,
     wireTypes: ["agent.run.failed"],
+    isCaution: true,
+  },
+  "send-failed": {
+    kind: "send-failed",
+    // The window wrote the line's words when the send failed.
+    labelOf: (row) => readWireString(projectedPayload(row)["label"]),
+    wireTypes: [],
     isCaution: true,
   },
 };

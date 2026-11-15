@@ -1,0 +1,20 @@
+/* A waiting message's line and acts. The acts wear the shared action button
+   (`styles/action-buttons.css`) at its small size in the raised face; this sheet adds only the
+   pending state and the line under the words. */
+
+.meridian-waiting-row__action:disabled {
+  color: var(--meridian-text-muted);
+  cursor: progress;
+}
+
+/* Under the bubble at its right edge, faint, so it reads as the row's own state. */
+.meridian-waiting-row__notice {
+  margin: 0;
+  align-self: flex-end;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-waiting-row__notice--failed {
+  color: var(--meridian-red-text);
+}

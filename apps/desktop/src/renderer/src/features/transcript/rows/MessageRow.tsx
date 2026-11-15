@@ -54,6 +54,19 @@ export interface MessageRowProps extends TranscriptCardProps {
    * unreadable one.
    */
   readonly thinkingRow: React.ReactNode | undefined;
+  /**
+   * A person's message the agent has not taken yet: drawn as an outline, with its line under the
+   * words and its acts in place of the edit control. Absent on every other row.
+   */
+  readonly waiting?: WaitingMessageFace | undefined;
+}
+
+/** What a waiting message draws beyond its words. */
+export interface WaitingMessageFace {
+  /** The line under the words, or `null` when there is none. */
+  readonly notice: React.ReactNode;
+  /** The acts on the message, revealed as a delivered message's actions are. */
+  readonly controls: React.ReactNode;
 }
 
 /** A user or agent message row: the sender's frame around its body, receipt and cards. */
@@ -116,11 +129,13 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
   ) : (
     copyButton
   );
+  const waiting = isUser ? props.waiting : undefined;
+  const userControl = waiting === undefined ? props.editControl : waiting.controls;
   const footer =
-    isUser && props.editControl !== undefined ? (
+    isUser && userControl !== undefined ? (
       <>
         {copyControl}
-        {props.editControl}
+        {userControl}
       </>
     ) : (
       copyControl
@@ -136,7 +151,12 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
       timePlacement={isReply ? (replyText.hasText ? "footer" : "none") : "gutter"}
       footerVisibility={isReply ? "always" : "on-hover"}
     >
-      <div className={`meridian-message-card meridian-message-card--${rowKind.kind}`}>
+      <div
+        className={
+          `meridian-message-card meridian-message-card--${rowKind.kind}` +
+          (waiting === undefined ? "" : " meridian-message-card--waiting")
+        }
+      >
         <span className="meridian-message-card__kind-label">
           {rowKind.glyph === undefined ? null : (
             <Glyph name={rowKind.glyph} title={rowKind.label} />
@@ -170,6 +190,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
             </MarkdownFirstDrawContext.Provider>
           )}
         </div>
+        {waiting?.notice}
         <InlineCards cards={props.inlineCards ?? []} rowKey={props.row.id} />
         {isUser || rowKind.kind === "thinking" || props.liveText !== undefined ? null : (
           <RecordedBodyLine

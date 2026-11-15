@@ -64,6 +64,8 @@ export interface RefusalExtensions {
   readonly reason?: string;
   /** Registered by `wire/rejection.ts`: who stands in the way, from the ids the refusal named. */
   readonly holder?: RefusalHolder;
+  /** Registered by `wire/rejection.ts`: the most the refusing side takes, as a count it named. */
+  readonly limit?: number;
 }
 
 /** A refusal plus whatever registered members its producer carried on it. */
@@ -71,14 +73,15 @@ export type ExtendedRefusal = Refusal & RefusalExtensions;
 
 /**
  * The named members a wire envelope's structured part carries (`data.fields` on JSON-RPC,
- * `details` on a flat envelope), as extensions. Only `remedy`, `cause`, `reason` and the ids of
- * who stands in the way are read; every other member there can be a request value, a path or a
- * token, and is left behind.
+ * `details` on a flat envelope), as extensions. Only `remedy`, `cause`, `reason`, `limit` and the
+ * ids of who stands in the way are read; every other member there can be a request value, a path
+ * or a token, and is left behind.
  */
 export function wireDetailsExtension(source: unknown): RefusalExtensions {
   const remedy = readRemedy(readGuardedProperty(source, "remedy"));
   const cause = readCause(readGuardedProperty(source, "cause"));
   const reason = readListedReason(readGuardedProperty(source, "reason"));
+  const limit = readLimit(readGuardedProperty(source, "limit"));
   // One read of `runningHolder`, so a getter answering differently cannot mix two runs.
   const runningHolder = readGuardedProperty(source, "runningHolder");
   const holder = readHolder({
@@ -93,6 +96,7 @@ export function wireDetailsExtension(source: unknown): RefusalExtensions {
     ...(cause === undefined ? {} : { cause }),
     ...(reason === undefined ? {} : { reason }),
     ...(holder === undefined ? {} : { holder }),
+    ...(limit === undefined ? {} : { limit }),
   };
 }
 
@@ -143,6 +147,11 @@ function readRemedy(remedy: unknown): WireRefusalRemedy | undefined {
 /** A cause where it is a string, or `undefined`. */
 function readCause(cause: unknown): string | undefined {
   return typeof cause === "string" ? cause : undefined;
+}
+
+/** A limit where it is a whole count, or `undefined`. */
+function readLimit(limit: unknown): number | undefined {
+  return typeof limit === "number" && Number.isSafeInteger(limit) && limit >= 0 ? limit : undefined;
 }
 
 /** The ids that are non-empty strings, onto a fresh object, or `undefined` when none is. */
@@ -209,6 +218,7 @@ const REFUSAL_EXTENSION_READERS: {
   cause: (candidate) => readCause(readGuardedProperty(candidate, "cause")),
   reason: (candidate) => readListedReason(readGuardedProperty(candidate, "reason")),
   holder: carriedHolder,
+  limit: (candidate) => readLimit(readGuardedProperty(candidate, "limit")),
 };
 
 /**

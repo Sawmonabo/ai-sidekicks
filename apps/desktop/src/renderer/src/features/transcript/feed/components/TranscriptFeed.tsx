@@ -54,6 +54,10 @@ import { densityFor } from "../fold-state.js";
 import { rowBesideRunWindowEdge, type RunWindowEdge } from "../../runs/call-window.js";
 import { type RunGroup } from "../../runs/groups.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
+import { useQueueFeed, useQueueRepairRead } from "../../queue/feed.js";
+import { queueCallsThroughDaemon } from "../../queue/services/daemon-calls.js";
+import { WaitingRowsContext, type WaitingRows } from "../../queue/waiting-rows.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 
 /** What the feed is a log of and the row body it draws each row through. */
 export interface TranscriptFeedProps {
@@ -85,6 +89,11 @@ export interface TranscriptFeedProps {
   readonly routeWriteCount?: number | undefined;
   /** The line the route's last write raised, moving here off a gone session; `undefined` if not. */
   readonly goneSessionTarget?: GoneSessionRaise["target"] | undefined;
+  /**
+   * Whether the service is out of reach, so each waiting message says it is not delivered yet.
+   * Absent, the composition follows no connection and no waiting row says so.
+   */
+  readonly isServiceUnreachable?: boolean | undefined;
 }
 
 /**
@@ -94,6 +103,11 @@ export interface TranscriptFeedProps {
  */
 export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const clock = useClock();
+  // The session's queue, whose waiting messages are the transcript's last rows.
+  const bridge = usePlatformBridge();
+  const queueCalls = useMemo(() => queueCallsThroughDaemon(bridge), [bridge]);
+  const queue = useQueueFeed(bridge, props.sessionStore.sessionId, queueCalls);
+  useQueueRepairRead(bridge, props.sessionStore, queueCalls);
   const windows = useTranscriptFeedWindows({
     sessionStore: props.sessionStore,
     clock,
@@ -101,6 +115,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     readTranscriptPage: props.readTranscriptPage,
     drawsBody: props.rowRenderer.drawsBody,
     prepareRow: props.rowRenderer.prepareRow,
+    queueItems: queue.items,
   });
   const { folds, transcriptWindow, viewport, history } = windows;
   // The first rows are in the document once the virtualizer holds some, or there are none to hold,
@@ -311,6 +326,12 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     history: copyHistory,
   });
 
+  const isServiceUnreachable = props.isServiceUnreachable ?? false;
+  const waitingRows = useMemo<WaitingRows>(
+    () => ({ waitingRowByKey: windows.waitingRowByKey, queue, isServiceUnreachable }),
+    [windows.waitingRowByKey, queue, isServiceUnreachable],
+  );
+
   // `Load earlier` comes from `history/`, over the daemon's verdict about the log before the head.
   return (
     <div className="meridian-transcript-feed">
@@ -324,22 +345,24 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
               <ListedBodiesContext value={windows.offListTables}>
                 <PreparedBodiesContext value={windows.preparedBodies}>
                   <DrawnWindowSourcesContext value={windows.drawnWindowSources}>
-                    <TranscriptViewport
-                      binding={viewport}
-                      renderRow={renderRow}
-                      feedLabel={props.feedLabel}
-                      firstReadSettled={windows.firstReadSettled}
-                      isShown={isDrawable}
-                      hasActiveTurn={transcriptWindow.liveRunIds.size > 0}
-                      earlierHistoryControl={
-                        history === undefined ? undefined : <LoadEarlier history={history} />
-                      }
-                      missingTarget={missingTargetOf(
-                        isGoneSessionStanding ? props.goneSessionTarget : undefined,
-                        isMessageNotFoundStanding,
-                        arrivalKey,
-                      )}
-                    />
+                    <WaitingRowsContext value={waitingRows}>
+                      <TranscriptViewport
+                        binding={viewport}
+                        renderRow={renderRow}
+                        feedLabel={props.feedLabel}
+                        firstReadSettled={windows.firstReadSettled}
+                        isShown={isDrawable}
+                        hasActiveTurn={transcriptWindow.liveRunIds.size > 0}
+                        earlierHistoryControl={
+                          history === undefined ? undefined : <LoadEarlier history={history} />
+                        }
+                        missingTarget={missingTargetOf(
+                          isGoneSessionStanding ? props.goneSessionTarget : undefined,
+                          isMessageNotFoundStanding,
+                          arrivalKey,
+                        )}
+                      />
+                    </WaitingRowsContext>
                   </DrawnWindowSourcesContext>
                 </PreparedBodiesContext>
               </ListedBodiesContext>

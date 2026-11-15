@@ -1,8 +1,7 @@
 // The message line, Send, and the draft beneath them: an unsent body lives in the supplied
-// draft store, so a send that did not land must leave what the person wrote (a line with its
-// own copy would lose it). Two presses inside one frame send once, Send keeps its name while the
-// send is in flight, and a line-reading command sent with Send runs instead of going out as a
-// message.
+// draft store, and a send that fails puts what the person wrote back into it (a line with its own
+// copy would lose it). Two presses inside one frame send once, Send keeps its name while the send
+// is in flight, and a line-reading command sent with Send runs instead of going out as a message.
 
 import { act, fireEvent, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -69,7 +68,7 @@ describe("DraftLine — the unsent body lives in the supplied draft store", () =
     expect(bar.line().value).toBe("");
   });
 
-  it("clears the draft once the send has settled, and not before", async () => {
+  it("clears the draft at the press, leaving nothing for the next mount to restore", async () => {
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
     });
@@ -96,23 +95,55 @@ describe("DraftLine — the unsent body lives in the supplied draft store", () =
   });
 });
 
-describe("DraftLine — a refused message stays in the line", () => {
-  it("leaves the text and reads `Send failed` with the daemon's cause", async () => {
-    // Nothing reached the queue, so clearing the line would lose what the person wrote.
-    const rejection = {
-      code: "agent.queueItem.persistenceUnavailable",
-      message: "The queue cannot be stored right now.",
-    };
-    const bar = mountOverLead(sendCallsAnswering(vi.fn().mockRejectedValue(rejection)));
-
-    fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
-    await act(async () => {
-      pressSend(bar.result.container);
+describe("DraftLine — a failed message comes back", () => {
+  it("takes its row out, puts the words back and leaves `Send failed` with the code's words", async () => {
+    // Nothing reached the queue, so the words go back to the line and one line in the flow says
+    // why, in the code's words and never the service's sentence.
+    let rejectSend: (rejection: unknown) => void = () => undefined;
+    const sessionStore = openSessionStore();
+    const { line, result } = mountDraftLine({
+      calls: sendCallsAnswering(
+        async () =>
+          await new Promise((_resolve, reject) => {
+            rejectSend = reject;
+          }),
+      ),
+      draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
+      sessionStore,
     });
 
-    expect(bar.line().value).toBe("keep going on the parser");
-    const refusal = bar.result.container.querySelector(".meridian-refusal--inline");
-    expect(refusal?.textContent).toContain("Send failed · The queue cannot be stored right now.");
+    fireEvent.change(line, { target: { value: "keep going on the parser" } });
+    await act(async () => {
+      pressSend(result.container);
+    });
+    // In the flow from the press, before the service answers, and out of the line.
+    const [pressed] = sessionStore.sentMessages.snapshot();
+    expect(pressed).toStrictEqual({
+      kind: "sent",
+      key: expect.any(String),
+      content: "keep going on the parser",
+      sentAt: expect.any(String),
+    });
+    expect(line.value).toBe("");
+
+    await act(async () => {
+      rejectSend({
+        code: "agent.queueItem.persistenceUnavailable",
+        message: "The queue cannot be stored right now.",
+      });
+    });
+
+    expect(line.value).toBe("keep going on the parser");
+    expect(sessionStore.sentMessages.snapshot()).toStrictEqual([
+      {
+        kind: "failed",
+        key: pressed?.key,
+        label: "Send failed · Sidekick queue item persistence unavailable",
+        failedAt: expect.any(String),
+        afterEventId: undefined,
+      },
+    ]);
+    expect(result.container.querySelector(".meridian-refusal--inline")).toBeNull();
   });
 
   it("negative control: the same send against a queued answer clears the line", async () => {
@@ -145,7 +176,7 @@ describe("DraftLine — one send in flight", () => {
       calls: sendCallsAnswering(async ({ method }) => {
         settleCalls.push(method);
         await pending;
-        return undefined;
+        return QUEUE_CREATED;
       }),
       draftStore,
       sessionStore: openSessionStore(),
@@ -177,7 +208,7 @@ describe("DraftLine — one send in flight", () => {
     const { line, result } = mountDraftLine({
       calls: sendCallsAnswering(async ({ method }) => {
         settleCalls.push(method);
-        return undefined;
+        return QUEUE_CREATED;
       }),
       draftStore,
       sessionStore: openSessionStore(),

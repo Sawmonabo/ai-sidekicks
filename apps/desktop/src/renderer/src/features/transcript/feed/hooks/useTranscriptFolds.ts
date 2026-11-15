@@ -55,29 +55,29 @@ export interface TranscriptFolds {
 /**
  * Hold one session's folds and long-run windows. `TranscriptFoldState` owns the folds and
  * `RunCallWindows` the windows; this hook publishes copies of the three fold sets, and a count of
- * the window moves, so a press repaints. Both are held per session and bridge, since a fold belongs
- * to its own session's rows.
+ * the window moves, so a press repaints. Both are held per bridge for the feed's mount, which is
+ * one session's: the feed mounts again for another session.
  */
-export function useTranscriptFolds(sessionId: string): TranscriptFolds {
+export function useTranscriptFolds(): TranscriptFolds {
   const bridge = usePlatformBridge();
-  const held = useSubjectScopedState(bridge, sessionId, () => new TranscriptFoldState());
+  const held = useSubjectScopedState(bridge, undefined, () => new TranscriptFoldState());
   const foldedRunGroupKeysState = useSubjectScopedState<ReadonlySet<string>>(
     bridge,
-    sessionId,
+    undefined,
     () => new Set<string>(),
   );
   const foldedCallRowIdsState = useSubjectScopedState<ReadonlySet<string>>(
     bridge,
-    sessionId,
+    undefined,
     () => new Set<string>(),
   );
   const openedOutputRowIdsState = useSubjectScopedState<ReadonlySet<string>>(
     bridge,
-    sessionId,
+    undefined,
     () => new Set<string>(),
   );
-  const runCallWindows = useSubjectScopedState(bridge, sessionId, () => new RunCallWindows()).value;
-  const runWindowMoveCountState = useSubjectScopedState(bridge, sessionId, () => 0);
+  const runCallWindows = useSubjectScopedState(bridge, undefined, () => new RunCallWindows()).value;
+  const runWindowMoveCountState = useSubjectScopedState(bridge, undefined, () => 0);
   const foldState = held.value;
   const publishFoldedRunGroupKeys = foldedRunGroupKeysState.publish;
   const publishFoldedCallRowIds = foldedCallRowIdsState.publish;

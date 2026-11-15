@@ -6,7 +6,7 @@
 // `MessageContent` and `ToolOutput` give an unread body. A type the kind table does not name has no
 // card, and `drawsTranscriptRowBody` says so before the feed lists it.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useContext, useMemo, useState } from "react";
 
 import { useRowReveal } from "../reveal/hooks/useRowReveal.js";
 import { useRowToggle } from "./hooks/useRowToggle.js";
@@ -19,6 +19,8 @@ import { classifyTranscriptRow } from "./kind.js";
 import { ThinkingRowWithRead } from "./thinking/ThinkingRowWithRead.js";
 import { reasoningRunIdOf } from "./thinking/reasoning-reading.js";
 import { ToolRow } from "./ToolRow.js";
+import { WaitingRowControls, WaitingRowNotice } from "../queue/components/WaitingRowControls.js";
+import { WaitingRowsContext } from "../queue/waiting-rows.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
@@ -60,6 +62,9 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
   // channel, not the renderer's props, as the lane's handle rather than its text, and is
   // `undefined` for every row of a settled log.
   const liveText = useRowReveal(rowId);
+  // A person's message the agent has not taken yet, from the press on.
+  const waitingRows = useContext(WaitingRowsContext);
+  const waitingRow = waitingRows?.waitingRowByKey.get(rowId);
 
   if (rowKind === undefined) {
     // The feed leaves such a row out of its list, so reaching here is a broken composition, not a
@@ -98,6 +103,16 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
           holdRowInPlace={holdRow}
           replyRowIds={props.replyRowIds}
           editControl={editControlOf(props)}
+          waiting={
+            waitingRow === undefined || waitingRows === undefined
+              ? undefined
+              : {
+                  notice: <WaitingRowNotice waitingRow={waitingRow} waitingRows={waitingRows} />,
+                  controls: (
+                    <WaitingRowControls waitingRow={waitingRow} waitingRows={waitingRows} />
+                  ),
+                }
+          }
           thinkingRow={
             rowKind.kind === "thinking" ? (
               <ThinkingRowWithRead

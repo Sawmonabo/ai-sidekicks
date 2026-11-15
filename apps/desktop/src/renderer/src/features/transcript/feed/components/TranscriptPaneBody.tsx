@@ -25,6 +25,8 @@ export interface TranscriptPaneBodyProps {
   readonly readTranscriptPage: TranscriptPageRead;
   /** The `transcript.body.read` the feed reads an opened large body with. */
   readonly readTranscriptBody: TranscriptBodyRead;
+  /** Whether the service is out of reach, so each waiting message says it is not delivered yet. */
+  readonly isServiceUnreachable: boolean;
 }
 
 /**
@@ -55,6 +57,7 @@ export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.El
       goneSessionTarget={props.goneSessionTarget}
       readTranscriptPage={props.readTranscriptPage}
       readTranscriptBody={props.readTranscriptBody}
+      isServiceUnreachable={props.isServiceUnreachable}
     />
   );
 }

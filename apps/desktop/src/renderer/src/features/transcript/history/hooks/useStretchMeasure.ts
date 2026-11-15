@@ -6,10 +6,8 @@ import { useCallback, useLayoutEffect, useMemo } from "react";
 
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
-import { type RunEntitiesByRunId } from "../../runs/groups.js";
-import { type ProviderNameOf } from "../../system-messages/kinds.js";
 import { type TranscriptViewportBinding } from "../../viewport/hooks/useTranscriptViewport.js";
-import { type TranscriptWindowDerivation } from "../../window/transcript-window.js";
+import { type TranscriptProjection } from "../../window/hooks/useTranscriptProjection.js";
 import { estimateDrawnHeightPx } from "../drawn-height.js";
 import { type TranscriptStretchMeasure } from "../reader.js";
 import { type TranscriptHistory } from "./useTranscriptHistory.js";
@@ -18,11 +16,7 @@ import { type TranscriptHistory } from "./useTranscriptHistory.js";
 export interface StretchMeasureInputs {
   readonly history: TranscriptHistory | undefined;
   /** The session's own derivation, which the held transcript is derived through. */
-  readonly derivation: TranscriptWindowDerivation;
-  /** The store's run entities the derivation's run groups read. */
-  readonly runEntities: RunEntitiesByRunId;
-  /** A provider's name, which the derivation's system messages read. */
-  readonly providerNameOf: ProviderNameOf;
+  readonly deriveHeldWindow: TranscriptProjection["deriveHeldWindow"];
   readonly viewport: TranscriptViewportBinding;
   readonly drawsBody: TranscriptRowRenderer["drawsBody"];
   /** The run groups the reader folded; every other one draws open. */
@@ -41,9 +35,7 @@ export function useStretchMeasure(inputs: StretchMeasureInputs): TranscriptStret
   const ownerWindow = useOwnerWindow();
   const {
     history,
-    derivation,
-    runEntities,
-    providerNameOf,
+    deriveHeldWindow,
     viewport,
     drawsBody,
     foldedRunGroupKeys,
@@ -62,7 +54,7 @@ export function useStretchMeasure(inputs: StretchMeasureInputs): TranscriptStret
       screenHeightPx,
       smallestRowHeightPx,
       heldHeightPx: (transcript) =>
-        estimateDrawnHeightPx(derivation.derive(transcript, runEntities, providerNameOf), {
+        estimateDrawnHeightPx(deriveHeldWindow(transcript), {
           estimatedRowHeightPx,
           screenHeightPx,
           drawsBody,
@@ -72,9 +64,7 @@ export function useStretchMeasure(inputs: StretchMeasureInputs): TranscriptStret
         }),
     }),
     [
-      derivation,
-      runEntities,
-      providerNameOf,
+      deriveHeldWindow,
       screenHeightPx,
       estimatedRowHeightPx,
       smallestRowHeightPx,

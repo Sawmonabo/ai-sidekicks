@@ -30,7 +30,8 @@ import { WORKFLOW_COMMAND_ROOT } from "#renderer/features/composer/command-list/
 import type { CommandExecutor } from "#renderer/features/composer/types.js";
 import { composerDraftKey } from "../../draft-key.js";
 import type { ComposerSendCalls } from "../dispatch.js";
-import type { SendController } from "../controller-contract.js";
+import type { DraftLineCaret, SendController } from "../controller-contract.js";
+import { SessionStore } from "#renderer/store/session/store.js";
 import { useSendController } from "./useSendController.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
@@ -57,6 +58,13 @@ const UNREACHABLE_CALLS = sendCallsAnswering(async () => {
 /** The transport the controller's held state belongs to; nothing calls through it. */
 const BRIDGE = inertBridge();
 
+/** A line with no caret to read or put back. */
+const NO_LINE_CARET: DraftLineCaret = { read: () => undefined, place: () => undefined };
+
+/** The session the probe sends into, and the clock its messages are stamped on. */
+const SESSION_STORE = new SessionStore({ sessionId: SESSION_ID });
+const CLOCK = new ManualClock();
+
 /** Reports the controller out of the tree, so a case drives the real hook. */
 function ControllerProbe(props: {
   readonly draftStore: DraftStore;
@@ -71,6 +79,11 @@ function ControllerProbe(props: {
     target: SESSION_TARGET,
     draftStore: props.draftStore,
     heldDraft: props.heldDraft,
+    sessionStore: SESSION_STORE,
+    clock: CLOCK,
+    providerName: undefined,
+    lineCaret: NO_LINE_CARET,
+    raiseRefusalBanner: () => undefined,
     recognizeConsoleCommand: (commandName) =>
       commandName === "clear" || commandName === WORKFLOW_COMMAND_ROOT,
     commandExecutor: props.commandExecutor,

@@ -8,7 +8,8 @@
 // draws no line. Trimming only decides blankness; the
 // wire gets the user's bytes, and slash rules read the raw text, so indented text starting with
 // `/` is prose. What rides with the words, the held draft's files, skill picks, turn speed and
-// repository, goes on the request as the draft holds it.
+// repository, goes on the request as the draft holds it. A send's watcher hears each request as it
+// leaves, before the service answers it.
 
 import type { AgentQueueItemCreateRequest } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionDraftExtras } from "@ai-sidekicks/contracts/session/draft";
@@ -25,6 +26,9 @@ import type {
 } from "./resolutions.js";
 import { unparsableIdentifier } from "./refusals.js";
 import { dispatchQueuedMessage, type ComposerSendCalls } from "./dispatch.js";
+
+/** Hears a message's request as it leaves for the service, before the service answers it. */
+export type ComposerDispatchWatch = (request: AgentQueueItemCreateRequest) => void;
 
 /** Options for the router; only `calls` is required. */
 export interface ComposerSendRouterOptions {
@@ -69,12 +73,13 @@ export class ComposerSendRouter {
 
   /**
    * Resolve, then dispatch: the one place a composed message reaches the wire. A refusal comes
-   * back as a value; a rejected call is not caught.
+   * back as a value; a rejected call is not caught. `onDispatch` hears the request as it leaves.
    */
   public async send(
     text: string,
     target: ComposerTarget,
     extras: SessionDraftExtras,
+    onDispatch?: ComposerDispatchWatch,
   ): Promise<ComposerSendOutcome> {
     const resolution = this.resolve(text, target, extras);
     switch (resolution.outcome) {
@@ -84,7 +89,7 @@ export class ComposerSendRouter {
         return { status: "intercepted", commandName: resolution.commandName };
       case "refused":
       case "queue":
-        return await this.#dispatchMessage(resolution);
+        return await this.#dispatchMessage(resolution, onDispatch);
     }
   }
 
@@ -96,8 +101,9 @@ export class ComposerSendRouter {
     text: string,
     target: ComposerTarget,
     extras: SessionDraftExtras,
+    onDispatch?: ComposerDispatchWatch,
   ): Promise<ComposerMessageOutcome> {
-    return await this.#dispatchMessage(this.#resolveMessage(text, target, extras));
+    return await this.#dispatchMessage(this.#resolveMessage(text, target, extras), onDispatch);
   }
 
   /**
@@ -134,11 +140,15 @@ export class ComposerSendRouter {
     return { outcome: "queue", request };
   }
 
-  async #dispatchMessage(resolution: ComposerMessageResolution): Promise<ComposerMessageOutcome> {
+  async #dispatchMessage(
+    resolution: ComposerMessageResolution,
+    onDispatch: ComposerDispatchWatch | undefined,
+  ): Promise<ComposerMessageOutcome> {
     switch (resolution.outcome) {
       case "refused":
         return { status: "refused", refusal: resolution.refusal };
       case "queue":
+        onDispatch?.(resolution.request);
         return await dispatchQueuedMessage(this.#calls, resolution.request);
     }
   }

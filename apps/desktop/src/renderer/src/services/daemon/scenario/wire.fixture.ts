@@ -6,9 +6,11 @@
 // `session.read` record names the delivered log's positions and standing events. A scenario's
 // daemon always answers, so the status topic reads connected from its first delivery, with the
 // handshake a compatible service settles, naming the scenario's own device; its shells take what
-// is typed and answer nothing of it.
+// is typed and answer nothing of it. Each stream it opens is acknowledged by an id of its own, as
+// the service acknowledges a subscribe, so a terminal's input binds to its output stream.
 
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import { FIXTURE_DEVICE_ID } from "#fixtures/data/this-device.js";
 import type {
   DaemonParams,
@@ -86,6 +88,7 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
       params: DaemonWireRequest<Topic>,
       handler: (payload: DaemonWirePayload<Topic>, attachments: readonly Uint8Array[]) => void,
       onEnded?: Parameters<DaemonWire["subscribe"]>[3],
+      onOpened?: Parameters<DaemonWire["subscribe"]>[4],
     ): Unsubscribe => {
       if (event === DAEMON_STATUS_TOPIC) {
         handler(FIXTURE_SERVICE_STATE as DaemonWirePayload<Topic>, []);
@@ -94,7 +97,7 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
       // The delivery is untyped scenario data cast to the topic's payload; the app parses every
       // delivery at its own boundary, as it does the live bridge's. Only a shell's scrollback
       // carries bytes.
-      return subscribeToScenario(
+      const unsubscribe = subscribeToScenario(
         scenarioEngine,
         event,
         params,
@@ -103,6 +106,18 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
         },
         onEnded,
       );
+      // Acknowledged once the subscribe has returned, as the service's answer arrives after it,
+      // and never for a stream closed before then.
+      let isOpen = true;
+      queueMicrotask(() => {
+        if (isOpen) {
+          onOpened?.(crypto.randomUUID() as SubscriptionId);
+        }
+      });
+      return () => {
+        isOpen = false;
+        unsubscribe();
+      };
     },
     // A scenario's shells play scripted output, so what is typed into them is taken and dropped,
     // and a closed input holds nothing to hand back.

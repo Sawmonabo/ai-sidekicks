@@ -22,6 +22,16 @@
   letter-spacing: var(--meridian-tracking-caps);
 }
 
+/* A message the agent has not taken yet: an outline around the same card, its text faint. The
+   edge is an outline, so the row keeps its height when it settles to a delivered one. */
+.meridian-message-card--waiting {
+  outline: 1px solid var(--meridian-edge-strong);
+  outline-offset: var(--meridian-space-1);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-faint);
+}
+
 /* Reasoning is an aside, and reads as one: the same layout, one step quieter. */
 .meridian-message-card--thinking {
   color: var(--meridian-text-muted);

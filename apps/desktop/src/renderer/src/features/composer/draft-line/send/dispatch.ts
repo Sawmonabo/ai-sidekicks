@@ -14,13 +14,13 @@ export interface ComposerSendCalls {
 }
 
 /**
- * Dispatch one message. The queued item is not kept: the transcript's pending rows read the
- * queue from their own subscription, so the answer is only the confirmation.
+ * Dispatch one message, answering the queue item the service made of it, which the message's
+ * row in the transcript settles under.
  */
 export async function dispatchQueuedMessage(
   calls: ComposerSendCalls,
   request: AgentQueueItemCreateRequest,
 ): Promise<ComposerMessageOutcome> {
-  await calls.queueCreate(request);
-  return { status: "sent" };
+  const created = await calls.queueCreate(request);
+  return { status: "sent", queueItemId: created.queueItemId };
 }

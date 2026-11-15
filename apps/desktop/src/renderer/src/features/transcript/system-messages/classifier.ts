@@ -5,6 +5,7 @@
 import {
   SYSTEM_MESSAGE_KINDS,
   SYSTEM_MESSAGE_BINDINGS,
+  SEND_FAILED_ROW_TYPE,
   type ProviderNameOf,
   type SystemMessageKind,
 } from "./kinds.js";
@@ -49,7 +50,12 @@ export class SystemMessageClassifier {
     providerNameOf: ProviderNameOf,
     runs: SessionPartitions["run"],
   ): SystemMessageReading | undefined {
-    const kind = row.kind === "rollbackBoundary" ? "rollback" : this.#kindByWireType.get(row.type);
+    const kind =
+      row.kind === "rollbackBoundary"
+        ? "rollback"
+        : row.type === SEND_FAILED_ROW_TYPE
+          ? "send-failed"
+          : this.#kindByWireType.get(row.type);
     if (kind === undefined) {
       return undefined;
     }

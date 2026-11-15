@@ -7,6 +7,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
+
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
@@ -59,6 +61,7 @@ import {
   type RunWindowMeasure,
 } from "../../runs/call-window.js";
 import { type RunGroup } from "../../runs/groups.js";
+import { type WaitingRow } from "../../queue/placement.js";
 import { useFoldedRunGroups } from "./useFoldedRunGroups.js";
 import { useDrawnRows } from "./useDrawnRows.js";
 import { usePreparedRows } from "./usePreparedRows.js";
@@ -86,6 +89,8 @@ export interface TranscriptFeedWindowsInputs {
   readonly drawsBody: TranscriptRowRenderer["drawsBody"];
   /** The registered row renderer's start of what a row's first frame waits on. */
   readonly prepareRow: TranscriptRowRenderer["prepareRow"];
+  /** The session's queue as its reading stands, whose waiting messages are the last rows. */
+  readonly queueItems: readonly QueueItemSummary[];
 }
 
 /** The chain's windows, unfolded and as the feed draws them, with what the feed does over them. */
@@ -95,6 +100,8 @@ export interface TranscriptFeedWindows {
   readonly folds: TranscriptFolds;
   /** Every member row of every run group, before any fold. */
   readonly unfurledWindow: TranscriptWindowModel;
+  /** The rows waiting for the agent to take them, by key: the window's last rows. */
+  readonly waitingRowByKey: ReadonlyMap<string, WaitingRow>;
   /**
    * The last model window: folded by run group, its lists holding only rows the feed draws and
    * only once each draws whole.
@@ -147,10 +154,15 @@ export function useTranscriptFeedWindows(
   const firstReadSettled = useTranscriptFirstReadSettled(inputs.sessionStore);
   // What a person folded is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
-  const folds = useTranscriptFolds(inputs.sessionStore.sessionId);
-  const { unfurledWindow, runEntities, derivation, providerNameOf } = useTranscriptProjection(
-    inputs.sessionStore,
-  );
+  const folds = useTranscriptFolds();
+  const {
+    unfurledWindow,
+    waitingRowByKey,
+    runEntities,
+    deriveHeldWindow,
+    placeSentMessages,
+    providerNameOf,
+  } = useTranscriptProjection(inputs.sessionStore, inputs.queueItems);
   // A long run's window is cut in the viewport's estimates, but the fold runs before the viewport
   // is minted, so they arrive from the layout effect below. Until then every call reads zero
   // high and a window holds one call; the fold cuts it again once they land, which is before any
@@ -379,9 +391,7 @@ export function useTranscriptFeedWindows(
   );
   const stretchMeasure = useStretchMeasure({
     history,
-    derivation,
-    runEntities,
-    providerNameOf,
+    deriveHeldWindow,
     viewport,
     drawsBody,
     foldedRunGroupKeys: folds.foldedRunGroupKeys,
@@ -418,7 +428,11 @@ export function useTranscriptFeedWindows(
   });
   const deriveRowSourceWindows = useCallback(
     (events: readonly ProjectedSessionEvent[]): RowSourceWindows => {
-      const derivedWindow = deriveTranscriptWindow(events, runEntities, providerNameOf);
+      const derivedWindow = deriveTranscriptWindow(
+        placeSentMessages(events),
+        runEntities,
+        providerNameOf,
+      );
       return {
         unfurledWindow: derivedWindow,
         transcriptWindow: new DrawnRowFilter().filter(
@@ -430,7 +444,15 @@ export function useTranscriptFeedWindows(
         ),
       };
     },
-    [foldedRunGroupKeys, runEntities, providerNameOf, runWindowInputs, runCallWindows, drawsBody],
+    [
+      foldedRunGroupKeys,
+      placeSentMessages,
+      runEntities,
+      providerNameOf,
+      runWindowInputs,
+      runCallWindows,
+      drawsBody,
+    ],
   );
   useHistoryLookAhead({
     history,
@@ -500,6 +522,7 @@ export function useTranscriptFeedWindows(
     firstReadSettled,
     folds,
     unfurledWindow,
+    waitingRowByKey,
     transcriptWindow,
     reveal,
     viewport,

@@ -3,7 +3,7 @@
 
 import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
 import { act, fireEvent, render, type RenderResult } from "@testing-library/react";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
@@ -15,6 +15,9 @@ import { RUN_LIFECYCLE_PROJECTORS } from "#renderer/store/session/events/run/lif
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { QUEUE_CREATED, SESSION_ID } from "../send/router.test-support.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { DraftLine } from "./DraftLine.js";
 import { inertBridge } from "../../Composer.test-support.js";
 import {
@@ -62,8 +65,7 @@ export function mountDraftLine(options: {
       calls={options.calls}
       workflowStartOperations={options.workflowStartOperations ?? fixtureWorkflowStartOperations()}
     />,
-    // A refused send speaks through the announcer, which throws outside its provider.
-    { wrapper: LiveAnnouncerProvider },
+    { wrapper: SendBarProviders },
   );
   const line = result.container.querySelector("textarea");
   if (!(line instanceof HTMLTextAreaElement)) {
@@ -78,6 +80,19 @@ interface MountedDraftLine {
   readonly line: HTMLTextAreaElement;
   /** The window store the bar escalates into, for a case that reads its banners. */
   readonly frameStore: WindowStore;
+}
+
+/**
+ * What the bar reads from above the composer: the window's clock and the provider list, which a
+ * message refused as too long names, and the announcer a refused act speaks through.
+ */
+function SendBarProviders(props: { readonly children: ReactNode }): React.JSX.Element {
+  const [fixture] = useState(() => createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO }));
+  return (
+    <FixtureBridgeProvider fixture={fixture}>
+      <LiveAnnouncerProvider>{props.children}</LiveAnnouncerProvider>
+    </FixtureBridgeProvider>
+  );
 }
 
 /** The mounted Send, or a throw naming what was missing. */
@@ -228,7 +243,7 @@ export function mountOverLead(calls: ComposerSendCalls): LeadDraftLine {
       calls={calls}
       workflowStartOperations={fixtureWorkflowStartOperations()}
     />,
-    { wrapper: LiveAnnouncerProvider },
+    { wrapper: SendBarProviders },
   );
   const play = (beats: readonly ProjectedSessionEvent[]): void => {
     act(() => {

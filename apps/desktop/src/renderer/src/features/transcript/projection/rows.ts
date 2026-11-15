@@ -25,6 +25,7 @@ import {
   type ProjectedSessionEvent,
   type ProjectedTranscriptRow,
 } from "#renderer/store/session/entities/vocabulary.js";
+import { SEND_FAILED_ROW_TYPE } from "../system-messages/kinds.js";
 import { ChildRunSummaries } from "./child-run-summaries.js";
 
 /** What projecting one stretch appended to a log produced. */
@@ -43,6 +44,12 @@ export interface TranscriptRowBatch {
  * `string`, and an event whose type this build does not know is the case this lookup answers.
  */
 const CATEGORY_BY_WIRE_TYPE: ReadonlyMap<string, EventCategory> = SESSION_EVENT_CATEGORY_BY_TYPE;
+
+/**
+ * The category a failed send's own row carries: the window's row, which no wire event records,
+ * so no reader filters it as one; the session's own lifecycle is the nearest the set has.
+ */
+const SEND_FAILED_ROW_CATEGORY: EventCategory = "sessionLifecycle";
 
 /**
  * Reads one log as transcript rows, one appended stretch at a time, so a stretch costs its own
@@ -140,7 +147,10 @@ export class TranscriptRowProjector {
   }
 
   #projectEvent(event: ProjectedSessionEvent): ProjectedTranscriptRow | undefined {
-    const category = CATEGORY_BY_WIRE_TYPE.get(event.kind);
+    const category =
+      event.kind === SEND_FAILED_ROW_TYPE
+        ? SEND_FAILED_ROW_CATEGORY
+        : CATEGORY_BY_WIRE_TYPE.get(event.kind);
     if (category === undefined) {
       return undefined;
     }

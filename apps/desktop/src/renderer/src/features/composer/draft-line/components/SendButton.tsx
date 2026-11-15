@@ -2,16 +2,22 @@
 // takes the daemon call a send makes, and the two a typed `/workflow run <name>` makes, as
 // arguments. A press, or Enter in the line, is `useSendController.ts`'s; Send dims while the
 // message carries no words, no staged file and no composed notes, but derives no eligibility, and
-// the daemon refuses.
+// the daemon refuses. A message that fails says so in the transcript, not under the line.
 //
 // The disabled button covers only the pointer path: a second press in the same frame reaches
 // the handler, so the controller's synchronous latch is what holds inside one frame.
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+
+import type { Clock } from "#renderer/lib/clock.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 
 import { RefusalWithRemedy } from "../../components/RefusalWithRemedy/RefusalWithRemedy.js";
 import type { ComposerProps } from "#renderer/registries/composer/registry.js";
 import { useRefusalBannerEscalation } from "../../hooks/useRefusalBannerEscalation.js";
+import { useLeadProviderName } from "../../hooks/useLeadProviderName.js";
+import { isBannerClass } from "../../refusal-banner-selection.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { useCommandHandling } from "../../command-list/hooks/useCommandHandling.js";
 import { useWorkflowStartHandlers } from "../../command-list/workflow/hooks/useWorkflowStartHandlers.js";
@@ -23,6 +29,7 @@ import { carriesNothing } from "../send/router.js";
 import { composerDraftKey } from "../draft-key.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 import { SendIconButton } from "../../components/SendIconButton.js";
+import type { DraftLineCaret } from "../send/controller-contract.js";
 
 /** What Send is handed beyond the composer's own props. */
 export type SendButtonProps = ComposerProps & {
@@ -47,12 +54,30 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
   });
   // Recognizer and executor are supplied together by the zone that owns both.
   const commandZone = useCommandHandling({ route: props.route, commandLineHandlers });
+  const clock = useClock();
+  const providerName = useLeadProviderName(props.sessionStore);
+  const { region, frameStore } = props;
+  const lineCaret = useMemo(() => draftLineCaretIn(region, clock), [region, clock]);
+  // A failed send whose refusal changes what the whole session can do raises the frame's banner.
+  const raiseRefusalBanner = useCallback(
+    (refusal: Refusal) => {
+      if (isBannerClass(refusal)) {
+        frameStore.raiseRefusalBanner(refusal);
+      }
+    },
+    [frameStore],
+  );
   const controller = useSendController({
     bridge: props.bridge,
     calls: props.calls,
     target,
     draftStore: props.draftStore,
     heldDraft: props.heldDraft,
+    sessionStore: props.sessionStore,
+    clock,
+    providerName,
+    lineCaret,
+    raiseRefusalBanner,
     recognizeConsoleCommand: commandZone.recognizeConsoleCommand,
     commandExecutor: commandZone.commandExecutor,
   });
@@ -88,6 +113,37 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
       )}
     </>
   );
+}
+
+/**
+ * The caret of the message line in `region`. It is put back on the frame after the words are
+ * written back, once the line has drawn them, since a line drawing new words moves its caret.
+ */
+function draftLineCaretIn(
+  region: React.RefObject<HTMLElement | null>,
+  clock: Clock,
+): DraftLineCaret {
+  const lineOf = (): HTMLTextAreaElement | null =>
+    region.current?.querySelector("textarea") ?? null;
+  return {
+    read: () => {
+      const line = lineOf();
+      return line === null
+        ? undefined
+        : {
+            selectionStart: line.selectionStart,
+            selectionEnd: line.selectionEnd,
+            textLength: line.value.length,
+          };
+    },
+    place: (caret) => {
+      clock.scheduleFrame(() => {
+        const line = lineOf();
+        line?.focus();
+        line?.setSelectionRange(caret.selectionStart, caret.selectionEnd);
+      });
+    },
+  };
 }
 
 /**

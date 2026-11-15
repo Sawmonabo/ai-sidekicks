@@ -2,8 +2,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_SESSION_CAP } from "../bounds.js";
-import { SentMessageHistories, SentMessageHistory } from "./sent-message-history.js";
+import { COMPOSER_HISTORY_RECALL_CAP } from "../bounds.js";
+import { SentMessageHistory } from "./sent-message-history.js";
 
 describe("recall walks sent messages and gives the draft back", () => {
   it("stashes the unsent draft on the first step and restores it on the way down", () => {
@@ -30,20 +30,5 @@ describe("recall walks sent messages and gives the draft back", () => {
     // The oldest retained message is the second one sent; the first was dropped.
     expect(history.recallOlder("")).toBe("message 1");
     expect(history.recallOlder("")).toBeUndefined();
-  });
-});
-
-describe("histories are per session, so a walk never crosses a switch of session", () => {
-  it("evicts the least recently used past the retained-session cap", () => {
-    const histories = new SentMessageHistories();
-    for (let index = 0; index <= COMPOSER_RETAINED_SESSION_CAP; index += 1) {
-      histories.forDraftKey(`session ${String(index)}`).recordSent(`message ${String(index)}`);
-    }
-
-    // The least recent session is the one dropped, not the most recent.
-    expect(histories.forDraftKey("session 0").recallOlder("")).toBeUndefined();
-    expect(
-      histories.forDraftKey(`session ${String(COMPOSER_RETAINED_SESSION_CAP)}`).recallOlder(""),
-    ).toBe(`message ${String(COMPOSER_RETAINED_SESSION_CAP)}`);
   });
 });

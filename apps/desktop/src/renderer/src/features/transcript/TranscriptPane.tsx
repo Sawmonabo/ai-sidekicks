@@ -9,7 +9,9 @@ import { useMemo } from "react";
 import { transcriptBodyReadThroughDaemon } from "#renderer/services/daemon/transcript/body.js";
 import { transcriptPageReadThroughDaemon } from "#renderer/services/daemon/transcript/page.js";
 import { routeSessionId, sessionMessageAnchorCursor } from "#renderer/routing/readers.js";
+import { useMainProcessState } from "#renderer/store/window/hooks/useMainProcessState.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
+import { serviceBootStageOf } from "#renderer/store/window/main-process-state.js";
 import { goneSessionRaiseOfThisMove } from "#renderer/store/window/store.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { findTranscriptRowRenderer, type TranscriptRowRenderer } from "./rows/renderer.js";
@@ -38,6 +40,11 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
     context.frameStore,
     (state) => goneSessionRaiseOfThisMove(state)?.target,
   );
+  // A waiting message says it is not delivered yet while the service, once reported, does not
+  // answer.
+  const { connection } = useMainProcessState(context.frameStore);
+  const isServiceUnreachable =
+    connection.kind !== "unreported" && serviceBootStageOf(connection) !== "answered";
   const { bridge } = context;
   const readTranscriptPage = useMemo(() => transcriptPageReadThroughDaemon(bridge), [bridge]);
   const readTranscriptBody = useMemo(() => transcriptBodyReadThroughDaemon(bridge), [bridge]);
@@ -58,6 +65,7 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
         goneSessionTarget={goneSessionTarget}
         readTranscriptPage={readTranscriptPage}
         readTranscriptBody={readTranscriptBody}
+        isServiceUnreachable={isServiceUnreachable}
       />
     </PaneFrame>
   );

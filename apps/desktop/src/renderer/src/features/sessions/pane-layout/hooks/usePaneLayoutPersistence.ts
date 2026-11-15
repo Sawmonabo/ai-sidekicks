@@ -2,17 +2,15 @@
 //
 // The record is read before anything is written: a save that ran first would file an empty layout
 // over the record still to be read, and a second restore would replace what the person arranged.
-// Results are keyed by (layout, session) because the session screen stays mounted across a route
-// between two open sessions. A failed read is not a first run: an empty block is filed only for
-// `absent`.
+// The session screen mounts once per session with a layout of its own, so one restore is held for
+// the mount. A failed read is not a first run: an empty block is filed only for `absent`.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import type { BlockPaneKind } from "#renderer/routing/panes/kinds.js";
 import { type PaneLayoutStore } from "../store.js";
 import { type PaneLayoutRestoreReport } from "../snapshot.js";
@@ -89,10 +87,10 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
     WRITER_RETIREMENT,
   );
 
-  // Closed until the read has landed, and re-armed per session rather than per store, so a
-  // `UiStateStore` replacement leaves it as it was. It gates writes and dispatch only, so it
-  // stays out of the layout's rendered state, which views announce from.
-  const { value: restore } = useSubjectScopedState(layout, sessionId, () => new RestoreProgress());
+  // Closed until the read has landed, and held for the mount, so a `UiStateStore` replacement
+  // leaves it as it was. It gates writes and dispatch only, so it stays out of the layout's
+  // rendered state, which views announce from.
+  const [restore] = useState(() => new RestoreProgress());
 
   useEffect(() => {
     if (sessionId === undefined || !restore.isUnstarted) {
@@ -101,14 +99,13 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
     restore.start();
     let superseded = false;
     void (async () => {
-      // What the layout held when the read started, to tell the person's edits made while the
+      // Where the layout stood when the read started, to tell the person's edits made while the
       // read is in flight (the store is across a process boundary) from the record being read.
-      const paneIdsBeforeRead = new Set(layout.snapshot().panes.map((pane) => pane.paneId));
       const revisionBeforeRead = layout.snapshot().revision;
 
       // Every kind opened while the read ran, kept even once closed again: a close leaves
       // nothing in the snapshot, so comparing before with after would let the record put the
-      // closed pane back.
+      // closed pane back. The layout is empty until the restore, so every pane was opened here.
       const openedDuringRead = new Set<BlockPaneKind>();
       // A side or terminal place the person set during the read stands, even one set back to
       // where it began.
@@ -116,9 +113,7 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
       let placedBefore = layout.snapshot();
       const watchActsDuringRead = layout.subscribe((state) => {
         for (const pane of state.panes) {
-          if (!paneIdsBeforeRead.has(pane.paneId)) {
-            openedDuringRead.add(pane.kind);
-          }
+          openedDuringRead.add(pane.kind);
         }
         placedDuringRead.side ||= state.side !== placedBefore.side;
         placedDuringRead.terminalPlace ||= state.terminalPlace !== placedBefore.terminalPlace;
@@ -135,17 +130,11 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
       // An untouched layout takes the record wholesale. A layout the person arranged during the
       // read is newer: it wins for every kind it holds, and `adoptBeneath` fills in the rest,
       // honoring closes.
-      //
-      // Panes present before the read are dropped either way; after a route between sessions
-      // they belong to the previous session.
       const actedDuringRead = layout.snapshot().revision !== revisionBeforeRead;
       let report: PaneLayoutRestoreReport | undefined;
       if (!actedDuringRead) {
         report = record === undefined ? undefined : layout.restore(record.value);
       } else {
-        for (const paneId of paneIdsBeforeRead) {
-          layout.close(paneId);
-        }
         const liveKinds = new Set(layout.snapshot().panes.map((pane) => pane.kind));
         const closedDuringRead = new Set(
           [...openedDuringRead].filter((kind) => !liveKinds.has(kind)),

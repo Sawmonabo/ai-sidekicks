@@ -16,6 +16,7 @@
 // `call-rejected`.
 
 import type { Issue } from "@ai-sidekicks/contracts/jsonrpc/issue";
+import { CONNECTION_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/jsonrpc/message";
 
 import type {
   DaemonParams,
@@ -54,13 +55,23 @@ const DAEMON_REPLY_DIAGNOSTIC_SOURCE = "services/daemon";
  *   • `read-abandoned`: the view that asked for this read is gone or a newer read replaced it;
  *     nothing is read from the reply. It is a refusal, not a silent resolution, so the call's
  *     answer stays total.
+ *   • `not-connected`: the service could not be reached and no connection to it stood when the
+ *     call left. The client names a connection that ended while the call waited and one that was
+ *     never there alike, so the difference is read here, where the call left.
  */
 export const DAEMON_REPLY_REFUSAL_CODES: readonly [
   typeof REQUEST_UNSENDABLE_CODE,
   "reply-unreadable",
   "call-rejected",
   "read-abandoned",
-] = [REQUEST_UNSENDABLE_CODE, "reply-unreadable", "call-rejected", "read-abandoned"] as const;
+  "not-connected",
+] = [
+  REQUEST_UNSENDABLE_CODE,
+  "reply-unreadable",
+  "call-rejected",
+  "read-abandoned",
+  "not-connected",
+] as const;
 
 /** One app-side call refusal code, derived from `DAEMON_REPLY_REFUSAL_CODES`. */
 export type DaemonReplyRefusalCode = (typeof DAEMON_REPLY_REFUSAL_CODES)[number];
@@ -139,6 +150,8 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
     return abandonedRead();
   }
 
+  // Whether a connection stood as the call left, which an unreachable service's refusal reads by.
+  const wasConnected = bridge.transportReconnect.reachability === "reachable";
   let reply: ServedDaemonCall<unknown>;
   try {
     const settlement = await settleUnlessAbandoned(bridge.daemon.call(method, request), signal);
@@ -164,7 +177,13 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       subject: method,
       issues: refusedIssuesOf(rejection),
     });
-    return { status: "refused", refusal: normalized };
+    return {
+      status: "refused",
+      refusal:
+        normalized.code === CONNECTION_UNAVAILABLE_CODE && !wasConnected
+          ? notConnectedRefusal()
+          : normalized,
+    };
   }
 
   if (isReadAbandoned(signal)) {
@@ -204,6 +223,15 @@ function refusedIssuesOf(rejection: unknown): readonly Issue[] {
   const fields = readGuardedProperty(readGuardedProperty(rejection, "data"), "fields");
   const issues = readGuardedProperty(fields, "issues");
   return Array.isArray(issues) ? (issues as Issue[]) : [];
+}
+
+/** What a call reads as when the service could not be reached and no connection stood. */
+function notConnectedRefusal(): Refusal {
+  return refuse(
+    DAEMON_REPLY_REFUSAL_ORIGIN,
+    "not-connected" satisfies DaemonReplyRefusalCode,
+    "Not connected",
+  );
 }
 
 /** The abandoned-read refusal as `callDaemon`'s own answer. */

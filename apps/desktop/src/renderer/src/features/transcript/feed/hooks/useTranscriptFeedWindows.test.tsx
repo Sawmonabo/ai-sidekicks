@@ -7,6 +7,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { ManualClock } from "#renderer/lib/clock.js";
@@ -32,6 +33,9 @@ import { useTranscriptFeedWindows } from "./useTranscriptFeedWindows.js";
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+/** A session whose queue holds nothing. */
+const NO_QUEUE_ITEMS: readonly QueueItemSummary[] = [];
 
 /** A store holding one agent reply per body length, oldest first, outside any run. */
 function openSessionStoreWithReplies(bodyLengths: readonly number[]): SessionStore {
@@ -67,6 +71,7 @@ describe("the transcript feed windows — the body lengths the viewport estimate
           readTranscriptPage: undefined,
           drawsBody: () => true,
           prepareRow: () => undefined,
+          queueItems: NO_QUEUE_ITEMS,
         }),
       {
         // The run group disclosure reads the platform bridge.
@@ -116,6 +121,7 @@ describe("the transcript feed windows — Jump to latest after a find step", () 
           readTranscriptPage: undefined,
           drawsBody: () => true,
           prepareRow: () => undefined,
+          queueItems: NO_QUEUE_ITEMS,
         }),
       {
         wrapper: ({ children }) => (

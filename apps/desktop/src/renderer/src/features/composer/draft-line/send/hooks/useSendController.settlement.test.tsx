@@ -7,13 +7,15 @@ import { useMemo } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ParkedDaemonCalls } from "../../hooks/parked-daemon-calls.test-support.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { SessionStore } from "#renderer/store/session/store.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { ComposerSendCalls } from "../dispatch.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
 import { DraftStore } from "#renderer/store/drafts.js";
 import type { ComposerRunTarget } from "#renderer/features/composer/target.js";
 import { composerDraftKey } from "../../draft-key.js";
-import type { SendController } from "../controller-contract.js";
+import type { DraftLineCaret, SendController } from "../controller-contract.js";
 import { useSendController } from "./useSendController.js";
 import { ComposerHeldDraft } from "#renderer/features/composer/held-draft/holder.js";
 import { RUN_TARGET } from "../router.test-support.js";
@@ -22,6 +24,9 @@ const SESSION_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
 const SESSION_B = "2c3d4e5f-6071-4283-8495-bc6d7e8f9012";
 
 const REJECTION_REASON = "agent.queueItem.persistenceUnavailable";
+
+/** A line with no caret to read or put back. */
+const NO_LINE_CARET: DraftLineCaret = { read: () => undefined, place: () => undefined };
 
 function runTargetIn(sessionId: string): ComposerRunTarget {
   return { ...RUN_TARGET, sessionId };
@@ -42,12 +47,22 @@ function AddressableProbe(props: {
       }),
     [props.draftStore, props.target.sessionId],
   );
+  const sessionStore = useMemo(
+    () => new SessionStore({ sessionId: props.target.sessionId }),
+    [props.target.sessionId],
+  );
+  const clock = useMemo(() => new ManualClock(), []);
   const controller = useSendController({
     bridge: props.bridge,
     calls: props.calls,
     target: props.target,
     draftStore: props.draftStore,
     heldDraft,
+    sessionStore,
+    clock,
+    providerName: undefined,
+    lineCaret: NO_LINE_CARET,
+    raiseRefusalBanner: () => undefined,
   });
   props.onController(controller);
   return null;
@@ -136,14 +151,14 @@ describe("useSendController — a settlement is keyed to the address it was sent
       expect(driven.calls.parkedCount).toBe(2);
     });
 
-    // The first visit's settlement must not reach into the second's line: the draft store is
-    // keyed by address, so an unconditional clear would erase the newly typed words.
+    // Each failed message comes back to the session it left, ahead of what was typed since, and
+    // draws no refusal under the line: its line stands in the transcript.
     await act(async () => {
       driven.calls.rejectOldest(REJECTION_REASON);
       await firstSend;
     });
 
-    expect(driven.draftAt(SESSION_A)).toBe("actually, hold on");
+    expect(driven.draftAt(SESSION_A)).toBe("ship it");
     expect(driven.latest().refusal).toBeUndefined();
 
     await act(async () => {
@@ -151,7 +166,7 @@ describe("useSendController — a settlement is keyed to the address it was sent
       await secondSend;
     });
 
-    // The second visit's own settlement is current and does render.
-    expect(driven.latest().refusal?.code).toBe(REJECTION_REASON);
+    expect(driven.draftAt(SESSION_A)).toBe("actually, hold on\nship it");
+    expect(driven.latest().refusal).toBeUndefined();
   });
 });

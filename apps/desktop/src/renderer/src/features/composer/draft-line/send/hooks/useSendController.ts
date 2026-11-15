@@ -9,21 +9,32 @@
 // call. A late settlement releases exactly the key it claimed, but its reading is dropped.
 //
 // The history walk is held here, and the unsent body lives only in the supplied `DraftStore`; what
-// rides with it is the supplied held draft's, read at the press and dropped when the send is taken.
-// A send handed off, a message or a console word alike, pins the follow of the transcript mounted
-// in this composer's window, so the reader is taken to the bottom whatever they had scrolled to.
+// rides with it is the supplied held draft's, read at the press.
+//
+// A message is in the session's transcript the moment it leaves: the words and what rides with
+// them leave the composer, and the row settles under the same key once the service has it. A
+// message that fails comes back: its row leaves the transcript, the words, files and skill picks
+// go back into the composer with the caret where it stood, and one line in the transcript says
+// why. A send handed off, a message or a console word alike, pins the follow of the transcript
+// mounted in this composer's window, so the reader is taken to the bottom whatever they had
+// scrolled to.
 
 import { useCallback, useMemo } from "react";
 
+import type { AgentQueueItemCreateRequest } from "@ai-sidekicks/contracts/run/queue";
+
 import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+import type { Clock } from "#renderer/lib/clock.js";
 import { mountedTranscript } from "#renderer/registries/transcript/registry.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import { CALL_REJECTED_FALLBACK } from "#renderer/services/daemon/reply.js";
+import { selectTranscript } from "#renderer/store/session/selectors.js";
 import { composerDraftKey } from "../../draft-key.js";
+import type { SentDraftExtras } from "#renderer/features/composer/held-draft/holder.js";
 import { useComposerActState } from "../../hooks/useComposerActState.js";
 import { useSettlementIdentities } from "../../hooks/useSettlementIdentities.js";
-import { composerRefusal, DAEMON_REFUSAL_ORIGIN } from "../refusals.js";
+import { composerRefusal, DAEMON_REFUSAL_ORIGIN, sendFailedLabel } from "../refusals.js";
 import { useSentMessageRecall } from "../../hooks/useSentMessageRecall.js";
 import { visitOperationKey, type ComposerSettlementIdentity } from "../settlement.js";
 import { ComposerSendRouter, carriesNothing } from "../router.js";
@@ -36,8 +47,20 @@ const NO_EXECUTOR_DETAIL =
 
 /** Build the controller for one session's composer. */
 export function useSendController(dependencies: SendControllerDependencies): SendController {
-  const { bridge, calls, target, draftStore, heldDraft, commandExecutor, recognizeConsoleCommand } =
-    dependencies;
+  const {
+    bridge,
+    calls,
+    target,
+    draftStore,
+    heldDraft,
+    sessionStore,
+    clock,
+    providerName,
+    lineCaret,
+    raiseRefusalBanner,
+    commandExecutor,
+    recognizeConsoleCommand,
+  } = dependencies;
   const router = useMemo(
     () =>
       new ComposerSendRouter({
@@ -107,16 +130,27 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     publishStatus("sending");
     // Captured before the await, so what settles is measured against the draft sent from.
     const identity = issueSettlementIdentity("send");
-    // Whether the await a rejection comes from is the message's own send, which alone reads
-    // `Send failed`; a file's copy or a command's run rejects in its own words.
-    let isMessageInFlight = false;
+    // Where the caret stood at the press, where a message that comes back puts it again.
+    const caret = lineCaret.read();
+    // The message as it left, once it has: what it took from the composer, under its row's key.
+    const dispatched: { message: DispatchedMessage | undefined } = { message: undefined };
     try {
       // A file dropped just before the press is still copying; the message waits and carries it.
       await heldDraft.whenCopied();
       const extras = heldDraft.extrasFor(body);
-      isMessageInFlight = true;
-      const routed = await router.send(body, target, extras);
-      isMessageInFlight = false;
+      // The message leaves the composer for the transcript as its request leaves for the service.
+      const onDispatch = (request: AgentQueueItemCreateRequest): void => {
+        const key = request.clientIdempotencyKey;
+        sessionStore.sentMessages.press({
+          key,
+          content: request.content,
+          sentAt: instantOf(clock),
+        });
+        clearSentDraft(identity, draftKey);
+        dispatched.message = { key, taken: heldDraft.clearSent(extras) };
+        pinFollow(identity);
+      };
+      const routed = await router.send(body, target, extras, onDispatch);
       if (routed.status === "empty") {
         // Nothing to send: Send is already dimmed, and no line is drawn for the press.
         settle(identity, undefined);
@@ -152,35 +186,50 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         }
       }
       // A line its command did not act on goes out untrimmed, as any other message does.
-      isMessageInFlight = true;
       const outcome =
-        routed.status === "intercepted" ? await router.sendAsTyped(body, target, extras) : routed;
+        routed.status === "intercepted"
+          ? await router.sendAsTyped(body, target, extras, onDispatch)
+          : routed;
       switch (outcome.status) {
         case "sent":
+          if (dispatched.message !== undefined) {
+            sessionStore.sentMessages.settle(dispatched.message.key, outcome.queueItemId);
+          }
           history.recordSent(body);
-          // Clear only where the settlement is still current: the draft store is keyed by
-          // session, not visit, so a return trip would erase text typed on the second visit.
-          clearSentDraft(identity, draftKey);
-          heldDraft.clearSent(extras);
           settle(identity, undefined);
-          pinFollow(identity);
           return;
         case "refused":
           settle(identity, outcome.refusal);
           return;
       }
     } catch (rejection) {
-      // A rejected daemon call is held as the daemon's own refusal, its code kept for the remedy;
-      // a message's own reads `Send failed · <cause>`. The text stays in the line.
+      // A rejected daemon call is held as the daemon's own refusal, its code kept for the remedy.
       const refusal = normalizeWireRejection(
         DAEMON_REFUSAL_ORIGIN,
         rejection,
         CALL_REJECTED_FALLBACK,
       );
-      settle(
-        identity,
-        isMessageInFlight ? { ...refusal, detail: `Send failed · ${refusal.detail}` } : refusal,
-      );
+      const message = dispatched.message;
+      if (message === undefined) {
+        // A file's copy or a command's run rejected in its own words; the text stays in the line.
+        settle(identity, refusal);
+        return;
+      }
+      // The words go back ahead of anything typed since, with the caret where it stood.
+      const typedSince = draftStore.read(draftKey)?.text ?? "";
+      draftStore.write(draftKey, typedSince.length === 0 ? body : `${body}\n${typedSince}`);
+      heldDraft.restoreSent(message.taken);
+      if (caret !== undefined && isCurrent(identity)) {
+        lineCaret.place(caret);
+      }
+      sessionStore.sentMessages.fail({
+        key: message.key,
+        label: sendFailedLabel(refusal, providerName),
+        failedAt: instantOf(clock),
+        afterEventId: selectTranscript(sessionStore.snapshot()).at(-1)?.id,
+      });
+      raiseRefusalBanner(refusal);
+      settle(identity, undefined);
     } finally {
       // Releases the round this act claimed even after a switch of session; the reading is
       // published through this draft's publisher, so it lands only while the draft is current.
@@ -194,11 +243,18 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     router,
     target,
     draftKey,
+    draftStore,
     heldDraft,
+    sessionStore,
+    clock,
+    providerName,
+    lineCaret,
+    raiseRefusalBanner,
     visit,
     clearSentDraft,
     commandExecutor,
     history,
+    isCurrent,
     issueSettlementIdentity,
     operationLatch,
     pinFollow,
@@ -214,4 +270,15 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     recallOlder,
     recallNewer,
   };
+}
+
+/** A message that left: its transcript row's key, and what it took from the held draft. */
+interface DispatchedMessage {
+  readonly key: string;
+  readonly taken: SentDraftExtras;
+}
+
+/** Now on `clock`, as the ISO-8601 instant a transcript row's time is read from. */
+function instantOf(clock: Clock): string {
+  return new Date(clock.now()).toISOString();
 }

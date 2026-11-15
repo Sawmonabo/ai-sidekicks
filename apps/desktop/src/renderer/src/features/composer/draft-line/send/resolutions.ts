@@ -44,9 +44,9 @@ export type ComposerSendResolution =
   | ComposerConsoleCommandResolution
   | ComposerEmptyResolution;
 
-/** What a message dispatch settled as: it reached the wire, or it was refused. */
+/** What a message dispatch settled as: the queue item the service made of it, or a refusal. */
 export type ComposerMessageOutcome =
-  | { readonly status: "sent" }
+  | { readonly status: "sent"; readonly queueItemId: string }
   | { readonly status: "refused"; readonly refusal: Refusal };
 
 /** What a send settled as. The composer renders exactly one of these; `empty` draws nothing. */

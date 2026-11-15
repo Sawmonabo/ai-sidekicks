@@ -1,12 +1,10 @@
-// Walks back through what was sent from this session and writes it into the line. The cursor
-// is a ref, not state, since it is never rendered and state would re-render the bar per key.
-// Histories are per draft key and resolved in the render body, so a keystroke before an effect
-// runs still walks this session's history; `forDraftKey` is idempotent, which makes that safe.
+// Walks back through what was sent from this session and writes it into the line. The composer
+// mounts once per session, with the session screen, so it holds the one session's history.
 
 import { useCallback, useState } from "react";
 
 import type { DraftStore } from "#renderer/store/drafts.js";
-import { SentMessageHistories, SentMessageHistory } from "../sent-message-history.js";
+import { SentMessageHistory } from "../sent-message-history.js";
 import { caretAtEnd, caretAtStart, type DraftCaret } from "../caret.js";
 
 /** The walk, and the record the dispatcher writes a sent body into. */
@@ -30,8 +28,7 @@ export function useSentMessageRecall(
 ): SentMessageRecall {
   // `useState` with an initializer constructs once; `useRef(new ...)` would build and discard
   // one per render.
-  const [histories] = useState(() => new SentMessageHistories());
-  const history = histories.forDraftKey(draftKey);
+  const [history] = useState(() => new SentMessageHistory());
 
   const recallOlder = useCallback(
     (caret: DraftCaret) => {

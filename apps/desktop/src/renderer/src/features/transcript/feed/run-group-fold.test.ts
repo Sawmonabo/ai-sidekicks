@@ -1,18 +1,12 @@
 // The run group fold, driven with no store and no React: the headers it stands, the folds a
 // person holds, and the window of a long run it lets through.
 
-import { act, renderHook } from "@testing-library/react";
-import { createElement } from "react";
 import { describe, expect, it } from "vitest";
-import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
-import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
-import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { RunGroupFold } from "./run-group-fold.js";
 import { measuredRunWindowInputs, wholeRunWindowInputs } from "./run-group-fold.test-support.js";
 import { runWindowEdgeKey, type RunWindowMeasure } from "../runs/call-window.js";
 import { longRunCallIds, longRunEvents, onlyRunGroupOf } from "../runs/call-window.test-support.js";
-import { useTranscriptFolds, type TranscriptFolds } from "./hooks/useTranscriptFolds.js";
 import { transcriptFixtureStampAt, transcriptFixtureStreamCursor } from "../logs.test-support.js";
 import {
   TranscriptWindowDerivation,
@@ -25,8 +19,6 @@ import { fixtureProviderNameOf } from "#renderer/features/transcript/system-mess
 const SESSION_ID = "session-run-group-cap";
 const RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
 const OTHER_RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150222";
-/** A run group's key, opaque to the folds a person holds. */
-const RUN_GROUP_KEY = "run-group-folded-by-the-reader";
 
 // One finished run of `memberCount` rows, alone, so every figure below is that run's.
 function oneRunLog(memberCount: number): readonly ProjectedSessionEvent[] {
@@ -296,55 +288,5 @@ describe("a run with nothing drawn has no header", () => {
       .viewportRows.map((row) => row.key);
     const runGroupKey = onlyRunGroupKey(replied);
     expect(keys).toStrictEqual(["event-0", "event-1", runGroupKey, "event-2", "event-3"]);
-  });
-});
-
-describe("the run group folds follow the session the pane is a log of", () => {
-  const OTHER_SESSION_ID = "session-the-reader-moved-to";
-
-  // The pane is not remounted between sessions: open session stores stay alive, so
-  // navigating re-renders this position.
-  function mountFolds(): ReturnType<
-    typeof renderHook<TranscriptFolds, { readonly sessionId: string }>
-  > {
-    const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
-    return renderHook(
-      (props: { readonly sessionId: string }) => useTranscriptFolds(props.sessionId),
-      {
-        initialProps: { sessionId: SESSION_ID },
-        wrapper: ({ children }: { readonly children?: React.ReactNode }) =>
-          createElement(FixtureBridgeProvider, { fixture, children }),
-      },
-    );
-  }
-
-  it("opens the next session's run groups, whatever was folded in the last", () => {
-    const folds = mountFolds();
-    act(() => {
-      folds.result.current.toggleRunGroup(RUN_GROUP_KEY);
-    });
-    expect([...folds.result.current.foldedRunGroupKeys]).toStrictEqual([RUN_GROUP_KEY]);
-
-    act(() => {
-      folds.rerender({ sessionId: OTHER_SESSION_ID });
-    });
-
-    // A run group belongs to the session whose log holds it; carrying the set over folds the wrong
-    // group.
-    expect([...folds.result.current.foldedRunGroupKeys]).toStrictEqual([]);
-  });
-
-  it("holds a session's own folds across a re-render at that same session", () => {
-    // Guards against a fix that resets on every render, opening a group whenever a row arrives.
-    const folds = mountFolds();
-    act(() => {
-      folds.result.current.toggleRunGroup(RUN_GROUP_KEY);
-    });
-
-    act(() => {
-      folds.rerender({ sessionId: SESSION_ID });
-    });
-
-    expect([...folds.result.current.foldedRunGroupKeys]).toStrictEqual([RUN_GROUP_KEY]);
   });
 });

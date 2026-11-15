@@ -5,6 +5,7 @@
 // opening or closing a pane) against a store whose writes fail.
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
+import { createElement, Fragment, type ReactElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { collectSentDiagnostics, type SentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
@@ -82,22 +83,28 @@ async function commitArrangement(container: HTMLElement): Promise<void> {
 }
 
 /**
- * One session screen and one store, with the route between two sessions inside that mount.
- * Unkeyed, because the screen stays mounted across a navigation between open sessions. One
- * bridge across both renders, since a replaced transport is a second reason to drop what the
- * column holds and a case letting both move could not say which did the clearing.
+ * One session screen and one store, routed between two sessions as the router mounts it: keyed by
+ * the session, so a route to another session mounts the screen again. One bridge across both
+ * renders, since a replaced transport is a second reason to drop what the column holds and a case
+ * letting both move could not say which did the clearing.
  */
 function renderRoutableSession(store: UiStateStore): {
   readonly container: HTMLElement;
   readonly routeTo: (session: SessionWithStore) => void;
 } {
   const fixture = createFixtureBridge({ scenario: SCENARIO });
+  const screenOf = (session: SessionWithStore): ReactElement =>
+    createElement(
+      Fragment,
+      { key: `session:${session.sessionId}` },
+      workspaceFor(session, store, fixture),
+    );
   const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
-  const { container, rerender } = render(workspaceFor(first, store, fixture));
+  const { container, rerender } = render(screenOf(first));
   return {
     container,
     routeTo: (session) => {
-      rerender(workspaceFor(session, store, fixture));
+      rerender(screenOf(session));
     },
   };
 }
@@ -144,7 +151,9 @@ describe("SessionScreen — the pane layout's save failure", () => {
     const rows = bannerRows(container);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.textContent).toBe(BANNER_TEXT);
-    expect(rows[0]?.previousElementSibling?.className).toContain("meridian-session-header");
+    // Header and banners each draw in their own render region, the banners' right after.
+    const headerRegion = rows[0]?.closest(".meridian-render-region")?.previousElementSibling;
+    expect(headerRegion?.firstElementChild?.className).toContain("meridian-session-header");
     // Each failure's own code, and an error of no kind the store knows as the store's refusal
     // for a database it cannot use, not a rejection the screen never hears.
     expect(await readSaveFailures()).toStrictEqual([
@@ -161,8 +170,8 @@ describe("SessionScreen — the pane layout's save failure", () => {
 
 describe("SessionScreen — the banner column belongs to the session that raised it", () => {
   it("stops showing one session's banners once the session screen routes to another", async () => {
-    // The screen is not remounted between two open sessions, so a banner held for the mount's
-    // lifetime would stand over the second's pane layout, about an act nobody performed there.
+    // A banner raised in one session would stand over the second's pane layout, about an act
+    // nobody performed there.
     const { store, adapter } = await storeWithSavedLayouts();
     const { container, routeTo } = renderRoutableSession(store);
     await awaitRestoredPaneLayout(container);

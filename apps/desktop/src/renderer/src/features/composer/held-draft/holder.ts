@@ -34,6 +34,16 @@ export interface HeldDraftReading {
   readonly saveRefusal: ExtendedRefusal | undefined;
 }
 
+/**
+ * What a send took out of the held draft: the extras it carried, the staged files they name, and
+ * the call each skill pick wrote into the line, so a send that comes back puts each back as it was.
+ */
+export interface SentDraftExtras {
+  readonly extras: SessionDraftExtras;
+  readonly files: readonly SessionAttachmentSummary[];
+  readonly callFormByPick: ReadonlyMap<string, string>;
+}
+
 /** How a holder saves: the daemon call, and the clock the pause is timed on. */
 export interface DraftSaving {
   readonly clock: Clock;
@@ -201,15 +211,21 @@ export class ComposerHeldDraft {
 
   /**
    * Drop from what rides with the words what a send carried, and save the draft without it. What
-   * was picked or staged after the send left stays for the next message.
+   * was picked or staged after the send left stays for the next message. Answers what was taken,
+   * which `restoreSent` puts back.
    */
-  public clearSent(sent: SessionDraftExtras): void {
+  public clearSent(sent: SessionDraftExtras): SentDraftExtras {
     const { extras, files } = this.#reading;
     const sentFiles = new Set(sent.attachments ?? []);
     const sentSkills = new Set((sent.skills ?? []).map(skillPickKey));
     const attachments = (extras.attachments ?? []).filter((id) => !sentFiles.has(id));
     const skills = (extras.skills ?? []).filter((pick) => !sentSkills.has(skillPickKey(pick)));
+    const callFormByPick = new Map<string, string>();
     for (const key of sentSkills) {
+      const callForm = this.#callFormByPick.get(key);
+      if (callForm !== undefined) {
+        callFormByPick.set(key, callForm);
+      }
       this.#callFormByPick.delete(key);
     }
     const kept: SessionDraftExtras = {
@@ -227,6 +243,45 @@ export class ComposerHeldDraft {
       ...this.#reading,
       extras: kept,
       files: files.filter((file) => !sentFiles.has(file.artifactId)),
+    });
+    this.saveNow();
+    return {
+      extras: sent,
+      files: files.filter((file) => sentFiles.has(file.artifactId)),
+      callFormByPick,
+    };
+  }
+
+  /**
+   * Put back what a send that came back carried, ahead of what was picked or staged since, and
+   * save the draft with it. A turn speed or repository chosen since stays as chosen.
+   */
+  public restoreSent(sent: SentDraftExtras): void {
+    const { extras, files } = this.#reading;
+    const sentFiles = new Set(sent.extras.attachments ?? []);
+    const sentSkills = new Set((sent.extras.skills ?? []).map(skillPickKey));
+    const attachments = [
+      ...(sent.extras.attachments ?? []),
+      ...(extras.attachments ?? []).filter((id) => !sentFiles.has(id)),
+    ];
+    const skills = [
+      ...(sent.extras.skills ?? []),
+      ...(extras.skills ?? []).filter((pick) => !sentSkills.has(skillPickKey(pick))),
+    ];
+    for (const [key, callForm] of sent.callFormByPick) {
+      this.#callFormByPick.set(key, callForm);
+    }
+    const outputSpeedForTurn = extras.outputSpeedForTurn ?? sent.extras.outputSpeedForTurn;
+    const workspaceId = extras.workspaceId ?? sent.extras.workspaceId;
+    this.#publish({
+      ...this.#reading,
+      extras: {
+        ...(attachments.length === 0 ? {} : { attachments }),
+        ...(skills.length === 0 ? {} : { skills }),
+        ...(outputSpeedForTurn === undefined ? {} : { outputSpeedForTurn }),
+        ...(workspaceId === undefined ? {} : { workspaceId }),
+      },
+      files: [...sent.files, ...files.filter((file) => !sentFiles.has(file.artifactId))],
     });
     this.saveNow();
   }

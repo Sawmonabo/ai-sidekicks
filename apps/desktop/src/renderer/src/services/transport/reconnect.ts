@@ -40,7 +40,7 @@ export class TransportReconnectSignal implements TransportReconnectObservable {
   readonly #reconnects = new Emitter<void>("transport reconnect");
   #reachability: TransportReachability = "unknown";
 
-  /** What has been observed so far. Read by tests and by nothing that renders. */
+  /** What has been observed so far. Read where a call or a stream leaves, never by a view. */
   public get reachability(): TransportReachability {
     return this.#reachability;
   }
