@@ -353,11 +353,13 @@ fn adopt_listed_turns(
     listed_turn_ids: Vec<String>,
     message_id: &str,
 ) {
-    let _unheard = inbound.push(CodexSessionInbound::Call(CodexSessionCall::AdoptCut {
-        thread_id,
-        listed_turn_ids,
-        message_id: message_id.to_owned(),
-    }));
+    let _unheard = inbound
+        .push(CodexSessionInbound::Call(CodexSessionCall::AdoptCut {
+            thread_id,
+            listed_turn_ids,
+            message_id: message_id.to_owned(),
+        }))
+        .is_ok();
 }
 
 // Records on the session's task the turn Codex listed holding `message_id` on `thread_id`; a
@@ -368,13 +370,15 @@ fn record_message_turn(
     message_id: &str,
     turn_id: String,
 ) {
-    let _unheard = inbound.push(CodexSessionInbound::Call(
-        CodexSessionCall::RecordMessageTurn {
-            thread_id,
-            message_id: message_id.to_owned(),
-            turn_id,
-        },
-    ));
+    let _unheard = inbound
+        .push(CodexSessionInbound::Call(
+            CodexSessionCall::RecordMessageTurn {
+                thread_id,
+                message_id: message_id.to_owned(),
+                turn_id,
+            },
+        ))
+        .is_ok();
 }
 
 // Interrupts every run whose turn runs and waits, within the request deadline, for each turn the

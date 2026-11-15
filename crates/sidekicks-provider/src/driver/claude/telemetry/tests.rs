@@ -25,7 +25,7 @@ use super::{CLAUDE_EXPORT_INTERVAL, ClaudeExportRegistration, ClaudeExports};
 use crate::bounded_poll::poll_until;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::pricing::ClaudeRequestPricer;
-use crate::driver::claude::run::routes::ClaudeRunRoutes;
+use crate::driver::claude::run::routes::{ClaudeRunRoutes, ClaudeTurnOpener};
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::scripted::daemon_services::RecordingUsage;
 use crate::driver::diagnostics::RecordedEvents;
@@ -281,14 +281,24 @@ async fn a_lone_span_is_priced_once_after_two_intervals_on_the_run_live_at_its_s
     let _registration = register.register(1, session_id, PROVIDER_SESSION);
     register
         .routes
-        .hold_turn(first, session_id, binding("binding-1"))
+        .hold_turn(
+            first,
+            session_id,
+            binding("binding-1"),
+            ClaudeTurnOpener::Daemon,
+        )
         .expect("the turn is free");
     let recorded_at = wall_after_step();
     register.routes.unbind_run(first);
     std::thread::sleep(WALL_STEP);
     register
         .routes
-        .hold_turn(second, session_id, binding("binding-2"))
+        .hold_turn(
+            second,
+            session_id,
+            binding("binding-2"),
+            ClaudeTurnOpener::Daemon,
+        )
         .expect("the turn was released");
     let lone_at = wall_after_step();
     std::thread::sleep(WALL_STEP);
@@ -362,7 +372,12 @@ async fn a_call_after_the_last_result_is_priced_once_at_the_process_end() {
     let _registration = register.register(1, session_id, PROVIDER_SESSION);
     register
         .routes
-        .hold_turn(run(), session_id, binding("binding-1"))
+        .hold_turn(
+            run(),
+            session_id,
+            binding("binding-1"),
+            ClaudeTurnOpener::Daemon,
+        )
         .expect("the turn is free");
     let first_at = wall_after_step();
     std::thread::sleep(WALL_STEP);
@@ -433,7 +448,12 @@ async fn an_exported_request_is_charged_to_the_account_its_process_ran_on_as_it_
     let _registration = register.register(1, session_id, PROVIDER_SESSION);
     register
         .routes
-        .hold_turn(run(), session_id, binding("binding-1"))
+        .hold_turn(
+            run(),
+            session_id,
+            binding("binding-1"),
+            ClaudeTurnOpener::Daemon,
+        )
         .expect("the turn is free");
     let before_at = wall_after_step();
     std::thread::sleep(WALL_STEP);
@@ -474,7 +494,12 @@ async fn a_reaped_process_s_requests_are_decided_as_its_registration_drops() {
     let registration = register.register(1, session_id, PROVIDER_SESSION);
     register
         .routes
-        .hold_turn(run(), session_id, binding("binding-1"))
+        .hold_turn(
+            run(),
+            session_id,
+            binding("binding-1"),
+            ClaudeTurnOpener::Daemon,
+        )
         .expect("the turn is free");
     let at_ms = wall_after_step();
     register
@@ -592,7 +617,12 @@ async fn a_priced_request_s_log_line_carries_no_identity_attribute() {
     let _registration = register.register(1, session_id, PROVIDER_SESSION);
     register
         .routes
-        .hold_turn(run(), session_id, binding("binding-1"))
+        .hold_turn(
+            run(),
+            session_id,
+            binding("binding-1"),
+            ClaudeTurnOpener::Daemon,
+        )
         .expect("the turn is free");
     let at_ms = wall_after_step();
     register
@@ -634,11 +664,21 @@ async fn a_record_under_one_process_s_bearer_naming_another_s_session_is_dropped
     let _registration_b = register.register(2, session_b, OTHER_PROVIDER_SESSION);
     register
         .routes
-        .hold_turn(run(), session_a, binding("binding-a"))
+        .hold_turn(
+            run(),
+            session_a,
+            binding("binding-a"),
+            ClaudeTurnOpener::Daemon,
+        )
         .expect("A's turn is free");
     register
         .routes
-        .hold_turn(run(), session_b, binding("binding-b"))
+        .hold_turn(
+            run(),
+            session_b,
+            binding("binding-b"),
+            ClaudeTurnOpener::Daemon,
+        )
         .expect("B's turn is free");
     let at_ms = wall_after_step();
 
