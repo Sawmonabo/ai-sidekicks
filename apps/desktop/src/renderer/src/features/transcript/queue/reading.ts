@@ -1,11 +1,14 @@
 // One session's queue reading: the feed views read, its watchers, and the refresh scheduler.
-// The list, tail, cancel and retry are calls it is handed. The tail opens first and the snapshot
-// is read behind it, since a list read with no stream up is stale on arrival. Rows change only
-// when the daemon says so (a cancel or retry only confirms the request); canceled and replaced
-// rows stay in the feed.
+// The list, tail, cancel, retry and reorder are calls it is handed. The tail opens first and the
+// snapshot is read behind it, since a list read with no stream up is stale on arrival. Rows change
+// only when the daemon says so (a cancel, retry or reorder only confirms the request); canceled
+// and replaced rows stay in the feed.
 
 import type {
   AgentQueueItemCreateRequest,
+  AgentQueueItemCreateResponse,
+  AgentQueueItemReorderRequest,
+  QueueItemId,
   QueueItemSummary,
   RunQueueStreamFrame,
 } from "@ai-sidekicks/contracts/run/queue";
@@ -40,10 +43,18 @@ export type QueueTailCall = (
 ) => () => void;
 
 /**
- * Sends a not-delivered message again through `agent.queueItem.create`, the request replacing it in its
- * own words. Rejects where the daemon refuses or cannot be reached.
+ * Sends a not-delivered message again through `agent.queueItem.create`, the request replacing it
+ * in its own words, answering the item it queued. Rejects where the daemon refuses or cannot be reached.
  */
-export type QueueRetryCall = (request: AgentQueueItemCreateRequest) => Promise<void>;
+export type QueueRetryCall = (
+  request: AgentQueueItemCreateRequest,
+) => Promise<AgentQueueItemCreateResponse>;
+
+/**
+ * Puts the waiting items in a new order through `agent.queueItem.reorder`. Rejects where the
+ * daemon refuses or cannot be reached.
+ */
+export type QueueReorderCall = (request: AgentQueueItemReorderRequest) => Promise<void>;
 
 /** The calls one queue reading makes. */
 export interface QueueCalls {
@@ -52,6 +63,7 @@ export interface QueueCalls {
   /** Cancels one waiting item before it is admitted. */
   readonly cancel: QueueItemCall;
   readonly retry: QueueRetryCall;
+  readonly reorder: QueueReorderCall;
 }
 
 /**
@@ -69,6 +81,13 @@ export interface QueueFeed extends WireReadState {
   readonly pendingRetryIds: ReadonlySet<string>;
   /** Sends one not-delivered item again; a second ask while one is in flight does nothing. */
   readonly retryItem: (queueItemId: string) => Promise<void>;
+  /** The items this reading's retries queued, so a retry that fails again is told apart. */
+  readonly retriedItemIds: ReadonlySet<string>;
+  /**
+   * Puts the waiting items in `queueItemIds`' order, which names each waiting item once. Rejects
+   * with the daemon's refusal; the rows move when the tail reports the new order.
+   */
+  readonly reorderItems: (queueItemIds: readonly string[]) => Promise<void>;
   /** Reads the queue again on a person's press, as `Try again` on a failed read asks. */
   readonly readAgain: () => void;
 }
@@ -102,6 +121,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
   #phase: WireReadPhase = "reading";
   #readRefusal: ExtendedRefusal | undefined = undefined;
   #items: readonly QueueItemSummary[] = EMPTY_ITEMS;
+  #retriedItemIds: ReadonlySet<string> = new Set<string>();
   #feed: QueueFeed;
   readonly #readAgain = (): void => {
     this.requestRead("user-request");
@@ -109,6 +129,19 @@ export class SessionQueueReading implements ReadTriggerTarget {
 
   /** The reading as it stands. One object for every watcher, stable between changes. */
   public snapshot = (): QueueFeed => this.#feed;
+
+  readonly #reorderItems = async (queueItemIds: readonly string[]): Promise<void> => {
+    const [first, ...rest] = queueItemIds.map((queueItemId) =>
+      heldIdAsWireId<QueueItemId>(queueItemId),
+    );
+    if (first === undefined) {
+      return;
+    }
+    await this.#calls.reorder({
+      sessionId: heldIdAsWireId(this.#sessionId),
+      queueItemIds: [first, ...rest],
+    });
+  };
 
   public constructor(clock: Clock, sessionId: string, calls: QueueCalls, onIdle: () => void) {
     this.#sessionId = sessionId;
@@ -224,7 +257,9 @@ export class SessionQueueReading implements ReadTriggerTarget {
       content: item.content,
       replacesQueueItemId: item.id,
     };
-    await this.#calls.retry(request);
+    const queued = await this.#calls.retry(request);
+    this.#retriedItemIds = new Set([...this.#retriedItemIds, queued.queueItemId]);
+    this.#publish();
   }
 
   #composeFeed(): QueueFeed {
@@ -235,6 +270,8 @@ export class SessionQueueReading implements ReadTriggerTarget {
       cancelItem: cancels.ask,
       pendingRetryIds: retries.pendingIds,
       retryItem: retries.ask,
+      retriedItemIds: this.#retriedItemIds,
+      reorderItems: this.#reorderItems,
       readAgain: this.#readAgain,
       phase: this.#phase,
       readRefusal: this.#readRefusal,

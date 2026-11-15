@@ -1,8 +1,9 @@
-// The messages this window sent into one session, from the press until the session's store closes,
-// and the sends that failed. A message is in the transcript from the press, under the key its send
-// carries, and keeps that key once the service has it, so its row never mounts twice; a failed
-// send's row leaves and one line saying why stands where it stood. Held with the session store, so
-// a transcript mounted again draws them as they were, and none is written anywhere.
+// The messages this window sent into one session, from the press until the transcript lets them
+// go, and the sends that failed. A message is in the transcript from the press, under the key its
+// send carries, and keeps that key once the service has it, so its row never mounts twice; a
+// failed send's row leaves and one line saying why stands where it stood, for the store's life. A
+// sent message is let go once no row in the store's window reads its key. Held with the session
+// store, so a transcript mounted again draws them as they were, and none is written anywhere.
 
 import { Emitter } from "#renderer/lib/emitter.js";
 
@@ -16,6 +17,11 @@ export interface SentMessage {
   readonly sentAt: string;
   /** The queue item the service answered with; absent until it answers. */
   readonly queueItemId?: string;
+  /**
+   * The waiting item an edit of this row replaces, whose place the row keeps until the reading
+   * reads the item that replaced it.
+   */
+  readonly editOf?: string;
 }
 
 /** A send that failed: the line standing where its row stood. */
@@ -57,6 +63,34 @@ export class SentMessages {
         entry.kind === "sent" && entry.key === key ? { ...entry, queueItemId } : entry,
       ),
     );
+  }
+
+  /**
+   * The row under `key` sent again in new words, replacing the waiting item `editOf` in its place:
+   * a row this window sent keeps its entry, and a row it did not send takes one under its key.
+   * Returns what puts the row back as it was, for an edit the service refuses.
+   */
+  public edit(key: string, content: string, sentAt: string, editOf: string): () => void {
+    const before = this.#entries;
+    const edited: SentMessage = { kind: "sent", key, content, sentAt, editOf };
+    this.#publish(
+      before.some((entry) => entry.key === key)
+        ? before.map((entry) => (entry.key === key ? edited : entry))
+        : [...before, edited],
+    );
+    return () => {
+      const restored = before.find((entry) => entry.key === key);
+      this.#publish(
+        restored === undefined
+          ? this.#entries.filter((entry) => entry.key !== key)
+          : this.#entries.map((entry) => (entry.key === key ? restored : entry)),
+      );
+    };
+  }
+
+  /** Lets the sent messages under `keys` go: no row in the store's window reads them now. */
+  public release(keys: ReadonlySet<string>): void {
+    this.#publish(this.#entries.filter((entry) => entry.kind === "failed" || !keys.has(entry.key)));
   }
 
   /** The send pressed under its key failed: its row leaves and the line stands in its place. */

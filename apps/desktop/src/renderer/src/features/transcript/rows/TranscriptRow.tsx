@@ -107,10 +107,23 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
             waitingRow === undefined || waitingRows === undefined
               ? undefined
               : {
-                  notice: <WaitingRowNotice waitingRow={waitingRow} waitingRows={waitingRows} />,
-                  controls: (
-                    <WaitingRowControls waitingRow={waitingRow} waitingRows={waitingRows} />
+                  notice: (
+                    <WaitingRowNotice
+                      rowKey={rowId}
+                      waitingRow={waitingRow}
+                      waitingRows={waitingRows}
+                    />
                   ),
+                  controls: (
+                    <WaitingRowControls
+                      rowKey={rowId}
+                      waitingRow={waitingRow}
+                      waitingRows={waitingRows}
+                    />
+                  ),
+                  isEditing: waitingRows.editingRowKey === rowId,
+                  isUndelivered: waitingRow.item?.state === "notDelivered",
+                  cardRef: waitingRows.drag.itemRef(rowId),
                 }
           }
           thinkingRow={

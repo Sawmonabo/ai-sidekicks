@@ -1,7 +1,7 @@
-// The calls one session's queue reading makes, over the daemon: the list, the live tail, a cancel
-// and a retry. A refused call rejects with the daemon's refusal, which the reading and the row's
-// control draw; the tail is opened again when it ends, and the window's returning edge reads the
-// list again for what the gap hid.
+// The calls one session's queue reading makes, over the daemon: the list, the live tail, a cancel,
+// a retry and a reorder. A refused call rejects with the daemon's refusal, which the reading and
+// the row's control draw; the tail is opened again when it ends, and the window's returning edge
+// reads the list again for what the gap hid.
 
 import type { RunQueueStreamFrame } from "@ai-sidekicks/contracts/run/queue";
 
@@ -45,8 +45,10 @@ export function queueCallsThroughDaemon(bridge: PlatformBridge): QueueCalls {
         }),
       );
     },
-    retry: async (request) => {
-      unwrapDaemonReply(await callDaemon(bridge, "agent.queueItem.create", request));
+    retry: async (request) =>
+      unwrapDaemonReply(await callDaemon(bridge, "agent.queueItem.create", request)),
+    reorder: async (request) => {
+      unwrapDaemonReply(await callDaemon(bridge, "agent.queueItem.reorder", request));
     },
   };
 }

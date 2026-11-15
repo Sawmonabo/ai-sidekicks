@@ -15,13 +15,15 @@
 // them leave the composer, and the row settles under the same key once the service has it. A
 // message that fails comes back: its row leaves the transcript, the words, files and skill picks
 // go back into the composer with the caret where it stood, and one line in the transcript says
-// why. A send handed off, a message or a console word alike, pins the follow of the transcript
-// mounted in this composer's window, so the reader is taken to the bottom whatever they had
-// scrolled to.
+// why. Sent while the draft edits a waiting message, it replaces that message in place under the
+// row's own key, and the draft gets back what it held before the edit; refused, the row goes back
+// to its words and the edit's words to the draft. A send handed off, a message or a console word
+// alike, pins the follow of the transcript mounted in this composer's window, so the reader is
+// taken to the bottom whatever they had scrolled to.
 
 import { useCallback, useMemo } from "react";
 
-import type { AgentQueueItemCreateRequest } from "@ai-sidekicks/contracts/run/queue";
+import type { AgentQueueItemCreateRequest, QueueItemId } from "@ai-sidekicks/contracts/run/queue";
 
 import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
@@ -29,6 +31,8 @@ import type { Clock } from "#renderer/lib/clock.js";
 import { mountedTranscript } from "#renderer/registries/transcript/registry.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import { CALL_REJECTED_FALLBACK } from "#renderer/services/daemon/reply.js";
+import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
+import { returnWordsToDraft } from "../../returned-words.js";
 import { selectTranscript } from "#renderer/store/session/selectors.js";
 import { composerDraftKey } from "../../draft-key.js";
 import type { SentDraftExtras } from "#renderer/features/composer/held-draft/holder.js";
@@ -37,7 +41,7 @@ import { useSettlementIdentities } from "../../hooks/useSettlementIdentities.js"
 import { composerRefusal, DAEMON_REFUSAL_ORIGIN, sendFailedLabel } from "../refusals.js";
 import { useSentMessageRecall } from "../../hooks/useSentMessageRecall.js";
 import { visitOperationKey, type ComposerSettlementIdentity } from "../settlement.js";
-import { ComposerSendRouter, carriesNothing } from "../router.js";
+import { ComposerSendRouter, carriesNothing, type ComposerSendExtras } from "../router.js";
 import type { SendController, SendControllerDependencies } from "../controller-contract.js";
 
 /** What a recognized command with nowhere to run says; the text is still in the line. */
@@ -137,17 +141,33 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     try {
       // A file dropped just before the press is still copying; the message waits and carries it.
       await heldDraft.whenCopied();
-      const extras = heldDraft.extrasFor(body);
+      // The waiting message the draft edits, read at the press: the send replaces it in place.
+      const edit = sessionStore.composerRequests.editSnapshot();
+      const extras: ComposerSendExtras =
+        edit === undefined
+          ? heldDraft.extrasFor(body)
+          : {
+              ...heldDraft.extrasFor(body),
+              replacesQueueItemId: heldIdAsWireId<QueueItemId>(edit.queueItemId),
+            };
       // The message leaves the composer for the transcript as its request leaves for the service.
       const onDispatch = (request: AgentQueueItemCreateRequest): void => {
-        const key = request.clientIdempotencyKey;
-        sessionStore.sentMessages.press({
-          key,
-          content: request.content,
-          sentAt: instantOf(clock),
-        });
+        const sentAt = instantOf(clock);
+        let key: string = request.clientIdempotencyKey;
+        let undoEdit: (() => void) | undefined;
+        if (edit === undefined) {
+          sessionStore.sentMessages.press({ key, content: request.content, sentAt });
+        } else {
+          // The edit keeps the row it edits, so the row never mounts twice.
+          key = edit.rowKey;
+          undoEdit = sessionStore.sentMessages.edit(key, request.content, sentAt, edit.queueItemId);
+        }
         clearSentDraft(identity, draftKey);
-        dispatched.message = { key, taken: heldDraft.clearSent(extras) };
+        dispatched.message = { key, taken: heldDraft.clearSent(extras), undoEdit };
+        if (edit !== undefined) {
+          draftStore.write(draftKey, edit.draftBefore);
+          sessionStore.composerRequests.publishEdit(undefined);
+        }
         pinFollow(identity);
       };
       const routed = await router.send(body, target, extras, onDispatch);
@@ -216,18 +236,22 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         return;
       }
       // The words go back ahead of anything typed since, with the caret where it stood.
-      const typedSince = draftStore.read(draftKey)?.text ?? "";
-      draftStore.write(draftKey, typedSince.length === 0 ? body : `${body}\n${typedSince}`);
+      returnWordsToDraft(draftStore, draftKey, body);
       heldDraft.restoreSent(message.taken);
       if (caret !== undefined && isCurrent(identity)) {
         lineCaret.place(caret);
       }
-      sessionStore.sentMessages.fail({
-        key: message.key,
-        label: sendFailedLabel(refusal, providerName),
-        failedAt: instantOf(clock),
-        afterEventId: selectTranscript(sessionStore.snapshot()).at(-1)?.id,
-      });
+      if (message.undoEdit === undefined) {
+        sessionStore.sentMessages.fail({
+          key: message.key,
+          label: sendFailedLabel(refusal, providerName),
+          failedAt: instantOf(clock),
+          afterEventId: selectTranscript(sessionStore.snapshot()).at(-1)?.id,
+        });
+      } else {
+        // A refused edit leaves the waiting message as it was, in its own words.
+        message.undoEdit();
+      }
       raiseRefusalBanner(refusal);
       settle(identity, undefined);
     } finally {
@@ -272,10 +296,14 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   };
 }
 
-/** A message that left: its transcript row's key, and what it took from the held draft. */
+/**
+ * A message that left: its transcript row's key, what it took from the held draft, and for an
+ * edit what puts the row back as it was.
+ */
 interface DispatchedMessage {
   readonly key: string;
   readonly taken: SentDraftExtras;
+  readonly undoEdit: (() => void) | undefined;
 }
 
 /** Now on `clock`, as the ISO-8601 instant a transcript row's time is read from. */

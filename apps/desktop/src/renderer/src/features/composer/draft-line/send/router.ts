@@ -27,6 +27,13 @@ import type {
 import { unparsableIdentifier } from "./refusals.js";
 import { dispatchQueuedMessage, type ComposerSendCalls } from "./dispatch.js";
 
+/**
+ * What rides with a message's words: the held draft's extras and, for an edit of a waiting
+ * message, the item it replaces in place.
+ */
+export type ComposerSendExtras = SessionDraftExtras &
+  Pick<AgentQueueItemCreateRequest, "replacesQueueItemId">;
+
 /** Hears a message's request as it leaves for the service, before the service answers it. */
 export type ComposerDispatchWatch = (request: AgentQueueItemCreateRequest) => void;
 
@@ -59,7 +66,7 @@ export class ComposerSendRouter {
   public resolve(
     text: string,
     target: ComposerTarget,
-    extras: SessionDraftExtras,
+    extras: ComposerSendExtras,
   ): ComposerSendResolution {
     if (carriesNothing(text, extras)) {
       return { outcome: "empty" };
@@ -78,7 +85,7 @@ export class ComposerSendRouter {
   public async send(
     text: string,
     target: ComposerTarget,
-    extras: SessionDraftExtras,
+    extras: ComposerSendExtras,
     onDispatch?: ComposerDispatchWatch,
   ): Promise<ComposerSendOutcome> {
     const resolution = this.resolve(text, target, extras);
@@ -100,7 +107,7 @@ export class ComposerSendRouter {
   public async sendAsTyped(
     text: string,
     target: ComposerTarget,
-    extras: SessionDraftExtras,
+    extras: ComposerSendExtras,
     onDispatch?: ComposerDispatchWatch,
   ): Promise<ComposerMessageOutcome> {
     return await this.#dispatchMessage(this.#resolveMessage(text, target, extras), onDispatch);
@@ -125,7 +132,7 @@ export class ComposerSendRouter {
   #resolveMessage(
     body: string,
     target: ComposerTarget,
-    extras: SessionDraftExtras,
+    extras: ComposerSendExtras,
   ): ComposerMessageResolution {
     const sessionId = readSessionId(target.sessionId);
     if (sessionId === undefined) {

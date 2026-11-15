@@ -14,6 +14,7 @@ import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionSto
 import { selectSessionShape } from "#renderer/store/session/selectors.js";
 import { DRAFT_PLACEHOLDERS } from "../caret.js";
 import { composerDraftKey } from "../draft-key.js";
+import { leaveWaitingMessageEdit } from "../returned-words.js";
 
 /** What the message line is handed: the composer's props and, for a measuring caller, its box. */
 export interface DraftLineProps extends ComposerProps {
@@ -38,13 +39,22 @@ export function DraftLine(props: DraftLineProps): React.JSX.Element {
     },
     [draftStore, draftKey],
   );
-  const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // A message on its way: its text and the reply's are parsed soon, so the parser starts now.
-    wakeMarkdownWorker();
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-    }
-  }, []);
+  const { sessionStore } = props;
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // A message on its way: its text and the reply's are parsed soon, so the parser starts now.
+      wakeMarkdownWorker();
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+      }
+      // Escape leaves an edit of a waiting message before anything below it on the ladder.
+      if (event.key === "Escape" && leaveWaitingMessageEdit(sessionStore, draftStore, draftKey)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    },
+    [sessionStore, draftStore, draftKey],
+  );
 
   // Lets a view elsewhere in the window ask for the caret. The ask carries nothing, and one
   // arriving while no composer is mounted reaches nobody.

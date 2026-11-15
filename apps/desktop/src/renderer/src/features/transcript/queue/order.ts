@@ -6,6 +6,11 @@ import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 
+/** Where a moved waiting item lands: just before one item, or just after one. */
+export type QueueMoveAnchor =
+  | { readonly before: string; readonly after?: undefined }
+  | { readonly after: string; readonly before?: undefined };
+
 /** The ordered fold of queue rows; the order rule lives here and nowhere else. */
 export class QueueOrder {
   #itemsById = new Map<string, QueueItemSummary>();
@@ -50,7 +55,25 @@ export class QueueOrder {
 }
 
 /**
- * Whether `candidate` is strictly newer than `held`. An unparseable stamp answers `false`, which
+ * The full order of the queue's waiting items once `movedItemId` moves beside `anchor`, as
+ * `agent.queueItem.reorder` takes it: every item waiting, of any kind, named once.
+ */
+export function reorderedQueueItemIds(
+  items: readonly QueueItemSummary[],
+  movedItemId: string,
+  anchor: QueueMoveAnchor,
+): readonly string[] {
+  const others = items
+    .filter((item) => item.state === "queued" && item.id !== movedItemId)
+    .sort((first, second) => first.position - second.position)
+    .map((item) => item.id as string);
+  const anchorIndex = others.indexOf(anchor.before ?? anchor.after);
+  const at = anchor.before === undefined ? anchorIndex + 1 : anchorIndex;
+  return [...others.slice(0, at), movedItemId, ...others.slice(at)];
+}
+
+/**
+ * Whether `candidate` is strictly newer than `held`. An unparsable stamp answers `false`, which
  * keeps the held row rather than letting an unreadable stamp overwrite a real reading.
  */
 function isStrictlyNewer(candidate: QueueItemSummary, held: QueueItemSummary): boolean {

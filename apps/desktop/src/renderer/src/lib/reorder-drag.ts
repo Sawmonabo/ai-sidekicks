@@ -36,10 +36,11 @@ export interface ReorderDragOptions<Key extends string> {
   /** Where the edge scroll's frames come from; paced by the pressed item's own window. */
   readonly clock: Clock;
   /**
-   * Commits a move: the item under `key` goes to `toIndex` in the order with it taken out. Called
-   * once per drag, on release, and only when the index changed.
+   * Commits a move: the item under `key` goes to `toIndex` in `drawnKeys`, the items drawn when
+   * the drag began in their order, with it taken out. Called once per drag, on release, and only
+   * when the index changed.
    */
-  readonly onReorder: (key: Key, toIndex: number) => void;
+  readonly onReorder: (key: Key, toIndex: number, drawnKeys: readonly Key[]) => void;
   /** Called on a release that leaves the order as it was, for an owner that says so. */
   readonly onDropInPlace?: (key: Key) => void;
   /** True where an item with no registered handle cannot be dragged at all. */
@@ -139,7 +140,11 @@ export class ReorderDrag<Key extends string> {
       slots: gesture.slots,
       scroller: gesture.scroller,
     };
-    this.#options.onReorder(home.key, gesture.to);
+    this.#options.onReorder(
+      home.key,
+      gesture.to,
+      gesture.slots.map((slot) => slot.key),
+    );
   };
 
   readonly #onKeyDown = (event: KeyboardEvent): void => {
@@ -385,6 +390,8 @@ export class ReorderDrag<Key extends string> {
       this.#options.axis === "horizontal" ? pointerX - gesture.pressX : pointerY - gesture.pressY;
     // The layout moves back by what the list scrolled, so the item adds it to stay on the pointer.
     const offset = travel + this.#scrolledBy(gesture.scroller);
+    // Armed before the write below, so reading the list's box never forces a fresh style pass.
+    this.#armEdgeScroll(gesture);
     gesture.element.style.transform = this.#translate(offset);
     announceScriptedMotion(gesture.element);
     const isBeyond = this.#options.beyond?.contains(pointerX, pointerY) ?? false;
@@ -401,7 +408,6 @@ export class ReorderDrag<Key extends string> {
       gesture.to = to;
       this.#makeRoom(gesture);
     }
-    this.#armEdgeScroll(gesture);
   }
 
   /** Arms one edge-scroll frame while the pointer holds inside an end of the scrolling list. */

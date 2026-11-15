@@ -154,13 +154,23 @@ export class RunControlDispatcher {
     return { kind: "queued", control: "steer", response, sent };
   }
 
-  /** Interrupt: `agent.run.intervene` with a fresh key and, where given, the reason. */
-  public async interrupt(target: RunControlTarget, reason?: string): Promise<RunControlOutcome> {
+  /**
+   * Interrupt: `agent.run.intervene` with a fresh key and, where given, the reason, and the
+   * waiting item `Send now` delivers ahead of the rest.
+   */
+  public async interrupt(
+    target: RunControlTarget,
+    options: { readonly reason?: string; readonly deliverFirst?: string } = {},
+  ): Promise<RunControlOutcome> {
+    const { reason, deliverFirst } = options;
     return await this.#settle("interrupt", target, {
       type: "interrupt",
       ...this.#keyedGuards(target),
       pending: "nextTurn",
       ...(reason === undefined ? {} : { reason }),
+      ...(deliverFirst === undefined
+        ? {}
+        : { deliverFirst: heldIdAsWireId<QueueItemId>(deliverFirst) }),
     });
   }
 

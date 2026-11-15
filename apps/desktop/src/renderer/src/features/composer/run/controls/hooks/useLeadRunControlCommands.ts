@@ -1,9 +1,11 @@
 // The composer's run controls: pause or resume and interrupt for the lead's live run, contributed
-// to the command palette while the composer is mounted, dispatched through the daemon. A child's
-// controls are reached in its own view, never from the composer.
+// to the command palette while the composer is mounted, dispatched through the daemon, and the
+// interrupt a waiting message's `Send now` makes through the same dispatcher. A child's controls
+// are reached in its own view, never from the composer.
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { callDaemon, unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
 import { readRunState } from "#renderer/services/daemon/wire/identifiers.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -15,11 +17,20 @@ import type { RunControlCalls } from "../services/dispatch.js";
 import { useRunControlCommands } from "./useRunControlCommands.js";
 import { useRunControlDispatch } from "./useRunControlDispatch.js";
 
+/** What the lead's controls offer beyond the palette: `Send now` on a waiting message. */
+export interface LeadRunControls {
+  /**
+   * Interrupts the lead's turn and delivers the waiting item first. Rejects with the daemon's
+   * refusal, or when the lead has no live run to interrupt.
+   */
+  readonly sendNow: (queueItemId: string) => Promise<void>;
+}
+
 /** Contribute the lead's live run's controls while the caller is mounted. */
 export function useLeadRunControlCommands(
   bridge: PlatformBridge,
   sessionStore: SessionStore,
-): void {
+): LeadRunControls {
   const target = useComposerAddress(sessionStore);
   const runs = useSessionPartition(sessionStore, "run");
   const calls = useMemo(() => runControlCallsOver(bridge), [bridge]);
@@ -35,6 +46,27 @@ export function useLeadRunControlCommands(
     [addressedRun, state, runVersion, sessionStore.sessionId],
   );
   useRunControlCommands({ run: leadRun, dispatchState });
+  const latestLeadRun = useLatestRef(leadRun);
+  const sendNow = useCallback(
+    async (queueItemId: string) => {
+      const run = latestLeadRun.current;
+      if (run === undefined) {
+        throw new Error("The lead has no live run for a waiting message to be sent ahead of");
+      }
+      const target = {
+        runId: run.runId,
+        expectedRunVersion: dispatchState.dispatcher.comparandFor(run.runId, run.runVersion),
+      };
+      const admission = dispatchState.dispatch({ runId: run.runId }, "interrupt", (dispatcher) =>
+        dispatcher.interrupt(target, { deliverFirst: queueItemId }),
+      );
+      if (admission.admitted) {
+        await admission.settled;
+      }
+    },
+    [latestLeadRun, dispatchState],
+  );
+  return useMemo(() => ({ sendNow }), [sendNow]);
 }
 
 /** The four control calls over the daemon; a refused call rejects with the daemon's refusal. */

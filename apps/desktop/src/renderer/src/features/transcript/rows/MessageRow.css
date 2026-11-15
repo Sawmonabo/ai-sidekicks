@@ -32,6 +32,16 @@
   color: var(--meridian-text-faint);
 }
 
+/* A waiting message whose delivery failed: the same outline, in red. */
+.meridian-message-card--undelivered {
+  outline-color: var(--meridian-red-mark);
+}
+
+/* The row the draft is editing holds its place with this one word. */
+.meridian-message-card__editing {
+  margin: 0;
+}
+
 /* Reasoning is an aside, and reads as one: the same layout, one step quieter. */
 .meridian-message-card--thinking {
   color: var(--meridian-text-muted);

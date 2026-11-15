@@ -1,10 +1,28 @@
-/* A waiting message's line and acts. The acts wear the shared action button
-   (`styles/action-buttons.css`) at its small size in the raised face; this sheet adds only the
-   pending state and the line under the words. */
+/* A waiting message's line and acts. The acts are quiet clickable words
+   (`meridian-clickable-word`); this sheet adds their row, the grip, the pending state and the line
+   under the words. */
+
+.meridian-waiting-row__acts {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
 
 .meridian-waiting-row__action:disabled {
   color: var(--meridian-text-muted);
   cursor: progress;
+}
+
+/* Two columns of dots the row is dragged by, drawn from the faint text color. */
+.meridian-waiting-row__grip {
+  inline-size: var(--meridian-space-3);
+  block-size: var(--meridian-space-4);
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+  background-image: radial-gradient(circle, var(--meridian-text-faint) 1px, transparent 1.5px);
+  background-size: 50% 25%;
+  cursor: grab;
 }
 
 /* Under the bubble at its right edge, faint, so it reads as the row's own state. */
@@ -15,6 +33,7 @@
   font-size: var(--meridian-text-xs);
 }
 
+/* A failed delivery: the row's line and the hook's words turn red. */
 .meridian-waiting-row__notice--failed {
   color: var(--meridian-red-text);
 }

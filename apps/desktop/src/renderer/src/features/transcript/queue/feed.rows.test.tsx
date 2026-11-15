@@ -1,5 +1,6 @@
 // What the feed does with the rows themselves: one cancel, one retry in the row's own words, the
-// order the list is kept in, and a sent message's row from the press to the agent taking it.
+// order the list is kept in, a move and an edit, and a sent message's row from the press to the
+// agent taking it.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -10,6 +11,7 @@ import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { SentMessages } from "#renderer/store/session/sent-messages.js";
+import { reorderedQueueItemIds } from "./order.js";
 import { SentMessagePlacement } from "./placement.js";
 import type { QueueFeed } from "./reading.js";
 import {
@@ -130,7 +132,7 @@ describe("a sent message is a row from the press", () => {
     expect(atPress.events.map((event) => event.id)).toStrictEqual(["e1", sendKey]);
     expect(atPress.waitingRowByKey.get(sendKey)).toStrictEqual({
       queueItemId: undefined,
-      state: undefined,
+      item: undefined,
     });
     const pressedRow = atPress.events[1];
     expect(pressedRow?.kind).toBe(USER_MESSAGE_EVENT_TYPE);
@@ -151,7 +153,7 @@ describe("a sent message is a row from the press", () => {
     expect(waiting.events.map((event) => event.id)).toStrictEqual(["e1", "e3", sendKey]);
     expect(waiting.waitingRowByKey.get(sendKey)).toStrictEqual({
       queueItemId: QUEUE_ITEM_ID,
-      state: "queued",
+      item: QUEUED_ROW,
     });
 
     // Taken: it stands where the agent took it, no longer waiting, under the same key.
@@ -168,6 +170,74 @@ describe("a sent message is a row from the press", () => {
     expect(taken.waitingRowByKey.size).toBe(0);
   });
 });
+
+describe("a waiting row moves and is edited in its place", () => {
+  it("sends the queue's whole new order, and an edit keeps the row's key and place", async () => {
+    // Mutations: a move that names only the rows drawn is refused by the service; an edit drawn
+    // under its new item's id mounts a second row; an edit sorted as a fresh send drops to the end.
+    const third = "3c4d5e6f-7081-4293-a4b5-b6c7d8e9f0a1";
+    const queued = [
+      queueRow(QUEUE_ITEM_A, "queued", "2026-09-02T09:00:01.000Z", 0),
+      queueRow(QUEUE_ITEM_B, "queued", "2026-09-02T09:00:01.000Z", 1),
+      queueRow(third, "queued", "2026-09-02T09:00:01.000Z", 2),
+    ];
+    const { latest, reorderRequests } = await openFeed(queued);
+    await act(async () => {
+      await latest().reorderItems(
+        reorderedQueueItemIds(latest().items, third, { before: QUEUE_ITEM_A }),
+      );
+    });
+    expect(reorderRequests).toStrictEqual([
+      { sessionId: SESSION_ID, queueItemIds: [third, QUEUE_ITEM_A, QUEUE_ITEM_B] },
+    ]);
+
+    const placement = new SentMessagePlacement();
+    const sentMessages = new SentMessages();
+    const rowKey = "send-1";
+    sentMessages.press({ key: rowKey, content: "Also run the linter", sentAt: AT });
+    sentMessages.settle(rowKey, QUEUE_ITEM_A);
+    sentMessages.edit(rowKey, "Run the linter first", AT, QUEUE_ITEM_A);
+    const editing = placement.place([], sentMessages.snapshot(), queued.slice(0, 2), true);
+    expect(editing.events.map((event) => event.id)).toStrictEqual([rowKey, QUEUE_ITEM_B]);
+    expect(editing.events[0]?.payload).toStrictEqual({ message: "Run the linter first" });
+
+    // The service answers with the item that replaced it, which takes the old one's place.
+    const replacement = "4d5e6f70-8192-43a4-b5c6-c7d8e9f0a1b2";
+    sentMessages.settle(rowKey, replacement);
+    const replaced = placement.place(
+      [],
+      sentMessages.snapshot(),
+      [
+        queueRow(QUEUE_ITEM_A, "superseded", "2026-09-02T09:00:02.000Z", 0),
+        queueRow(replacement, "queued", "2026-09-02T09:00:02.000Z", 0),
+        queued[1] ?? QUEUED_ROW,
+      ],
+      true,
+    );
+    expect(replaced.events.map((event) => event.id)).toStrictEqual([rowKey, QUEUE_ITEM_B]);
+    expect(replaced.waitingRowByKey.get(rowKey)?.queueItemId).toBe(replacement);
+  });
+});
+
+describe("one row per message", () => {
+  it("draws the log's message under the send's key before the service answers", () => {
+    // Mutation: a log row the reply has not tied to the send draws beside the waiting row.
+    const placement = new SentMessagePlacement();
+    const sentMessages = new SentMessages();
+    const sendKey = "send-1";
+    sentMessages.press({ key: sendKey, content: "Also run the linter", sentAt: AT });
+    const sent = loggedEvent("e1", 1, USER_MESSAGE_EVENT_TYPE, {
+      queueItemId: QUEUE_ITEM_ID,
+      message: "Also run the linter",
+    });
+    const placed = placement.place([sent], sentMessages.snapshot(), [QUEUED_ROW], true);
+    expect(placed.events.map((event) => event.id)).toStrictEqual([sendKey]);
+    expect(placed.waitingRowByKey.get(sendKey)?.queueItemId).toBe(QUEUE_ITEM_ID);
+  });
+});
+
+/** When the cases' messages were sent. */
+const AT = "2026-09-02T09:00:00.000Z";
 
 /** One event of the session's log, as the store holds it. */
 function loggedEvent(

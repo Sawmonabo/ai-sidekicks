@@ -30,7 +30,7 @@ export interface ReorderDragSettings<Key extends string> {
 export function useReorderDrag<Key extends string>(
   axis: ReorderAxis,
   keys: readonly Key[],
-  onReorder: (key: Key, toIndex: number) => void,
+  onReorder: (key: Key, toIndex: number, drawnKeys: readonly Key[]) => void,
   clock: Clock,
   settings?: ReorderDragSettings<Key>,
 ): ReorderDrag<Key> {
@@ -43,8 +43,8 @@ export function useReorderDrag<Key extends string>(
         glideMs: REORDER_GLIDE_MS,
         glideEasing: CHROME_SETTLE_EASING,
         clock,
-        onReorder: (key, toIndex) => {
-          latestOnReorder.current(key, toIndex);
+        onReorder: (key, toIndex, drawnKeys) => {
+          latestOnReorder.current(key, toIndex, drawnKeys);
         },
         onDropInPlace: (key) => {
           latestSettings.current?.onDropInPlace?.(key);

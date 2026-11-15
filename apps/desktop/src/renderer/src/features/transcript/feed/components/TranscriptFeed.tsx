@@ -56,7 +56,8 @@ import { type RunGroup } from "../../runs/groups.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 import { useQueueFeed, useQueueRepairRead } from "../../queue/feed.js";
 import { queueCallsThroughDaemon } from "../../queue/services/daemon-calls.js";
-import { WaitingRowsContext, type WaitingRows } from "../../queue/waiting-rows.js";
+import { useWaitingRows } from "../../queue/hooks/useWaitingRows.js";
+import { WaitingRowsContext } from "../../queue/waiting-rows.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 
 /** What the feed is a log of and the row body it draws each row through. */
@@ -326,11 +327,15 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     history: copyHistory,
   });
 
-  const isServiceUnreachable = props.isServiceUnreachable ?? false;
-  const waitingRows = useMemo<WaitingRows>(
-    () => ({ waitingRowByKey: windows.waitingRowByKey, queue, isServiceUnreachable }),
-    [windows.waitingRowByKey, queue, isServiceUnreachable],
-  );
+  const hasActiveTurn = transcriptWindow.liveRunIds.size > 0;
+  const waitingRows = useWaitingRows({
+    sessionStore: props.sessionStore,
+    queue,
+    waitingRowByKey: windows.waitingRowByKey,
+    hasActiveTurn,
+    isServiceUnreachable: props.isServiceUnreachable ?? false,
+    clock,
+  });
 
   // `Load earlier` comes from `history/`, over the daemon's verdict about the log before the head.
   return (
@@ -352,7 +357,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
                         feedLabel={props.feedLabel}
                         firstReadSettled={windows.firstReadSettled}
                         isShown={isDrawable}
-                        hasActiveTurn={transcriptWindow.liveRunIds.size > 0}
+                        hasActiveTurn={hasActiveTurn}
                         earlierHistoryControl={
                           history === undefined ? undefined : <LoadEarlier history={history} />
                         }

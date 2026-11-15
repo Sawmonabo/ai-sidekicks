@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 
@@ -79,27 +79,28 @@ export function useTranscriptProjection(
       new SentMessagePlacement().place(events, sentEntries, queueItems, isTailLive).events,
     [sentEntries, queueItems, isTailLive],
   );
-  return useMemo(() => {
-    const placed = held.placement.place(transcript, sentEntries, queueItems, isTailLive);
-    return {
+  const placed = useMemo(
+    () => held.placement.place(transcript, sentEntries, queueItems, isTailLive),
+    [held, transcript, sentEntries, queueItems, isTailLive],
+  );
+  // A send no row of the store's window reads any longer is let go, after the pass that found it.
+  const { releasableKeys } = placed;
+  useEffect(() => {
+    if (releasableKeys.size > 0) {
+      sentMessages.release(releasableKeys);
+    }
+  }, [sentMessages, releasableKeys]);
+  return useMemo(
+    () => ({
       unfurledWindow: held.derivation.derive(placed.events, runEntities, nameOfProvider),
       waitingRowByKey: placed.waitingRowByKey,
       runEntities,
       deriveHeldWindow,
       placeSentMessages,
       providerNameOf: nameOfProvider,
-    };
-  }, [
-    transcript,
-    sentEntries,
-    queueItems,
-    isTailLive,
-    runEntities,
-    held,
-    deriveHeldWindow,
-    placeSentMessages,
-    nameOfProvider,
-  ]);
+    }),
+    [placed, runEntities, held, deriveHeldWindow, placeSentMessages, nameOfProvider],
+  );
 }
 
 /** One session's derivation and the placement its log passes through first. */

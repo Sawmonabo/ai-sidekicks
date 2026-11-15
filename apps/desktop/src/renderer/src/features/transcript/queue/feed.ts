@@ -159,6 +159,7 @@ function useForwardedCalls(calls: QueueCalls): QueueCalls {
       tail: (sessionId, onFrame) => latest.current.tail(sessionId, onFrame),
       cancel: (queueItemId) => latest.current.cancel(queueItemId),
       retry: (request) => latest.current.retry(request),
+      reorder: (request) => latest.current.reorder(request),
     }),
     [latest],
   );

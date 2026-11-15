@@ -1,0 +1,198 @@
+// What the feed hands its waiting rows: the acts on them, the drag and keys that move one within
+// the stack, and the edit the draft holds. A move sends the queue's whole new order and the rows
+// move when the reading reports it; a refused move puts the rows back and says the refusal's own
+// words under the row. A retry the person's own prompt hook blocks again hands its words back to
+// the draft and takes the row out, and so does a message the service hands back after taking it.
+
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+
+import { USER_MESSAGE_EVENT_TYPE } from "@ai-sidekicks/contracts/transcript/operations";
+
+import { useReorderDrag } from "#renderer/hooks/useReorderDrag.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
+import { selectTranscript } from "#renderer/store/session/selectors.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
+import { reorderedQueueItemIds, type QueueMoveAnchor } from "../order.js";
+import { handedBackItemIdOf, type WaitingRow } from "../placement.js";
+import type { QueueFeed } from "../reading.js";
+import type { WaitingRows } from "../waiting-rows.js";
+
+/** What `useWaitingRows` reads: the session, its queue reading and the rows the feed placed. */
+export interface WaitingRowsInput {
+  readonly sessionStore: SessionStore;
+  readonly queue: QueueFeed;
+  readonly waitingRowByKey: ReadonlyMap<string, WaitingRow>;
+  readonly hasActiveTurn: boolean;
+  readonly isServiceUnreachable: boolean;
+  readonly clock: Clock;
+}
+
+/** The waiting rows' context value for one feed, with the drag that moves them. */
+export function useWaitingRows(input: WaitingRowsInput): WaitingRows {
+  const { sessionStore, queue, waitingRowByKey, hasActiveTurn, isServiceUnreachable, clock } =
+    input;
+  const { composerRequests } = sessionStore;
+  const edit = useSyncExternalStore(composerRequests.subscribe, composerRequests.editSnapshot);
+  const [moveRefusal, setMoveRefusal] = useState<WaitingRows["moveRefusal"]>(undefined);
+  const [lastMove, setLastMove] = useState<WaitingRows["lastMove"]>(undefined);
+  // Only a row still waiting moves; a failed or unanswered one keeps its place.
+  const movableKeys = useMemo(
+    () =>
+      [...waitingRowByKey]
+        .filter(([, waitingRow]) => waitingRow.item?.state === "queued")
+        .map(([rowKey]) => rowKey),
+    [waitingRowByKey],
+  );
+  const { items, reorderItems } = queue;
+  const move = useCallback(
+    async (rowKey: string, anchorKey: string, side: keyof QueueMoveAnchor): Promise<boolean> => {
+      const movedItemId = waitingRowByKey.get(rowKey)?.queueItemId;
+      const anchorItemId = waitingRowByKey.get(anchorKey)?.queueItemId;
+      if (movedItemId === undefined || anchorItemId === undefined) {
+        return false;
+      }
+      setMoveRefusal(undefined);
+      const anchor: QueueMoveAnchor =
+        side === "before" ? { before: anchorItemId } : { after: anchorItemId };
+      const order = reorderedQueueItemIds(items, movedItemId, anchor);
+      try {
+        await reorderItems(order);
+      } catch (rejection) {
+        const refusal = coerceToRefusal(rejection, QUEUE_REORDER_ORIGIN);
+        setMoveRefusal({ rowKey, refusal });
+        return false;
+      }
+      setLastMove({
+        rowKey,
+        sentence:
+          `Moved message to position ${String(order.indexOf(movedItemId) + 1)} of ` +
+          `${String(order.length)}.`,
+      });
+      return true;
+    },
+    [waitingRowByKey, items, reorderItems],
+  );
+  const drag = useReorderDrag(
+    "vertical",
+    movableKeys,
+    (rowKey, toIndex, drawnKeys) => {
+      const others = drawnKeys.filter((drawnKey) => drawnKey !== rowKey);
+      const before = others[toIndex];
+      const after = others.at(-1);
+      const moved =
+        before !== undefined
+          ? move(rowKey, before, "before")
+          : after === undefined
+            ? Promise.resolve(false)
+            : move(rowKey, after, "after");
+      // A refused move brings no new order to settle on, so the rows are put back here.
+      void moved.then((isMoved) => {
+        if (!isMoved) {
+          drag.settle();
+        }
+      });
+    },
+    clock,
+    { isHandleRequired: true },
+  );
+  const moveRow = useCallback(
+    (rowKey: string, step: -1 | 1) => {
+      const neighbor = movableKeys[movableKeys.indexOf(rowKey) + step];
+      if (neighbor !== undefined) {
+        void move(rowKey, neighbor, step < 0 ? "before" : "after");
+      }
+    },
+    [movableKeys, move],
+  );
+  useBlockedRetriesReturned(queue, sessionStore);
+  useHandedBackSendsReturned(sessionStore);
+
+  return useMemo<WaitingRows>(
+    () => ({
+      waitingRowByKey,
+      queue,
+      composerRequests,
+      editingRowKey: edit?.rowKey,
+      hasActiveTurn,
+      isServiceUnreachable,
+      drag,
+      moveRow,
+      moveRefusal,
+      lastMove,
+    }),
+    [
+      waitingRowByKey,
+      queue,
+      composerRequests,
+      edit,
+      hasActiveTurn,
+      isServiceUnreachable,
+      drag,
+      moveRow,
+      moveRefusal,
+      lastMove,
+    ],
+  );
+}
+
+/** Names the reorder in a refusal, so a failure says which call failed. */
+const QUEUE_REORDER_ORIGIN = "queue-reorder";
+
+/**
+ * A retry the person's own prompt hook blocked again: its words go back to the draft once and
+ * its row is taken out, so the person edits them there.
+ */
+function useBlockedRetriesReturned(queue: QueueFeed, sessionStore: SessionStore): void {
+  const returned = useRef(new Set<string>());
+  const { items, retriedItemIds, cancelItem } = queue;
+  useEffect(() => {
+    for (const item of items) {
+      if (
+        item.kind !== "message" ||
+        item.state !== "notDelivered" ||
+        item.notDeliveredReason.kind !== "refusedByHook" ||
+        !retriedItemIds.has(item.id) ||
+        returned.current.has(item.id)
+      ) {
+        continue;
+      }
+      returned.current.add(item.id);
+      sessionStore.composerRequests.returnToDraft(item.content);
+      void cancelItem(item.id);
+    }
+  }, [items, retriedItemIds, cancelItem, sessionStore]);
+}
+
+/**
+ * A message the service hands back after taking it, a turn too long for the context window: its
+ * words go back to the draft once, when the failure arrives. Failures the log already held when
+ * the feed mounted were handed back then, so they hand nothing back again.
+ */
+function useHandedBackSendsReturned(sessionStore: SessionStore): void {
+  const transcript = useSessionStore(sessionStore, selectTranscript);
+  const seen = useRef<Set<string> | undefined>(undefined);
+  useEffect(() => {
+    const isFirstRead = seen.current === undefined;
+    const held = (seen.current ??= new Set<string>());
+    for (const event of transcript) {
+      const queueItemId = handedBackItemIdOf(event);
+      if (queueItemId === undefined || held.has(event.id)) {
+        continue;
+      }
+      held.add(event.id);
+      const message = isFirstRead
+        ? undefined
+        : transcript.find(
+            (candidate) =>
+              candidate.kind === USER_MESSAGE_EVENT_TYPE &&
+              candidate.payload?.["queueItemId"] === queueItemId,
+          );
+      const words = message?.payload?.["message"];
+      if (typeof words === "string") {
+        sessionStore.composerRequests.returnToDraft(words);
+      }
+    }
+  }, [transcript, sessionStore]);
+}

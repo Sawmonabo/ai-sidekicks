@@ -76,6 +76,7 @@ import { admitToHueWheel } from "./hue-admission.js";
 import { FailedDependentReads } from "./failed-dependent-reads.js";
 import { RememberedRowHeights } from "./remembered-row-heights.js";
 import { EntryCaret } from "./entry-caret.js";
+import { ComposerRequests } from "./composer-requests.js";
 import { SentMessages } from "./sent-messages.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
 import { RepairReplay } from "./repair-replay.js";
@@ -130,6 +131,8 @@ export class SessionStore {
   public readonly entryCaret: EntryCaret = new EntryCaret();
   /** What this window sent into the session, and the sends that failed, while the store lives. */
   public readonly sentMessages: SentMessages = new SentMessages();
+  /** What the transcript asks of the session's composer. */
+  public readonly composerRequests: ComposerRequests = new ComposerRequests();
   readonly #sessionId: string;
   readonly #store: StoreApi<SessionStoreState>;
   readonly #hueAllocator = new AgentHueAllocator();

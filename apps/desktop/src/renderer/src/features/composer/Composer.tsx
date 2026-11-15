@@ -36,6 +36,7 @@ import { DraftLine } from "./draft-line/components/DraftLine.js";
 import { SendButton } from "./draft-line/components/SendButton.js";
 import type { ComposerSendCalls } from "./draft-line/send/dispatch.js";
 import { useLeadRunControlCommands } from "./run/controls/hooks/useLeadRunControlCommands.js";
+import { useServeComposerRequests } from "./hooks/useServeComposerRequests.js";
 import "./Composer.css";
 
 /** Module-level so the resource holder is handed a stable opener. */
@@ -80,7 +81,8 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
     props.draftStore,
   );
   const backgroundRefusal = useMoveToBackground(props.bridge, props.sessionStore.sessionId);
-  useLeadRunControlCommands(props.bridge, props.sessionStore);
+  const { sendNow } = useLeadRunControlCommands(props.bridge, props.sessionStore);
+  useServeComposerRequests(props.sessionStore, props.draftStore, sendNow);
   const sendCalls = useMemo(() => sendCallsOver(props.bridge), [props.bridge]);
   const workflowStartOperations = useMemo(
     () => workflowStartOperationsOver(props.bridge),

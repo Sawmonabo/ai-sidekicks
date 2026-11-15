@@ -67,6 +67,12 @@ export interface WaitingMessageFace {
   readonly notice: React.ReactNode;
   /** The acts on the message, revealed as a delivered message's actions are. */
   readonly controls: React.ReactNode;
+  /** Whether its words are in the draft to edit, so the row holds its place with `Editing…`. */
+  readonly isEditing: boolean;
+  /** Whether its delivery failed, so the row is drawn red. */
+  readonly isUndelivered: boolean;
+  /** Registers the card a drag moves within the waiting stack. */
+  readonly cardRef: (element: HTMLElement | null) => void;
 }
 
 /** A user or agent message row: the sender's frame around its body, receipt and cards. */
@@ -152,9 +158,11 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
       footerVisibility={isReply ? "always" : "on-hover"}
     >
       <div
+        ref={waiting?.cardRef}
         className={
           `meridian-message-card meridian-message-card--${rowKind.kind}` +
-          (waiting === undefined ? "" : " meridian-message-card--waiting")
+          (waiting === undefined ? "" : " meridian-message-card--waiting") +
+          (waiting?.isUndelivered === true ? " meridian-message-card--undelivered" : "")
         }
       >
         <span className="meridian-message-card__kind-label">
@@ -165,7 +173,9 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
         </span>
         {/* The body alone is what a selection in the conversation copies out of this row. */}
         <div className="meridian-message-card__body" {...{ [COPY_FLAVOR_ATTRIBUTE]: copyFlavor }}>
-          {isUser ? (
+          {waiting?.isEditing === true ? (
+            <p className="meridian-message-card__editing">Editing…</p>
+          ) : isUser ? (
             // A person types markdown, so a message is drawn as a reply is, without block copies.
             <PreparedMarkdown
               sourceId={props.row.id}
