@@ -10,8 +10,9 @@
 // came. Once the window has closed the pane's input, and after all it hands back, the window is
 // told the input is closed: the window sends it nothing after its close, so nothing comes later.
 // A stream the window closes, or holds as it goes, finishes its handle instead: everything it
-// queued leaves, and the stream is canceled only once each write is answered. A refusal no pane
-// is left to hear, and a handle that fails to close or finish, go to main's log.
+// queued leaves, the window still hears each of those writes answered, and the stream is canceled
+// only once each write is answered; the window's close of that input is told `closed` then. A
+// refusal no window is left to hear, and a handle that fails to close or finish, go to main's log.
 
 import type { ShellInputHandle } from "@ai-sidekicks/client-sdk";
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
@@ -69,13 +70,15 @@ export class ShellInputs<Window> {
       client,
       handle: undefined,
       closing: undefined,
+      finishing: undefined,
     });
   }
 
   /**
    * Send one input of a window's pane through the pane's handle, opened at its first input; input
-   * naming a subscription the window does not hold open goes back to it unsent, and input to a pane
-   * whose handle is closing goes back after what the handle hands back. Answers why the client
+   * naming a subscription the window does not hold open, or one whose stream it closed, goes back
+   * to it unsent, and input to a pane whose handle is closing goes back after what the handle hands
+   * back. Answers why the client
    * refused writes the window sent again, which the helper treats as a malformed message.
    */
   public take(window: Window, input: ClientHelperShellInput): string | undefined {
@@ -85,7 +88,7 @@ export class ShellInputs<Window> {
     }
     const { outputSubscriptionId } = input;
     const pane = served.panes.get(outputSubscriptionId);
-    if (pane === undefined) {
+    if (pane === undefined || pane.finishing !== undefined) {
       tellUnsent(served, outputSubscriptionId, unsentInputOf(input));
       return undefined;
     }
@@ -98,8 +101,12 @@ export class ShellInputs<Window> {
       pane.shell.terminalId,
       outputSubscriptionId,
       (notice) => {
-        // A notice the addon queued before the handle closed or finished has no pane to reach.
-        if (served.panes.get(outputSubscriptionId) !== pane) {
+        // A notice the addon queued before the handle closed, or after its window went, has no
+        // pane to reach.
+        if (
+          served.panes.get(outputSubscriptionId) !== pane ||
+          this.#windows.get(window) !== served
+        ) {
           if (notice.error !== undefined) {
             const { message } = wireErrorOf(notice.error);
             this.#logFailure(`A write of a shell pane no longer open was refused: ${message}`);
@@ -141,8 +148,9 @@ export class ShellInputs<Window> {
 
   /**
    * The window closed its pane's input bound to `outputSubscriptionId`: its handle closes, if it is
-   * not closing already, and once it has handed back what it held the window is told the input is
-   * closed; at once where the window holds no pane on that subscription.
+   * neither closing nor finishing already, and once it has handed back what it held, or finished,
+   * the window is told the input is closed; at once where the window holds no pane on that
+   * subscription.
    */
   public release(window: Window, outputSubscriptionId: SubscriptionId): void {
     const served = this.#windows.get(window);
@@ -161,6 +169,8 @@ export class ShellInputs<Window> {
     const pane = served.panes.get(outputSubscriptionId);
     if (pane === undefined) {
       tellClosed();
+    } else if (pane.finishing !== undefined) {
+      void pane.finishing.then(tellClosed);
     } else {
       void this.#close(window, served, outputSubscriptionId, pane).then(tellClosed);
     }
@@ -168,8 +178,9 @@ export class ShellInputs<Window> {
 
   /**
    * The window closes its stream `streamId`, or goes holding it: its pane's handle finishes,
-   * sending everything it queued, or ends its close under way. Answers once each of those writes is
-   * answered, when the stream may be canceled, and never rejects; none when the pane never typed.
+   * sending everything it queued, while the pane still hears each of those writes answered, or ends
+   * its close under way. Answers once each of those writes is answered, when the stream may be
+   * canceled, and never rejects; none when the pane never typed.
    */
   public finish(window: Window, streamId: number): Promise<void> | undefined {
     const served = this.#windows.get(window);
@@ -181,10 +192,25 @@ export class ShellInputs<Window> {
     if (pane.closing !== undefined) {
       return pane.closing.closed;
     }
-    served.panes.delete(subscriptionId);
-    return pane.handle?.finish().catch((failure: unknown) => {
-      this.#logFailure(`A shell pane's input did not finish: ${describeFailure(failure)}`);
-    });
+    if (pane.finishing !== undefined) {
+      return pane.finishing;
+    }
+    if (pane.handle === undefined) {
+      served.panes.delete(subscriptionId);
+      return undefined;
+    }
+    const finishing = pane.handle
+      .finish()
+      .catch((failure: unknown) => {
+        this.#logFailure(`A shell pane's input did not finish: ${describeFailure(failure)}`);
+      })
+      .then(() => {
+        if (served.panes.get(subscriptionId) === pane) {
+          served.panes.delete(subscriptionId);
+        }
+      });
+    pane.finishing = finishing;
+    return finishing;
   }
 
   /** The window went, its panes' handles finished first. */
@@ -192,11 +218,16 @@ export class ShellInputs<Window> {
     this.#windows.delete(window);
   }
 
-  /** The helper makes a new client: every handle closes, since its streams were on the old one. */
+  /**
+   * The helper makes a new client: every handle closes, since its streams were on the old one; a
+   * finishing one ends as the old client's end answers its writes.
+   */
   public forgetClient(): void {
     for (const [window, served] of this.#windows) {
       for (const [subscriptionId, pane] of served.panes) {
-        void this.#close(window, served, subscriptionId, pane);
+        if (pane.finishing === undefined) {
+          void this.#close(window, served, subscriptionId, pane);
+        }
       }
     }
   }
@@ -253,6 +284,8 @@ interface PaneInput {
   handle: ShellInputHandle | undefined;
   /** Set once its stream ended, its input closed or its client went, while its handle closes. */
   closing: ClosingPane | undefined;
+  /** Set once the window closed its stream, while its handle sends what it queued. */
+  finishing: Promise<void> | undefined;
 }
 
 /** A pane's handle closing: the close under way, and the window's input that arrived meanwhile. */

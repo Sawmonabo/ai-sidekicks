@@ -3,8 +3,10 @@
 // `Loading…` after the short delay until it lands, and on until the shell's first frame where the
 // pane awaits one, or `Couldn't load terminal` with `Retry`. The line stands over the emulator, so
 // the grid keeps its size and fit while it shows; one line serves both waits, so the delay runs
-// once. This component names the region and leaves the live text to xterm's own `aria-live`
-// region, since announcing the grid again would read every cell twice.
+// once. A box the pane hides keeps its emulator off screen, still written to, and puts it back as
+// it stood when shown again; it builds none before it is first shown, so no grid is fitted to a
+// box that has no size. This component names the region and leaves the live text to xterm's own
+// `aria-live` region, since announcing the grid again would read every cell twice.
 
 import "./XtermMountPoint.css";
 
@@ -30,6 +32,11 @@ export interface XtermMountPointProps {
   readonly isWriteEnabled: boolean;
   /** Whether the shell's first frame is yet to arrive, so the box reads `Loading…` meanwhile. */
   readonly isAwaitingOutput?: boolean | undefined;
+  /**
+   * Whether the box is on screen; absent is shown. Hidden, the emulator is taken off screen and
+   * kept, with its output still written in, and nothing reads `Loading…`.
+   */
+  readonly isShown?: boolean | undefined;
   /** The terminal region's accessible name, supplied by the pane that mounted it. */
   readonly label: string;
   /** The window's clock, from `useClock()`, which delays the loading line. */
@@ -57,7 +64,9 @@ export interface XtermMountPointProps {
 
 /** The emulator's box for one terminal, with a region name that carries the write gate. */
 export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element {
-  const mountElementRef = useRef<HTMLDivElement | null>(null);
+  // State, not a ref, so the emulator is built once the box first renders it, which it does only
+  // while shown, and kept while hidden.
+  const [mountElement, setMountElement] = useState<HTMLDivElement | null>(null);
   const adapterRef = useRef<XtermTerminalAdapterInstance | undefined>(undefined);
   const [rendererMode, setRendererMode] = useState<TerminalRendererMode | undefined>(undefined);
   const {
@@ -68,6 +77,7 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
 
   const {
     terminalId,
+    isShown = true,
     isWriteEnabled,
     onKeystroke,
     onPaste,
@@ -98,7 +108,6 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
   const isWritableRef = useLatestRef(isWritable);
 
   useEffect(() => {
-    const mountElement = mountElementRef.current;
     if (emulator.status !== "loaded" || mountElement === null) {
       // No mount element yet, so there is nothing to pair a disposal with.
       return undefined;
@@ -166,6 +175,30 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
     callbacksRef,
     isWritableRef,
     openOutput,
+    mountElement,
+  ]);
+
+  // Hidden, the emulator leaves the box, so it neither fits to it nor takes a key or a paste; shown
+  // again, it is put back and fitted. Rerun with the mount effect, so a rebuilt emulator is hidden
+  // too.
+  useEffect(() => {
+    const adapter = adapterRef.current;
+    if (isShown || adapter === undefined || mountElement === null) {
+      return undefined;
+    }
+    adapter.detach();
+    return () => {
+      adapter.attach(mountElement);
+    };
+  }, [
+    isShown,
+    emulator,
+    terminalId,
+    canWriteToWire,
+    canPaste,
+    canActivateLinks,
+    openOutput,
+    mountElement,
   ]);
 
   // A text size step moves the type step the stylesheet sets the grid in, which the emulator
@@ -186,21 +219,23 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
       className="meridian-terminal-mount-point"
       data-renderer={rendererMode ?? "pending"}
       data-write-enabled={isWritable ? "true" : "false"}
+      hidden={!isShown}
     >
-      {emulator.status === "loading" ||
-      (emulator.status === "loaded" && props.isAwaitingOutput === true) ? (
+      {isShown &&
+      (emulator.status === "loading" ||
+        (emulator.status === "loaded" && props.isAwaitingOutput === true)) ? (
         <div className="meridian-terminal-mount-point__loading">
           <LoadingNotice clock={props.clock} placement="block" title="Loading…" />
         </div>
       ) : null}
-      {emulator.status === "loaded" ? (
+      {emulator.status === "loaded" && (isShown || mountElement !== null) ? (
         <div
           className="meridian-terminal-mount-point__mount-element"
-          ref={mountElementRef}
+          ref={setMountElement}
           role="group"
           aria-label={isWritable ? props.label : `${props.label}, read-only`}
         />
-      ) : emulator.status === "failed" ? (
+      ) : emulator.status === "failed" && isShown ? (
         <Nothing
           kind="error"
           placement="block"

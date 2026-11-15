@@ -3,9 +3,10 @@
 // another device holds is asked first and forced on the answer, and a moved tab sends its order; an
 // exited shell reads its exit line and one that did not start reads its cause with `Try again`; the
 // holding pane tells the shell its grid's size; a paste goes into the shell's input as one paste;
-// and on a re-opened output stream what the ended one handed back goes first, even when it comes
-// after the re-open, then the keys typed since the end, across a switch of tabs and a pane closed
-// meanwhile.
+// on a re-opened output stream what the ended one handed back goes first, even when it comes
+// after the re-open, then the keys typed since the end, across a switch of tabs, which keeps the
+// shell's stream, and a pane closed meanwhile; and what an input hands back after its pane closed
+// first goes first on the next pane's input.
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -36,7 +37,6 @@ const FIRST_SUBSCRIPTION_ID = "019b7b30-0280-79a4-8110-cca0117a0141" as Subscrip
 const SECOND_SUBSCRIPTION_ID = "019b7b30-0280-79a4-8110-cca0117a0142" as SubscriptionId;
 const THIRD_SUBSCRIPTION_ID = "019b7b30-0280-79a4-8110-cca0117a0143" as SubscriptionId;
 const FOURTH_SUBSCRIPTION_ID = "019b7b30-0280-79a4-8110-cca0117a0144" as SubscriptionId;
-const FIFTH_SUBSCRIPTION_ID = "019b7b30-0280-79a4-8110-cca0117a0145" as SubscriptionId;
 const TERMINAL_IDS = ["terminal-1", "terminal-2"] as const;
 // What the client's queue had not sent when a stream ended: keys, then a paste's last part.
 const QUEUED_WRITES: readonly UnsentShellWrite[] = [
@@ -191,12 +191,11 @@ describe("the shell's input and size", () => {
     await openShellAs(wire, 2, SECOND_SUBSCRIPTION_ID);
     typeOneCharacter(emulatorElementOf(container));
 
-    // A switch away while the ended input may still hand back lets the pane's stream go, and a
-    // switch back opens it again; nothing goes on either while that input is pending.
+    // A switch away and back keeps the shell's stream, and nothing goes while that input is pending.
     fireEvent.click(screen.getByText("zsh terminal-2"));
-    expect(shellOpens(wire)[1]?.isClosed).toBe(true);
     fireEvent.click(screen.getByText("zsh terminal-1"));
-    await openShellAs(wire, 3, THIRD_SUBSCRIPTION_ID);
+    expect(shellOpens(wire)).toHaveLength(2);
+    expect(shellOpens(wire)[1]?.isClosed).toBe(false);
     typeOneCharacter(emulatorElementOf(container));
     expect(wire.shellInputs).toHaveLength(1);
 
@@ -209,28 +208,68 @@ describe("the shell's input and size", () => {
     });
     expect(wire.shellInputs).toStrictEqual([
       { outputSubscriptionId: FIRST_SUBSCRIPTION_ID, kind: "keys", data: "a" },
-      { outputSubscriptionId: THIRD_SUBSCRIPTION_ID, kind: "resubmit", writes: QUEUED_WRITES },
-      { outputSubscriptionId: THIRD_SUBSCRIPTION_ID, kind: "keys", data: "b" },
-      { outputSubscriptionId: THIRD_SUBSCRIPTION_ID, kind: "keys", data: "a" },
-      { outputSubscriptionId: THIRD_SUBSCRIPTION_ID, kind: "keys", data: "a" },
-      { outputSubscriptionId: THIRD_SUBSCRIPTION_ID, kind: "keys", data: "a" },
+      { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "resubmit", writes: QUEUED_WRITES },
+      { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "keys", data: "b" },
+      { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "keys", data: "a" },
+      { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "keys", data: "a" },
+      { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "keys", data: "a" },
     ]);
 
     // A pane closed for good while an ended input may still hand back lets its stream go too, and
-    // once that input is told closed what waits goes on a stream opened for it alone, then closed.
+    // once that input and the pane's own are told closed, what waits goes on a stream opened for
+    // it alone after the output the pane drew, then closed.
     endShellStream(wire);
-    await openShellAs(wire, 4, FOURTH_SUBSCRIPTION_ID);
+    await openShellAs(wire, 3, THIRD_SUBSCRIPTION_ID);
     typeOneCharacter(emulatorElementOf(container));
     unmount();
-    expect(shellOpens(wire)[3]?.isClosed).toBe(true);
+    expect(shellOpens(wire)[2]?.isClosed).toBe(true);
+    act(() => {
+      wire.tellClosed(SECOND_SUBSCRIPTION_ID);
+    });
+    expect(shellOpens(wire)).toHaveLength(3);
     act(() => {
       wire.tellClosed(THIRD_SUBSCRIPTION_ID);
     });
-    await openShellAs(wire, 5, FIFTH_SUBSCRIPTION_ID);
+    await openShellAs(wire, 4, FOURTH_SUBSCRIPTION_ID);
+    expect(shellOpens(wire)[3]?.params).toStrictEqual({
+      sessionId: SESSION_ID,
+      terminalId: "terminal-1",
+      afterOffset: 1,
+    });
     expect(wire.shellInputs.slice(6)).toStrictEqual([
-      { outputSubscriptionId: FIFTH_SUBSCRIPTION_ID, kind: "keys", data: "a" },
+      { outputSubscriptionId: FOURTH_SUBSCRIPTION_ID, kind: "keys", data: "a" },
     ]);
-    expect(shellOpens(wire)[4]?.isClosed).toBe(true);
+    expect(shellOpens(wire)[3]?.isClosed).toBe(true);
+  });
+
+  it("keeps what an input hands back after its pane closed before its stream's end, and sends it first on the next pane's input", async () => {
+    const wire = new RecordedShellWire();
+    const firstPane = mountPane(wire);
+    listShells(wire, [shellEntry("terminal-1")]);
+    await openShellAs(wire, 1, FIRST_SUBSCRIPTION_ID);
+    typeOneCharacter(emulatorElementOf(firstPane.container));
+    await waitFor(() => {
+      expect(writtenKeys(wire)).toStrictEqual([["a", FIRST_SUBSCRIPTION_ID]]);
+    });
+    // The helper ended the stream, but the pane closed before the end reached it.
+    firstPane.unmount();
+    expect(shellOpens(wire)[0]?.isClosed).toBe(true);
+
+    const nextPane = mountPane(wire);
+    listShells(wire, [shellEntry("terminal-1")]);
+    await openShellAs(wire, 2, SECOND_SUBSCRIPTION_ID);
+    typeOneCharacter(emulatorElementOf(nextPane.container));
+    expect(wire.shellInputs).toHaveLength(1);
+
+    act(() => {
+      wire.handBack(FIRST_SUBSCRIPTION_ID, { kind: "queued", writes: QUEUED_WRITES });
+      wire.tellClosed(FIRST_SUBSCRIPTION_ID);
+    });
+    expect(wire.shellInputs).toStrictEqual([
+      { outputSubscriptionId: FIRST_SUBSCRIPTION_ID, kind: "keys", data: "a" },
+      { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "resubmit", writes: QUEUED_WRITES },
+      { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "keys", data: "a" },
+    ]);
   });
 });
 

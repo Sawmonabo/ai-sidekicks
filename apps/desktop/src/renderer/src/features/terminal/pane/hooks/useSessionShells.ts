@@ -5,7 +5,9 @@
 //
 // The active tab is this pane's own: the list's first on the first read; a shell this pane opened
 // once the list carries it, whose body then takes the focus; the neighbor of a closed active tab;
-// and a shell another device opened only when no tab was active.
+// and a shell another device opened only when no tab was active. Each tab shown since the pane
+// opened is kept, so its shell's body keeps its screen while another tab is shown, until the list
+// drops it; a shell the list drops is let go of what is held for it.
 //
 // A close of a shell another of the person's devices holds is asked first: the shells held
 // elsewhere wait on the person's answer and go with `force` once they confirm. A close the daemon
@@ -22,6 +24,7 @@ import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { followShellList } from "#renderer/services/daemon/terminal/list.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { forgetUnlistedShells } from "../bridge-shells.js";
 
 /** The session's shells in tab order and the one shown, with the acts the tab strip sends. */
 export interface SessionShells {
@@ -29,6 +32,8 @@ export interface SessionShells {
   readonly terminals: readonly TerminalListEntry[] | undefined;
   /** The shell the pane shows, `undefined` while no tab is active. */
   readonly activeTerminalId: TerminalId | undefined;
+  /** The listed shells whose tab has been shown since the pane opened, in the order first shown. */
+  readonly shownTerminalIds: readonly TerminalId[];
   /** A shell this pane opened and now shows, whose body takes the focus as it appears. */
   readonly openedTerminalId: TerminalId | undefined;
   /** Whether a shell this pane asked for is not yet on the list. */
@@ -63,10 +68,17 @@ export function useSessionShells(
   sessionId: SessionId,
   thisDeviceId: string | undefined,
 ): SessionShells {
-  const { value, publish } = useSubjectScopedState<SessionShellsState>(
+  const { value, publish: publishState } = useSubjectScopedState<SessionShellsState>(
     bridge,
     sessionId,
     () => UNREAD_SESSION_SHELLS,
+  );
+  // Every change keeps the shown tabs to the listed ones and adds the active one.
+  const publish = useCallback(
+    (update: (current: SessionShellsState) => SessionShellsState) => {
+      publishState((current) => withActiveShellShown(update(current)));
+    },
+    [publishState],
   );
 
   const openShell = useCallback(() => {
@@ -100,6 +112,11 @@ export function useSessionShells(
         publish((current) => ({ ...current, refusal: frame.refusal }));
         return;
       }
+      forgetUnlistedShells(
+        bridge,
+        sessionId,
+        frame.terminals.map((shell) => shell.terminalId),
+      );
       publish((current) => ({
         ...current,
         ...activeShellAfter(current, frame.terminals),
@@ -207,6 +224,7 @@ export function useSessionShells(
   return {
     terminals,
     activeTerminalId: value.activeTerminalId,
+    shownTerminalIds: value.shownTerminalIds,
     openedTerminalId: value.openedTerminalId,
     isOpening: value.openingCount > 0 || value.awaitedTerminalId !== undefined,
     hasClosedHere: value.hasClosedHere,
@@ -229,6 +247,7 @@ const HELD_BY_OTHER_DEVICE: RefusalCode = "terminal.control.heldByOther";
 interface SessionShellsState {
   readonly terminals: readonly TerminalListEntry[] | undefined;
   readonly activeTerminalId: TerminalId | undefined;
+  readonly shownTerminalIds: readonly TerminalId[];
   /** A shell this pane opened that the list does not carry yet. */
   readonly awaitedTerminalId: TerminalId | undefined;
   readonly openedTerminalId: TerminalId | undefined;
@@ -241,6 +260,7 @@ interface SessionShellsState {
 const UNREAD_SESSION_SHELLS: SessionShellsState = {
   terminals: undefined,
   activeTerminalId: undefined,
+  shownTerminalIds: [],
   awaitedTerminalId: undefined,
   openedTerminalId: undefined,
   openingCount: 0,
@@ -261,6 +281,23 @@ function isHeldByAnotherDevice(
     thisDeviceId !== undefined &&
     holder.holderDeviceId !== thisDeviceId
   );
+}
+
+// The shown tabs kept to those the list has, with the active one added last if it is new.
+function withActiveShellShown(state: SessionShellsState): SessionShellsState {
+  const { terminals, activeTerminalId, shownTerminalIds } = state;
+  const listed =
+    terminals === undefined
+      ? shownTerminalIds
+      : shownTerminalIds.filter((shown) => terminals.some((shell) => shell.terminalId === shown));
+  const shown =
+    activeTerminalId === undefined || listed.includes(activeTerminalId)
+      ? listed
+      : [...listed, activeTerminalId];
+  const isUnchanged =
+    shown.length === shownTerminalIds.length &&
+    shown.every((terminalId, index) => terminalId === shownTerminalIds[index]);
+  return isUnchanged ? state : { ...state, shownTerminalIds: shown };
 }
 
 function shownAfterOpen(

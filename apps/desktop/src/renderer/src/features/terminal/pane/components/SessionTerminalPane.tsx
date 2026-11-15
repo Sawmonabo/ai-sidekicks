@@ -1,6 +1,8 @@
 // The terminal pane once a session is addressed: the session's shells as a tab strip, read off its
 // shell list, the line under the strip with the session's project and tree, the close question and
-// the refusal line, and the active tab's shell.
+// the refusal line, and the active tab's shell. Each tab shown since the pane opened keeps its body
+// mounted while another tab is shown, so a switch back shows its shell as it stood, with no
+// emulator built and no scrollback read again; a body goes with its tab, or with the pane.
 //
 // Split from `TerminalPane.tsx` because the store hooks may only be called when there is a store.
 // Until the list is read, and while the first shell is being opened for a session with none, the
@@ -16,6 +18,7 @@ import type { TerminalId, TerminalListEntry } from "@ai-sidekicks/contracts/term
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import { type TabMenuRow } from "#renderer/components/TabStrip/TabMenu.js";
 import { TabStrip, type StripTab } from "#renderer/components/TabStrip/TabStrip.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -45,9 +48,16 @@ export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.
   const shells = useSessionShells(bridge, sessionId, thisDeviceId);
   const projectTreeLine = useProjectTreeLine(bridge, sessionId);
   const clock = useClock();
-  const { terminals, activeTerminalId, refusal, openShell, closeShells } = shells;
+  const { terminals, activeTerminalId, shownTerminalIds, refusal, openShell, closeShells } = shells;
   const tabs = useMemo(() => terminals?.map(stripTabOf) ?? [], [terminals]);
-  const shownShell = terminals?.find((shell) => shell.terminalId === activeTerminalId);
+  // In the order first shown, so a reordered strip moves no body.
+  const keptShells = useMemo(
+    () =>
+      shownTerminalIds.flatMap(
+        (terminalId) => terminals?.find((shell) => shell.terminalId === terminalId) ?? [],
+      ),
+    [shownTerminalIds, terminals],
+  );
   const closeQuestion =
     shells.heldShellsAsked.length === 0 ? null : (
       <CloseShellQuestion
@@ -55,8 +65,14 @@ export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.
         onAnswer={shells.answerCloseQuestion}
       />
     );
+  // The code's words, since the service's sentence can name a shell or the session by its id.
   const refusalLine =
-    refusal === undefined ? null : <InlineRefusal code={refusal.code} detail={refusal.detail} />;
+    refusal === undefined ? null : (
+      <InlineRefusal
+        code={refusal.code}
+        detail={refusalCause(refusal.code, undefined, refusal.detail)}
+      />
+    );
 
   if (terminals === undefined || (terminals.length === 0 && shells.isOpening)) {
     return (
@@ -98,18 +114,19 @@ export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.
       )}
       {closeQuestion}
       {refusalLine}
-      {shownShell === undefined ? null : (
+      {keptShells.map((shell) => (
         <ShellBody
-          key={shownShell.terminalId}
+          key={shell.terminalId}
           bridge={bridge}
           sessionId={sessionId}
           sessionStore={sessionStore}
           frameStore={frameStore}
-          shell={shownShell}
-          isFocusedOnOpen={shownShell.terminalId === shells.openedTerminalId}
+          shell={shell}
+          isShown={shell.terminalId === activeTerminalId}
+          isFocusedOnOpen={shell.terminalId === shells.openedTerminalId}
           onTryAgain={openShell}
         />
-      )}
+      ))}
     </>
   );
 }

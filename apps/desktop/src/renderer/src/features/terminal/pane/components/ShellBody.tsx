@@ -1,7 +1,10 @@
-// One shell on screen: its lease line, its emulator fed with its live output, reading `Loading…`
-// until the first frame arrives unless a refusal stands, the line saying its program exited, and
-// the line saying why its stream, a write or a size was refused. A shell that did not start draws
-// only its cause with `Try again`. A shell this pane opened takes the focus.
+// One shell on screen: its emulator fed with its live output, reading `Loading…` until the first
+// frame arrives unless a refusal stands, then its lease line above the emulator, the line saying
+// its program exited, and the line saying why its stream, a write or a size was refused. A shell
+// that did not start draws only its cause with `Try again`; that cause is the daemon's own words
+// for why, which carry no code. A shell this pane opened takes the focus. A body whose tab is not
+// the active one draws nothing but keeps its emulator and its output stream, so its screen is
+// whole when its tab is shown again.
 //
 // The write gate opens on the lease folded from the shell list's holder and the session's standing
 // events against this device's id, once the pane's own output feed is followed, since every write
@@ -19,6 +22,7 @@ import type { TerminalListEntry } from "@ai-sidekicks/contracts/terminal";
 import { processEndLine } from "#shared/signal-words.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -50,6 +54,8 @@ export interface ShellBodyProps {
   readonly sessionStore: SessionStore;
   readonly frameStore: WindowStore;
   readonly shell: TerminalListEntry;
+  /** Whether the shell's tab is the active one, so the body is on screen. */
+  readonly isShown: boolean;
   /** Whether the body takes the focus once its emulator is on screen: a shell this pane opened. */
   readonly isFocusedOnOpen: boolean;
   /** Opens a fresh shell in place of one that did not start. */
@@ -57,10 +63,10 @@ export interface ShellBodyProps {
 }
 
 /** One shell's lease line, live emulator, exit line and refusal line, or why it did not start. */
-export function ShellBody(props: ShellBodyProps): React.JSX.Element {
-  const { shell, onTryAgain } = props;
+export function ShellBody(props: ShellBodyProps): React.JSX.Element | null {
+  const { shell, isShown, onTryAgain } = props;
   if (shell.status.state === "didNotStart") {
-    return (
+    return !isShown ? null : (
       <Nothing
         kind="error"
         placement="block"
@@ -73,7 +79,7 @@ export function ShellBody(props: ShellBodyProps): React.JSX.Element {
 }
 
 function StartedShellBody(props: ShellBodyProps): React.JSX.Element {
-  const { bridge, sessionId, sessionStore, frameStore, shell, isFocusedOnOpen } = props;
+  const { bridge, sessionId, sessionStore, frameStore, shell, isShown, isFocusedOnOpen } = props;
   const { terminalId, status } = shell;
   const standingEvents = useSessionStore(sessionStore, selectStandingEvents);
   const thisDeviceId = useMainProcessState(frameStore).negotiation?.deviceId;
@@ -103,9 +109,11 @@ function StartedShellBody(props: ShellBodyProps): React.JSX.Element {
     }
   }, [isHeldHere, hasExited, gridSize, resizeShell]);
 
+  // Until the first frame, which says who holds the shell, the loading line stands alone under the
+  // strip.
   return (
     <>
-      {outputSubscriptionId === undefined ? null : (
+      {!isShown || !output.hasOutput || outputSubscriptionId === undefined ? null : (
         <ShellLeaseLine
           bridge={bridge}
           sessionId={sessionId}
@@ -119,6 +127,7 @@ function StartedShellBody(props: ShellBodyProps): React.JSX.Element {
         terminalId={terminalId}
         isWriteEnabled={canTypeIntoShell(lease.holder) && output.isFollowing && !hasExited}
         isAwaitingOutput={!output.hasOutput && output.refusal === undefined}
+        isShown={isShown}
         label={TERMINAL_OUTPUT_LABEL}
         clock={clock}
         onKeystroke={output.typeKeys}
@@ -126,13 +135,16 @@ function StartedShellBody(props: ShellBodyProps): React.JSX.Element {
         onGridResize={setGridSize}
         openOutput={openOutput}
       />
-      {status.state === "exited" ? (
+      {isShown && status.state === "exited" ? (
         <p className="meridian-terminal-pane__exit-line">
           {processEndLine({ kind: "exitCode", exitCode: status.exitCode })}
         </p>
       ) : null}
-      {output.refusal === undefined ? null : (
-        <InlineRefusal code={output.refusal.code} detail={output.refusal.detail} />
+      {!isShown || output.refusal === undefined ? null : (
+        <InlineRefusal
+          code={output.refusal.code}
+          detail={refusalCause(output.refusal.code, undefined, output.refusal.detail)}
+        />
       )}
     </>
   );

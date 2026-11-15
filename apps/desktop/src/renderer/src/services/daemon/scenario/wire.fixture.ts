@@ -7,7 +7,10 @@
 // daemon always answers, so the status topic reads connected from its first delivery, with the
 // handshake a compatible service settles, naming the scenario's own device; its shells take what
 // is typed and answer nothing of it. Each stream it opens is acknowledged by an id of its own, as
-// the service acknowledges a subscribe, so a terminal's input binds to its output stream.
+// the service acknowledges a subscribe, so a terminal's input binds to its output stream. A caller
+// that hears the open is told it once the subscribe has returned and handed the stream's values
+// after it, as the client helper posts the acknowledgment before the stream's first value; a
+// caller that does not hear it is handed the values at once.
 
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
@@ -97,26 +100,34 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
       // The delivery is untyped scenario data cast to the topic's payload; the app parses every
       // delivery at its own boundary, as it does the live bridge's. Only a shell's scrollback
       // carries bytes.
-      const unsubscribe = subscribeToScenario(
-        scenarioEngine,
-        event,
-        params,
-        (delivered, attachments = []) => {
-          handler(delivered as DaemonWirePayload<Topic>, attachments);
-        },
-        onEnded,
-      );
-      // Acknowledged once the subscribe has returned, as the service's answer arrives after it,
-      // and never for a stream closed before then.
+      const follow = (): Unsubscribe =>
+        subscribeToScenario(
+          scenarioEngine,
+          event,
+          params,
+          (delivered, attachments = []) => {
+            handler(delivered as DaemonWirePayload<Topic>, attachments);
+          },
+          onEnded,
+        );
+      if (onOpened === undefined) {
+        return follow();
+      }
+      // Opened, then followed, once the subscribe has returned; a stream closed before then, or by
+      // the caller as it hears the open, is not followed.
+      let unsubscribe: Unsubscribe | undefined;
       let isOpen = true;
       queueMicrotask(() => {
         if (isOpen) {
-          onOpened?.(crypto.randomUUID() as SubscriptionId);
+          onOpened(crypto.randomUUID() as SubscriptionId);
+        }
+        if (isOpen) {
+          unsubscribe = follow();
         }
       });
       return () => {
         isOpen = false;
-        unsubscribe();
+        unsubscribe?.();
       };
     },
     // A scenario's shells play scripted output, so what is typed into them is taken and dropped,

@@ -2,17 +2,18 @@
 //
 // `openOutput` is what the emulator calls once it is on screen: it follows the shell's output
 // stream into the emulator through the output writer, which says when the pane is behind or caught
-// up; the window is declared behind with `terminal.flowControl.update` while any pane in it
-// watching the shell is behind, and a behind pane declares it again on each open of the stream, so
-// a client helper started again hears it. It is stable for the shell, so the emulator is built once
-// per shell. Each open of the stream names the subscription a write or a take is bound to; what
-// is typed goes through the window's one input binding for the shell (`window-shells.ts`), which
-// holds it from a stream's end until its re-open, and until the ended one's input has handed back
-// all it held, behind what came back unsent. A pane closed meanwhile lets its stream go, and the
-// binding sends what waits once it may, or on this pane's next open if that comes first. A re-open
-// refused because the shell or its session is gone lets the held input go, drawn once as the
-// refusal of a write to that shell. The first frame ends the pane's loading line. Sizes go to
-// `terminal.resize`, the newest only while one is out.
+// up; the app is declared behind with `terminal.flowControl.update` while any pane watching the
+// shell is behind, and a behind pane declares it again on each open of the stream, so a client
+// helper started again hears it. It is stable for the shell, so the emulator is built once per
+// shell. Each open of the stream names the subscription a write or a take is bound to; what is
+// typed goes through the app's one input binding for the shell (`bridge-shells.ts`), which holds
+// it from a stream's end until its re-open, and until the ended one's input has handed back all it
+// held, behind what came back unsent. A pane closed meanwhile lets its stream go, telling the
+// binding where its output stood, and the binding sends what waits once it may, or on this pane's
+// next open if that comes first; a write refused while no pane followed is drawn when this pane
+// opens. A re-open refused because the shell or its session is gone lets the held input go, drawn
+// once as the refusal of a write to that shell. The first frame ends the pane's loading line.
+// Sizes go to `terminal.resize`, the newest only while one is out.
 
 import { useCallback, useMemo, useRef } from "react";
 
@@ -24,6 +25,7 @@ import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import {
   followShellOutput,
+  outputOffsetAfter,
   type ShellOutputSubject,
 } from "#renderer/services/daemon/terminal/output.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -31,7 +33,7 @@ import type { TerminalGridSize } from "../../emulator/xterm/adapter.js";
 import { isShellGone, type ShellInputBinding } from "../input-binding.js";
 import { ShellOutputWriter, type ShellOutputSink } from "../output-writer.js";
 import { ShellResizeQueue } from "../resize-queue.js";
-import { windowShellFor } from "../window-shells.js";
+import { bridgeShellFor } from "../bridge-shells.js";
 
 /** A shell's feed as the pane holds it. */
 export interface ShellOutput {
@@ -64,7 +66,7 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
     `${sessionId} ${terminalId}`,
     () => UNOPENED_SHELL_OUTPUT,
   );
-  // The window's binding for the shell, from the pane's open of its output to its close: what is
+  // The app's binding for the shell, from the pane's open of its output to its close: what is
   // typed reaches the shell only while the feed is followed.
   const inputBindingRef = useRef<ShellInputBinding | undefined>(undefined);
 
@@ -86,8 +88,8 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
   const openOutput = useCallback(
     (sink: ShellOutputSink): Unsubscribe => {
       const shell = { sessionId, terminalId };
-      const windowShell = windowShellFor(bridge, shell);
-      const inputBinding = windowShell.inputBinding;
+      const bridgeShell = bridgeShellFor(bridge, shell);
+      const inputBinding = bridgeShell.inputBinding;
       const declareFlow = (paused: boolean): void => {
         void callDaemon(bridge, "terminal.flowControl.update", { ...shell, paused }).then(
           (reply) => {
@@ -102,7 +104,7 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
         );
       };
       const writer = new ShellOutputWriter(sink, (isBehind) => {
-        const paused = windowShell.noteBehind(isBehind);
+        const paused = bridgeShell.noteBehind(isBehind);
         if (paused !== undefined) {
           declareFlow(paused);
         }
@@ -119,6 +121,7 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
       });
       inputBindingRef.current = inputBinding;
       let hasFrame = false;
+      let outputOffset: number | undefined;
       const stopFollowing = followShellOutput(bridge, shell, (delivery) => {
         switch (delivery.kind) {
           case "opened":
@@ -139,6 +142,7 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
             return;
           case "frame":
             writer.apply(delivery.frame);
+            outputOffset = outputOffsetAfter(delivery.frame) ?? outputOffset;
             if (!hasFrame) {
               hasFrame = true;
               publish((current) => ({ ...current, hasOutput: true }));
@@ -159,7 +163,7 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
       return () => {
         inputBindingRef.current = undefined;
         writer.close();
-        inputBinding.close(stopFollowing);
+        inputBinding.close(stopFollowing, outputOffset);
         publish((current) => ({
           ...current,
           outputSubscriptionId: undefined,

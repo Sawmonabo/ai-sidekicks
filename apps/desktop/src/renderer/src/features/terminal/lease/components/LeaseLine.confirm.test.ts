@@ -2,7 +2,7 @@
 // under `Cancel` and `Take it`, which takes focus, and Escape cancels. Only `Take it` sends, one
 // forced take of this shell bound to the pane's output subscription, and the line never derives
 // the holder from it: a served take closes the confirm and the line moves only when the change
-// reaches the fold. A refused take keeps the confirm open and says why.
+// reaches the fold. A refused take keeps the confirm open and says why, in its code's words.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -94,17 +94,20 @@ describe("taking the shell from another device", () => {
     expect(takes.takes).toHaveLength(1);
   });
 
-  it("keeps the confirm open with the reason a refused take gives, said each time", async () => {
+  it("keeps the confirm open with a refused take's code in words, said each time", async () => {
     const takes = new HeldTakes();
     const { said } = openConfirm(takes);
     const reason = "an agent's running command holds this shell";
+    const codeWords = "Terminal control held by other";
     fireEvent.click(screen.getByRole("button", { name: "Take it" }));
     await settle();
     await settle(() => {
       takes.refuse(0, "terminal.control.heldByOther", reason);
     });
     expect(screen.getByRole("group", { name: QUESTION })).toBeTruthy();
-    expect(screen.getByRole("group", { name: "Terminal lease" }).textContent).toContain(reason);
+    const leaseLine = screen.getByRole("group", { name: "Terminal lease" }).textContent;
+    expect(leaseLine).toContain(codeWords);
+    expect(leaseLine).not.toContain(reason);
     // Focus stayed on `Take it` through the take, which answers again.
     const takeIt = screen.getByRole("button", { name: "Take it" });
     expect(document.activeElement).toBe(takeIt);
@@ -116,7 +119,7 @@ describe("taking the shell from another device", () => {
     await settle(() => {
       takes.refuse(1, "terminal.control.heldByOther", reason);
     });
-    expect(said.spokenOn("assertive")).toStrictEqual([reason, reason]);
+    expect(said.spokenOn("assertive")).toStrictEqual([codeWords, codeWords]);
     expect(said.spokenOn("polite")).toStrictEqual([]);
   });
 

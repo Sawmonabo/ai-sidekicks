@@ -1,7 +1,8 @@
 // One shell's output, read off `terminal.output.subscribe`: the scrollback window when the stream
 // opens, then what the shell writes, each frame's bytes put back in place. The newest output offset
 // is kept, so a stream that ends is opened again after it and the daemon sends only the bytes past
-// it, or a fresh scrollback when the offset has left its window. Each open hands on the
+// it, or a fresh scrollback when the offset has left its window; a first open given an offset
+// starts after it the same way. Each open hands on the
 // subscription's id, which a write or a take on the shell is bound to, and each end says the id is
 // gone, so nothing is bound to it while the stream is opened again.
 
@@ -34,18 +35,25 @@ export type ShellOutputDelivery =
   | { readonly kind: "reopenRefusal"; readonly refusal: Refusal | undefined };
 
 /**
- * Follow one shell's output over `bridge`, handing each delivery on until the handle releases it.
+ * Follow one shell's output over `bridge`, after `afterOffset` when given, handing each delivery on
+ * until the handle releases it.
  */
 export function followShellOutput(
   bridge: PlatformBridge,
   subject: ShellOutputSubject,
   onDelivery: (delivery: ShellOutputDelivery) => void,
+  afterOffset?: number | undefined,
 ): Unsubscribe {
-  const follower = new ShellOutputFollower(bridge, subject, onDelivery);
+  const follower = new ShellOutputFollower(bridge, subject, onDelivery, afterOffset);
   follower.open();
   return () => {
     follower.release();
   };
+}
+
+/** The shell's output offset once `frame` is drawn, or `undefined` for a frame of no changes. */
+export function outputOffsetAfter(frame: TerminalOutputFrame): number | undefined {
+  return frame.changes[frame.changes.length - 1]?.cursor;
 }
 
 /** A frame as the port delivers it: the value and the bytes beside it. */
@@ -66,10 +74,12 @@ class ShellOutputFollower {
     bridge: PlatformBridge,
     subject: ShellOutputSubject,
     onDelivery: (delivery: ShellOutputDelivery) => void,
+    afterOffset: number | undefined,
   ) {
     this.#bridge = bridge;
     this.#subject = subject;
     this.#onDelivery = onDelivery;
+    this.#afterOffset = afterOffset;
   }
 
   public open(): void {
@@ -111,7 +121,7 @@ class ShellOutputFollower {
 
   #receive({ payload, attachments }: DeliveredFrame): void {
     const frame = withBytesPlaced(payload, attachments) as TerminalOutputFrame;
-    this.#afterOffset = frame.changes[frame.changes.length - 1]?.cursor;
+    this.#afterOffset = outputOffsetAfter(frame);
     this.#onDelivery({ kind: "frame", frame });
   }
 }

@@ -4,13 +4,15 @@
 // holder and its name have been read, while nobody holds the shell, or while this device does. A
 // run's hold is named by the run's agent, read off the session's agent list. The take is offered
 // only against another device's hold; a run's hold is never taken, and carries `Stop the run`,
-// which stops the holding command.
+// which stops the holding command. A refused take or stop reads by its code's words, since the
+// service's sentence can name the shell or the run by its id.
 
 import "./LeaseLine.css";
 
 import { useId } from "react";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
 import { useHoldingAgentName } from "../hooks/useHoldingAgentName.js";
@@ -71,10 +73,16 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element | null {
         )}
       </div>
       {isTakeOffered && takeShell.refusal !== undefined ? (
-        <InlineRefusal code={takeShell.refusal.code} detail={takeShell.refusal.detail} />
+        <InlineRefusal
+          code={takeShell.refusal.code}
+          detail={refusalCause(takeShell.refusal.code, undefined, takeShell.refusal.detail)}
+        />
       ) : null}
       {runStop?.refusal === undefined ? null : (
-        <InlineRefusal code={runStop.refusal.code} detail={runStop.refusal.detail} />
+        <InlineRefusal
+          code={runStop.refusal.code}
+          detail={refusalCause(runStop.refusal.code, undefined, runStop.refusal.detail)}
+        />
       )}
     </div>
   );

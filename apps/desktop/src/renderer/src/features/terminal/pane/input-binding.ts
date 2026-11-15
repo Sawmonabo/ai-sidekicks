@@ -1,15 +1,17 @@
-// One shell's keystrokes and pastes on their way to it from one window, in the order they were
-// typed and pasted. The window holds one binding per shell (`window-shells.ts`), so a pane that
-// closes and opens again on the shell, as a tab switch does, types through the binding it left.
-// Each goes through the input bound to the open output subscription. A stream's end closes that
-// input at once: the client helper hands back unsent what it still holds of it, and says the input
-// is closed once its writes are answered, its shell ends or its connection does. While no
-// subscription is bound, and while a closed input has not said so, what is typed waits here, so
-// what comes back, even after the next subscription is bound, goes first, in the order it came,
-// then what was typed since. A pane closed while something waits lets its stream go at once; once
-// every closed input has said so, the binding opens the shell's stream itself, sends what waits on
-// it and closes it, which sends what the input queued. A shell found gone lets go of what waits
-// and of what is still to come.
+// One shell's keystrokes and pastes on their way to it from the app, in the order they were typed
+// and pasted. The app holds one binding per shell (`bridge-shells.ts`), so a pane that closes and
+// opens again on the shell types through the binding it left. Each goes through the input bound to
+// the open output subscription. Every input the binding closes, for its stream's end, its pane's
+// close or the end of a stream the binding opened, is waited on until it is told `closed`: the
+// client helper hands back unsent what it still holds of it, and says the input is closed once its
+// writes are answered, its shell ends or its connection does. While no subscription is bound, and
+// while a closed input has not said so, what is typed waits here, so what comes back, even after
+// the next subscription is bound, goes first, in the order it came, then what was typed since. A
+// pane closed while something waits lets its stream go at once; once every closed input has said
+// so, the binding opens the shell's stream itself, after the output the pane last drew so it reads
+// none of the scrollback, sends what waits on it and closes it, which sends what the input queued.
+// A write refused while no pane follows is kept for the next pane that does. A shell found gone
+// lets go of what waits, of the kept refusal and of what is still to come.
 
 import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
@@ -17,19 +19,25 @@ import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import type { ShellInput, UnsentShellInput, Unsubscribe } from "#shared/preload-api.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ShellInputListener } from "#renderer/services/daemon/terminal/input.js";
-import type { ShellOutputDelivery } from "#renderer/services/daemon/terminal/output.js";
+import {
+  outputOffsetAfter,
+  type ShellOutputDelivery,
+} from "#renderer/services/daemon/terminal/output.js";
 
-/** One shell's input from one window, opened anew through `openInput` for each subscription. */
+/** One shell's input from the app, opened anew through `openInput` for each subscription. */
 export class ShellInputBinding {
   readonly #openInput: (
     outputSubscriptionId: SubscriptionId,
     listener: ShellInputListener,
   ) => ShellInput;
-  readonly #followOutput: (onDelivery: (delivery: ShellOutputDelivery) => void) => Unsubscribe;
+  readonly #followOutput: (
+    onDelivery: (delivery: ShellOutputDelivery) => void,
+    afterOffset: number | undefined,
+  ) => Unsubscribe;
   readonly #onIdle: () => void;
   /** The open subscription's input, while one is bound. */
   #bound: OpenedInput | undefined;
-  /** The inputs closed for their stream's end that may still hand something back. */
+  /** The inputs closed that may still hand something back, until each is told `closed`. */
   readonly #closing = new Set<OpenedInput["token"]>();
   /** What waits to be sent, oldest first: what came back, then what was typed. */
   #held: UnsentShellInput[] = [];
@@ -39,17 +47,24 @@ export class ShellInputBinding {
   #isFollowed = false;
   /** Hears each write refused, and `undefined` once one is taken, while a pane follows. */
   #onRefusal: ((refusal: Refusal | undefined) => void) | undefined;
+  /** The newest write refused while no pane followed, for the next pane that does. */
+  #keptRefusal: Refusal | undefined;
+  /** The newest output offset a stream of the shell drew to, where the binding's own opens. */
+  #outputOffset: number | undefined;
   /** Closes the stream the binding opened to send what a closed pane left waiting. */
   #stopSending: Unsubscribe | undefined;
 
   /**
-   * A binding that opens each input through `openInput`, opens the shell's output stream through
-   * `followOutput` when a closed pane left something waiting, and calls `onIdle` each time no pane
-   * follows the shell and nothing waits.
+   * A binding that opens each input through `openInput`, opens the shell's output stream after an
+   * offset through `followOutput` when a closed pane left something waiting, and calls `onIdle`
+   * each time no pane follows the shell and nothing waits.
    */
   public constructor(
     openInput: (outputSubscriptionId: SubscriptionId, listener: ShellInputListener) => ShellInput,
-    followOutput: (onDelivery: (delivery: ShellOutputDelivery) => void) => Unsubscribe,
+    followOutput: (
+      onDelivery: (delivery: ShellOutputDelivery) => void,
+      afterOffset: number | undefined,
+    ) => Unsubscribe,
     onIdle: () => void,
   ) {
     this.#openInput = openInput;
@@ -57,24 +72,32 @@ export class ShellInputBinding {
     this.#onIdle = onIdle;
   }
 
-  /** Whether no pane follows the shell and nothing waits to be sent or handed back. */
+  /**
+   * Whether no pane follows the shell and nothing waits to be sent, handed back, closed or shown.
+   */
   public get isIdle(): boolean {
     return (
       !this.#isFollowed &&
       this.#stopSending === undefined &&
       this.#closing.size === 0 &&
-      this.#held.length === 0
+      this.#held.length === 0 &&
+      this.#keptRefusal === undefined
     );
   }
 
   /**
-   * A pane follows the shell's output, told each write refused through `onRefusal`. A stream the
-   * binding opened to send what waited is let go, its bound input closing as a stream's end closes
-   * it, and what waits goes on the pane's stream.
+   * A pane follows the shell's output, told each write refused through `onRefusal`, a write refused
+   * while no pane followed first. A stream the binding opened to send what waited is let go, its
+   * bound input closing as a stream's end closes it, and what waits goes on the pane's stream.
    */
   public follow(onRefusal: (refusal: Refusal | undefined) => void): void {
     this.#isFollowed = true;
     this.#onRefusal = onRefusal;
+    const keptRefusal = this.#keptRefusal;
+    if (keptRefusal !== undefined) {
+      this.#keptRefusal = undefined;
+      onRefusal(keptRefusal);
+    }
     const stopSending = this.#stopSending;
     if (stopSending !== undefined) {
       this.#stopSending = undefined;
@@ -91,8 +114,7 @@ export class ShellInputBinding {
     const ended = this.#bound;
     if (ended !== undefined) {
       this.#bound = undefined;
-      this.#closing.add(ended.token);
-      ended.input.close();
+      this.#closeInput(ended);
     }
     if (outputSubscriptionId === undefined) {
       return;
@@ -100,7 +122,7 @@ export class ShellInputBinding {
     const token = {};
     const input = this.#openInput(outputSubscriptionId, {
       onRefusal: (refusal) => {
-        this.#onRefusal?.(refusal);
+        this.#hearRefusal(refusal);
       },
       onUnsent: (unsent) => {
         this.#takeBack(token, unsent);
@@ -130,32 +152,35 @@ export class ShellInputBinding {
   }
 
   /**
-   * Let go of everything held, and of what closed inputs may still hand back, for a shell that is
-   * gone; answers whether anything was held.
+   * Let go of everything held, of the kept refusal, and of what closed inputs may still hand back,
+   * for a shell that is gone; answers whether anything was held.
    */
   public dropHeld(): boolean {
     const hadHeld = this.#held.length > 0;
     this.#held = [];
     this.#handedBackCount = 0;
+    this.#keptRefusal = undefined;
     this.#closing.clear();
     this.#settle();
     return hadHeld;
   }
 
   /**
-   * The pane closed: `stopFollowing` closes its output stream, which sends what the bound input
-   * queued, and the bound input closes after it. What still waits goes once every closed input has
-   * handed back all it held, on a stream the binding opens for it.
+   * The pane closed, having drawn the shell's output to `outputOffset`: `stopFollowing` closes its
+   * output stream, which sends what the bound input queued, and the bound input closes after it and
+   * is waited on until it is told `closed`. What still waits goes then, on a stream the binding
+   * opens for it.
    */
-  public close(stopFollowing: () => void): void {
+  public close(stopFollowing: () => void, outputOffset: number | undefined): void {
     this.#isFollowed = false;
     this.#onRefusal = undefined;
+    this.#outputOffset = outputOffset ?? this.#outputOffset;
     const bound = this.#bound;
     this.#bound = undefined;
     stopFollowing();
-    // While anything waits, the bound input has sent nothing, since a closed input was pending for
-    // as long as it was bound; so its close hands back nothing and is not waited on.
-    bound?.input.close();
+    if (bound !== undefined) {
+      this.#closeInput(bound);
+    }
     this.#settle();
   }
 
@@ -164,6 +189,21 @@ export class ShellInputBinding {
       sendHeld(this.#bound.input, typed);
     } else {
       this.#held.push(typed);
+    }
+  }
+
+  /** Closes an input the binding opened, waiting on it until it is told `closed`. */
+  #closeInput(opened: OpenedInput): void {
+    this.#closing.add(opened.token);
+    opened.input.close();
+  }
+
+  /** A write refused or taken: told to the pane that follows, else a refusal kept for the next. */
+  #hearRefusal(refusal: Refusal | undefined): void {
+    if (this.#onRefusal !== undefined) {
+      this.#onRefusal(refusal);
+    } else if (refusal !== undefined) {
+      this.#keptRefusal = refusal;
     }
   }
 
@@ -194,7 +234,8 @@ export class ShellInputBinding {
 
   /**
    * With no pane following: once no closed input is pending, opens the shell's stream to send what
-   * waits, closes it once nothing does, then tells the window the binding is idle.
+   * waits, closes it and its input once nothing does, then, once that input is told `closed`,
+   * tells the app the binding is idle.
    */
   #settle(): void {
     if (this.#isFollowed || this.#closing.size > 0) {
@@ -203,7 +244,7 @@ export class ShellInputBinding {
     if (this.#held.length > 0) {
       this.#stopSending ??= this.#followOutput((delivery) => {
         this.#takeSendingDelivery(delivery);
-      });
+      }, this.#outputOffset);
       return;
     }
     const stopSending = this.#stopSending;
@@ -212,7 +253,10 @@ export class ShellInputBinding {
       const bound = this.#bound;
       this.#bound = undefined;
       stopSending();
-      bound?.input.close();
+      if (bound !== undefined) {
+        this.#closeInput(bound);
+        return;
+      }
     }
     this.#onIdle();
   }
@@ -227,6 +271,7 @@ export class ShellInputBinding {
         this.bind(undefined);
         return;
       case "frame":
+        this.#outputOffset = outputOffsetAfter(delivery.frame) ?? this.#outputOffset;
         return;
       case "reopenRefusal":
         if (isShellGone(delivery.refusal)) {
