@@ -333,11 +333,12 @@ mod tests {
             folder,
             "claude",
             &StandInProgram {
-                answers_by_first_argument: Vec::new(),
+                answers_by_argument: Vec::new(),
                 otherwise: StandInAnswer {
                     standard_output: DOCTOR_OUTPUT.to_owned(),
                     exit_code: 0,
                     argument_record: Some(record.clone()),
+                    ..StandInAnswer::default()
                 },
                 first_call_wait,
             },

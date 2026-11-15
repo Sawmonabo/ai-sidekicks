@@ -14,7 +14,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::{VolumeId, file_facts, read_volume, real_path};
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -52,11 +51,7 @@ async fn walk_at(
     clock.set_now(now);
     let mut counts = CheckpointSweepCounts::default();
     sweep
-        .walk_orphans(
-            &CancellationToken::new(),
-            &ProcessorMeter::default(),
-            &mut counts,
-        )
+        .walk_orphans(&CancellationToken::new(), &mut counts)
         .await
         .expect("the walk reads");
     counts
@@ -231,14 +226,11 @@ async fn a_walk_leaves_a_session_a_keeper_holds_for_its_next_walk() {
     let session_id = fixture.session_id;
     let keeper = COPIES_LOCK.read(session_id).await;
     let mut counts = CheckpointSweepCounts::default();
-    let (stop, meter) = (CancellationToken::new(), ProcessorMeter::default());
+    let stop = CancellationToken::new();
 
-    let walked = timeout(
-        HELD_WALK_BOUND,
-        sweep.walk_orphans(&stop, &meter, &mut counts),
-    )
-    .await
-    .expect("the walk waits for no keeper");
+    let walked = timeout(HELD_WALK_BOUND, sweep.walk_orphans(&stop, &mut counts))
+        .await
+        .expect("the walk waits for no keeper");
     drop(keeper);
 
     walked.expect("the walk reads");

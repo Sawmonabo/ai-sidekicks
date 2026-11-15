@@ -27,7 +27,7 @@ use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_platforms::entry_changed_at;
 use sidekicks_std::missing_entry::{MissingEntry as _, is_gone};
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_std::scheduler::budget::run_blocking;
 use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::DATABASE_NOW_SQL;
@@ -167,7 +167,6 @@ impl CheckpointSweep {
     pub(super) async fn walk_orphans(
         &self,
         stop: &CancellationToken,
-        meter: &ProcessorMeter,
         counts: &mut CheckpointSweepCounts,
     ) -> Result<(), CheckpointSweepError> {
         let (previous_walk_start, walk_again) = {
@@ -177,13 +176,11 @@ impl CheckpointSweep {
         };
         let active_since = previous_walk_start
             .map(|start| start.checked_sub(ACTIVITY_GRACE).unwrap_or(Timestamp::MIN));
-        let read_meter = meter.clone();
         let (walk_start, due) = self
             .deps
             .reads
             .read(ReadLength::Short, move |reader| {
-                read_meter
-                    .measure(|| read_due_sessions(reader, active_since, &walk_again))
+                read_due_sessions(reader, active_since, &walk_again)
                     .map_err(CheckpointSweepError::from)
             })
             .await?;
@@ -195,7 +192,7 @@ impl CheckpointSweep {
                 is_whole = false;
                 break;
             }
-            match self.walk_session_orphans(session_id, meter, counts).await {
+            match self.walk_session_orphans(session_id, counts).await {
                 Ok(should_walk_again) => {
                     if should_walk_again {
                         next_walk_again.insert(session_id);
@@ -225,18 +222,16 @@ impl CheckpointSweep {
     async fn walk_session_orphans(
         &self,
         session_id: SessionId,
-        meter: &ProcessorMeter,
         counts: &mut CheckpointSweepCounts,
     ) -> Result<bool, CheckpointSweepError> {
-        let names = self.read_kept_names(session_id, meter).await?;
+        let names = self.read_kept_names(session_id).await?;
         let owner_folder = session_storage_folder(&self.deps.data_folder, &session_id);
         let restored_folder = restored_clones_folder(&self.deps.data_folder, &session_id);
         let now = self.deps.clock.now();
-        let listed = meter
-            .run_blocking(move || {
-                list_session(session_id, &owner_folder, &restored_folder, &names, now)
-            })
-            .await;
+        let listed = run_blocking(move || {
+            list_session(session_id, &owner_folder, &restored_folder, &names, now)
+        })
+        .await;
         let listing = match listed {
             Ok(listing) => listing,
             Err(ended) => {
@@ -260,11 +255,9 @@ impl CheckpointSweep {
         let Some(hold) = COPIES_LOCK.try_write(session_id) else {
             return Ok(true);
         };
-        let names = self.read_kept_names(session_id, meter).await?;
+        let names = self.read_kept_names(session_id).await?;
         let candidates = listing.candidates;
-        let removed = meter
-            .run_blocking(move || remove_unnamed(session_id, candidates, &names))
-            .await;
+        let removed = run_blocking(move || remove_unnamed(session_id, candidates, &names)).await;
         drop(hold);
         let removal = removed.unwrap_or_else(|ended| {
             tracing::warn!(
@@ -285,18 +278,14 @@ impl CheckpointSweep {
     async fn read_kept_names(
         &self,
         session_id: SessionId,
-        meter: &ProcessorMeter,
     ) -> Result<KeptNames, CheckpointSweepError> {
-        let read_meter = meter.clone();
         self.deps
             .reads
             .read(ReadLength::Short, move |reader| {
-                read_meter.measure(|| {
-                    Ok::<_, CheckpointSweepError>(KeptNames {
-                        copies: copy_hashes(reader, session_id)?,
-                        clones: cloned_shadow_ids(reader, session_id)?,
-                        volume_folders: volume_folders(reader, session_id)?,
-                    })
+                Ok::<_, CheckpointSweepError>(KeptNames {
+                    copies: copy_hashes(reader, session_id)?,
+                    clones: cloned_shadow_ids(reader, session_id)?,
+                    volume_folders: volume_folders(reader, session_id)?,
                 })
             })
             .await

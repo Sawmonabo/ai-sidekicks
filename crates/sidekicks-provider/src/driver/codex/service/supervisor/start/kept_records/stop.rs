@@ -10,7 +10,7 @@ use std::sync::Arc;
 use futures::future::join_all;
 use tokio::time::Instant;
 
-use super::{end_recorded_service, lock_record, on_record, read_record};
+use super::{end_recorded_service, lock_record, on_record, read_record_untouched};
 use crate::driver::codex::service::record::{
     LastingServiceRecordFile, LockedServiceRecord, one_recorded_file_per_folder,
 };
@@ -153,7 +153,7 @@ async fn stop_kept_record(
     locked: &Arc<LockedServiceRecord>,
     stop: KeptServicesStop,
 ) -> Vec<CodexError> {
-    let record = match read_record(locked).await {
+    let record = match read_record_untouched(locked).await {
         Ok(Some(record)) => record,
         Ok(None) => return Vec::new(),
         Err(failure) => return vec![failure.error],

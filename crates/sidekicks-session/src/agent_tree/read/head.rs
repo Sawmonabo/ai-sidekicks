@@ -17,15 +17,15 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_std::text_cut::cut_to_code_points;
-use sidekicks_store::database::schema::SESSION_EVENTS_TOOL_CALL_INDEX;
+use sidekicks_store::database::schema::{
+    RUN_TERMINAL_EVENT_TYPES_SQL, SESSION_EVENTS_TOOL_CALL_INDEX,
+};
 use sidekicks_store::database::stored_column::{
     StoredJsonFault, optional_text_column, safe_int_column, text_column,
 };
 use sidekicks_store::events::session::insert::TOOL_CALL_ID_PAYLOAD_KEY;
 use sidekicks_store::events::session::read::{SessionEventReads, readable_event_sql};
 use sidekicks_store::transcript::rejoin::{RowReads, row_condition_sql};
-
-use crate::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
 
 // Each listed run's tool calls, counted over the same rows as its tokens.
 static SELECT_TOOL_COUNTS_SQL: LazyLock<String> = LazyLock::new(|| {

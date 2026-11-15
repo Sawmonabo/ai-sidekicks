@@ -14,7 +14,7 @@ use rstest::rstest;
 use sidekicks_contracts::command::CommandId;
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemId;
+use sidekicks_contracts::run::queue::{MessageText, QueueItemId};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{
@@ -26,7 +26,7 @@ use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::test_registry::new_run_id;
 use sidekicks_session::checkpoints::restore_cuts::{FilesPutBack, RecordedCut};
 use sidekicks_session::checkpoints::store::Checkpoint;
@@ -421,7 +421,7 @@ fn file_outcome() -> SessionRestoreFileOutcome {
 
 fn edited() -> SessionRestoreResend {
     SessionRestoreResend {
-        content: FreeFormText::new("Try the other client".to_owned()).expect("words"),
+        content: MessageText::new("Try the other client".to_owned()).expect("words"),
         attachments: None,
         skills: None,
         output_speed_for_turn: None,

@@ -14,9 +14,8 @@ use std::sync::{Arc, LazyLock};
 use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::run::events::CutGroupStart;
-use sidekicks_contracts::run::queue::QueueItemId;
+use sidekicks_contracts::run::queue::{MessageText, QueueItemId};
 use sidekicks_contracts::session::restore::SessionRestoreResend;
-use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::rewind::{
     RewindConversationResult, RewindTargetAsk, RewindTargetPresence,
 };
@@ -81,7 +80,7 @@ fn refusing_companions() -> RollbackCompanions {
 
 /// The person's edit of the pressed message.
 static EDITED: LazyLock<SessionRestoreResend> = LazyLock::new(|| SessionRestoreResend {
-    content: FreeFormText::new("Look closer".to_owned()).expect("a test message"),
+    content: MessageText::new("Look closer".to_owned()).expect("a test message"),
     attachments: None,
     skills: None,
     output_speed_for_turn: None,

@@ -18,6 +18,7 @@ fn recorded(socket: &str, is_draining: bool) -> LastingServiceRecord {
         home_socket: PathBuf::from(HOME),
         physical_socket: Some(PathBuf::from(socket)),
         is_draining,
+        is_replaced: false,
         telemetry: None,
     }
 }

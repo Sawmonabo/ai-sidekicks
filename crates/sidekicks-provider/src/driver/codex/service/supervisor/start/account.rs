@@ -111,9 +111,10 @@ pub(super) async fn start_account_home_service(
 // first start of the home's own service reads every record of the home, so a daemon restarted in
 // the middle of a build move finds the second service; a later start, and every start of a second
 // service on a socket of its own, reads only its own record and the one its last process was kept
-// in, so it never joins the other service the daemon itself runs on the home. A record whose
-// service ended is retired; the running service a start may join is joined, the own record's
-// first, and every other running one drains. With none joined, a running service on the own
+// in, so it never joins the other service the daemon itself runs on the home. A record that does
+// not read is settled, and the service it still names drains; a record whose service ended is
+// retired; the running service a start may join is joined, the own record's first, and every
+// other running one drains. With none joined, a running service on the own
 // socket keeps holding it while it drains, so the launch goes beside it. Fails as a record's read,
 // re-pin, retire or drain fails.
 async fn settle_account_records(
@@ -126,11 +127,11 @@ async fn settle_account_records(
         retire_last_process_record(service, locked, service.socket_path()).await?;
         read_record(locked)
             .await?
-            .map(|record| (Arc::clone(locked), record))
+            .map(|record| (Arc::clone(locked), Ok(Some(record))))
             .into_iter()
             .collect()
     };
-    let (running, _ended_services) = sort_kept_records(kept).await?;
+    let (running, _ended_services) = sort_kept_records(kept, service.socket_path()).await?;
     let joined = find_joinable(&running, locked.file());
     let (join, drained) = join_one_drain_others(service, running, joined).await?;
     let holds_own_socket = drained

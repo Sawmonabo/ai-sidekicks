@@ -83,6 +83,7 @@ pub(super) async fn settle_unreadable_record(
             .unwrap_or_else(|| home_socket.to_owned()),
         physical_socket: remnant.physical_socket,
         is_draining: true,
+        is_replaced: false,
         telemetry: None,
     };
     Ok(Some((lasting, record)))
