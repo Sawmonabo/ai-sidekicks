@@ -1,6 +1,6 @@
-// Window-level state: the route, the modal-dialog flag, the banner stack, which list the sessions
-// track holds, the pane a screen asked a session to open, and the guard a screen holding unsaved
-// edits keeps over leaving it. The appearance is not here: main keeps it, and the window applies
+// Window-level state: the route, the modal-dialog flag, the banner stack, the one fading note,
+// which list the sessions track holds, the pane a screen asked a session to open, and the guard a
+// screen holding unsaved edits keeps over leaving it. The appearance is not here: main keeps it, and the window applies
 // what main kept (`app/hooks/useAppearance.ts`).
 //
 // Separate from `SessionStore`: session state is per session and arrives from the bridge, while
@@ -32,6 +32,18 @@ export interface WindowBanner extends Pick<Refusal, "code" | "detail"> {
   readonly id: string;
   readonly dismissible: boolean;
   readonly reason?: RefusalExtensions["reason"];
+}
+
+/** What a caller asks the window's one fading note to say, and how long it stays. */
+export interface FadingNoteRequest {
+  readonly words: string;
+  /** How long the note stays while nothing holds it, in milliseconds. */
+  readonly durationMs: number;
+}
+
+/** The note the window shows, under the id its raiser takes it away by. */
+export interface WindowFadingNote extends FadingNoteRequest {
+  readonly id: number;
 }
 
 /**
@@ -85,7 +97,10 @@ export interface RouteMove {
 /** A list the sessions track beside the rail can hold: the sessions list or the notifications. */
 export type SessionsTrackList = "sessions" | "notifications";
 
-/** The window store's state: route, modal-dialog flag, banners, sessions track, focus, report. */
+/**
+ * The window store's state: route, modal-dialog flag, banners, fading note, sessions track, focus,
+ * report.
+ */
 export interface WindowStoreState {
   readonly route: AppRoute;
   /** How the current route is written to the window's history. */
@@ -114,6 +129,8 @@ export interface WindowStoreState {
    */
   readonly isModalDialogOpen: boolean;
   readonly banners: readonly WindowBanner[];
+  /** The one note at the window's foot, or `undefined` while none shows. */
+  readonly fadingNote: WindowFadingNote | undefined;
   /**
    * The list the sessions track holds, or `undefined` while the track is closed. One cell, so the
    * track never holds two lists at once.
@@ -162,6 +179,7 @@ export class WindowStore {
   #pressedControl: string | undefined = undefined;
   /** What named the route the window opened at, while it still shows it; a move clears it. */
   #openingCause: WindowOpeningCause | undefined;
+  #nextFadingNoteId = 1;
   readonly #leaveGuard = new LeaveGuard((failure) => {
     // The person waits on the question, so the banner says it failed; the cause, a screen's
     // defect with no words the person can act on, goes to the diagnostic capture.
@@ -181,6 +199,7 @@ export class WindowStore {
       goneSessionRaise: undefined,
       isModalDialogOpen: false,
       banners: [],
+      fadingNote: undefined,
       sessionsTrackList: undefined,
       isWindowFocused: documentReportsWindowFocus(options.ownerDocument ?? document),
       mainProcessState: UNREPORTED_MAIN_PROCESS_STATE,
@@ -370,6 +389,25 @@ export class WindowStore {
       return;
     }
     this.#store.setState({ banners: banners.filter((banner) => banner.id !== bannerId) });
+  }
+
+  /**
+   * Show `request` as the window's one fading note, in place of any note showing. Returns the id
+   * {@link takeFadingNote} takes it away by.
+   */
+  public showFadingNote(request: FadingNoteRequest): number {
+    const id = this.#nextFadingNoteId;
+    this.#nextFadingNoteId += 1;
+    this.#store.setState({ fadingNote: { id, ...request } });
+    return id;
+  }
+
+  /** Take the note `noteId` away; a note that has already gone or been replaced stays as it is. */
+  public takeFadingNote(noteId: number): void {
+    if (this.#store.getState().fadingNote?.id !== noteId) {
+      return;
+    }
+    this.#store.setState({ fadingNote: undefined });
   }
 
   /**

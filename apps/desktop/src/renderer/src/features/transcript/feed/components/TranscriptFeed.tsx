@@ -39,7 +39,7 @@ import {
 } from "#renderer/store/session/hooks/useSessionInitialized.js";
 import { type ProjectedFullBody } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import type { GoneSessionRaise } from "#renderer/store/window/store.js";
+import type { GoneSessionRaise, WindowStore } from "#renderer/store/window/store.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
@@ -66,6 +66,8 @@ import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatform
 /** What the feed is a log of and the row body it draws each row through. */
 export interface TranscriptFeedProps {
   readonly sessionStore: SessionStore;
+  /** The window's store, whose note names the words of a hook that blocks a retry again. */
+  readonly frameStore: WindowStore;
   /** The registered row renderer. Resolved by the pane, so this file reads no registry. */
   readonly rowRenderer: TranscriptRowRenderer;
   /** Names the feed for a screen reader walking the window. */
@@ -334,6 +336,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const hasActiveTurn = transcriptWindow.liveRunIds.size > 0;
   const waitingRows = useWaitingRows({
     sessionStore: props.sessionStore,
+    frameStore: props.frameStore,
     queue,
     waitingRowByKey: windows.waitingRowByKey,
     hasActiveTurn,

@@ -1,5 +1,5 @@
-// The window's persistent chrome (rail, sessions track, banners, command palette) around the
-// routed screen.
+// The window's persistent chrome (rail, sessions track, banners, fading note, command palette)
+// around the routed screen.
 //
 // The frame's background is inert while a modal overlay is up. This is where the flag is folded
 // from its three producers: the boot cover, the palette's open state and the window store's
@@ -7,6 +7,8 @@
 
 import { useId } from "react";
 
+import { FadingNote } from "#renderer/components/FadingNote/FadingNote.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
 import { railDestinationFor } from "#renderer/routing/readers.js";
@@ -67,6 +69,13 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
   // A boolean, so a window with no card up re-renders on nothing.
   const isModalDialogOpen = useWindowStore(frameStore, (state) => state.isModalDialogOpen);
   const sessionsTrackList = useWindowStore(frameStore, (state) => state.sessionsTrackList);
+  const fadingNote = useWindowStore(frameStore, (state) => state.fadingNote);
+  // Read only while a note shows, so a window with none re-renders on no focus change.
+  const isWindowFocused = useWindowStore(
+    frameStore,
+    (state) => state.fadingNote === undefined || state.isWindowFocused,
+  );
+  const clock = useClock();
   const sessionsListId = useId();
   const notificationsListId = useId();
   const railChords = useRailChords(props.readBoundChord);
@@ -113,6 +122,21 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
       }
       modalOverlayOpen={props.isUnderBootCover || palette.open || isModalDialogOpen}
       notice={props.notice}
+      fadingNote={
+        // Keyed on the note, so a new note replaces the one showing with its own full time.
+        fadingNote === undefined ? undefined : (
+          <FadingNote
+            key={fadingNote.id}
+            words={fadingNote.words}
+            durationMs={fadingNote.durationMs}
+            isWindowFocused={isWindowFocused}
+            clock={clock}
+            onGone={() => {
+              frameStore.takeFadingNote(fadingNote.id);
+            }}
+          />
+        )
+      }
       onWindowFloorChange={props.onWindowFloorChange}
       banners={banners}
       onDismissBanner={(bannerId) => {

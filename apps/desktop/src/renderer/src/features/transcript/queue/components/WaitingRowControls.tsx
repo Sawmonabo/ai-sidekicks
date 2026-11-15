@@ -15,7 +15,7 @@ import { refusalCause } from "#renderer/lib/code-words.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { WaitingRow } from "../placement.js";
-import { NOT_DELIVERED_WORDS, type WaitingRows } from "../waiting-rows.js";
+import { NOT_DELIVERED_WORDS, blockedByHookLine, type WaitingRows } from "../waiting-rows.js";
 
 import "./WaitingRowControls.css";
 
@@ -79,9 +79,10 @@ export function WaitingRowNotice(props: WaitingRowControlsProps): React.JSX.Elem
             </>
           )}
         </p>
-        {item.notDeliveredReason.kind === "refusedByHook" ? (
+        {item.notDeliveredReason.kind === "refusedByHook" && !queue.retriedItemFrom.has(item.id) ? (
+          // A retry the hook blocks again says the hook's words in the window's note alone.
           <p className="meridian-waiting-row__notice meridian-waiting-row__notice--failed">
-            {`Blocked by your UserPromptSubmit hook: ${item.notDeliveredReason.words}`}
+            {blockedByHookLine(item.notDeliveredReason.words)}
           </p>
         ) : null}
         {refusal === undefined ? null : (

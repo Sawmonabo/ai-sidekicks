@@ -17,6 +17,7 @@ import {
 } from "#renderer/components/Markdown/diagram/pictures.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { TranscriptFeed } from "#renderer/features/transcript/feed/components/TranscriptFeed.js";
+import { WindowStore } from "#renderer/store/window/store.js";
 import {
   openPagedSessionStore,
   scriptedTranscriptLog,
@@ -266,6 +267,7 @@ export async function mountFeed(
           <div style={{ display: "grid", height: `${String(FEED_HEIGHT_PX)}px`, width: "800px" }}>
             <TranscriptFeed
               sessionStore={sessionStore}
+              frameStore={new WindowStore()}
               rowRenderer={{
                 render: TaggedTranscriptRow,
                 drawsBody: drawsTranscriptRowBody,

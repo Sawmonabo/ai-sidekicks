@@ -61,6 +61,7 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
       <TranscriptPaneBody
         rowRenderer={registeredTranscriptRowRenderer()}
         sessionStore={context.sessionStore}
+        frameStore={context.frameStore}
         messageAnchorCursor={sessionMessageAnchorCursor(route)}
         routeWriteCount={routeWriteCount}
         goneSessionTarget={goneSessionTarget}

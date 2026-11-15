@@ -20,6 +20,7 @@ import { failOnPaneSizesRefusal } from "#renderer/features/sessions/pane-layout/
 import { openStore } from "#renderer/store/persistence/ui-state-store.test-support.js";
 import { PaneLayoutStore } from "#renderer/features/sessions/pane-layout/store.js";
 import { TranscriptFeed } from "#renderer/features/transcript/feed/components/TranscriptFeed.js";
+import { WindowStore } from "#renderer/store/window/store.js";
 import {
   openSessionStoreWithToolRows,
   toolRowEventAt,
@@ -128,6 +129,7 @@ async function mountConversationBesidePreview(
               <div style={{ display: "grid", height: "100%" }}>
                 <TranscriptFeed
                   sessionStore={sessionStore}
+                  frameStore={new WindowStore()}
                   rowRenderer={{
                     render: TranscriptRow,
                     drawsBody: drawsTranscriptRowBody,

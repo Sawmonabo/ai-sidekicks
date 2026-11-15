@@ -63,6 +63,11 @@ export class WaitingRowsChannel {
   }
 }
 
+/** The line that names the words of the person's own prompt hook, which blocked a message. */
+export function blockedByHookLine(hookWords: string): string {
+  return `Blocked by your UserPromptSubmit hook: ${hookWords}`;
+}
+
 /** The feed's waiting rows channel; `undefined` outside a feed, where no row waits. */
 export const WaitingRowsContext: Context<WaitingRowsChannel | undefined> = createContext<
   WaitingRowsChannel | undefined

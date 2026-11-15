@@ -11,6 +11,7 @@ import { renderSettled } from "../app/harness.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { TranscriptFeed } from "#renderer/features/transcript/feed/components/TranscriptFeed.js";
+import { WindowStore } from "#renderer/store/window/store.js";
 import {
   openPagedSessionStore,
   scriptedTranscriptLog,
@@ -75,6 +76,7 @@ export async function mountEarlierHistoryFeed(): Promise<EarlierHistoryFeed> {
         >
           <TranscriptFeed
             sessionStore={sessionStore}
+            frameStore={new WindowStore()}
             rowRenderer={{
               render: FixedHeightRow,
               drawsBody: () => true,

@@ -19,6 +19,7 @@ import { settleFrames } from "./windowed/reply.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { TranscriptFeed } from "#renderer/features/transcript/feed/components/TranscriptFeed.js";
+import { WindowStore } from "#renderer/store/window/store.js";
 import { transcriptOpeningPageLimit } from "#renderer/features/transcript/history/page-limit.js";
 import {
   openPagedSessionStore,
@@ -185,6 +186,7 @@ export async function mountTranscriptFeed(
         <div style={{ display: "grid", height: `${String(FEED_HEIGHT_PX)}px`, width: "800px" }}>
           <TranscriptFeed
             sessionStore={sessionStore}
+            frameStore={new WindowStore()}
             rowRenderer={{
               render: TranscriptRow,
               drawsBody: drawsTranscriptRowBody,

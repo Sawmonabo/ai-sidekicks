@@ -49,6 +49,7 @@
    in it reflows mid-motion. */
 .meridian-frame__sessions-track {
   grid-column: 2;
+  isolation: isolate;
   min-inline-size: 0;
   min-block-size: 0;
   overflow: hidden;
@@ -59,9 +60,12 @@
   block-size: 100%;
 }
 
-/* Placed by number, so with no track element the column never falls into the empty track. */
+/* Placed by number, so with no track element the column never falls into the empty track. The
+   column and the sessions track each keep their content's stacking levels inside them, so the
+   fading note the frame draws after them paints over both. */
 .meridian-frame__column {
   grid-column: 3;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   min-width: 0;

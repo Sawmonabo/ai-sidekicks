@@ -1,0 +1,37 @@
+/*
+ * The window's one fading note: a raised box centered at the window's foot. It sets no stacking
+ * level of its own: the frame draws it after the regions that hold its content, each its own
+ * stacking layer, so it paints over them, and under every dialog and hover label, which the page's
+ * body holds after the frame. The box is as wide as its words up to a reading measure; long words
+ * wrap rather than run out of it, and the line breaks its words carry stay. Every value is a Meridian
+ * token but the 1px hairline, which stays a pixel at every text size, and the measure, counted in
+ * characters.
+ */
+.meridian-fading-note {
+  position: fixed;
+  inset-block-end: var(--meridian-space-6);
+  inset-inline: 0;
+  inline-size: fit-content;
+  max-inline-size: min(64ch, calc(100% - 2 * var(--meridian-space-6)));
+  margin: 0 auto;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+  box-shadow: var(--meridian-shadow-float);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  transition: opacity var(--meridian-motion-settle) var(--meridian-ease-settle);
+}
+
+@starting-style {
+  .meridian-fading-note {
+    opacity: 0;
+  }
+}
+
+.meridian-fading-note[data-fading] {
+  opacity: 0;
+}

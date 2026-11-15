@@ -5,7 +5,7 @@
 // carries `inert` while a modal overlay is up: the dialog traps focus but leaves the rest of the
 // app in the accessibility tree, and the wrapper is `display: contents` so the frame's grid still
 // places the rail, the track and the column. `overlays` stays outside it, so the dialog remains
-// reachable.
+// reachable, and so does the fading note, drawn after the content so it paints over it.
 //
 // This is separate from `AppFrame.tsx` because the announcement hook below must run under the
 // announcer provider that `AppFrame` mounts.
@@ -36,6 +36,8 @@ export interface FrameChromeProps {
   readonly modalOverlayOpen?: boolean;
   /** One line about the window itself, drawn above the banners. */
   readonly notice?: React.ReactNode;
+  /** The window's one fading note, over the content and under any dialog. */
+  readonly fadingNote?: React.ReactNode;
   /** What the sessions track holds; with nothing, the track is closed and zero wide. */
   readonly sessionsTrack?: React.ReactNode;
   /** The window's smallest size, in CSS px, reported on first layout and on every change. */
@@ -107,6 +109,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
         </div>
       </div>
       <WindowFloorBox onWindowFloorChange={props.onWindowFloorChange} />
+      {props.fadingNote}
       {props.overlays}
     </div>
   );

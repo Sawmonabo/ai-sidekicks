@@ -1,22 +1,41 @@
-// What the feed does with the rows themselves: one cancel, one retry in the row's own words, the
-// order the list is kept in, a move and an edit, a sent message's row from the press to the agent
-// taking it, and a send that failed or settled never drawn as waiting again.
+// What the feed does with the rows themselves: one cancel, one retry in the row's own words, a
+// retry the prompt hook blocks again handed back with the window's note, the order the list is
+// kept in, a move and an edit, a sent message's row from the press to the agent taking it, and a
+// send that failed or settled never drawn as waiting again.
 
-import { act, render } from "@testing-library/react";
+import { useEffect } from "react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { USER_MESSAGE_EVENT_TYPE } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
-import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
-import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
+import { frozenClockOf, settleScheduledRead } from "#test/helpers/scheduled-read.js";
+import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
+import type { QueueItemId, QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 
+import { FadingNote } from "#renderer/components/FadingNote/FadingNote.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import type { DraftHandBack } from "#renderer/store/session/composer-requests.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { SentMessages } from "#renderer/store/session/sent-messages.js";
+import { SessionStore } from "#renderer/store/session/store.js";
+import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
+import { WindowStore } from "#renderer/store/window/store.js";
+import { MOTION_DURATIONS_MS } from "#renderer/styles/motion.js";
 import { SEND_FAILED_ROW_TYPE } from "../system-messages/kinds.js";
+import { useQueueFeed } from "./feed.js";
+import { useWaitingRows } from "./hooks/useWaitingRows.js";
 import { reorderedQueueItemIds } from "./order.js";
-import { SentMessagePlacement, type PlacedLog, type PlacedQueue } from "./placement.js";
-import type { QueueFeed } from "./reading.js";
+import {
+  SentMessagePlacement,
+  type PlacedLog,
+  type PlacedQueue,
+  type WaitingRow,
+} from "./placement.js";
+import type { QueueCalls, QueueFeed } from "./reading.js";
 import {
   QUEUE_ITEM_A,
   QUEUE_ITEM_B,
@@ -86,6 +105,92 @@ describe("a not-delivered item is retried once", () => {
         replacesQueueItemId: QUEUE_ITEM_ID,
       },
     ]);
+  });
+});
+
+describe("a retry the person's prompt hook blocks again", () => {
+  it("returns the words to the draft and names the hook's words in a note that stays 10 seconds", async () => {
+    // Mutations: a note that ignores the pointer is gone while the person reads it; a note that
+    // restarts its full time on leave outlives its 10 seconds; no note leaves the words unsaid.
+    const { bridge, clock, queueCalls, deliver, canceledItemIds } = queueFeedBridge([
+      blockedRow(QUEUE_ITEM_A),
+    ]);
+    const calls: QueueCalls = {
+      ...queueCalls,
+      retry: async () => ({
+        state: "queued",
+        queueItemId: QUEUE_ITEM_B as QueueItemId,
+        createdAt: AT,
+      }),
+    };
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    const handBacks: DraftHandBack[] = [];
+    sessionStore.composerRequests.serve({
+      returnToDraft: async (handBack) => {
+        handBacks.push(handBack);
+        return undefined;
+      },
+      beginEdit: () => undefined,
+      sendNow: async () => undefined,
+    });
+    const frameStore = new WindowStore();
+    frameStore.setWindowFocused(true);
+    let held: QueueFeed | undefined;
+    const announcer = spiedAnnouncer(clock);
+    const Wrapper = bridgeWrapper(bridge, clock);
+    render(
+      <Wrapper>
+        <LiveAnnouncerProvider announcer={announcer.announcer}>
+          <BlockedRetryProbe
+            bridge={bridge}
+            clock={clock}
+            queueCalls={calls}
+            sessionStore={sessionStore}
+            frameStore={frameStore}
+            onFeed={(feed) => (held = feed)}
+          />
+        </LiveAnnouncerProvider>
+      </Wrapper>,
+    );
+    await settleScheduledRead(clock);
+    await act(async () => {
+      await held?.retryItem(QUEUE_ITEM_A);
+    });
+    act(() => {
+      deliver(blockedRow(QUEUE_ITEM_B));
+    });
+
+    expect(handBacks).toStrictEqual([{ words: "Also run the linter" }]);
+    expect(canceledItemIds).toStrictEqual([QUEUE_ITEM_B]);
+    const noteWords = `Blocked by your UserPromptSubmit hook: ${HOOK_WORDS}`;
+    // The live region says the words too, so the note is read by its own element.
+    const onNote = { selector: ".meridian-fading-note" };
+    const note = screen.getByText(noteWords, onNote);
+    expect(announcer.spokenOn("polite")).toStrictEqual([noteWords]);
+
+    const frozenClock = frozenClockOf(clock);
+    act(() => {
+      frozenClock.advance(4_000);
+    });
+    fireEvent.pointerEnter(note);
+    act(() => {
+      frozenClock.advance(20_000);
+    });
+    expect(screen.queryByText(noteWords, onNote)).not.toBeNull();
+    // It goes on with the 6 seconds it had left, then fades.
+    fireEvent.pointerLeave(note);
+    act(() => {
+      frozenClock.advance(5_999);
+    });
+    expect(note.hasAttribute("data-fading")).toBe(false);
+    act(() => {
+      frozenClock.advance(1);
+    });
+    expect(note.hasAttribute("data-fading")).toBe(true);
+    act(() => {
+      frozenClock.advance(MOTION_DURATIONS_MS["motion-settle"]);
+    });
+    expect(screen.queryByText(noteWords, onNote)).toBeNull();
   });
 });
 
@@ -292,6 +397,63 @@ describe("a send that failed or settled never draws as a waiting message again",
 
 /** When the cases' messages were sent. */
 const AT = "2026-09-02T09:00:00.000Z";
+
+/** What the person's prompt hook said when it blocked the message. */
+const HOOK_WORDS = "Prompts may not name the release key";
+
+/** No row the feed placed, since the case reads the hook and the note, not the rows. */
+const NO_WAITING_ROWS: ReadonlyMap<string, WaitingRow> = new Map();
+
+/** A message row the person's prompt hook blocked, in `HOOK_WORDS`. */
+function blockedRow(id: string): QueueItemSummary {
+  const row = queueRow(id, "notDelivered", AT);
+  if (row.state !== "notDelivered") {
+    throw new Error("queueRow drew no not-delivered row");
+  }
+  return { ...row, notDeliveredReason: { kind: "refusedByHook", words: HOOK_WORDS } };
+}
+
+/**
+ * The feed's queue reading and waiting rows over one session, and the window's note drawn as the
+ * frame draws it.
+ */
+function BlockedRetryProbe(props: {
+  readonly bridge: PlatformBridge;
+  readonly clock: Clock;
+  readonly queueCalls: QueueCalls;
+  readonly sessionStore: SessionStore;
+  readonly frameStore: WindowStore;
+  readonly onFeed: (feed: QueueFeed) => void;
+}): React.JSX.Element | null {
+  const { frameStore, onFeed } = props;
+  const queue = useQueueFeed(props.bridge, SESSION_ID, props.queueCalls);
+  useWaitingRows({
+    sessionStore: props.sessionStore,
+    frameStore,
+    queue,
+    waitingRowByKey: NO_WAITING_ROWS,
+    hasActiveTurn: false,
+    isServiceUnreachable: false,
+    clock: props.clock,
+  });
+  useEffect(() => {
+    onFeed(queue);
+  }, [queue, onFeed]);
+  const note = useWindowStore(frameStore, (state) => state.fadingNote);
+  const isWindowFocused = useWindowStore(frameStore, (state) => state.isWindowFocused);
+  return note === undefined ? null : (
+    <FadingNote
+      key={note.id}
+      words={note.words}
+      durationMs={note.durationMs}
+      isWindowFocused={isWindowFocused}
+      clock={props.clock}
+      onGone={() => {
+        frameStore.takeFadingNote(note.id);
+      }}
+    />
+  );
+}
 
 /** The queue reading as the placement reads it, with no retry. */
 function queueOf(items: readonly QueueItemSummary[]): PlacedQueue {

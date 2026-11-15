@@ -2,8 +2,8 @@
 // the stack, and the edit the draft holds. A move sends the queue's whole new order and the rows
 // move when the reading reports it; a refused move puts the rows back and says the refusal's own
 // words under the row. A retry the person's own prompt hook blocks again hands its words back to
-// the draft and takes the row out, and so does a message the service hands back after taking it,
-// whose line is said as it arrives.
+// the draft, takes the row out and names the hook's words in the window's note, and a message the
+// service hands back after taking it goes back to the draft too, its line said as it arrives.
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
@@ -15,16 +15,22 @@ import type { Clock } from "#renderer/lib/clock.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import { selectTranscript } from "#renderer/store/session/selectors.js";
+import type { SentMessageEntry } from "#renderer/store/session/sent-messages.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
+import type { WindowStore } from "#renderer/store/window/store.js";
 import { reorderedQueueItemIds, type QueueMoveAnchor } from "../order.js";
 import { HANDED_BACK_LABEL, handedBackItemIdOf, type WaitingRow } from "../placement.js";
 import type { QueueFeed } from "../reading.js";
-import type { WaitingRows } from "../waiting-rows.js";
+import { blockedByHookLine, type WaitingRows } from "../waiting-rows.js";
 import { useAnnounceSendFailures } from "./useAnnounceSendFailures.js";
 
-/** What `useWaitingRows` reads: the session, its queue reading and the rows the feed placed. */
+/**
+ * What `useWaitingRows` reads: the session, its queue reading, the rows the feed placed and the
+ * window, whose note names a blocked retry's hook words.
+ */
 export interface WaitingRowsInput {
   readonly sessionStore: SessionStore;
+  readonly frameStore: WindowStore;
   readonly queue: QueueFeed;
   readonly waitingRowByKey: ReadonlyMap<string, WaitingRow>;
   readonly hasActiveTurn: boolean;
@@ -34,8 +40,15 @@ export interface WaitingRowsInput {
 
 /** The waiting rows' context value for one feed, with the drag that moves them. */
 export function useWaitingRows(input: WaitingRowsInput): WaitingRows {
-  const { sessionStore, queue, waitingRowByKey, hasActiveTurn, isServiceUnreachable, clock } =
-    input;
+  const {
+    sessionStore,
+    frameStore,
+    queue,
+    waitingRowByKey,
+    hasActiveTurn,
+    isServiceUnreachable,
+    clock,
+  } = input;
   const { composerRequests } = sessionStore;
   const edit = useSyncExternalStore(composerRequests.subscribe, composerRequests.editSnapshot);
   const [moveRefusal, setMoveRefusal] = useState<WaitingRows["moveRefusal"]>(undefined);
@@ -109,7 +122,7 @@ export function useWaitingRows(input: WaitingRowsInput): WaitingRows {
     },
     [movableKeys, move],
   );
-  useBlockedRetriesReturned(queue, sessionStore);
+  useBlockedRetriesReturned(queue, sessionStore, frameStore);
   useHandedBackSendsReturned(sessionStore);
   useAnnounceSendFailures(sessionStore, queue);
 
@@ -145,12 +158,21 @@ export function useWaitingRows(input: WaitingRowsInput): WaitingRows {
 const QUEUE_REORDER_ORIGIN = "queue-reorder";
 
 /**
- * A retry the person's own prompt hook blocked again: its words go back to the draft once and
- * its row is taken out, so the person edits them there.
+ * A retry the person's own prompt hook blocked again: its words go back to the draft once, its row
+ * is taken out, so the person edits them there, and the window's note names the hook's words
+ * until its time runs or the next send from the composer.
  */
-function useBlockedRetriesReturned(queue: QueueFeed, sessionStore: SessionStore): void {
+function useBlockedRetriesReturned(
+  queue: QueueFeed,
+  sessionStore: SessionStore,
+  frameStore: WindowStore,
+): void {
   const returned = useRef(new Set<string>());
+  // The note raised last, with the sends that stood when it was raised.
+  const raisedNote = useRef<{ readonly id: number; readonly sendsBefore: Set<string> }>(undefined);
   const { items, retriedItemFrom, cancelItem } = queue;
+  const { sentMessages } = sessionStore;
+  const sends = useSyncExternalStore(sentMessages.subscribe, sentMessages.snapshot);
   useEffect(() => {
     for (const item of items) {
       if (
@@ -165,8 +187,41 @@ function useBlockedRetriesReturned(queue: QueueFeed, sessionStore: SessionStore)
       returned.current.add(item.id);
       void sessionStore.composerRequests.returnToDraft({ words: item.content });
       void cancelItem(item.id);
+      raisedNote.current = {
+        id: frameStore.showFadingNote({
+          words: blockedByHookLine(item.notDeliveredReason.words),
+          durationMs: BLOCKED_RETRY_NOTE_MS,
+        }),
+        sendsBefore: sendStamps(sentMessages.snapshot()),
+      };
     }
-  }, [items, retriedItemFrom, cancelItem, sessionStore]);
+  }, [items, retriedItemFrom, cancelItem, sessionStore, sentMessages, frameStore]);
+  useEffect(() => {
+    const note = raisedNote.current;
+    if (note === undefined) {
+      return;
+    }
+    for (const stamp of sendStamps(sends)) {
+      if (!note.sendsBefore.has(stamp)) {
+        raisedNote.current = undefined;
+        frameStore.takeFadingNote(note.id);
+        return;
+      }
+    }
+  }, [sends, frameStore]);
+}
+
+/** How long the note naming a blocked retry's hook words stays, in milliseconds. */
+const BLOCKED_RETRY_NOTE_MS = 10_000;
+
+/**
+ * Each press or edit of a message from the composer: a press is a new key, and an edit sends again
+ * under its row's key at a new time, while a send's settling keeps both.
+ */
+function sendStamps(entries: readonly SentMessageEntry[]): Set<string> {
+  return new Set(
+    entries.flatMap((entry) => (entry.kind === "sent" ? [`${entry.key} ${entry.sentAt}`] : [])),
+  );
 }
 
 /**

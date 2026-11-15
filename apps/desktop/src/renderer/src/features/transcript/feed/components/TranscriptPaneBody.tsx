@@ -4,7 +4,7 @@
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import type { GoneSessionRaise } from "#renderer/store/window/store.js";
+import type { GoneSessionRaise, WindowStore } from "#renderer/store/window/store.js";
 import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
@@ -15,6 +15,8 @@ export interface TranscriptPaneBodyProps {
   /** The registered row renderer. */
   readonly rowRenderer: TranscriptRowRenderer;
   readonly sessionStore: SessionStore | undefined;
+  /** The window's store, which the feed raises its note through. */
+  readonly frameStore: WindowStore;
   /** The event cursor of the message the route opens the session at, or `undefined`. */
   readonly messageAnchorCursor: string | undefined;
   /** How many times the window's route was written, so a link followed again raises its line again. */
@@ -50,6 +52,7 @@ export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.El
     <TranscriptFeed
       key={props.sessionStore.sessionId}
       sessionStore={props.sessionStore}
+      frameStore={props.frameStore}
       rowRenderer={props.rowRenderer}
       feedLabel="Transcript"
       messageAnchorCursor={props.messageAnchorCursor}

@@ -26,6 +26,7 @@ import { type TranscriptRowProps } from "../../rows/renderer.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { ViewportController } from "../../viewport/controller.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
+import { WindowStore } from "#renderer/store/window/store.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** An event count short enough that the window never lets one of its rows go. */
@@ -71,6 +72,7 @@ export function renderFeed(
         <CommitProbe onCommit={options.onCommit}>
           <TranscriptFeed
             sessionStore={sessionStore}
+            frameStore={new WindowStore()}
             rowRenderer={{
               render: (mount) => {
                 onRowMounted?.(mount);
