@@ -51,6 +51,8 @@
               `ConvertSidToStringSidW`), the named pipe's server read \
               (`GetNamedPipeServerProcessId`), a Windows AF_UNIX socket's peer read (`WSAIoctl` of \
               `SIO_AF_UNIX_GETPEERPID`) and the mark that lets `async-io` drive it (`IoSafe`), the \
+              loopback listener's exclusive address on Windows (`setsockopt` of \
+              `SO_EXCLUSIVEADDRUSE`), the \
               run folder's owner and access list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`), \
               Windows' volume GUID path read of an open file or folder \
               (`GetFinalPathNameByHandleW`), macOS's volume reads (`statfs`'s mount point and \
@@ -403,6 +405,8 @@ pub use posix::file_system::{
 #[cfg(unix)]
 pub use posix::login_shell::{login_shell, name_as_login_shell};
 #[cfg(unix)]
+pub use posix::loopback_listener::bind_loopback_listener;
+#[cfg(unix)]
 pub use posix::null_device::NULL_DEVICE_PATH;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::os_text::non_unicode_name;
@@ -647,6 +651,8 @@ pub use windows::input_wait::{may_wait_for_input, read_input_wait};
 pub use windows::lasting_child::spawn_lasting_child;
 #[cfg(target_os = "windows")]
 pub use windows::login_shell::{login_shell, name_as_login_shell};
+#[cfg(target_os = "windows")]
+pub use windows::loopback_listener::bind_loopback_listener;
 #[cfg(target_os = "windows")]
 pub use windows::machine_name::machine_name;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]

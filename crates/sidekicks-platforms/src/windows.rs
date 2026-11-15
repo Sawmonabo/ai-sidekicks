@@ -27,6 +27,7 @@ pub(crate) mod input_wait;
 pub(crate) mod known_folder;
 pub(crate) mod lasting_child;
 pub(crate) mod login_shell;
+pub(crate) mod loopback_listener;
 pub(crate) mod machine_name;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod measurement;

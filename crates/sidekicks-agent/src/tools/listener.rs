@@ -18,9 +18,11 @@ use axum::response::{IntoResponse as _, Response};
 use rmcp::ServerHandler;
 use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
-use sidekicks_platforms::{AtomicWriteError, LeftoverSweep, replace_file_atomically};
+use sidekicks_platforms::{
+    AtomicWriteError, LeftoverSweep, bind_loopback_listener, replace_file_atomically,
+};
 use sidekicks_provider::pricing::receiver::refuse_unknown_telemetry_path;
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
@@ -37,9 +39,6 @@ const PORT_FILE_MODE: u32 = 0o600;
 /// How long a connect to the kept port may go unanswered before the port counts as held: a
 /// loopback port no one listens on refuses at once.
 const HELD_PORT_ANSWER_BOUND: Duration = Duration::from_secs(1);
-
-/// How many connections the listener queues before it accepts them, as Tokio's own bind does.
-const LISTEN_BACKLOG: u32 = 1024;
 
 /// Why the listener did not bind; nothing is listening.
 #[derive(Debug, thiserror::Error)]
@@ -190,13 +189,13 @@ async fn read_kept_port(port_file: &Path) -> Result<Option<u16>, ToolServerListe
         .filter(|port| *port != 0))
 }
 
-// The listener at the kept `port`, `None` where another program holds it. The first bind does not
-// reuse the address, so the system refuses it wherever any socket holds the port, a wildcard
-// holder among them, in the bind itself. Only where that bind was refused and nothing answers a
-// connect, which leaves the closing connections of the port's last listener, does a second bind
-// reuse the address to pass them. Fails as loopback refuses a bind for another cause.
+// The listener at the kept `port`, `None` where another program holds it. The first bind is
+// refused wherever any socket holds the port, a wildcard holder among them. Only where that bind
+// was refused and nothing answers a connect, which leaves the closing connections of the port's
+// last listener, does a second bind try to pass them. Fails as loopback refuses a bind for another
+// cause.
 async fn bind_kept_port(port: u16) -> Result<Option<TcpListener>, ToolServerListenerError> {
-    match bind_loopback(port, false) {
+    match bind_loopback_listener(port, false) {
         Ok(listener) => return Ok(Some(listener)),
         Err(error) if error.kind() == io::ErrorKind::AddrInUse => {}
         Err(error) => return Err(ToolServerListenerError::Bind(error)),
@@ -204,7 +203,7 @@ async fn bind_kept_port(port: u16) -> Result<Option<TcpListener>, ToolServerList
     if is_held(port).await {
         return Ok(None);
     }
-    match bind_loopback(port, true) {
+    match bind_loopback_listener(port, true) {
         Ok(listener) => Ok(Some(listener)),
         Err(error) if error.kind() == io::ErrorKind::AddrInUse => Ok(None),
         Err(error) => Err(ToolServerListenerError::Bind(error)),
@@ -226,23 +225,7 @@ async fn is_held(port: u16) -> bool {
 }
 
 fn bind_free_port() -> Result<TcpListener, ToolServerListenerError> {
-    bind_loopback(0, false).map_err(ToolServerListenerError::Bind)
-}
-
-// A listener on `127.0.0.1:<port>`, bound reusing the address only where `reuse_address` says,
-// which lets the bind pass the port's own closing connections; on macOS it also lets the bind
-// share the port of a wildcard holder of the same user, which Linux refuses. The address is reused
-// from the bind on in every case, before `listen`: on Linux the listener's connections, and their
-// closing connections, carry the option, and a later bind that reuses the address passes them
-// only then.
-fn bind_loopback(port: u16, reuse_address: bool) -> io::Result<TcpListener> {
-    let socket = TcpSocket::new_v4()?;
-    socket.set_reuseaddr(reuse_address)?;
-    socket.bind((Ipv4Addr::LOCALHOST, port).into())?;
-    if !reuse_address {
-        socket.set_reuseaddr(true)?;
-    }
-    socket.listen(LISTEN_BACKLOG)
+    bind_loopback_listener(0, false).map_err(ToolServerListenerError::Bind)
 }
 
 // Writes `port` to `port_file`, whole or not at all.

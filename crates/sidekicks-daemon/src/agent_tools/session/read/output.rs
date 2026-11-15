@@ -22,11 +22,14 @@ use sidekicks_store::credential_store::seed_item::Seed;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::events::session::read::SessionEventReads;
 
-use super::{READ_PAGE_MAX_BYTES, SessionReading, changed_files_text, message_text_of, parts_of};
+use super::{
+    ONE_ROW, READ_PAGE_MAX_BYTES, SessionReading, changed_files_text, message_text_of, page_cut,
+    parts_of,
+};
 use crate::agent_tools::AgentToolError;
 
-/// The most of one line a read holds: just past a page, so a line too long for one page is cut
-/// there without the whole line in memory.
+/// The most of one line read without a search a read holds: just past a page, so a line too long
+/// for one page is cut there without the whole line in memory.
 const LINE_KEPT_MAX_BYTES: usize = READ_PAGE_MAX_BYTES + 4;
 
 // A cursor's text is the line it goes on at, the place's separator, the byte offset where it goes
@@ -100,9 +103,10 @@ struct BodyLine<'text> {
 impl SessionReading<'_> {
     /// One output's numbered lines: the range or matches asked for, from the cursor's place on.
     /// A line longer than a page is cut there with a cursor inside it, and the lines read on from
-    /// one carry `(cont.)`. Refuses a cursor not handed out for `output`, and an output the
-    /// session holds neither a body nor a message under; fails on a cursor's offset inside a
-    /// character.
+    /// one carry `(cont.)`. A search reads each line to its end and hands the page of it that
+    /// holds the text, or the cursor at that page where the result has no room left. Refuses a
+    /// cursor not handed out for `output`, and an output the session holds neither a body nor a
+    /// message under; fails on a cursor's offset inside a character.
     pub(super) async fn read_output(
         &self,
         output: &str,
@@ -137,22 +141,10 @@ impl SessionReading<'_> {
         let mut pieces: Vec<String> = Vec::new();
         let mut length = 0;
         let mut goes_on_at: Option<LineCursor> = None;
-        // Takes one numbered line, answering whether the read goes on. A line read on from inside
-        // it is shown without testing the search again, since its opening was shown.
+        // Takes one numbered line, or the page of a line that holds the search, answering whether
+        // the read goes on.
         let mut each = |line: BodyLine<'_>| {
-            if line.number > last {
-                return false;
-            }
-            let is_shown = line.number >= first
-                && (line.is_continued || search.is_none_or(|search| line.text.contains(search)));
-            if !is_shown {
-                return true;
-            }
-            let label = if line.is_continued {
-                format!("{} (cont.): ", line.number)
-            } else {
-                format!("{}: ", line.number)
-            };
+            let label = line_label(line.number, line.is_continued);
             let piece_length = label.len() + line.text.len();
             if !pieces.is_empty() && length + piece_length > READ_PAGE_MAX_BYTES {
                 goes_on_at = Some(LineCursor {
@@ -167,9 +159,7 @@ impl SessionReading<'_> {
                 return false;
             }
             if piece_length > READ_PAGE_MAX_BYTES {
-                let shown = line
-                    .text
-                    .floor_char_boundary(READ_PAGE_MAX_BYTES - label.len());
+                let shown = page_cut(line.text, READ_PAGE_MAX_BYTES - label.len());
                 pieces.push(format!("{label}{}", &line.text[..shown]));
                 goes_on_at = Some(LineCursor {
                     line: line.number,
@@ -182,7 +172,12 @@ impl SessionReading<'_> {
             pieces.push(format!("{label}{}", line.text));
             true
         };
-        let mut body_lines = BodyLines::from_cursor(&from);
+        let selection = LineSelection {
+            first,
+            last,
+            search,
+        };
+        let mut body_lines = BodyLines::from_cursor(&from, selection);
         let read = self
             .read_output_parts(output, from.offset, |part| body_lines.take(part, &mut each))
             .await?;
@@ -205,7 +200,12 @@ impl SessionReading<'_> {
     // How many lines an output holds, read part by part; `None` for an output the session holds
     // neither a body nor a message under.
     async fn count_output_lines(&self, output: &str) -> Result<Option<u64>, AgentToolError> {
-        let mut lines = BodyLines::default();
+        let from_start = LineCursor {
+            line: 1,
+            offset: 0,
+            place: LinePlace::Start,
+        };
+        let mut lines = BodyLines::from_cursor(&from_start, LineSelection::EVERY_LINE);
         let read = self
             .read_output_parts(output, 0, |part| {
                 lines.take(part, &mut |_: BodyLine<'_>| true)
@@ -232,7 +232,7 @@ impl SessionReading<'_> {
             .and_then(|sequence| encode_event_cursor(sequence).map_err(AgentToolError::failed))?;
         let position = anchor.as_str().to_owned();
         let window = self
-            .read_window(None, None, Some(anchor), &position)
+            .read_window(None, None, Some(anchor), Some(ONE_ROW), &position)
             .await?;
         let changed = window
             .rows
@@ -375,79 +375,223 @@ fn byte_count(length: usize) -> u64 {
     u64::try_from(length).expect("a length fits 64 bits")
 }
 
+// The label a numbered line, or a page read on from inside it, opens with.
+fn line_label(number: u64, is_continued: bool) -> String {
+    if is_continued {
+        format!("{number} (cont.): ")
+    } else {
+        format!("{number}: ")
+    }
+}
+
+// Which of a text's lines a read hands on: those from `first` to `last`, and with `search` only
+// the page of a line that holds it.
+#[derive(Clone, Copy)]
+struct LineSelection<'search> {
+    first: u64,
+    last: u64,
+    search: Option<&'search str>,
+}
+
+impl LineSelection<'_> {
+    // Every line, whole.
+    const EVERY_LINE: Self = Self {
+        first: 1,
+        last: u64::MAX,
+        search: None,
+    };
+}
+
 // A text's numbered lines as it is read part by part, split where `str::lines` splits it, with
-// where each starts in the text. A line longer than `LINE_KEPT_MAX_BYTES` is handed once that much
-// of it is held and the rest of it is passed over, so a read holds no more of it than a page.
-#[derive(Default)]
-struct BodyLines {
+// where each starts in the text, handed as `LineSelection` selects them. A line longer than
+// `LINE_KEPT_MAX_BYTES` is handed once that much of it is held and the rest of it is passed over.
+// A searched line is held a page at a time, with the bytes a match opening on that page can run on
+// into, and its first page that holds the search is handed; the rest of it is passed over. So a
+// read holds no more of a line than a page and the search's length.
+struct BodyLines<'search> {
     ended: u64,
     line: String,
     // The text's bytes taken so far, from its start.
     taken: u64,
     // Where the held text of the line being read starts in the text.
     line_start: u64,
-    // Whether the held text starts inside its line, where a cursor goes on.
+    // Whether the held text starts inside its line, where a cursor or a passed page goes on.
     is_continued: bool,
-    // Whether the line being read was handed already, its rest passed over to its end.
+    // Whether the line being read was handed already or is not selected, its rest passed over to
+    // its end.
     is_handed: bool,
+    // The search the line being read is tested against: none for a line read on from inside it,
+    // whose opening was shown.
+    searched: Option<&'search str>,
+    selection: LineSelection<'search>,
 }
 
-impl BodyLines {
-    // The lines of a text read from the cursor's offset, which falls in its line.
-    fn from_cursor(from: &LineCursor) -> Self {
-        Self {
+impl<'search> BodyLines<'search> {
+    // The lines `selection` selects of a text read from the cursor's offset, which falls in its
+    // line.
+    fn from_cursor(from: &LineCursor, selection: LineSelection<'search>) -> Self {
+        let mut lines = Self {
             ended: from.line - 1,
             line: String::new(),
             taken: from.offset,
             line_start: from.offset,
             is_continued: from.place == LinePlace::Inside,
             is_handed: false,
-        }
+            searched: None,
+            selection,
+        };
+        lines.open_line();
+        lines
     }
 
-    // Takes the text's next part, handing each line it ends, and each line too long to hold whole,
-    // to `each` until `each` answers that the read stops.
+    // Takes the text's next part, handing each selected line, or page of a searched line, to
+    // `each` until `each` answers that the read stops or the lines selected are passed.
     fn take(&mut self, part: &str, each: &mut impl FnMut(BodyLine<'_>) -> bool) -> ControlFlow<()> {
         let mut segments = part.split('\n').peekable();
         while let Some(segment) = segments.next() {
+            if self.ended >= self.selection.last {
+                return ControlFlow::Break(());
+            }
             self.taken += byte_count(segment.len());
-            if !self.is_handed && !self.keep(segment) {
-                self.is_handed = true;
-                let is_reading_on = each(self.held(false));
-                self.line.clear();
+            let is_ended = segments.peek().is_some();
+            if !self.is_handed {
+                let is_reading_on = match self.searched {
+                    Some(search) => self.search_in(search, segment, is_ended, each),
+                    None => self.hold(segment, is_ended, each),
+                };
                 if !is_reading_on {
                     return ControlFlow::Break(());
                 }
             }
-            if segments.peek().is_none() {
+            if !is_ended {
                 break;
             }
             // The line feed ending the line.
             self.taken += 1;
-            let is_reading_on = self.is_handed || each(self.held(true));
             self.ended += 1;
             self.line.clear();
             self.line_start = self.taken;
             self.is_continued = false;
-            self.is_handed = false;
-            if !is_reading_on {
-                return ControlFlow::Break(());
-            }
+            self.open_line();
         }
         ControlFlow::Continue(())
     }
 
-    // Hands `each` the text's last line where no newline ends it.
+    // Hands `each` the text's last line, or its page that holds the search, where no newline
+    // ends it.
     fn finish(&mut self, each: &mut impl FnMut(BodyLine<'_>) -> bool) {
-        if !self.is_handed && !self.line.is_empty() {
-            // The text's last line, so whether `each` would read on changes nothing.
-            each(self.held(false));
+        if self.is_handed || self.line.is_empty() || self.ended >= self.selection.last {
+            return;
         }
+        // The text's last line, so whether `each` would read on changes nothing.
+        match self.searched {
+            Some(search) => self.search_last_pages(search, each),
+            None => each(self.held(false)),
+        };
     }
 
     // How many lines the parts taken so far hold.
     fn count(&self) -> u64 {
         self.ended + u64::from(!self.line.is_empty() || self.is_handed)
+    }
+
+    // Sets how the line now being read is read: passed over before the first line selected, and
+    // tested against the search unless it is read on from inside.
+    fn open_line(&mut self) {
+        self.is_handed = self.ended + 1 < self.selection.first;
+        self.searched = self.selection.search.filter(|_| !self.is_continued);
+    }
+
+    // Adds `segment` to the line being read and hands the line once it ends or once more of it is
+    // held than a line keeps, answering whether the read goes on.
+    fn hold(
+        &mut self,
+        segment: &str,
+        is_ended: bool,
+        each: &mut impl FnMut(BodyLine<'_>) -> bool,
+    ) -> bool {
+        let is_whole = self.keep(segment);
+        if is_whole && !is_ended {
+            return true;
+        }
+        self.is_handed = true;
+        each(self.held(is_whole))
+    }
+
+    // Adds `segment` to the searched line, page by page: a page held whole, with the bytes a match
+    // opening on it can run on into, is handed where it holds the search and let go otherwise.
+    // Answers whether the read goes on.
+    fn search_in(
+        &mut self,
+        search: &str,
+        segment: &str,
+        is_ended: bool,
+        each: &mut impl FnMut(BodyLine<'_>) -> bool,
+    ) -> bool {
+        let mut rest = segment;
+        loop {
+            let room = self.page_room();
+            // Up to three bytes past the page and the search: once the next character no longer
+            // fits, every match opening on the page is held whole.
+            let held_max = room + search.len() + 3;
+            let taken = rest.floor_char_boundary(held_max.saturating_sub(self.line.len()));
+            self.line.push_str(&rest[..taken]);
+            rest = &rest[taken..];
+            if rest.is_empty() {
+                break;
+            }
+            let cut = page_cut(&self.line, room);
+            if self.line.find(search).is_some_and(|at| at < cut) {
+                self.is_handed = true;
+                return each(self.held(false));
+            }
+            self.pass_page(cut);
+        }
+        if !is_ended {
+            return true;
+        }
+        // The line ending's carriage return, which no page shows.
+        if self.line.ends_with('\r') {
+            self.line.pop();
+        }
+        self.search_last_pages(search, each)
+    }
+
+    // Tests the searched line's held text, its last, page by page and hands the first page that
+    // holds the search, answering whether the read goes on.
+    fn search_last_pages(
+        &mut self,
+        search: &str,
+        each: &mut impl FnMut(BodyLine<'_>) -> bool,
+    ) -> bool {
+        loop {
+            let room = self.page_room();
+            let cut = if self.line.len() > room {
+                page_cut(&self.line, room)
+            } else {
+                self.line.len()
+            };
+            if self.line.find(search).is_some_and(|at| at < cut) {
+                self.is_handed = true;
+                return each(self.held(false));
+            }
+            if cut == self.line.len() {
+                return true;
+            }
+            self.pass_page(cut);
+        }
+    }
+
+    // How many bytes of the held text the page it opens shows past its label.
+    fn page_room(&self) -> usize {
+        READ_PAGE_MAX_BYTES - line_label(self.ended + 1, self.is_continued).len()
+    }
+
+    // Lets go of the held text's first page, `cut` bytes, the next page opening inside the line.
+    fn pass_page(&mut self, cut: usize) {
+        self.line.drain(..cut);
+        self.line_start += byte_count(cut);
+        self.is_continued = true;
     }
 
     // The line being read as far as it is held, its carriage return dropped where a line feed

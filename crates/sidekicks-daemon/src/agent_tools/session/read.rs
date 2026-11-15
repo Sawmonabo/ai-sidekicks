@@ -20,7 +20,9 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::event_cursor::{EventCursor, encode_event_cursor};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::content::{TranscriptBodyReadResponse, TranscriptRowContent};
-use sidekicks_contracts::transcript::operations::{TranscriptReadRequest, TranscriptReadResponse};
+use sidekicks_contracts::transcript::operations::{
+    TranscriptReadLimit, TranscriptReadRequest, TranscriptReadResponse,
+};
 use sidekicks_contracts::transcript::row::TranscriptReadRow;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_session::service::SessionService;
@@ -38,6 +40,9 @@ use crate::orchestration::session_directory::{
 /// The most text one result carries, in UTF-8 bytes, so a read stays a small part of the calling
 /// model's context; the rest follows a page at a time.
 const READ_PAGE_MAX_BYTES: usize = 64 * 1024;
+
+/// The limit of a transcript window that holds only the row it stands around.
+const ONE_ROW: TranscriptReadLimit = TranscriptReadLimit::new(1).expect("one row is a limit");
 
 /// `session_read` for a call `caller` makes, its line cursors drawn under `cursor_key`. Refuses,
 /// in the text the model reads, a name the directory does not resolve to one session, a session
@@ -94,14 +99,14 @@ pub(crate) async fn read_session(
     let (rows, continues_after) = if let Some(cursor) = &arguments.cursor {
         let after = reading.event_cursor(cursor.as_str())?;
         let window = reading
-            .read_window(Some(after), None, None, cursor.as_str())
+            .read_window(Some(after), None, None, None, cursor.as_str())
             .await?;
         let continues_after = window.has_more.then_some(window.next_cursor).flatten();
         (window.rows, continues_after)
     } else if let Some(around) = &arguments.around {
         let anchor = reading.event_cursor(around.as_str())?;
         let window = reading
-            .read_window(None, None, Some(anchor), around.as_str())
+            .read_window(None, None, Some(anchor), None, around.as_str())
             .await?;
         (window.rows, None)
     } else {
@@ -225,13 +230,14 @@ impl SessionReading<'_> {
             .ok_or_else(|| AgentToolError::Refused(position_unknown(text, &self.name)))
     }
 
-    // One window of the session's rows; a position the session does not hold is refused naming
-    // `position`, the text the model passed.
+    // One window of the session's rows, of at most `limit` rows where it names one; a position the
+    // session does not hold is refused naming `position`, the text the model passed.
     async fn read_window(
         &self,
         after_cursor: Option<EventCursor>,
         before_cursor: Option<EventCursor>,
         around_cursor: Option<EventCursor>,
+        limit: Option<TranscriptReadLimit>,
         position: &str,
     ) -> Result<Window, AgentToolError> {
         let request = TranscriptReadRequest {
@@ -239,7 +245,7 @@ impl SessionReading<'_> {
             after_cursor,
             before_cursor,
             around_cursor,
-            limit: None,
+            limit,
         };
         let response = self
             .sessions
@@ -305,7 +311,7 @@ impl SessionReading<'_> {
         while let Some(cursor) = before.take() {
             let position = cursor.as_str().to_owned();
             let window = self
-                .read_window(None, Some(cursor), None, &position)
+                .read_window(None, Some(cursor), None, None, &position)
                 .await?;
             let mut older = window.rows;
             older.append(&mut rows);
@@ -355,7 +361,7 @@ impl SessionReading<'_> {
                 length += piece.text.len();
                 if piece.text.len() > READ_PAGE_MAX_BYTES {
                     // A row no page holds goes on under its own id from where the page cut it.
-                    let cut = piece.text.floor_char_boundary(READ_PAGE_MAX_BYTES);
+                    let cut = page_cut(&piece.text, READ_PAGE_MAX_BYTES);
                     let rest = self.rest_of_cut_row(parts.id, &piece, cut);
                     let mut text = piece.text;
                     text.truncate(cut);
@@ -399,19 +405,17 @@ impl SessionReading<'_> {
             ),
             ServedText::Lines => {
                 let line = 1 + byte_offset(text[..offset].matches('\n').count());
-                let rest = &text[offset..];
-                // A cut at a line's end goes on at the next line's start.
-                let line_end = ["\n", "\r\n"]
-                    .into_iter()
-                    .find(|ending| rest.starts_with(ending));
                 let is_at_line_start = offset == 0 || text[..offset].ends_with('\n');
-                let next = match line_end {
-                    Some(ending) => LineCursor {
+                // A cut at a line's end goes on at the next line's start; `page_cut` never cuts
+                // inside a line ending's `\r\n`.
+                let next = if text[offset..].starts_with('\n') {
+                    LineCursor {
                         line: line + 1,
-                        offset: byte_offset(offset + ending.len()),
+                        offset: byte_offset(offset + 1),
                         place: LinePlace::Start,
-                    },
-                    None => LineCursor {
+                    }
+                } else {
+                    LineCursor {
                         line,
                         offset: byte_offset(offset),
                         place: if is_at_line_start {
@@ -419,7 +423,7 @@ impl SessionReading<'_> {
                         } else {
                             LinePlace::Inside
                         },
-                    },
+                    }
                 };
                 rest_of_row(output, line, &self.line_cursor(output, &next))
             }
@@ -564,6 +568,20 @@ impl SessionReading<'_> {
             }
         }
     }
+}
+
+// Where a page with `room` bytes cuts `text`, which runs past it: on a character's boundary, and
+// before the character ahead of a carriage return the cut would fall at or just after, so a line
+// ending's `\r\n` stays whole on the next page and that page never opens on an empty rest.
+fn page_cut(text: &str, room: usize) -> usize {
+    let mut cut = text.floor_char_boundary(room);
+    if text[..cut].ends_with('\r') && text[cut..].starts_with('\n') {
+        cut -= 1;
+    }
+    if text[cut..].starts_with('\r') {
+        cut = text.floor_char_boundary(cut.saturating_sub(1));
+    }
+    cut
 }
 
 // The text of a message the session took, from its event's payload.

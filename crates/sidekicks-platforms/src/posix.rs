@@ -19,6 +19,7 @@ pub(crate) mod executable_file;
 pub(crate) mod file_facts;
 pub(crate) mod file_system;
 pub(crate) mod login_shell;
+pub(crate) mod loopback_listener;
 pub(crate) mod memory;
 pub(crate) mod null_device;
 pub(crate) mod os_text;

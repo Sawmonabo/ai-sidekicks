@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use rstest::rstest;
 use serde_json::json;
 use sidekicks_agent::tools::secret_key::ToolServerSecretKey;
 use sidekicks_agent::tools::session::SessionReference;
@@ -9,6 +10,7 @@ use sidekicks_agent::tools::session::read::{SessionReadArguments, position_unkno
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::transcript::content::TranscriptBodyReadResponse;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_provider::driver::PROVIDERS;
@@ -25,7 +27,7 @@ use sidekicks_store::database::writer::test_file::{
 };
 use sidekicks_store::events::test_log::AT;
 
-use super::{READ_PAGE_MAX_BYTES, read_session};
+use super::{READ_PAGE_MAX_BYTES, page_cut, read_session};
 use crate::agent_tools::AgentToolError;
 use crate::agent_tools::session::read::output::LineCursorKey;
 use crate::daemon::schema::schema_parts;
@@ -333,4 +335,117 @@ async fn a_message_past_a_page_reads_on_by_its_lines_to_its_last() {
         panic!("a cursor moved off its line is refused");
     };
     assert_eq!(text, position_unknown(&moved, "builder"));
+}
+
+// A search finds text anywhere in a line longer than a page, however far in, holding a page at a
+// time. The text runs across the boundary between two parts of the stored body, deep in its second
+// line; a short first line matches too, so the result shows it and ends with the cursor at the
+// long line's page that holds the text, and that cursor's read shows the page. Killed by testing
+// only a line's opening page, by a scan that carries no bytes from one part into the next, and by
+// a cursor at any page but the one where the text starts.
+#[tokio::test]
+async fn a_search_finds_text_past_a_long_lines_first_page_across_two_parts() {
+    let (database, reader) = database_of_this_machine();
+    let caller: SessionId = test_session_id();
+    let builder: SessionId = test_session_id();
+    insert_session_row(&reader, builder.text().as_str(), Some("builder"), None);
+    insert_lead(&database, builder, PROVIDERS[0].id);
+    let first_line = "line one NEEDLE\n";
+    let long_line = "x".repeat(1_200_000);
+    let insert_answer = |provider_message_id: &str, body: &str| {
+        insert_test_event(
+            &reader,
+            builder,
+            json!({
+                "type": "agent.message.sent",
+                "payload": {
+                    "sessionId": builder,
+                    "runId": test_run_id(),
+                    "providerMessageId": provider_message_id,
+                },
+            }),
+            Some(body),
+            AT,
+        )
+        .1
+    };
+    // Where the store's first part of such a body ends, read from a body of the same bytes but the
+    // search's, so the text is placed across it.
+    let probe = insert_answer("probe", &format!("{first_line}{long_line}"));
+    let (directory, sessions) = directory_and_sessions(&database);
+    let part = sessions
+        .read_row_body(builder, probe, 0)
+        .await
+        .expect("the body reads");
+    let Some(TranscriptBodyReadResponse::Available {
+        next_offset: Some(part_end),
+        ..
+    }) = part
+    else {
+        panic!("a body this long is read in more than one part");
+    };
+    let part_end = usize::try_from(part_end.get()).expect("an offset fits memory");
+    // The text's start in the long line: its first three bytes end the first part.
+    let at = part_end - 3 - first_line.len();
+    let first_room = READ_PAGE_MAX_BYTES - "2: ".len();
+    assert!(
+        at > first_room,
+        "the text lies past the long line's first page"
+    );
+    let mut searched_line = long_line;
+    searched_line.replace_range(at..at + "NEEDLE".len(), "NEEDLE");
+    let output = insert_answer("searched", &format!("{first_line}{searched_line}"));
+    let (_data_folder, _store, keychain) = test_keychain(KeychainService::ToolServerKey);
+    let cursor_key = cursor_key(keychain.as_ref()).await;
+    let read = |arguments: serde_json::Value| {
+        let arguments: SessionReadArguments =
+            serde_json::from_value(arguments).expect("the test's arguments parse");
+        read_session(&directory, &sessions, &cursor_key, &caller, arguments)
+    };
+
+    let found = read(json!({"session": "builder", "output": output, "search": "NEEDLE"}))
+        .await
+        .expect("the search reads");
+    let (shown, more) = found
+        .split_once('\n')
+        .expect("the result ends with a cursor");
+    assert_eq!(shown, "1: line one NEEDLE");
+    let cursor = more
+        .strip_prefix("More: next_cursor ")
+        .expect("the result ends with a cursor")
+        .trim_matches('"');
+    // Every page past a line's first holds as many bytes of this one-byte text.
+    let room = READ_PAGE_MAX_BYTES - "2 (cont.): ".len();
+    let page_start = first_room + (at - first_room) / room * room;
+    assert!(cursor.starts_with(&format!("2+{}.", first_line.len() + page_start)));
+
+    let page =
+        read(json!({"session": "builder", "output": output, "search": "NEEDLE", "cursor": cursor}))
+            .await
+            .expect("the cursor reads");
+    let (text, _) = page.split_once('\n').expect("the page ends with a cursor");
+    assert_eq!(
+        text,
+        format!(
+            "2 (cont.): {}",
+            &searched_line[page_start..page_start + room]
+        )
+    );
+}
+
+// A page cut keeps a line ending's `\r\n` whole on the next page, so the line read on from the cut
+// is never empty, and cuts on a character's boundary. Killed by a cut at or inside a `\r\n` and by
+// one inside a character.
+#[rstest]
+#[case::before_a_line_ending("ab\r\ncd", 2, 1)]
+#[case::inside_a_line_ending("ab\r\ncd", 3, 1)]
+#[case::inside_a_character("a漢b", 2, 1)]
+#[case::on_plain_text("abcd", 2, 2)]
+fn a_page_cut_opens_no_empty_continued_line(
+    #[case] text: &str,
+    #[case] room: usize,
+    #[case] cut: usize,
+) {
+    assert_eq!(page_cut(text, room), cut);
+    assert_ne!(text[cut..].lines().next(), Some(""));
 }
