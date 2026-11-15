@@ -309,6 +309,17 @@ impl CodexError {
         self.is_invalid_request_saying(CODEX_CLOSING_MESSAGE)
     }
 
+    /// Whether this request's deadline passed before its answer came.
+    pub(crate) fn is_past_deadline(&self) -> bool {
+        matches!(
+            self,
+            Self::Unanswered {
+                cause: CodexUnansweredCause::Deadline { .. },
+                ..
+            }
+        )
+    }
+
     /// Whether the connection closed before this request's answer came.
     pub(crate) fn is_connection_closed(&self) -> bool {
         matches!(

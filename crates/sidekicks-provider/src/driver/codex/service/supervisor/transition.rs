@@ -556,7 +556,7 @@ impl Supervision {
             // A request went unanswered on the open connection: the silence watch counts from the
             // send of the oldest request still unanswered or the service's last frame, whichever
             // came later, unless one already runs, so a later request's timeout never pushes its
-            // end out. A joined service, which has no watch, is reported to its waits instead.
+            // end out. A joined service has no watch; its connection reports it to its waits.
             (
                 State::Up {
                     launch,
@@ -573,9 +573,6 @@ impl Supervision {
             ) if timed_out == dial => {
                 let mut actions = Vec::new();
                 let silence = self.watch_silence(&mut actions, silent_for);
-                if silence.is_none() {
-                    actions.push(Action::ReportUnanswered);
-                }
                 (
                     State::Up {
                         launch,

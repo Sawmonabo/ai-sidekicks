@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,14 +14,20 @@ use super::{
 };
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
+use crate::driver::codex::service::registry::stored_turn_read::{
+    StoredTurnCause, StoredTurnOutcome,
+};
 use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome, home_socket_path};
 use crate::driver::codex::service::supervisor::test_service::{
-    CODEX_HOME_NAME, RESUMED_TURN_NAME, ScriptedCodexService, TestCodexProgram, UnheardEvents,
-    bind_test_listener, next_socket_request, script_codex_service, send_on_socket,
-    serve_as_codex_service_stand_in, start_scripted_joined_service,
-    start_scripted_terminal_service, test_codex_service_dependencies, write_codex_service_script,
+    CODEX_HOME_NAME, CodexServiceScript, RESUMED_TURN_NAME, STOP_IGNORED_NAME,
+    ScriptedCodexService, StandInLaunches, TestCodexProgram, UnheardEvents, bind_test_listener,
+    next_socket_request, script_codex_service, send_on_socket, serve_as_codex_service_stand_in,
+    start_scripted_joined_service, start_scripted_terminal_service,
+    test_codex_service_dependencies, write_codex_service_script,
 };
-use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
+use crate::driver::codex::service::supervisor::{
+    CodexService, CodexServiceDependencies, CodexServiceSocket,
+};
 use crate::driver::codex::session::side_questions::test_copies::accept_copy;
 use crate::driver::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
 use crate::driver::test_registry::RecordedQueue;
@@ -34,6 +41,9 @@ const TURN: &str = "turn-1";
 
 /// The message that opened the turn.
 const MESSAGE: &str = "message-1";
+
+/// Another message whose turn's end a second wait reads.
+const OTHER_MESSAGE: &str = "message-2";
 
 /// The stored turn's reply.
 const REPLY: &str = "The checks pass.";
@@ -177,11 +187,12 @@ fn recorded_readings() -> (Arc<RecordedQueue>, TerminalReadings) {
     (recorded, readings)
 }
 
-// Publishes the end of the turn whose seat's connection ended before it did, on `followed`, the
-// wait resolving the home's service again in `registry`.
+// Publishes the end of the turn `message` opened, whose seat's connection ended before it did,
+// on `followed`, the wait resolving the home's service again in `registry`.
 fn publish_unread_turn_end(
     registry: &Arc<CodexServiceRegistry>,
     followed: &Arc<CodexService>,
+    message: &str,
     readings: &TerminalReadings,
 ) -> tokio::task::JoinHandle<()> {
     let (seat_end, ended) = oneshot::channel();
@@ -191,7 +202,7 @@ fn publish_unread_turn_end(
         Arc::clone(followed),
         THREAD.to_owned(),
         TURN.to_owned(),
-        MESSAGE.to_owned(),
+        message.to_owned(),
         ended,
         Arc::clone(readings),
     ))
@@ -208,7 +219,7 @@ async fn an_unread_turn_end_past_the_window_is_answered_from_the_stored_turn() {
     let registry = CodexServiceRegistry::holding(&scripted);
     let connection = scripted.publish_reconnecting();
 
-    let publishing = publish_unread_turn_end(&registry, &scripted.service, &readings);
+    let publishing = publish_unread_turn_end(&registry, &scripted.service, MESSAGE, &readings);
     tokio::task::yield_now().await;
     tokio::time::advance(TERMINAL_RECONNECT_WINDOW * 3).await;
     let while_away = lock(&recorded.readings).clone();
@@ -250,7 +261,8 @@ enum ServiceWhileWaiting {
     // cannot start, so only the retry Codex asks for reads the turn.
     Overloaded,
     // It answers every read of the first round with a reply that is no page, and a service of the
-    // daemon's own cannot start, so only the conversation's next status change wakes the wait.
+    // daemon's own cannot start, so only the conversation's next status change reads the home's
+    // service again.
     StatusChangeOnlyWake,
 }
 
@@ -266,7 +278,8 @@ async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Vec<SessionMessageRea
         ServiceWhileWaiting::DropsBeforeAway => {
             let registry = CodexServiceRegistry::holding(&followed);
             let connection = followed.take_connection();
-            let publishing = publish_unread_turn_end(&registry, &followed.service, &readings);
+            let publishing =
+                publish_unread_turn_end(&registry, &followed.service, MESSAGE, &readings);
             tokio::time::sleep(QUIET).await;
             let in_the_gap = lock(&recorded.readings).clone();
             assert!(in_the_gap.is_empty(), "the wait stays open: {in_the_gap:?}");
@@ -281,7 +294,8 @@ async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Vec<SessionMessageRea
             let mut replacement = start_scripted_terminal_service();
             let registry = CodexServiceRegistry::holding(&replacement);
             let set_aside = followed.publish_stopped();
-            let publishing = publish_unread_turn_end(&registry, &followed.service, &readings);
+            let publishing =
+                publish_unread_turn_end(&registry, &followed.service, MESSAGE, &readings);
             answer_turn_list(&mut replacement, &turn).await;
             answer_reply(&mut replacement, REPLY).await;
             await_publishing(publishing).await;
@@ -293,6 +307,7 @@ async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Vec<SessionMessageRea
             await_publishing(publish_unread_turn_end(
                 &registry,
                 &followed.service,
+                MESSAGE,
                 &readings,
             ))
             .await;
@@ -304,6 +319,7 @@ async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Vec<SessionMessageRea
             await_publishing(publish_unread_turn_end(
                 &registry,
                 &followed.service,
+                MESSAGE,
                 &readings,
             ))
             .await;
@@ -315,7 +331,8 @@ async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Vec<SessionMessageRea
             // The seat's socket is a real one, so the clock runs while it is served.
             tokio::time::resume();
             let registry = CodexServiceRegistry::holding(&followed);
-            let publishing = publish_unread_turn_end(&registry, &followed.service, &readings);
+            let publishing =
+                publish_unread_turn_end(&registry, &followed.service, MESSAGE, &readings);
             let running = json!({"id": TURN, "status": "inProgress"});
             answer_turn_list(&mut followed, &running).await;
             let mut seat = tokio::time::timeout(DEADLOCK_BOUND, accept_copy(&listener))
@@ -337,7 +354,8 @@ async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Vec<SessionMessageRea
         }
         ServiceWhileWaiting::ReadTimesOut => {
             let registry = CodexServiceRegistry::holding(&followed);
-            let publishing = publish_unread_turn_end(&registry, &followed.service, &readings);
+            let publishing =
+                publish_unread_turn_end(&registry, &followed.service, MESSAGE, &readings);
             // Never answered, so its deadline passes on the live connection.
             let _unanswered = followed.next_request("thread/turns/list").await;
             answer_turn_list(&mut followed, &turn).await;
@@ -347,7 +365,8 @@ async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Vec<SessionMessageRea
         }
         ServiceWhileWaiting::PageUnparsed => {
             let registry = CodexServiceRegistry::holding(&followed);
-            let publishing = publish_unread_turn_end(&registry, &followed.service, &readings);
+            let publishing =
+                publish_unread_turn_end(&registry, &followed.service, MESSAGE, &readings);
             let listed = followed.next_request("thread/turns/list").await;
             followed.script.answer(&listed, &json!({"data": "no page"}));
             answer_turn_list(&mut followed, &turn).await;
@@ -357,7 +376,8 @@ async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Vec<SessionMessageRea
         }
         ServiceWhileWaiting::Overloaded => {
             let registry = CodexServiceRegistry::holding(&followed);
-            let publishing = publish_unread_turn_end(&registry, &followed.service, &readings);
+            let publishing =
+                publish_unread_turn_end(&registry, &followed.service, MESSAGE, &readings);
             let overloaded = json!({"code": -32001, "message": "Server overloaded; retry later."});
             // The retry's wait passes on the paused clock as the next read is awaited.
             for _ in 0..TURN_END_READ_ATTEMPTS {
@@ -373,7 +393,8 @@ async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Vec<SessionMessageRea
         }
         ServiceWhileWaiting::StatusChangeOnlyWake => {
             let registry = CodexServiceRegistry::holding(&followed);
-            let publishing = publish_unread_turn_end(&registry, &followed.service, &readings);
+            let publishing =
+                publish_unread_turn_end(&registry, &followed.service, MESSAGE, &readings);
             for _ in 0..TURN_END_READ_ATTEMPTS {
                 let listed = followed.next_request("thread/turns/list").await;
                 followed.script.answer(&listed, &json!({"data": "no page"}));
@@ -400,34 +421,60 @@ async fn read_unread_turn_end(row: ServiceWhileWaiting) -> Vec<SessionMessageRea
     lock(&recorded.readings).clone()
 }
 
-// The readings a wait on an unread turn end publishes while Codex's own service on the person's
-// folder, which the daemon only joined, stays up and answers none of its reads, the stored turn,
-// failed with `STORED_FAILURE`, listed by a service of the daemon's own the stand-in serves.
-async fn read_past_a_silent_joined_service() -> Vec<SessionMessageReading> {
-    let folder = short_socket_folder().expect("a scratch folder is made");
+// The person's own Codex folder under `folder`, with a `codex` there that starts the stand-in,
+// whose services list `stored` as the turn of every conversation and, where `is_stop_ignored`,
+// ignore the stop until it is forced, and the dependencies its services share.
+fn stand_in_folder(
+    folder: &Path,
+    stored: &Value,
+    is_stop_ignored: bool,
+) -> (
+    CodexServiceHome,
+    CodexServiceScript,
+    Arc<CodexServiceDependencies>,
+) {
     let home = CodexServiceHome {
-        codex_home: folder.path().join("home"),
+        codex_home: folder.join("home"),
         kind: CodexHomeKind::PersonalFolder,
     };
     std::fs::create_dir_all(&home.codex_home).expect("the person's folder is made");
-    let stored = json!({"id": TURN, "status": "failed", "error": {"message": STORED_FAILURE},
-        "completedAt": 1_767_000_000});
-    let script = write_codex_service_script(folder.path(), STAND_IN, None);
+    let script = write_codex_service_script(folder, STAND_IN, None);
+    let mut environment = vec![
+        (
+            CODEX_HOME_NAME.to_owned(),
+            home.codex_home.display().to_string(),
+        ),
+        (RESUMED_TURN_NAME.to_owned(), stored.to_string()),
+    ];
+    if is_stop_ignored {
+        environment.push((STOP_IGNORED_NAME.to_owned(), "1".to_owned()));
+    }
     let dependencies = test_codex_service_dependencies(
-        folder.path(),
+        folder,
         Arc::new(TestCodexProgram {
             program: script.path().to_owned(),
-            environment: vec![
-                (
-                    CODEX_HOME_NAME.to_owned(),
-                    home.codex_home.display().to_string(),
-                ),
-                (RESUMED_TURN_NAME.to_owned(), stored.to_string()),
-            ],
+            environment,
         }),
         Arc::new(UnheardEvents),
         Arc::new(UnrecordedChildren),
     );
+    (home, script, dependencies)
+}
+
+// The stored turn, failed with `STORED_FAILURE`, that a service of the daemon's own lists.
+fn stored_failed_turn() -> Value {
+    json!({"id": TURN, "status": "failed", "error": {"message": STORED_FAILURE},
+        "completedAt": 1_767_000_000})
+}
+
+// The readings of two waits, on two messages' turn ends, while Codex's own service on the person's
+// folder, which the daemon only joined, stays up and answers none of their reads, the stored turn
+// listed by a service of the daemon's own the stand-in serves; with how many services of the
+// daemon's own started.
+async fn read_past_a_silent_joined_service() -> (Vec<Vec<SessionMessageReading>>, usize) {
+    let folder = short_socket_folder().expect("a scratch folder is made");
+    let (home, _script, dependencies) =
+        stand_in_folder(folder.path(), &stored_failed_turn(), false);
     let socket = home_socket_path(&home.codex_home);
     let (joined, mut joined_script) = script_codex_service(
         home.clone(),
@@ -440,24 +487,33 @@ async fn read_past_a_silent_joined_service() -> Vec<SessionMessageReading> {
     );
     let registry =
         CodexServiceRegistry::holding_service_on(&joined, dependencies, Arc::new(OneHome(home)));
-    let (recorded, readings) = recorded_readings();
-
-    let publishing = publish_unread_turn_end(&registry, &joined, &readings);
-    // Each read's deadline passes on the paused clock as the next is awaited.
-    for _ in 0..TURN_END_READ_ATTEMPTS {
+    let waits = [MESSAGE, OTHER_MESSAGE].map(|message| {
+        let (recorded, readings) = recorded_readings();
+        let publishing = publish_unread_turn_end(&registry, &joined, message, &readings);
+        (recorded, publishing)
+    });
+    for _ in &waits {
         let listed = joined_script.next_sent().await;
         assert_eq!(listed["method"], "thread/turns/list", "{listed}");
     }
+    // Both reads' deadlines pass at once, which the joined service reports once.
     tokio::time::advance(CODEX_REQUEST_TIMEOUT).await;
     // The service of the daemon's own is a real process, so the clock runs while it serves.
     tokio::time::resume();
-    await_publishing(publishing).await;
+    let mut readings = Vec::new();
+    for (recorded, publishing) in waits {
+        await_publishing(publishing).await;
+        readings.push(lock(&recorded.readings).clone());
+    }
     let asked = joined_script.next_sent_within(QUIET).await;
     assert!(
         asked.is_none(),
         "nothing more reaches the joined service: {asked:?}"
     );
-    lock(&recorded.readings).clone()
+    let launches = StandInLaunches::in_folder(folder.path())
+        .read()
+        .expect("the launches read");
+    (readings, launches.len())
 }
 
 // Waits for the publishing task to end.
@@ -475,8 +531,8 @@ async fn await_publishing(publishing: tokio::task::JoinHandle<()>) {
 // seat's connection ends, a read times out, a page does not parse or the service stays overloaded
 // with no service of the daemon's own to read on, one that reads Codex's overloaded answer as the
 // turn's failure, one that polls or never wakes once its reads fail and the conversation's status
-// changes, and one left open while Codex's own service stays up answering nothing though the
-// stored turn has ended.
+// changes, one left open while Codex's own service stays up answering nothing though the stored
+// turn has ended, and two waits on one folder each starting a service of the daemon's own.
 #[tokio::test(start_paused = true)]
 async fn an_unread_turn_end_reads_not_reachable_only_once_the_homes_service_is_down_for_good() {
     let answered = SessionMessageReading::Answered {
@@ -508,10 +564,50 @@ async fn an_unread_turn_end_reads_not_reachable_only_once_the_homes_service_is_d
         let readings = read_unread_turn_end(row).await;
         assert_eq!(readings, expected, "{row:?}");
     }
-    let past_silence = read_past_a_silent_joined_service().await;
+    let (past_silence, launches) = read_past_a_silent_joined_service().await;
+    let other_failure = SessionMessageReading::Failed {
+        message_id: OTHER_MESSAGE.to_owned(),
+        notice: STORED_FAILURE.to_owned(),
+    };
     assert_eq!(
         past_silence,
-        [stored_failure],
+        [vec![stored_failure], vec![other_failure]],
         "a joined service up and silent"
+    );
+    assert_eq!(
+        launches, 1,
+        "both waits read on one service of the daemon's own"
+    );
+}
+
+// Killed by a read's hold on the folder let go before its service has stopped: the second read
+// then starts its service beside the first's, which ignores the stop until it is forced.
+#[tokio::test]
+async fn a_second_stored_turn_read_starts_once_the_first_ones_service_has_stopped() {
+    let folder = short_socket_folder().expect("a scratch folder is made");
+    let (home, _script, dependencies) = stand_in_folder(folder.path(), &stored_failed_turn(), true);
+    let registry = Arc::new(CodexServiceRegistry::new(
+        Arc::new(OneHome(home)),
+        dependencies,
+    ));
+    let mut wait = registry.wait_on_stored_turn(THREAD, TURN);
+    let launches = StandInLaunches::in_folder(folder.path());
+
+    for _ in 0..2 {
+        let outcome = tokio::time::timeout(DEADLOCK_BOUND, wait.read(StoredTurnCause::Asked))
+            .await
+            .expect("the read settles");
+        assert!(
+            matches!(outcome, StoredTurnOutcome::Settled(_)),
+            "{outcome:?}"
+        );
+    }
+
+    let started = launches.read().expect("the launches read");
+    assert_eq!(started.len(), 2, "each read starts a service of its own");
+    let first = started[0].process.pin().expect("the first service reads");
+    assert!(
+        first.is_none(),
+        "the second read's service started while the first's still ran"
     );
 }

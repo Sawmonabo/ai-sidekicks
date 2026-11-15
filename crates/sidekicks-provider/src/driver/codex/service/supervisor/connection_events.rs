@@ -7,6 +7,7 @@ use std::time::{Duration, Instant, SystemTime};
 use serde_json::value::RawValue;
 
 use crate::driver::codex::service::asks::CodexServiceAsks;
+use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::transition::event::SupervisorEvent;
 use crate::driver::codex::transport::connection::{CodexConnectionEvents, CodexForgottenRequest};
@@ -61,6 +62,11 @@ impl CodexConnectionEvents for ServiceConnectionEvents {
 
     fn request_timed_out(&self, silent_for: Duration) {
         if let Some(service) = self.service.upgrade() {
+            // A joined service has no silence watch: its waits are told here, before the request's
+            // own failure returns, so a wait that reads that failure has the report in hand.
+            if service.kind() == CodexServiceKind::Joined && service.is_routed_dial(self.dial) {
+                service.publish_unanswered();
+            }
             service.send(SupervisorEvent::RequestTimedOut {
                 dial: self.dial,
                 silent_for,

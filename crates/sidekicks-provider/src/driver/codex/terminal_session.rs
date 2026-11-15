@@ -19,12 +19,15 @@ use tokio_util::task::TaskTracker;
 
 use self::exchanges::{
     CodexTerminalDelivery, CodexTerminalMessage, CodexTerminalTurnEnd, deliver_to_terminal_session,
-    read_settled_turn_end, reread_turn_end,
+    reread_turn_end,
 };
+use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
+use crate::driver::codex::service::registry::stored_turn_read::{
+    StoredTurnCause, StoredTurnOutcome,
+};
 use crate::driver::codex::service::supervisor::CodexService;
-use crate::driver::codex::service::supervisor::away::CodexServiceRest;
+use crate::driver::codex::service::supervisor::away::{CodexAvailabilityWatch, CodexServiceRest};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_messages::{
@@ -43,7 +46,7 @@ pub(crate) const TERMINAL_RECONNECT_WINDOW: Duration = Duration::from_secs(120);
 // or the conversation's next status change.
 const TURN_END_READ_ATTEMPTS: usize = 3;
 
-// How far an overloaded read's retry wait moves either way, as a share of it.
+// How far a retry's wait moves either way, as a share of it.
 const RETRY_SPREAD: f64 = 0.2;
 
 /// Why an agent's message did not reach a Codex session typed in a terminal.
@@ -265,24 +268,54 @@ enum TurnEndReread {
     DownForGood,
 }
 
+// How a round of reads on the home's service ended without the turn's end.
+#[derive(Clone, Copy)]
+enum RoundEnd {
+    // The service, one the daemon only joined, was reported answering nothing: the report count.
+    Reported(u64),
+    // A read's deadline passed on a service the daemon only joined.
+    TimedOut,
+    // Every read of the round failed.
+    Failed,
+    // The service's own connection is gone, which its next state follows.
+    ConnectionGone,
+}
+
+// What a wait tries again after a growing wait, where no event may follow a turn already stored.
+#[derive(Clone, Copy)]
+enum TurnEndRetry {
+    // The daemon's own service could not read the stored turn: its read is tried again, after one
+    // more read on the home's service where that service last answered overloaded.
+    OwnRead { is_home_overloaded: bool },
+    // A joined service that stays up reported answering nothing, and the stored turn still runs:
+    // the report is made again, which every wait on the folder reads on one service.
+    Report,
+}
+
 // The end of the turn `turn_id` of `thread_id`, read again after the seat's connection ended
 // before it, following the terminal home's service in `registry` from `service` on: at once
 // while the service is up, else once it is back however long it was away. A read that fails with
 // the service still up, Codex's overloaded answer among them, or whose own seat's connection
-// ends, is read again at once, up to `TURN_END_READ_ATTEMPTS` reads in all; past them, or at once
-// where a service the daemon only joined is reported answering nothing, the stored turn is read
-// on a service of the daemon's own, and the wait then reads again at the service's next change or
-// report or the conversation's next status change, whichever comes first. Where the last read
-// was answered overloaded and the daemon's own service could not read, nothing may follow a turn
-// already stored, so the home's service is also read again after a growing wait, as Codex asks,
-// until it answers anything else. A service another took the home over from hands the wait to
-// that one. Codex's own refusal of a read on the home's service ends the turn failed in its words.
+// ends, is read again at once, up to `TURN_END_READ_ATTEMPTS` reads in all; one that fails as the
+// service's own connection is gone waits for the service's next state. Past them, or at once
+// where a service the daemon only joined lets a read's deadline pass or is reported answering
+// nothing, the stored turn is read on a short-lived service of the daemon's own, one read for
+// every wait on the folder; the wait then reads again at the service's next change or report or
+// the conversation's next status change, whichever comes first. Where nothing may follow a turn
+// already stored, the read is also tried again after a growing wait: where the daemon's own
+// service could not read, that read, after the home's service again where it last answered
+// overloaded; where a joined service that stays up answers nothing and the turn still ran, the
+// report. A service another took the home over from hands the wait to that one. Codex's own
+// refusal of a read on the home's service ends the turn failed in its words.
 async fn await_turn_end_again(
-    registry: &CodexServiceRegistry,
+    registry: &Arc<CodexServiceRegistry>,
     mut service: Arc<CodexService>,
     thread_id: &str,
     turn_id: &str,
 ) -> TurnEndReread {
+    let mut stored = registry.wait_on_stored_turn(thread_id, turn_id);
+    // Retries armed in a row, across rounds, so the wait before each keeps growing.
+    let mut retries = 0;
     'service: loop {
         let mut availability = service.watch_availability();
         loop {
@@ -291,10 +324,13 @@ async fn await_turn_end_again(
             let mut status_changes = service.terminal_conversations().listen_status_changes();
             let mut failed_reads = 0;
             let mut is_last_read_overloaded = false;
-            while failed_reads < TURN_END_READ_ATTEMPTS {
+            let round_end = loop {
+                if failed_reads == TURN_END_READ_ATTEMPTS {
+                    break RoundEnd::Failed;
+                }
                 match availability.rest().await {
                     CodexServiceRest::Up => {}
-                    CodexServiceRest::Unanswered => break,
+                    CodexServiceRest::Unanswered(reports) => break RoundEnd::Reported(reports),
                     CodexServiceRest::ShutDown => return TurnEndReread::ShutDown,
                     CodexServiceRest::Down => match registry.terminal_home_service() {
                         Some(next) if !Arc::ptr_eq(&next, &service) => {
@@ -309,64 +345,119 @@ async fn await_turn_end_again(
                     // The seat's own connection ended before the turn did.
                     Ok(None) => is_last_read_overloaded = false,
                     Err(error) => {
-                        is_last_read_overloaded = error.is_service_overloaded();
                         tracing::debug!(
                             thread_id,
                             error = &error as &(dyn std::error::Error + 'static),
                             "a terminal session's turn end is read again"
                         );
+                        if !holds_open_connection(&service) {
+                            break RoundEnd::ConnectionGone;
+                        }
+                        // The connection has already told the service's waits, this one among
+                        // them, that it answers nothing.
+                        if error.is_past_deadline() && service.kind() == CodexServiceKind::Joined {
+                            break RoundEnd::TimedOut;
+                        }
+                        is_last_read_overloaded = error.is_service_overloaded();
                     }
                 }
                 failed_reads += 1;
-            }
-            let mut overloaded_retries = match registry
-                .read_turn_end_on_own_service(thread_id, turn_id)
-                .await
-            {
-                Ok(Some(end)) => return TurnEndReread::Ended(end),
-                // The turn still ran when it was stored, so its end changes its status.
-                Ok(None) => None,
-                Err(error) => {
-                    tracing::warn!(
-                        thread_id,
-                        error = &error as &(dyn std::error::Error + 'static),
-                        "a terminal session's turn end could not be read on a service of the \
-                         daemon's own"
-                    );
-                    is_last_read_overloaded.then_some(0)
+            };
+            let is_time_out_round = matches!(round_end, RoundEnd::Reported(_) | RoundEnd::TimedOut);
+            let outcome = match round_end {
+                RoundEnd::ConnectionGone => None,
+                RoundEnd::Reported(reports) => Some(
+                    stored
+                        .read(StoredTurnCause::Report {
+                            service: &service,
+                            reports,
+                        })
+                        .await,
+                ),
+                RoundEnd::TimedOut | RoundEnd::Failed => {
+                    Some(stored.read(StoredTurnCause::Asked).await)
                 }
             };
+            let mut retry = match outcome {
+                Some(StoredTurnOutcome::Settled(end)) => return TurnEndReread::Ended(end),
+                Some(StoredTurnOutcome::Unread) => Some(TurnEndRetry::OwnRead {
+                    is_home_overloaded: is_last_read_overloaded,
+                }),
+                Some(StoredTurnOutcome::Unsettled) => {
+                    retry_unsettled(is_time_out_round, &service, &availability)
+                }
+                None => None,
+            };
             loop {
-                let retry = async move {
-                    match overloaded_retries {
-                        Some(retries) => tokio::time::sleep(overloaded_retry_wait(retries)).await,
-                        None => std::future::pending().await,
+                let Some(current) = retry else {
+                    retries = 0;
+                    tokio::select! {
+                        () = availability.changed() => {}
+                        () = status_changes.next_of(thread_id) => {}
                     }
+                    break;
                 };
+                let wait = spread_retry_wait(retries);
+                retries += 1;
                 tokio::select! {
                     () = availability.changed() => break,
                     () = status_changes.next_of(thread_id) => break,
-                    () = retry => {}
+                    () = tokio::time::sleep(wait) => {}
                 }
-                match read_on_home_service(&service, thread_id, turn_id).await {
-                    Ok(Some(end)) => return TurnEndReread::Ended(end),
-                    Err(error) if error.is_service_overloaded() => {
-                        overloaded_retries = overloaded_retries.map(|retries| retries + 1);
+                retry = match current {
+                    // The report wakes every wait on the folder, this one's next round among them.
+                    TurnEndRetry::Report => {
+                        service.repeat_unanswered_report(availability.reports_read());
+                        break;
                     }
-                    // Any other answer ends the retries; the wait sleeps until its next event.
-                    Ok(None) => overloaded_retries = None,
-                    Err(error) => {
-                        tracing::debug!(
-                            thread_id,
-                            error = &error as &(dyn std::error::Error + 'static),
-                            "a terminal session's turn end is left to the next event"
-                        );
-                        overloaded_retries = None;
+                    TurnEndRetry::OwnRead { is_home_overloaded } => {
+                        let is_home_overloaded = is_home_overloaded
+                            && match read_on_home_service(&service, thread_id, turn_id).await {
+                                Ok(Some(end)) => return TurnEndReread::Ended(end),
+                                Ok(None) => false,
+                                Err(error) => {
+                                    tracing::debug!(
+                                        thread_id,
+                                        error = &error as &(dyn std::error::Error + 'static),
+                                        "a terminal session's turn end is tried again"
+                                    );
+                                    error.is_service_overloaded()
+                                }
+                            };
+                        match stored.read(StoredTurnCause::Asked).await {
+                            StoredTurnOutcome::Settled(end) => return TurnEndReread::Ended(end),
+                            StoredTurnOutcome::Unread => {
+                                Some(TurnEndRetry::OwnRead { is_home_overloaded })
+                            }
+                            StoredTurnOutcome::Unsettled => {
+                                retry_unsettled(is_time_out_round, &service, &availability)
+                            }
+                        }
                     }
-                }
+                };
             }
         }
     }
+}
+
+// The retry after the stored turn read as not settled, in a round that ended on `service`
+// answering nothing or a read's deadline passing: only where `service` is one the daemon only
+// joined and still reads up, the one state no event ends, since its time-out is reported once per
+// silence and the turn's end reaches no connection of the daemon's.
+fn retry_unsettled(
+    is_time_out_round: bool,
+    service: &CodexService,
+    availability: &CodexAvailabilityWatch,
+) -> Option<TurnEndRetry> {
+    (is_time_out_round && service.kind() == CodexServiceKind::Joined && availability.reads_up())
+        .then_some(TurnEndRetry::Report)
+}
+
+// Whether `service` holds a connection that is still open, so a read's failure is not its drop.
+fn holds_open_connection(service: &CodexService) -> bool {
+    service
+        .connection()
+        .is_ok_and(|connection| !connection.is_closed())
 }
 
 // The end of the turn `turn_id` of `thread_id` as one read on the home's `service` finds it:
@@ -388,28 +479,10 @@ async fn read_on_home_service(
     }
 }
 
-// The wait before the home's service is read again after `retries` retries answered overloaded:
-// the shared retry schedule's, from 1 second up to 32, a fifth either way so waits on one
-// service spread out.
-fn overloaded_retry_wait(retries: usize) -> Duration {
+// The wait before the read is tried again after `retries` retries armed in a row: the shared
+// retry schedule's, from 1 second up to 32, a fifth either way so waits spread out.
+fn spread_retry_wait(retries: usize) -> Duration {
     retry_wait(retries).mul_f64(spread_either_way(RETRY_SPREAD, draw_jitter_sample()))
-}
-
-impl CodexServiceRegistry {
-    // How the turn `turn_id` of `thread_id` ended, read from its stored turn list on a service of
-    // the daemon's own on the person's folder, started for the read and stopped once it settled;
-    // `None` where the turn has not settled. Fails as the service's start or the read fails.
-    async fn read_turn_end_on_own_service(
-        &self,
-        thread_id: &str,
-        turn_id: &str,
-    ) -> Result<Option<CodexTerminalTurnEnd>, CodexError> {
-        self.read_on_personal_folder(PersonalFolderRead::StoredTurn, |own| async move {
-            let connection = own.connection()?;
-            read_settled_turn_end(&connection, thread_id, turn_id).await
-        })
-        .await
-    }
 }
 
 // Publishes one reading of a message to a terminal session; one made before the readings are

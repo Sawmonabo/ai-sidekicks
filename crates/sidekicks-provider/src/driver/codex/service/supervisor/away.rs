@@ -38,6 +38,23 @@ impl CodexService {
             .send_modify(|reports| *reports = reports.wrapping_add(1));
     }
 
+    /// Tells every wait on the service again that it answers nothing, where its report count is
+    /// still `reports`, the count a wait last read; a later report already told them.
+    pub(crate) fn repeat_unanswered_report(&self, reports: u64) {
+        self.unanswered.send_if_modified(|current| {
+            let is_standing = *current == reports;
+            if is_standing {
+                *current = current.wrapping_add(1);
+            }
+            is_standing
+        });
+    }
+
+    /// How many times the service was reported answering nothing.
+    pub(crate) fn unanswered_reports(&self) -> u64 {
+        *self.unanswered.borrow()
+    }
+
     /// How long the service has been anything but up; `None` while it is up, and before anything
     /// was published for it.
     pub(crate) fn away_for(&self) -> Option<Duration> {
@@ -77,8 +94,8 @@ pub(crate) enum CodexServiceRest {
     Down,
     /// It is a service the daemon only joined, reported answering nothing since the watch last
     /// read it: up with a request unanswered, or redialed on a socket that listens and does not
-    /// answer.
-    Unanswered,
+    /// answer. Carries the report count read.
+    Unanswered(u64),
 }
 
 /// One wait's watch on a service's availability and its reports of answering nothing, held across
@@ -100,13 +117,23 @@ impl CodexAvailabilityWatch {
             let unanswered = *self.unanswered.borrow_and_update();
             if unanswered != self.unanswered_read {
                 self.unanswered_read = unanswered;
-                return CodexServiceRest::Unanswered;
+                return CodexServiceRest::Unanswered(unanswered);
             }
             if let Some(rest) = read_rest(&self.availability.borrow_and_update()) {
                 return rest;
             }
             self.changed().await;
         }
+    }
+
+    /// Whether the service reads up now, read without marking it seen.
+    pub(crate) fn reads_up(&self) -> bool {
+        matches!(*self.availability.borrow(), CodexServiceAvailability::Up)
+    }
+
+    /// The count of reports of answering nothing this watch last answered for.
+    pub(crate) fn reports_read(&self) -> u64 {
+        self.unanswered_read
     }
 
     /// Waits for the service's next publish, or its next report of answering nothing, after the

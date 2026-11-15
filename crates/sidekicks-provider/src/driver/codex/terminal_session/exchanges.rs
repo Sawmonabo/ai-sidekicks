@@ -61,7 +61,7 @@ pub(crate) enum CodexTerminalDelivery {
 }
 
 /// How the turn a message started ended.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CodexTerminalTurnEnd {
     /// The turn ended with no failure, completed or stopped by the person in their terminal.
     Answered {
@@ -293,7 +293,7 @@ async fn read_stored_turn_end(
 /// elsewhere as interrupted with no end time: answered only for a turn that completed, failed, or
 /// was interrupted with an end time, its reply read from its items only where it answered; `None`
 /// for any other, a turn the list does not hold among them. Fails as the reads fail.
-pub(super) async fn read_settled_turn_end(
+pub(crate) async fn read_settled_turn_end(
     connection: &CodexAppServerConnection,
     thread_id: &str,
     turn_id: &str,

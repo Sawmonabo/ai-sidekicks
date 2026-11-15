@@ -433,6 +433,11 @@ impl CodexAppServerConnection {
         outcome
     }
 
+    /// Whether the connection has closed, by either end.
+    pub(crate) fn is_closed(&self) -> bool {
+        self.shared.lock_state().close_reason.is_some()
+    }
+
     /// Closes the socket, failing every request in flight and letting go of every held ask;
     /// closing again does nothing. Fails with `CodexError::Transport` when the closing handshake
     /// could not be sent; the connection is closed either way.

@@ -6,13 +6,15 @@
 //! the service the read started. The probe never runs on a joined service, whose unload delay the
 //! daemon does not set, so its throwaway conversation would outlive it. A stored turn is read only
 //! where the folder's own service failed a wait's reads or answers nothing, so always on a
-//! transient service, one at a time.
+//! transient service.
 
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use sidekicks_platforms::create_private_folder;
+use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::service::command_line::compose_thread_unload_override;
@@ -32,8 +34,9 @@ pub(crate) enum PersonalFolderRead {
     /// The machine probe, whose throwaway conversation must unload as its connection drops: only
     /// the terminal service, or a transient one that unloads at once.
     Probe,
-    /// A conversation's stored turns, read where the folder's own service failed a wait's reads or
-    /// answers nothing: only a transient service, whose reads load no conversation.
+    /// The stored turns waited on in the folder, read where the folder's own service failed a
+    /// wait's reads or answers nothing: only a transient service, whose reads load no
+    /// conversation.
     StoredTurn,
 }
 
@@ -50,9 +53,8 @@ impl CodexServiceRegistry {
     /// Runs `read` on a started service on the person's own Codex folder: for a config read the
     /// daemon's service there, the terminal or a joined one, while it serves; for a probe the
     /// terminal service while it serves; otherwise a transient service started for the read and
-    /// stopped once the read settled and the service is free, a stored turn's waiting for the one
-    /// before it on the folder to settle. Fails as the transient service's socket cannot be named or
-    /// its folder made, as the start fails, and as `read` fails.
+    /// stopped once the read settled and the service is free. Fails as the transient service's
+    /// socket cannot be named or its folder made, as the start fails, and as `read` fails.
     pub(crate) async fn read_on_personal_folder<Answer, Reading>(
         &self,
         purpose: PersonalFolderRead,
@@ -61,32 +63,32 @@ impl CodexServiceRegistry {
     where
         Reading: Future<Output = Result<Answer, CodexError>>,
     {
-        // One stored turn's read on the folder at a time, so the waits on one folder start their
-        // services one after another.
-        let _one_at_a_time = match purpose {
-            PersonalFolderRead::StoredTurn => {
-                let folder = self.homes.terminal_reach_home().codex_home;
-                Some(self.stored_turn_reads.acquire(folder).await)
-            }
-            PersonalFolderRead::Config | PersonalFolderRead::Probe => None,
-        };
         let PersonalFolderService {
             service,
             is_transient,
         } = self.personal_folder_service(purpose)?;
-        let startup_timeout = self.dependencies.startup_timeout;
         if !is_transient {
-            service.ensure_started(startup_timeout).await?;
+            service
+                .ensure_started(self.dependencies.startup_timeout)
+                .await?;
             return read(service).await;
         }
         let answered = async {
-            make_socket_folder(&service)?;
-            service.ensure_started(startup_timeout).await?;
+            self.start_transient(&service).await?;
             read(Arc::clone(&service)).await
         }
         .await;
-        self.retire_transient(service);
+        self.retire_transient(service, None);
         answered
+    }
+
+    // Starts `service`, a read's transient one, its socket's folder made first. Fails as the
+    // folder cannot be made and as the start fails.
+    pub(super) async fn start_transient(&self, service: &CodexService) -> Result<(), CodexError> {
+        make_socket_folder(service)?;
+        service
+            .ensure_started(self.dependencies.startup_timeout)
+            .await
     }
 
     /// Runs `probe`, the machine probe, on `service`, the one a read on the person's own folder
@@ -167,8 +169,13 @@ impl CodexServiceRegistry {
     }
 
     // Stops `service`, a read's transient one, on the driver's tracked tasks once it is free to
-    // stop, and forgets it; a shutdown meanwhile ends the wait, the shutdown stopping it.
-    fn retire_transient(&self, service: Arc<CodexService>) {
+    // stop, and forgets it, then lets `hold` go, so no read on its folder starts another while it
+    // stops; a shutdown meanwhile ends the wait, the shutdown stopping it.
+    pub(super) fn retire_transient(
+        &self,
+        service: Arc<CodexService>,
+        hold: Option<KeyHold<'static, PathBuf>>,
+    ) {
         let services = Arc::clone(&self.services);
         self.dependencies.tasks.spawn(async move {
             let freed = tokio::select! {
@@ -186,6 +193,7 @@ impl CodexServiceRegistry {
             lock(&services)
                 .transient
                 .retain(|transient| !Arc::ptr_eq(transient, &service));
+            drop(hold);
         });
     }
 }

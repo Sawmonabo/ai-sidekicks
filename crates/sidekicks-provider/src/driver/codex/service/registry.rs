@@ -10,6 +10,7 @@
 //! folder with no fitting service there runs one on a socket of its own beside it.
 
 pub(crate) mod personal_folder_read;
+pub(crate) mod stored_turn_read;
 pub(crate) mod terminal_sessions;
 
 use std::collections::HashMap;
@@ -21,7 +22,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::{CAN_LINK_A_SOCKET, create_private_folder, read_socket_link};
-use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
 use tokio::runtime::Handle;
@@ -36,6 +36,7 @@ use crate::driver::codex::service::home::{
     CodexConversationHome, CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
 use crate::driver::codex::service::record::{recorded_home_keys, service_record_folder};
+use crate::driver::codex::service::registry::stored_turn_read::StoredTurnWaits;
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
 use crate::driver::codex::service::supervisor::start::kept_records::{
     KeptServicesStop, report_kept_service_unstopped, stop_kept_services,
@@ -90,8 +91,8 @@ pub(crate) struct CodexServiceRegistry {
     dependencies: Arc<CodexServiceDependencies>,
     // Shared with the tasks that retire a service the switch took off its home.
     services: Arc<Mutex<RegisteredServices>>,
-    // Held per folder while a stored turn is read on a service of the daemon's own there.
-    stored_turn_reads: KeyedLock<PathBuf>,
+    // The waits on stored turns in the person's own Codex folder, which its reads read.
+    stored_turn_waits: Mutex<StoredTurnWaits>,
 }
 
 #[derive(Default)]
@@ -115,7 +116,7 @@ impl CodexServiceRegistry {
             homes,
             dependencies,
             services: Arc::default(),
-            stored_turn_reads: KeyedLock::default(),
+            stored_turn_waits: Mutex::default(),
         }
     }
 

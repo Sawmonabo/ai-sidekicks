@@ -17,7 +17,7 @@ use crate::driver::codex::app_server_protocol::ThreadDeleteParams;
 use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
-use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
+use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::helper_roles::remove_codex_helper_roles;
 use crate::driver::codex::session::recovery::CodexServiceRecovery;
 use crate::driver::codex::session::slots::let_go_codex_thread;
@@ -109,13 +109,7 @@ pub(crate) async fn purge_codex_conversations(
             continue;
         }
         if let Err(error) = delete_conversation(&service, start_bound, thread_id).await {
-            if matches!(
-                error,
-                CodexError::Unanswered {
-                    cause: CodexUnansweredCause::Deadline { .. },
-                    ..
-                }
-            ) {
+            if error.is_past_deadline() {
                 restarts.restart(&service);
             }
             failures.push(error.into());
