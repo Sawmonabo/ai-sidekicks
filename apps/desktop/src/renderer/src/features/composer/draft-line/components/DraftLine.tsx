@@ -12,7 +12,7 @@ import { COMPOSER_DRAFT_MAX_ROWS } from "../../bounds.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import { selectSessionShape } from "#renderer/store/session/selectors.js";
-import { DRAFT_PLACEHOLDERS } from "../caret.js";
+import { DRAFT_LINE_CLASS_NAME, DRAFT_PLACEHOLDERS, isCaretFreeFor } from "../caret.js";
 import { composerDraftKey } from "../draft-key.js";
 import { leaveWaitingMessageEdit } from "../returned-words.js";
 
@@ -67,22 +67,25 @@ export function DraftLine(props: DraftLineProps): React.JSX.Element {
     [],
   );
   // Entering the session puts the caret here, once: a session come back to has claimed it already.
-  // The screen mounts with the session, so no shell of it can hold the caret yet. Claimed at mount
-  // only, so a store handed to a line already drawn never pulls the caret mid-session.
+  // Claimed at mount only, so a store handed to a line already drawn never pulls the caret
+  // mid-session, and taken only while no field outside the composer takes typing, so a line
+  // mounted again after its first mount failed leaves the caret with the shell that has it.
   const entryCaretAtMount = useRef(props.sessionStore.entryCaret);
+  const rowRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (entryCaretAtMount.current.claim()) {
+    const row = rowRef.current;
+    if (entryCaretAtMount.current.claim() && row !== null && isCaretFreeFor(row)) {
       lineRef.current?.focus();
     }
   }, []);
 
   return (
-    <div className="meridian-composer__send">
+    <div ref={rowRef} className="meridian-composer__send">
       <div className="meridian-composer__line-row">
         <TextBox
           fieldRef={lineRef}
           {...(props.scrollerRef === undefined ? {} : { scrollerRef: props.scrollerRef })}
-          className="meridian-composer__line"
+          className={DRAFT_LINE_CLASS_NAME}
           aria-label="Message"
           {...(shape === undefined ? {} : { placeholder: DRAFT_PLACEHOLDERS[shape] })}
           value={text}

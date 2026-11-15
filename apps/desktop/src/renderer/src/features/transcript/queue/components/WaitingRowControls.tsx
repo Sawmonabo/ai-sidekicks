@@ -11,10 +11,11 @@ import type { QueueItemState } from "@ai-sidekicks/contracts/run/queue";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { WaitingRow } from "../placement.js";
-import type { WaitingRows } from "../waiting-rows.js";
+import { NOT_DELIVERED_WORDS, type WaitingRows } from "../waiting-rows.js";
 
 import "./WaitingRowControls.css";
 
@@ -52,7 +53,7 @@ export function WaitingRowNotice(props: WaitingRowControlsProps): React.JSX.Elem
     return (
       <>
         <p className="meridian-waiting-row__notice meridian-waiting-row__notice--failed">
-          Not delivered ·{" "}
+          {NOT_DELIVERED_WORDS} ·{" "}
           <TryAgainButton
             word="Retry"
             onPress={() => {
@@ -69,7 +70,7 @@ export function WaitingRowNotice(props: WaitingRowControlsProps): React.JSX.Elem
                   // The row goes first, so its words are never in the draft and the flow at once.
                   run("queue-cancel", async () => {
                     await queue.cancelItem(queueItemId);
-                    composerRequests.returnToDraft(words);
+                    void composerRequests.returnToDraft({ words });
                   });
                 }}
               >
@@ -84,7 +85,11 @@ export function WaitingRowNotice(props: WaitingRowControlsProps): React.JSX.Elem
           </p>
         ) : null}
         {refusal === undefined ? null : (
-          <InlineRefusal code={refusal.code} detail={refusal.detail} />
+          // A refused retry sent nothing: the row stays as it was and says why in the code's words.
+          <InlineRefusal
+            code={refusal.code}
+            detail={refusalCause(refusal.code, undefined, refusal.detail)}
+          />
         )}
       </>
     );
@@ -130,7 +135,12 @@ export function WaitingRowControls(props: WaitingRowControlsProps): React.JSX.El
           refusalOrigin="queue-edit"
           isPending={false}
           onPress={async () => {
-            composerRequests.beginEdit({ rowKey, queueItemId, content: item.content });
+            composerRequests.beginEdit({
+              rowKey,
+              queueItemId,
+              content: item.content,
+              attachments: item.attachments ?? [],
+            });
           }}
         />
       ) : null}

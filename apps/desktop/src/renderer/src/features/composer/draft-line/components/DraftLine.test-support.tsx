@@ -1,5 +1,6 @@
 // The message line's shared scaffolding: the line with Send in it over one draft store and one
-// bridge, without the rest of the composer, so a suite reads the send path alone.
+// bridge, serving the session's hand-backs as the composer does, without the rest of the composer,
+// so a suite reads the send path alone.
 
 import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
 import { act, fireEvent, render, type RenderResult } from "@testing-library/react";
@@ -27,6 +28,7 @@ import {
 import { composeScriptBeats, createRunEntryBuilders } from "#fixtures/data/script-entries.js";
 import { SendButton } from "./SendButton.js";
 import { ComposerHeldDraft } from "../../held-draft/holder.js";
+import { useServeComposerRequests } from "../../hooks/useServeComposerRequests.js";
 import { composerDraftKey } from "../draft-key.js";
 import type { ComposerSendCalls } from "../send/dispatch.js";
 import type { WorkflowStartOperations } from "../../command-list/workflow/start-from-line.js";
@@ -115,6 +117,7 @@ function LineAndSend(props: {
   const [heldDraft] = useState(
     () => new ComposerHeldDraft({ draftStore, draftKey: composerDraftKey(sessionStore.sessionId) }),
   );
+  useServeComposerRequests(sessionStore, draftStore, heldDraft, async () => undefined);
   return (
     <section ref={region}>
       <DraftLine

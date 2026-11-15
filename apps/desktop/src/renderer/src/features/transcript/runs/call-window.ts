@@ -155,16 +155,16 @@ export class RunCallWindows {
    * the reader pinned the follow, so the tail followed is each run's newest call. Answers whether
    * any moved.
    */
-  public releaseKeptEnds(): boolean {
-    let hasReleased = false;
+  public returnToNewestCalls(): boolean {
+    let hasMoved = false;
     for (const [runGroupKey, held] of this.#heldByKey) {
       // A window holding the newest call holds no last call, so it grows with the run already.
       if (held.lastCallRowId !== undefined) {
         this.#heldByKey.delete(runGroupKey);
-        hasReleased = true;
+        hasMoved = true;
       }
     }
-    return hasReleased;
+    return hasMoved;
   }
 
   /** The window the last `windowOf` resolved for a run group, by its key. */

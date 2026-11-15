@@ -6,8 +6,10 @@ import type { AgentQueueItemCreateResponse } from "@ai-sidekicks/contracts/run/q
 import type { Mock } from "vitest";
 import type { RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import type { ComposerSessionTarget, ComposerRunTarget } from "../../target.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ComposerSendCalls } from "./dispatch.js";
-import { ComposerSendRouter } from "./router.js";
+import type { ComposerMessageOutcome } from "./resolutions.js";
+import { ComposerSendRouter, type ComposerSendExtras } from "./router.js";
 
 /** Session id every case is addressed to. */
 export const SESSION_ID = "8f1c2c3e-5c6a-4a19-9f5f-1d2b3c4d5e6f";
@@ -36,6 +38,13 @@ export const RUN_TARGET: ComposerRunTarget = {
   targetRunId: "2b3c4d5e-6f7a-4b1c-9d2e-4f5a6b7c8d9e",
 };
 
+/** What a press of `text` came to: a message sent, a command held, a refusal, or nothing. */
+export type RoutedSend =
+  | ComposerMessageOutcome
+  | { readonly status: "intercepted"; readonly commandName: string }
+  | { readonly status: "refused"; readonly refusal: Refusal }
+  | { readonly status: "empty" };
+
 /** Stub send calls that answer as the case says; `answer` gets the method and request. */
 export function sendCallsAnswering(
   answer: (call: RecordedDaemonCall) => Promise<unknown>,
@@ -59,6 +68,26 @@ export function routerWith(
     recognizeConsoleCommand: (name) => recognized.includes(name),
     mintIdempotencyKey: () => PINNED_REQUEST_UUID,
   });
+}
+
+/** Resolves `text` through `router` and sends it when it resolves to a message. */
+export async function sendThrough(
+  router: ComposerSendRouter,
+  text: string,
+  target: ComposerSessionTarget | ComposerRunTarget,
+  extras: ComposerSendExtras,
+): Promise<RoutedSend> {
+  const resolution = router.resolve(text, target, extras);
+  switch (resolution.outcome) {
+    case "empty":
+      return { status: "empty" };
+    case "console-command":
+      return { status: "intercepted", commandName: resolution.commandName };
+    case "refused":
+      return { status: "refused", refusal: resolution.refusal };
+    case "queue":
+      return await router.dispatch(resolution.request);
+  }
 }
 
 /** The daemon-call mock these cases assert on, called as `(method, params)`. */

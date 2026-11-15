@@ -32,7 +32,8 @@ export interface TranscriptPaneProps {
 export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
   const { context } = props;
 
-  // Read through the store's selector so the pane follows a navigation to another session.
+  // Read through the store's selector so the pane follows a new address within its session; the
+  // router mounts the screen anew for another session.
   const route = useWindowStore(context.frameStore, (state) => state.route);
   const routeWriteCount = useWindowStore(context.frameStore, (state) => state.routeWriteCount);
   // The feed keeps the line until the next act itself, keyed on the arrival it draws for.

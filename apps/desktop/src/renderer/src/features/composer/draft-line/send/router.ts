@@ -8,8 +8,8 @@
 // draws no line. Trimming only decides blankness; the
 // wire gets the user's bytes, and slash rules read the raw text, so indented text starting with
 // `/` is prose. What rides with the words, the held draft's files, skill picks, turn speed and
-// repository, goes on the request as the draft holds it. A send's watcher hears each request as it
-// leaves, before the service answers it.
+// repository, goes on the request as the draft holds it. Resolving mints the request's key, so the
+// message's row is drawn under it from the press, before the request leaves.
 
 import type { AgentQueueItemCreateRequest } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionDraftExtras } from "@ai-sidekicks/contracts/session/draft";
@@ -21,7 +21,6 @@ import type {
   ConsoleCommandPredicate,
   ComposerMessageOutcome,
   ComposerMessageResolution,
-  ComposerSendOutcome,
   ComposerSendResolution,
 } from "./resolutions.js";
 import { unparsableIdentifier } from "./refusals.js";
@@ -33,9 +32,6 @@ import { dispatchQueuedMessage, type ComposerSendCalls } from "./dispatch.js";
  */
 export type ComposerSendExtras = SessionDraftExtras &
   Pick<AgentQueueItemCreateRequest, "replacesQueueItemId">;
-
-/** Hears a message's request as it leaves for the service, before the service answers it. */
-export type ComposerDispatchWatch = (request: AgentQueueItemCreateRequest) => void;
 
 /** Options for the router; only `calls` is required. */
 export interface ComposerSendRouterOptions {
@@ -50,7 +46,7 @@ export interface ComposerSendRouterOptions {
   readonly mintIdempotencyKey?: () => string;
 }
 
-/** Resolves composed text to a wire call and dispatches it; see the module header. */
+/** Resolves composed text to a wire call, and sends a resolved one; see the module header. */
 export class ComposerSendRouter {
   readonly #calls: ComposerSendCalls;
   readonly #recognizeConsoleCommand: ConsoleCommandPredicate;
@@ -62,7 +58,7 @@ export class ComposerSendRouter {
     this.#mintIdempotencyKey = options.mintIdempotencyKey ?? (() => crypto.randomUUID());
   }
 
-  /** What this text would do, without doing it. Pure: `send` resolves with the same text. */
+  /** What this text would do, without doing it; a message's request carries a key of its own. */
   public resolve(
     text: string,
     target: ComposerTarget,
@@ -79,38 +75,21 @@ export class ComposerSendRouter {
   }
 
   /**
-   * Resolve, then dispatch: the one place a composed message reaches the wire. A refusal comes
-   * back as a value; a rejected call is not caught. `onDispatch` hears the request as it leaves.
+   * The text as a message, exactly as typed: the slash rules are skipped, so an intercepted line
+   * its command did not act on, or a press whose only file is still copying, goes as a message
+   * the provider answers as it does in its own terminal.
    */
-  public async send(
+  public resolveAsTyped(
     text: string,
     target: ComposerTarget,
     extras: ComposerSendExtras,
-    onDispatch?: ComposerDispatchWatch,
-  ): Promise<ComposerSendOutcome> {
-    const resolution = this.resolve(text, target, extras);
-    switch (resolution.outcome) {
-      case "empty":
-        return { status: "empty" };
-      case "console-command":
-        return { status: "intercepted", commandName: resolution.commandName };
-      case "refused":
-      case "queue":
-        return await this.#dispatchMessage(resolution, onDispatch);
-    }
+  ): ComposerMessageResolution {
+    return this.#resolveMessage(text, target, extras);
   }
 
-  /**
-   * Send an intercepted line its command did not act on, exactly as typed: the slash rules are
-   * skipped, so the provider answers it as it does in its own terminal.
-   */
-  public async sendAsTyped(
-    text: string,
-    target: ComposerTarget,
-    extras: ComposerSendExtras,
-    onDispatch?: ComposerDispatchWatch,
-  ): Promise<ComposerMessageOutcome> {
-    return await this.#dispatchMessage(this.#resolveMessage(text, target, extras), onDispatch);
+  /** The one place a composed message reaches the wire. A rejected call is not caught. */
+  public async dispatch(request: AgentQueueItemCreateRequest): Promise<ComposerMessageOutcome> {
+    return await dispatchQueuedMessage(this.#calls, request);
   }
 
   /**
@@ -145,19 +124,6 @@ export class ComposerSendRouter {
       ...extras,
     };
     return { outcome: "queue", request };
-  }
-
-  async #dispatchMessage(
-    resolution: ComposerMessageResolution,
-    onDispatch: ComposerDispatchWatch | undefined,
-  ): Promise<ComposerMessageOutcome> {
-    switch (resolution.outcome) {
-      case "refused":
-        return { status: "refused", refusal: resolution.refusal };
-      case "queue":
-        onDispatch?.(resolution.request);
-        return await dispatchQueuedMessage(this.#calls, resolution.request);
-    }
   }
 }
 

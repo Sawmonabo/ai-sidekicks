@@ -44,16 +44,11 @@ export type ComposerSendResolution =
   | ComposerConsoleCommandResolution
   | ComposerEmptyResolution;
 
-/** What a message dispatch settled as: the queue item the service made of it, or a refusal. */
-export type ComposerMessageOutcome =
-  | { readonly status: "sent"; readonly queueItemId: string }
-  | { readonly status: "refused"; readonly refusal: Refusal };
-
-/** What a send settled as. The composer renders exactly one of these; `empty` draws nothing. */
-export type ComposerSendOutcome =
-  | ComposerMessageOutcome
-  | { readonly status: "intercepted"; readonly commandName: string }
-  | { readonly status: "empty" };
+/** What a message dispatch settled as: the queue item the service made of it. */
+export interface ComposerMessageOutcome {
+  readonly status: "sent";
+  readonly queueItemId: string;
+}
 
 /**
  * Whether a name is a console command that runs here. A port, since the composer has no command

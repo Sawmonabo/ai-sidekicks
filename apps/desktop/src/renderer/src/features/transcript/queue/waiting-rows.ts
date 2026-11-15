@@ -1,9 +1,12 @@
 // What a waiting row reads beyond its own row: where its queue item stands, the acts on it, the
 // drag that moves it, and whether the service can be reached. A context, as the row toggles are,
-// so the person's message card reaches them without a prop through every row.
+// so the person's message card reaches them without a prop through every row. The context holds
+// one channel for the feed's life, and a row reads its own share through it, so a change to the
+// waiting rows renders the rows that wait and no other.
 
 import { createContext, type Context } from "react";
 
+import { Emitter } from "#renderer/lib/emitter.js";
 import type { ReorderDrag } from "#renderer/lib/reorder-drag.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ComposerRequests } from "#renderer/store/session/composer-requests.js";
@@ -34,7 +37,36 @@ export interface WaitingRows {
   readonly lastMove: { readonly rowKey: string; readonly sentence: string } | undefined;
 }
 
-/** The feed's waiting rows; `undefined` outside a feed, where no row waits. */
-export const WaitingRowsContext: Context<WaitingRows | undefined> = createContext<
-  WaitingRows | undefined
+/**
+ * The feed's waiting rows as its latest render holds them, read by each row for its own key. The
+ * feed adopts each render's value as it renders and says it changed once that render commits.
+ */
+export class WaitingRowsChannel {
+  readonly #changes = new Emitter<void>("waiting rows");
+  #waitingRows: WaitingRows | undefined;
+
+  /** Watch the waiting rows. */
+  public subscribe = (listener: () => void): (() => void) => this.#changes.subscribe(listener);
+
+  /** The waiting rows when the row under `rowKey` is one of them, else `undefined`. */
+  public waitingRowsOf = (rowKey: string): WaitingRows | undefined =>
+    this.#waitingRows?.waitingRowByKey.has(rowKey) === true ? this.#waitingRows : undefined;
+
+  /** Holds `waitingRows` as the value rows read from now on, telling no watcher yet. */
+  public adopt(waitingRows: WaitingRows): void {
+    this.#waitingRows = waitingRows;
+  }
+
+  /** Tells every watcher the value adopted last stands, once the render that adopted it commits. */
+  public publish(): void {
+    this.#changes.emit();
+  }
+}
+
+/** The feed's waiting rows channel; `undefined` outside a feed, where no row waits. */
+export const WaitingRowsContext: Context<WaitingRowsChannel | undefined> = createContext<
+  WaitingRowsChannel | undefined
 >(undefined);
+
+/** What a waiting row whose delivery failed says first, and is said as when it fails. */
+export const NOT_DELIVERED_WORDS = "Not delivered";

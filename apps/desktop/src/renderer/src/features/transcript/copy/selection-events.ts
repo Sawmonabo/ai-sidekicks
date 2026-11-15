@@ -1,10 +1,12 @@
 // The events a selection in the conversation runs across, for a copy of rows the store let go: the
 // first event its start row is drawn from and the last its end row is drawn from, noted while the
 // log holds them, or an end of the conversation, the stream's newest event as the copy is asked
-// for at its end, and the events between, read when the copy is asked for, from the store where it
-// holds them and back through `transcript.read` where it does not: before and after what it holds,
-// and in each stretch it let go between, as a long run's calls cut from its window. The store keeps
-// only the rows its window holds, so a long selection costs memory only while its copy is read.
+// for at its end, which is also where a selection ends on a message waiting to be taken, a row the
+// log holds no event for yet; and the events between, read when the copy is asked for, from the
+// store where it holds them and back through `transcript.read` where it does not: before and after
+// what it holds, and in each stretch it let go between, as a long run's calls cut from its window.
+// The store keeps only the rows its window holds, so a long selection costs memory only while its
+// copy is read.
 
 import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
@@ -18,6 +20,7 @@ import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import type { SessionStoreState } from "#renderer/store/session/state.js";
 import { type RowSelection, type RowSelectionBoundary } from "../viewport/selection/record.js";
+import { WAITING_ROW_CURSOR } from "../queue/placement.js";
 import { type RowSourceSpan } from "../window/row-sources.js";
 
 /** One event an end of a selection is drawn from: its place in the log and the cursor it is at. */
@@ -193,6 +196,10 @@ function notedEnd(
   const span = spanOf(boundary.rowKey);
   if (span === undefined) {
     return previous?.at === "row" && previous.rowKey === boundary.rowKey ? previous : undefined;
+  }
+  // A waiting row is drawn from no event the log holds and stands after its newest one.
+  if (which === "last" && span.last.cursor === WAITING_ROW_CURSOR) {
+    return { at: "conversation-end" };
   }
   return { at: "row", rowKey: boundary.rowKey, event: endEventOf(span[which]) };
 }

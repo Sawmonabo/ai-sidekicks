@@ -3,9 +3,15 @@
 // taken it stands where the agent took it, at its admission, and the reply follows under it. A
 // message sent from this window is drawn under its send's own key from the press on, so the row
 // the press drew is the row that settles, and a send that failed leaves one line where its row
-// stood. A message the service hands back after taking it, a turn too long for the context window,
-// leaves the flow the same way. Only the messages this window sent and the queue items its queue
-// reading reports move; every other message stands at its place in the log.
+// stood and nothing of the message. A message the service hands back after taking it, a turn too
+// long for the context window, leaves the flow the same way. Only the messages this window sent
+// and the queue items its queue reading reports move; every other message stands at its place. A
+// row keeps its key from its first drawing on: across the reply that ties a send to its item, the
+// logged message that ties a waiting item to the log, and a retry that queues it again.
+//
+// The waiting rows are handed back apart from the log, so a log that grew only at its end reaches
+// the transcript's derivation as an appended stretch, and a stretch that names no message, no
+// admission and no handed-back turn is placed by appending it, with no pass over the log.
 
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { AgentRunFailedPayload } from "@ai-sidekicks/contracts/run/events";
@@ -14,7 +20,12 @@ import { USER_MESSAGE_EVENT_TYPE } from "@ai-sidekicks/contracts/transcript/oper
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
-import { type SentMessage, type SentMessageEntry } from "#renderer/store/session/sent-messages.js";
+import {
+  type FailedSend,
+  type SentMessage,
+  type SentMessageEntry,
+} from "#renderer/store/session/sent-messages.js";
+import { appendedStretchOf } from "../window/row-positions.js";
 import { SEND_FAILED_ROW_TYPE } from "../system-messages/kinds.js";
 
 /** A row waiting to be taken: the queue item it is, once known, as the queue reading read it. */
@@ -24,12 +35,27 @@ export interface WaitingRow {
   readonly item: QueueItemSummary | undefined;
 }
 
-/** The log as the transcript derives it, which of its rows wait at its end, and what may go. */
+/** What the queue reading reports that the placement reads. */
+export interface PlacedQueue {
+  /** The items, in queue order. */
+  readonly items: readonly QueueItemSummary[];
+  /** Each item a retry queued, to the item it sent again. */
+  readonly retriedItemFrom: ReadonlyMap<string, string>;
+}
+
+/** The log as the transcript derives it, the rows waiting after it, and what the sends learned. */
 export interface PlacedLog {
+  /** The log with each message where it stands; no waiting row is among them. */
   readonly events: readonly ProjectedSessionEvent[];
-  /** Each waiting row by its key, in the order drawn; every one stands after every event. */
+  /** The waiting rows, in the order drawn, after every event of `events`. */
+  readonly waitingEvents: readonly ProjectedSessionEvent[];
+  /** Each waiting row by its key, in the order drawn. */
   readonly waitingRowByKey: ReadonlyMap<string, WaitingRow>;
-  /** The keys of sent messages no row of the store's window reads any longer. */
+  /** The key each log event drawn under a send's key is drawn under, by the event's id. */
+  readonly rowKeyByEventId: ReadonlyMap<string, string>;
+  /** The sends the service has now reported, by their item or their logged message. */
+  readonly reportedKeys: ReadonlySet<string>;
+  /** The keys of sent messages no row reads any longer. */
   readonly releasableKeys: ReadonlySet<string>;
 }
 
@@ -38,31 +64,79 @@ export interface PlacedLog {
  * identity from one pass to the next and the derivation reads it as the row it already drew.
  */
 export class SentMessagePlacement {
+  readonly #sessionId: string;
   /** The log's own events this window drew under another key or kind, each copied once. */
   readonly #copies = new WeakMap<ProjectedSessionEvent, ProjectedSessionEvent>();
   /** The events made for rows the log holds no event for, by key, kept while their row stands. */
   #madeEvents = new Map<string, ProjectedSessionEvent>();
-  /** The items of this window's sends whose message the log has held, until the send goes. */
-  #loggedSendItemIds = new Set<string>();
+  /** The last pass: what it was handed and what it answered, which an appended stretch extends. */
+  #last: PlacementPass | undefined;
+
+  /** `sessionId` is the session whose log this places, which every row made here carries. */
+  public constructor(sessionId: string) {
+    this.#sessionId = sessionId;
+  }
 
   /**
-   * The log `events` with the messages placed. `entries` are this window's sends, `items` the
-   * queue reading's items, and `isTailLive` whether the store's window reaches the log's end,
-   * the one place waiting rows stand.
+   * The log `events` with the messages placed. `entries` are this window's sends, `queue` what the
+   * queue reading reports, and `isTailLive` whether the store's window reaches the log's end, the
+   * one place waiting rows stand.
    */
   public place(
     events: readonly ProjectedSessionEvent[],
     entries: readonly SentMessageEntry[],
-    items: readonly QueueItemSummary[],
+    queue: PlacedQueue,
     isTailLive: boolean,
   ): PlacedLog {
+    const { items, retriedItemFrom } = queue;
+    const last = this.#last;
+    if (
+      last !== undefined &&
+      last.entries === entries &&
+      last.items === items &&
+      last.retriedItemFrom === retriedItemFrom &&
+      last.isTailLive === isTailLive
+    ) {
+      const stretch = events === last.events ? [] : appendedStretchOf(last.events, events);
+      if (stretch !== undefined && !stretch.some(movesAMessage)) {
+        const placed: PlacedLog =
+          stretch.length === 0
+            ? last.placed
+            : {
+                ...last.placed,
+                events:
+                  last.placed.events === last.events ? events : [...last.placed.events, ...stretch],
+                reportedKeys: NO_KEYS,
+                releasableKeys: NO_KEYS,
+              };
+        this.#last = { events, entries, items, retriedItemFrom, isTailLive, placed };
+        return placed;
+      }
+    }
+    const placed = this.#placeWhole(events, entries, queue, isTailLive);
+    this.#last = { events, entries, items, retriedItemFrom, isTailLive, placed };
+    return placed;
+  }
+
+  #placeWhole(
+    events: readonly ProjectedSessionEvent[],
+    entries: readonly SentMessageEntry[],
+    queue: PlacedQueue,
+    isTailLive: boolean,
+  ): PlacedLog {
+    const { items, retriedItemFrom } = queue;
     const handedBack = handedBackLinesOf(events);
     if (entries.length === 0 && items.length === 0 && handedBack.size === 0) {
       this.#madeEvents = new Map();
-      return { events, waitingRowByKey: NO_WAITING_ROWS, releasableKeys: NO_KEYS };
+      return nothingPlacedIn(events);
     }
     const itemById = new Map(items.map((item) => [item.id as string, item]));
-    const sends = tieUnansweredSends(entries, events, items);
+    const retries = retryChainsOf(retriedItemFrom);
+    const sends = tieUnansweredSends(entries, events, items).map((send) => {
+      const queueItemId =
+        send.queueItemId === undefined ? undefined : retries.newest(send.queueItemId);
+      return queueItemId === send.queueItemId ? send : { ...send, queueItemId };
+    });
     const sendKeyByItemId = new Map<string, string>();
     for (const send of sends) {
       if (send.queueItemId !== undefined) {
@@ -78,21 +152,28 @@ export class SentMessagePlacement {
         admittedItemIds.add(queueItemId);
       }
     }
-    const failedAfter = new Map<string | undefined, ProjectedSessionEvent[]>();
     const madeEvents = new Map<string, ProjectedSessionEvent>();
+    const eventById = new Map(events.map((event) => [event.id, event]));
+    const failedAfter = new Map<string | undefined, ProjectedSessionEvent[]>();
     for (const entry of entries) {
       if (entry.kind === "failed") {
-        const line = this.#madeEvent(madeEvents, entry.key, undefined, () =>
-          failedLineEvent(entry.key, entry.label, entry.failedAt),
+        const anchor =
+          entry.afterEventId === undefined ? events[0] : eventById.get(entry.afterEventId);
+        const line = this.#madeEvent(
+          madeEvents,
+          entry.key,
+          failedLineEvent(this.#sessionId, entry, anchor),
         );
         failedAfter.set(entry.afterEventId, [...(failedAfter.get(entry.afterEventId) ?? []), line]);
       }
     }
 
     const placed: ProjectedSessionEvent[] = [...(failedAfter.get(undefined) ?? [])];
+    const rowKeyByEventId = new Map<string, string>();
     const takenAt = new Map<string, ProjectedSessionEvent>();
     const waitingByItemId = new Map<string, ProjectedSessionEvent>();
     const loggedItemIds = new Set<string>();
+    const drawnFromLogItemIds = new Set<string>();
     const handedBackDrawn = new Set<string>();
     for (const event of events) {
       const sentItemId = queueItemIdOf(event, USER_MESSAGE_EVENT_TYPE);
@@ -100,16 +181,29 @@ export class SentMessagePlacement {
       const handedBackItemId = handedBackItemIdOf(event);
       if (sentItemId !== undefined && isKnown(sentItemId)) {
         loggedItemIds.add(sentItemId);
-        const message = this.#copied(event, sendKeyByItemId.get(sentItemId));
+        // A send of this window's under its key; another window's item under the key its waiting
+        // row was drawn under, while the reading reads the item.
+        const sendKey =
+          sendKeyByItemId.get(sentItemId) ??
+          (itemById.has(sentItemId) ? retries.first(sentItemId) : undefined);
+        const message = this.#copied(event, sendKey);
         const state = itemById.get(sentItemId)?.state;
         const line = handedBack.get(sentItemId);
         if (line !== undefined) {
           // Handed back: the line stands where the message stood, and the message is out.
           placed.push(this.#copied(line.event, undefined, line.label));
           handedBackDrawn.add(sentItemId);
-        } else if (state === "canceled" || state === "superseded") {
+          continue;
+        }
+        if (state === "canceled" || state === "superseded") {
           // Taken back before the agent read it: nothing of it reaches the agent or the flow.
-        } else if (state === "queued" || state === "notDelivered") {
+          continue;
+        }
+        if (sendKey !== undefined) {
+          rowKeyByEventId.set(event.id, sendKey);
+        }
+        drawnFromLogItemIds.add(sentItemId);
+        if (state === "queued" || state === "notDelivered") {
           waitingByItemId.set(sentItemId, message);
         } else if (admittedItemIds.has(sentItemId)) {
           takenAt.set(sentItemId, message);
@@ -138,56 +232,61 @@ export class SentMessagePlacement {
       }
     }
 
+    const reportedKeys = new Set<string>();
     const releasableKeys = new Set<string>();
-    const loggedSendItemIds = new Set<string>();
-    const waitingRowByKey = new Map<string, WaitingRow>();
-    if (isTailLive) {
-      const tail: WaitingTailRow[] = [];
-      const sentItemIds = new Set<string>();
-      sends.forEach((send, pressOrder) => {
-        const queueItemId = send.queueItemId;
-        const item = queueItemId === undefined ? undefined : itemById.get(queueItemId);
-        const logged = queueItemId === undefined ? undefined : waitingByItemId.get(queueItemId);
-        if (send.editOf !== undefined) {
-          // The edited item's own row is this one until the item that replaced it is read.
-          sentItemIds.add(send.editOf);
+    const tail: WaitingTailRow[] = [];
+    const sentItemIds = new Set<string>();
+    sends.forEach((send, pressOrder) => {
+      const queueItemId = send.queueItemId;
+      if (send.editOf !== undefined) {
+        // The edited item's own row is this one until the item that replaced it is read.
+        sentItemIds.add(send.editOf);
+      }
+      if (queueItemId !== undefined) {
+        sentItemIds.add(queueItemId);
+        const isReportedNow = itemById.has(queueItemId) || loggedItemIds.has(queueItemId);
+        if (isReportedNow && send.isReported !== true) {
+          reportedKeys.add(send.key);
         }
-        if (queueItemId !== undefined) {
-          sentItemIds.add(queueItemId);
-          const wasLogged = this.#loggedSendItemIds.has(queueItemId);
-          if (wasLogged || loggedItemIds.has(queueItemId)) {
-            loggedSendItemIds.add(queueItemId);
-          }
-          const isTakenBack = item?.state === "canceled" || item?.state === "superseded";
-          const isTaken = admittedItemIds.has(queueItemId) || item?.state === "admitted";
-          // A send whose row went, or whose taken message has left the store's window, is let go.
-          if (isTakenBack || (isTaken && wasLogged && !loggedItemIds.has(queueItemId))) {
-            releasableKeys.add(send.key);
-          }
-          // A message the log holds is waiting only where the pass above set it aside; one the
-          // log does not hold yet waits until its event arrives.
-          if (
-            isTakenBack ||
-            handedBack.has(queueItemId) ||
-            (logged === undefined &&
-              (admittedItemIds.has(queueItemId) || loggedItemIds.has(queueItemId)))
-          ) {
-            return;
-          }
-        }
-        const event =
-          logged ??
-          this.#madeEvent(madeEvents, send.key, send.content, () =>
-            waitingMessageEvent(send.key, send.content, send.sentAt, placed.at(-1)),
-          );
-        const edited = send.editOf === undefined ? undefined : itemById.get(send.editOf);
-        tail.push({
-          event,
-          position: (item ?? edited)?.position,
-          pressOrder,
-          waitingRow: { queueItemId, item },
+        const isWaiting = isSendWaiting({
+          state: itemById.get(queueItemId)?.state,
+          isHandedBack: handedBack.has(queueItemId),
+          isTaken: admittedItemIds.has(queueItemId),
+          isLogged: loggedItemIds.has(queueItemId),
+          isReported: isReportedNow || send.isReported === true,
         });
+        // A send no row draws, which the service has reported, is let go.
+        if (
+          !isWaiting &&
+          !drawnFromLogItemIds.has(queueItemId) &&
+          (isReportedNow || send.isReported === true)
+        ) {
+          releasableKeys.add(send.key);
+        }
+        if (!isWaiting) {
+          return;
+        }
+      }
+      if (!isTailLive) {
+        return;
+      }
+      const item = queueItemId === undefined ? undefined : itemById.get(queueItemId);
+      const event =
+        (queueItemId === undefined ? undefined : waitingByItemId.get(queueItemId)) ??
+        this.#madeEvent(
+          madeEvents,
+          send.key,
+          waitingMessageEvent(this.#sessionId, send.key, send.content, send.sentAt),
+        );
+      const edited = send.editOf === undefined ? undefined : itemById.get(send.editOf);
+      tail.push({
+        event,
+        position: (item ?? edited)?.position,
+        pressOrder,
+        waitingRow: { queueItemId, item },
       });
+    });
+    if (isTailLive) {
       for (const item of items) {
         if (sentItemIds.has(item.id) || item.kind !== "message") {
           continue;
@@ -195,10 +294,13 @@ export class SentMessagePlacement {
         if (item.state !== "queued" && item.state !== "notDelivered") {
           continue;
         }
+        const rowKey = retries.first(item.id);
         const event =
           waitingByItemId.get(item.id) ??
-          this.#madeEvent(madeEvents, item.id, item.content, () =>
-            waitingMessageEvent(item.id, item.content, item.createdAt, placed.at(-1)),
+          this.#madeEvent(
+            madeEvents,
+            rowKey,
+            waitingMessageEvent(this.#sessionId, rowKey, item.content, item.createdAt),
           );
         tail.push({
           event,
@@ -207,17 +309,42 @@ export class SentMessagePlacement {
           waitingRow: { queueItemId: item.id, item },
         });
       }
-      tail.sort(compareWaitingTailRows);
-      for (const waiting of tail) {
-        placed.push(waiting.event);
-        waitingRowByKey.set(waiting.event.id, waiting.waitingRow);
-      }
+    }
+    tail.sort(compareWaitingTailRows);
+    const previousRowByKey = this.#last?.placed.waitingRowByKey;
+    const waitingRowByKey = new Map<string, WaitingRow>();
+    for (const waiting of tail) {
+      const key = waiting.event.id;
+      const held = previousRowByKey?.get(key);
+      waitingRowByKey.set(
+        key,
+        held !== undefined &&
+          held.queueItemId === waiting.waitingRow.queueItemId &&
+          held.item === waiting.waitingRow.item
+          ? held
+          : waiting.waitingRow,
+      );
     }
     this.#madeEvents = madeEvents;
-    if (isTailLive) {
-      this.#loggedSendItemIds = loggedSendItemIds;
-    }
-    return { events: placed, waitingRowByKey, releasableKeys };
+    const waitingEvents = tail.map((waiting) => waiting.event);
+    const last = this.#last?.placed;
+    return {
+      events: placed,
+      waitingEvents:
+        last !== undefined && sameObjects(last.waitingEvents, waitingEvents)
+          ? last.waitingEvents
+          : waitingEvents,
+      waitingRowByKey:
+        last !== undefined && sameEntries(last.waitingRowByKey, waitingRowByKey)
+          ? last.waitingRowByKey
+          : waitingRowByKey,
+      rowKeyByEventId:
+        last !== undefined && sameEntries(last.rowKeyByEventId, rowKeyByEventId)
+          ? last.rowKeyByEventId
+          : rowKeyByEventId,
+      reportedKeys: reportedKeys.size === 0 ? NO_KEYS : reportedKeys,
+      releasableKeys: releasableKeys.size === 0 ? NO_KEYS : releasableKeys,
+    };
   }
 
   /**
@@ -233,7 +360,7 @@ export class SentMessagePlacement {
       return event;
     }
     const held = this.#copies.get(event);
-    if (held !== undefined) {
+    if (held !== undefined && held.id === (key ?? event.id)) {
       return held;
     }
     const copy =
@@ -245,20 +372,16 @@ export class SentMessagePlacement {
   }
 
   /**
-   * The event made under `key` on the last pass, while it still says `content`, or one `make`
-   * makes, kept for this pass.
+   * The event made under `made.id` on the last pass while it still says what `made` says, else
+   * `made`, kept for this pass: a waiting row and the failed line under one key are two events.
    */
   #madeEvent(
     madeEvents: Map<string, ProjectedSessionEvent>,
     key: string,
-    content: string | undefined,
-    make: () => ProjectedSessionEvent,
+    made: ProjectedSessionEvent,
   ): ProjectedSessionEvent {
     const held = this.#madeEvents.get(key);
-    const event =
-      held !== undefined && (content === undefined || held.payload?.["message"] === content)
-        ? held
-        : make();
+    const event = held !== undefined && saysTheSame(held, made) ? held : made;
     madeEvents.set(key, event);
     return event;
   }
@@ -272,6 +395,83 @@ export function handedBackItemIdOf(event: ProjectedSessionEvent): string | undef
   // The event's payload, read as the type the service checked it as when it stored it.
   const cause = (event.payload as Partial<AgentRunFailedPayload> | undefined)?.failureCause;
   return cause?.cause === "contextWindowExceeded" ? cause.returnedMessageId : undefined;
+}
+
+/** What one pass was handed, and what it answered. */
+interface PlacementPass {
+  readonly events: readonly ProjectedSessionEvent[];
+  readonly entries: readonly SentMessageEntry[];
+  readonly items: readonly QueueItemSummary[];
+  readonly retriedItemFrom: ReadonlyMap<string, string>;
+  readonly isTailLive: boolean;
+  readonly placed: PlacedLog;
+}
+
+/** What a send's item and logged message say of it this pass. */
+interface SendStanding {
+  readonly state: QueueItemSummary["state"] | undefined;
+  readonly isHandedBack: boolean;
+  /** The agent's admission of it is in the log. */
+  readonly isTaken: boolean;
+  /** Its message is in the store's window of the log. */
+  readonly isLogged: boolean;
+  /** The service reported it, this pass or before. */
+  readonly isReported: boolean;
+}
+
+/**
+ * Whether a send the service answered draws as a waiting row: while its item waits or was not
+ * delivered, and, before the reading reads its item, while its message is logged and not taken or
+ * the service has reported nothing of it yet. A send reported and then read in no waiting state,
+ * or gone from both the reading and the window, never waits again.
+ */
+function isSendWaiting(standing: SendStanding): boolean {
+  if (standing.isHandedBack) {
+    return false;
+  }
+  if (standing.state !== undefined) {
+    return standing.state === "queued" || standing.state === "notDelivered";
+  }
+  if (standing.isTaken) {
+    return false;
+  }
+  return standing.isLogged || !standing.isReported;
+}
+
+/** Where a retried item's chain of retries starts and where it now ends. */
+interface RetryChains {
+  /** The item the first send of `queueItemId`'s words queued: its row's key. */
+  readonly first: (queueItemId: string) => string;
+  /** The item the newest retry of `queueItemId` queued, or `queueItemId` when none did. */
+  readonly newest: (queueItemId: string) => string;
+}
+
+/** Each retry's chain, read off what each retried item sent again. */
+function retryChainsOf(retriedItemFrom: ReadonlyMap<string, string>): RetryChains {
+  const retriedTo = new Map<string, string>();
+  for (const [retried, from] of retriedItemFrom) {
+    retriedTo.set(from, retried);
+  }
+  const walk = (queueItemId: string, step: ReadonlyMap<string, string>): string => {
+    let reached = queueItemId;
+    for (let next = step.get(reached); next !== undefined; next = step.get(reached)) {
+      reached = next;
+    }
+    return reached;
+  };
+  return {
+    first: (queueItemId) => walk(queueItemId, retriedItemFrom),
+    newest: (queueItemId) => walk(queueItemId, retriedTo),
+  };
+}
+
+/** Whether an appended event moves a message: one, its admission, or a turn handed back. */
+function movesAMessage(event: ProjectedSessionEvent): boolean {
+  return (
+    event.kind === USER_MESSAGE_EVENT_TYPE ||
+    event.kind === ADMITTED_EVENT_TYPE ||
+    handedBackItemIdOf(event) !== undefined
+  );
 }
 
 /** The event that handed a message back, and the words its line reads. */
@@ -373,13 +573,72 @@ function compareWaitingTailRows(first: WaitingTailRow, second: WaitingTailRow): 
   return first.pressOrder - second.pressOrder;
 }
 
+/** Whether two made events say the same: one kind, one time, one place and one payload. */
+function saysTheSame(held: ProjectedSessionEvent, made: ProjectedSessionEvent): boolean {
+  return (
+    held.kind === made.kind &&
+    held.occurredAt === made.occurredAt &&
+    held.sequence === made.sequence &&
+    held.cursor === made.cursor &&
+    held.payload?.["message"] === made.payload?.["message"] &&
+    held.payload?.["label"] === made.payload?.["label"]
+  );
+}
+
+/** Whether two lists hold the same objects in the same order. */
+function sameObjects<TItem>(left: readonly TItem[], right: readonly TItem[]): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index]);
+}
+
+/** Whether two maps hold the same values under the same keys, in the same order. */
+function sameEntries<TValue>(
+  left: ReadonlyMap<string, TValue>,
+  right: ReadonlyMap<string, TValue>,
+): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+  const rightEntries = [...right];
+  return [...left].every(([key, value], index) => {
+    const entry = rightEntries[index];
+    return entry !== undefined && entry[0] === key && entry[1] === value;
+  });
+}
+
+/** The log as handed, with nothing placed in it and nothing waiting after it. */
+function nothingPlacedIn(events: readonly ProjectedSessionEvent[]): PlacedLog {
+  return {
+    events,
+    waitingEvents: NO_EVENTS,
+    waitingRowByKey: NO_WAITING_ROWS,
+    rowKeyByEventId: NO_ROW_KEYS,
+    reportedKeys: NO_KEYS,
+    releasableKeys: NO_KEYS,
+  };
+}
+
 /** The line a message the service hands back leaves where it stood. */
-const HANDED_BACK_LABEL = "Send failed · Too long for this session's context window";
+export const HANDED_BACK_LABEL = "Send failed · Too long for this session's context window";
+
+/**
+ * Where a waiting row stands in the log's order: after every event, so a reader that orders rows
+ * by their place in the log finds the waiting rows last.
+ */
+const WAITING_ROW_SEQUENCE = Number.MAX_SAFE_INTEGER;
+
+/** The cursor of a waiting row the log holds no event for yet, read at no place in the log. */
+export const WAITING_ROW_CURSOR = "";
+
+/** No event waits. */
+const NO_EVENTS: readonly ProjectedSessionEvent[] = [];
 
 /** No row waits. */
 const NO_WAITING_ROWS: ReadonlyMap<string, WaitingRow> = new Map();
 
-/** No sent message may go. */
+/** No log event is drawn under another key. */
+const NO_ROW_KEYS: ReadonlyMap<string, string> = new Map();
+
+/** No sent message is named. */
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 /** The event the log records when the agent takes a queued message. */
@@ -393,36 +652,40 @@ function queueItemIdOf(event: ProjectedSessionEvent, kind: string): string | und
   return event.kind === kind ? readWireString(event.payload?.["queueItemId"]) : undefined;
 }
 
-/**
- * A message event for a row the log holds no event for yet: its words and when it was sent. It
- * takes the position of the event before it, so a row read by position finds its neighbor's.
- */
+/** A message event for a row the log holds no event for yet: its words and when it was sent. */
 function waitingMessageEvent(
+  sessionId: string,
   key: string,
   content: string,
   sentAt: string,
-  before: ProjectedSessionEvent | undefined,
 ): ProjectedSessionEvent {
   return {
     id: key,
-    sessionId: before?.sessionId ?? "",
-    sequence: before?.sequence ?? 0,
-    cursor: before?.cursor ?? "",
+    sessionId,
+    sequence: WAITING_ROW_SEQUENCE,
+    cursor: WAITING_ROW_CURSOR,
     kind: USER_MESSAGE_EVENT_TYPE,
     occurredAt: sentAt,
     payload: { message: content },
   };
 }
 
-/** The line a failed send leaves, under the send's key. */
-function failedLineEvent(key: string, label: string, failedAt: string): ProjectedSessionEvent {
+/**
+ * The line a failed send leaves, under the send's key, at the place of `anchor`, the event it
+ * stands after, or the log's first event, which it stands before, where it stands first.
+ */
+function failedLineEvent(
+  sessionId: string,
+  failed: FailedSend,
+  anchor: ProjectedSessionEvent | undefined,
+): ProjectedSessionEvent {
   return {
-    id: key,
-    sessionId: "",
-    sequence: 0,
-    cursor: "",
+    id: failed.key,
+    sessionId,
+    sequence: anchor?.sequence ?? 0,
+    cursor: anchor?.cursor ?? "",
     kind: SEND_FAILED_ROW_TYPE,
-    occurredAt: failedAt,
-    payload: { label },
+    occurredAt: failed.failedAt,
+    payload: { label: failed.label },
   };
 }

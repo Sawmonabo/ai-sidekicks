@@ -76,7 +76,7 @@ async function settle(): Promise<void> {
 
 describe("the composer's file staging", () => {
   it("holds a send until the copy lands, then the staged set is the held draft's files", async () => {
-    // Mutation: dropping `trackCopy` lets `whenCopied` settle before the file is staged, and a
+    // Mutation: dropping `trackCopy` leaves the copy out of the copies a press waits for, and a
     // send reads a draft with no file.
     const { staging, heldDraft, sent, answer } = stagingWithHandAnsweredAdd();
     staging.stage([{ ref: "token-notes" as FilePathRef, name: "notes.md", sizeBytes: 2048 }]);
@@ -86,7 +86,7 @@ describe("the composer's file staging", () => {
     expect(staging.snapshot().pending.map((each) => each.name)).toStrictEqual(["notes.md"]);
 
     let isCopied = false;
-    void heldDraft.whenCopied().then(() => {
+    void Promise.allSettled(heldDraft.copiesInFlight()).then(() => {
       isCopied = true;
     });
     await settle();

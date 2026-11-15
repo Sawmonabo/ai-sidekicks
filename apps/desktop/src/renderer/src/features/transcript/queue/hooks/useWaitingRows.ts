@@ -2,12 +2,14 @@
 // the stack, and the edit the draft holds. A move sends the queue's whole new order and the rows
 // move when the reading reports it; a refused move puts the rows back and says the refusal's own
 // words under the row. A retry the person's own prompt hook blocks again hands its words back to
-// the draft and takes the row out, and so does a message the service hands back after taking it.
+// the draft and takes the row out, and so does a message the service hands back after taking it,
+// whose line is said as it arrives.
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { USER_MESSAGE_EVENT_TYPE } from "@ai-sidekicks/contracts/transcript/operations";
 
+import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useReorderDrag } from "#renderer/hooks/useReorderDrag.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
@@ -15,9 +17,10 @@ import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionSto
 import { selectTranscript } from "#renderer/store/session/selectors.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
 import { reorderedQueueItemIds, type QueueMoveAnchor } from "../order.js";
-import { handedBackItemIdOf, type WaitingRow } from "../placement.js";
+import { HANDED_BACK_LABEL, handedBackItemIdOf, type WaitingRow } from "../placement.js";
 import type { QueueFeed } from "../reading.js";
 import type { WaitingRows } from "../waiting-rows.js";
+import { useAnnounceSendFailures } from "./useAnnounceSendFailures.js";
 
 /** What `useWaitingRows` reads: the session, its queue reading and the rows the feed placed. */
 export interface WaitingRowsInput {
@@ -108,6 +111,7 @@ export function useWaitingRows(input: WaitingRowsInput): WaitingRows {
   );
   useBlockedRetriesReturned(queue, sessionStore);
   useHandedBackSendsReturned(sessionStore);
+  useAnnounceSendFailures(sessionStore, queue);
 
   return useMemo<WaitingRows>(
     () => ({
@@ -146,31 +150,32 @@ const QUEUE_REORDER_ORIGIN = "queue-reorder";
  */
 function useBlockedRetriesReturned(queue: QueueFeed, sessionStore: SessionStore): void {
   const returned = useRef(new Set<string>());
-  const { items, retriedItemIds, cancelItem } = queue;
+  const { items, retriedItemFrom, cancelItem } = queue;
   useEffect(() => {
     for (const item of items) {
       if (
         item.kind !== "message" ||
         item.state !== "notDelivered" ||
         item.notDeliveredReason.kind !== "refusedByHook" ||
-        !retriedItemIds.has(item.id) ||
+        !retriedItemFrom.has(item.id) ||
         returned.current.has(item.id)
       ) {
         continue;
       }
       returned.current.add(item.id);
-      sessionStore.composerRequests.returnToDraft(item.content);
+      void sessionStore.composerRequests.returnToDraft({ words: item.content });
       void cancelItem(item.id);
     }
-  }, [items, retriedItemIds, cancelItem, sessionStore]);
+  }, [items, retriedItemFrom, cancelItem, sessionStore]);
 }
 
 /**
  * A message the service hands back after taking it, a turn too long for the context window: its
- * words go back to the draft once, when the failure arrives. Failures the log already held when
- * the feed mounted were handed back then, so they hand nothing back again.
+ * words go back to the draft once, when the failure arrives, and its line is said. Failures the log
+ * already held when the feed mounted were handed back then, so they hand nothing back again.
  */
 function useHandedBackSendsReturned(sessionStore: SessionStore): void {
+  const announce = useAnnounce();
   const transcript = useSessionStore(sessionStore, selectTranscript);
   const seen = useRef<Set<string> | undefined>(undefined);
   useEffect(() => {
@@ -182,6 +187,9 @@ function useHandedBackSendsReturned(sessionStore: SessionStore): void {
         continue;
       }
       held.add(event.id);
+      if (!isFirstRead) {
+        announce(HANDED_BACK_LABEL, "assertive");
+      }
       const message = isFirstRead
         ? undefined
         : transcript.find(
@@ -191,8 +199,8 @@ function useHandedBackSendsReturned(sessionStore: SessionStore): void {
           );
       const words = message?.payload?.["message"];
       if (typeof words === "string") {
-        sessionStore.composerRequests.returnToDraft(words);
+        void sessionStore.composerRequests.returnToDraft({ words });
       }
     }
-  }, [transcript, sessionStore]);
+  }, [transcript, sessionStore, announce]);
 }

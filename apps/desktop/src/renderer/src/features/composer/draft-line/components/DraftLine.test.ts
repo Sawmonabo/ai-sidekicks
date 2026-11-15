@@ -1,9 +1,9 @@
 // The message line, Send, and the draft beneath them: an unsent body lives in the supplied
 // draft store, and a send that fails puts what the person wrote back into it (a line with its own
-// copy would lose it). Two presses inside one frame send once, Send keeps its name while the send
-// is in flight, and a line-reading command sent with Send runs instead of going out as a message.
+// copy would lose it). Two presses inside one frame send once, since the first takes the draft,
+// and a line-reading command sent with Send runs instead of going out as a message.
 
-import { act, fireEvent, within } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
@@ -162,8 +162,8 @@ describe("DraftLine — a failed message comes back", () => {
 
 describe("DraftLine — one send in flight", () => {
   it("dispatches once for two Send presses inside one frame", async () => {
-    // Both presses run before React re-renders, so both read `status === "idle"`; only the
-    // controller's synchronous latch separates them. Without it the stub is called twice.
+    // Both presses run before React re-renders; the first takes the draft at the press, so the
+    // second finds nothing to send. A press that left the draft until the reply sends it twice.
     const settleCalls: string[] = [];
     let releaseFirstCall: () => void = () => undefined;
     const pending = new Promise<void>((resolve) => {
@@ -188,9 +188,7 @@ describe("DraftLine — one send in flight", () => {
       pressSend(result.container);
     });
     expect(settleCalls).toStrictEqual(["agent.queueItem.create"]);
-    // In flight, Send keeps its one name and is never renamed for what it is doing.
-    const inFlight = within(result.container).getByRole("button", { name: "Send" });
-    expect(inFlight.getAttribute("aria-busy")).toBe("true");
+    expect(line.value).toBe("");
 
     await act(async () => {
       releaseFirstCall();
@@ -200,7 +198,7 @@ describe("DraftLine — one send in flight", () => {
   });
 
   it("accepts the next send once the first has settled", async () => {
-    // The latch releases in `finally`; a wedged one would send exactly once per window.
+    // A press that stayed held after its send settled would send exactly once per window.
     const settleCalls: string[] = [];
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,

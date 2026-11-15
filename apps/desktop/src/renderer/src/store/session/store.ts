@@ -78,6 +78,7 @@ import { RememberedRowHeights } from "./remembered-row-heights.js";
 import { EntryCaret } from "./entry-caret.js";
 import { ComposerRequests } from "./composer-requests.js";
 import { SentMessages } from "./sent-messages.js";
+import { HeldValues } from "./held-values.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
 import { RepairReplay } from "./repair-replay.js";
 import {
@@ -133,6 +134,8 @@ export class SessionStore {
   public readonly sentMessages: SentMessages = new SentMessages();
   /** What the transcript asks of the session's composer. */
   public readonly composerRequests: ComposerRequests = new ComposerRequests();
+  /** What the views over this session keep while the store lives, as the transcript's window. */
+  public readonly heldValues: HeldValues = new HeldValues();
   readonly #sessionId: string;
   readonly #store: StoreApi<SessionStoreState>;
   readonly #hueAllocator = new AgentHueAllocator();

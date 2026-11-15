@@ -36,6 +36,7 @@ afterEach(() => {
 
 /** A session whose queue holds nothing. */
 const NO_QUEUE_ITEMS: readonly QueueItemSummary[] = [];
+const NO_RETRIES: ReadonlyMap<string, string> = new Map();
 
 /** A store holding one agent reply per body length, oldest first, outside any run. */
 function openSessionStoreWithReplies(bodyLengths: readonly number[]): SessionStore {
@@ -72,6 +73,7 @@ describe("the transcript feed windows — the body lengths the viewport estimate
           drawsBody: () => true,
           prepareRow: () => undefined,
           queueItems: NO_QUEUE_ITEMS,
+          retriedItemFrom: NO_RETRIES,
         }),
       {
         // The run group disclosure reads the platform bridge.
@@ -122,6 +124,7 @@ describe("the transcript feed windows — Jump to latest after a find step", () 
           drawsBody: () => true,
           prepareRow: () => undefined,
           queueItems: NO_QUEUE_ITEMS,
+          retriedItemFrom: NO_RETRIES,
         }),
       {
         wrapper: ({ children }) => (

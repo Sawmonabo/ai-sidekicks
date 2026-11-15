@@ -2,8 +2,9 @@
 // go, and the sends that failed. A message is in the transcript from the press, under the key its
 // send carries, and keeps that key once the service has it, so its row never mounts twice; a
 // failed send's row leaves and one line saying why stands where it stood, for the store's life. A
-// sent message is let go once no row in the store's window reads its key. Held with the session
-// store, so a transcript mounted again draws them as they were, and none is written anywhere.
+// send the service has reported, by its queue item or its logged message, waits only while the
+// service says it waits, and is let go once no row reads its key. Held with the session store, so
+// a transcript mounted again draws them as they were, and none is written anywhere.
 
 import { Emitter } from "#renderer/lib/emitter.js";
 
@@ -22,6 +23,11 @@ export interface SentMessage {
    * reads the item that replaced it.
    */
   readonly editOf?: string;
+  /**
+   * Whether the service has reported the message, its item read or its message in the log; from
+   * then on it waits only while the queue says it waits.
+   */
+  readonly isReported?: true;
 }
 
 /** A send that failed: the line standing where its row stood. */
@@ -88,6 +94,15 @@ export class SentMessages {
     };
   }
 
+  /** The service has reported the messages under `keys`, by their item or their logged message. */
+  public noteReported(keys: ReadonlySet<string>): void {
+    this.#publish(
+      this.#entries.map((entry) =>
+        entry.kind === "sent" && keys.has(entry.key) ? { ...entry, isReported: true } : entry,
+      ),
+    );
+  }
+
   /** Lets the sent messages under `keys` go: no row in the store's window reads them now. */
   public release(keys: ReadonlySet<string>): void {
     this.#publish(this.#entries.filter((entry) => entry.kind === "failed" || !keys.has(entry.key)));
@@ -98,6 +113,15 @@ export class SentMessages {
     this.#publish(
       this.#entries.map((entry) =>
         entry.kind === "sent" && entry.key === failed.key ? { kind: "failed", ...failed } : entry,
+      ),
+    );
+  }
+
+  /** The failed send's line under `key` reads `label` from now on. */
+  public relabel(key: string, label: string): void {
+    this.#publish(
+      this.#entries.map((entry) =>
+        entry.kind === "failed" && entry.key === key ? { ...entry, label } : entry,
       ),
     );
   }

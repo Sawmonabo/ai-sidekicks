@@ -1,13 +1,13 @@
 // Every window this feed derives, in the one order they may be derived in: the unfurled
 // projection, the run-group fold, the rows the feed draws anything for, and of those the rows that
-// draw whole, which the viewport holds a window of. Neither the fold nor the drawn-row stage keeps
-// the rows it takes out, so find, which reads every row the window holds, reads the unfurled
-// window, and its step opens what hides a row. The one viewport binding, reveal engine and history
-// reader are minted here, since the reader is asked by the viewport and measured in it.
+// draw whole, which the viewport holds a window of. The waiting rows join the unfurled window and
+// the fold's after the log's own rows, so neither the derivation nor the fold reads them. Neither
+// the fold nor the drawn-row stage keeps the rows it takes out, so find, which reads every row the
+// window holds, reads the unfurled window, and its step opens what hides a row. The one viewport
+// binding, reveal engine and history reader are minted here, since the reader is asked by the
+// viewport and measured in it.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-
-import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
@@ -27,6 +27,7 @@ import { useDuplicateRowKeyCapture } from "../../viewport/hooks/useDuplicateRowK
 import { useTranscriptFirstReadSettled } from "../../window/hooks/useTranscriptFirstReadSettled.js";
 import { useTranscriptProjection } from "../../window/hooks/useTranscriptProjection.js";
 import { ChangingRowIndex } from "../../window/changing-rows.js";
+import { WaitingTailJoin } from "../../window/waiting-tail.js";
 import { type RowSourceWindows } from "../../window/row-sources.js";
 import {
   deriveTranscriptWindow,
@@ -61,7 +62,7 @@ import {
   type RunWindowMeasure,
 } from "../../runs/call-window.js";
 import { type RunGroup } from "../../runs/groups.js";
-import { type WaitingRow } from "../../queue/placement.js";
+import { type PlacedQueue, type WaitingRow } from "../../queue/placement.js";
 import { useFoldedRunGroups } from "./useFoldedRunGroups.js";
 import { useDrawnRows } from "./useDrawnRows.js";
 import { usePreparedRows } from "./usePreparedRows.js";
@@ -90,7 +91,9 @@ export interface TranscriptFeedWindowsInputs {
   /** The registered row renderer's start of what a row's first frame waits on. */
   readonly prepareRow: TranscriptRowRenderer["prepareRow"];
   /** The session's queue as its reading stands, whose waiting messages are the last rows. */
-  readonly queueItems: readonly QueueItemSummary[];
+  readonly queueItems: PlacedQueue["items"];
+  /** Each item a retry of the queue reading queued, to the item it sent again. */
+  readonly retriedItemFrom: PlacedQueue["retriedItemFrom"];
 }
 
 /** The chain's windows, unfolded and as the feed draws them, with what the feed does over them. */
@@ -98,7 +101,7 @@ export interface TranscriptFeedWindows {
   readonly firstReadSettled: boolean;
   /** What this session's reader folded, and the acts that fold and open. */
   readonly folds: TranscriptFolds;
-  /** Every member row of every run group, before any fold. */
+  /** Every member row of every run group, before any fold, and the waiting rows after them. */
   readonly unfurledWindow: TranscriptWindowModel;
   /** The rows waiting for the agent to take them, by key: the window's last rows. */
   readonly waitingRowByKey: ReadonlyMap<string, WaitingRow>;
@@ -156,13 +159,20 @@ export function useTranscriptFeedWindows(
   // derivation rather than folded into it.
   const folds = useTranscriptFolds();
   const {
-    unfurledWindow,
+    logWindow,
+    waitingTail,
     waitingRowByKey,
+    rowKeyByEventId,
     runEntities,
     deriveHeldWindow,
     placeSentMessages,
     providerNameOf,
-  } = useTranscriptProjection(inputs.sessionStore, inputs.queueItems);
+  } = useTranscriptProjection(inputs.sessionStore, inputs.queueItems, inputs.retriedItemFrom);
+  const [waitingTailJoin] = useState(() => new WaitingTailJoin());
+  const unfurledWindow = useMemo(
+    () => waitingTailJoin.join(logWindow, waitingTail),
+    [waitingTailJoin, logWindow, waitingTail],
+  );
   // A long run's window is cut in the viewport's estimates, but the fold runs before the viewport
   // is minted, so they arrive from the layout effect below. Until then every call reads zero
   // high and a window holds one call; the fold cuts it again once they land, which is before any
@@ -195,26 +205,30 @@ export function useTranscriptFeedWindows(
       runWindowMoveCount,
     ],
   );
-  const foldedWindow = useFoldedRunGroups(
-    unfurledWindow,
+  const foldedLogWindow = useFoldedRunGroups(
+    logWindow,
     folds.foldedRunGroupKeys,
     runWindowInputs,
     inputs.sessionStore.sessionId,
+  );
+  const foldedWindow = useMemo(
+    () => waitingTailJoin.join(foldedLogWindow, waitingTail),
+    [waitingTailJoin, foldedLogWindow, waitingTail],
   );
   // A find's step and a link's landing open what hides their row before they land on it.
   const foldsOpenRunGroup = folds.openRunGroup;
   const foldsOpenRunStretchAt = folds.openRunStretchAt;
   const unfoldRow = useCallback(
     (rowId: string) => {
-      const runGroup = runGroupFoldingAway(rowId, unfurledWindow, foldedWindow);
+      const runGroup = runGroupFoldingAway(rowId, logWindow, foldedLogWindow);
       if (runGroup === undefined) {
         return false;
       }
       foldsOpenRunGroup(runGroup.key);
-      foldsOpenRunStretchAt(runGroup, rowId, runWindowInputs.measureOf(unfurledWindow));
+      foldsOpenRunStretchAt(runGroup, rowId, runWindowInputs.measureOf(logWindow));
       return true;
     },
-    [unfurledWindow, foldedWindow, foldsOpenRunGroup, foldsOpenRunStretchAt, runWindowInputs],
+    [logWindow, foldedLogWindow, foldsOpenRunGroup, foldsOpenRunStretchAt, runWindowInputs],
   );
   const drawsBody = inputs.drawsBody;
   const drawnWindow = useDrawnRows(foldedWindow, drawsBody, inputs.sessionStore.sessionId);
@@ -273,6 +287,7 @@ export function useTranscriptFeedWindows(
     sessionStore: inputs.sessionStore,
     messageAnchorCursor: inputs.messageAnchorCursor,
     history,
+    rowKeyByEventId,
     unfurledWindow,
     transcriptWindow,
     drawsRow,
@@ -300,8 +315,8 @@ export function useTranscriptFeedWindows(
     () => new ChangingRowIndex(),
   ).value;
   const changingRowIds = useMemo(
-    () => changingRowIndex.changingRowIdsOf(unfurledWindow, waitingOnPerson),
-    [changingRowIndex, unfurledWindow, waitingOnPerson],
+    () => changingRowIndex.changingRowIdsOf(logWindow, waitingOnPerson),
+    [changingRowIndex, logWindow, waitingOnPerson],
   );
   // The check is re-made when the reveal's held lanes change, since a new check is what has the
   // viewport ask a cut the last check stopped short again.
@@ -365,12 +380,12 @@ export function useTranscriptFeedWindows(
   // the run's.
   // Keyed on the mode, so a step taken while following keeps its window until the next pin.
   const isFollowing = viewport.snapshot.reading.mode === "following";
-  const releaseKeptRunWindowEnds = folds.releaseKeptRunWindowEnds;
+  const returnRunWindowsToNewestCalls = folds.returnRunWindowsToNewestCalls;
   useLayoutEffect(() => {
     if (isFollowing) {
-      releaseKeptRunWindowEnds();
+      returnRunWindowsToNewestCalls();
     }
-  }, [isFollowing, releaseKeptRunWindowEnds]);
+  }, [isFollowing, returnRunWindowsToNewestCalls]);
   const readRowWidthPx = viewport.readRowWidthPx;
   // After each render, once the scroll container is attached: a table prepared in this render
   // before the width could be read takes it now, at no cost when none waits.
@@ -406,9 +421,9 @@ export function useTranscriptFeedWindows(
   const foldsOpenRunStretch = folds.openRunStretch;
   const openHeldRunStretch = useCallback(
     (runGroup: RunGroup, edge: RunWindowEdge) => {
-      foldsOpenRunStretch(runGroup, edge, runWindowInputs.measureOf(unfurledWindow));
+      foldsOpenRunStretch(runGroup, edge, runWindowInputs.measureOf(logWindow));
     },
-    [foldsOpenRunStretch, runWindowInputs, unfurledWindow],
+    [foldsOpenRunStretch, runWindowInputs, logWindow],
   );
   const foldedRunGroupKeys = folds.foldedRunGroupKeys;
   const callWindowOf = useCallback(
@@ -428,23 +443,29 @@ export function useTranscriptFeedWindows(
   });
   const deriveRowSourceWindows = useCallback(
     (events: readonly ProjectedSessionEvent[]): RowSourceWindows => {
+      // The waiting rows follow every event read, as they follow the window's.
       const derivedWindow = deriveTranscriptWindow(
         placeSentMessages(events),
         runEntities,
         providerNameOf,
       );
       return {
-        unfurledWindow: derivedWindow,
+        unfurledWindow: waitingTailJoin.join(derivedWindow, waitingTail),
         transcriptWindow: new DrawnRowFilter().filter(
-          new RunGroupFold().fold(derivedWindow, foldedRunGroupKeys, {
-            ...runWindowInputs,
-            windows: runCallWindows.clone(),
-          }),
+          waitingTailJoin.join(
+            new RunGroupFold().fold(derivedWindow, foldedRunGroupKeys, {
+              ...runWindowInputs,
+              windows: runCallWindows.clone(),
+            }),
+            waitingTail,
+          ),
           drawsBody,
         ),
       };
     },
     [
+      waitingTailJoin,
+      waitingTail,
       foldedRunGroupKeys,
       placeSentMessages,
       runEntities,
@@ -472,10 +493,10 @@ export function useTranscriptFeedWindows(
       return runCallWindows.resolvedWindowReaching(
         runGroup,
         runWindowEdgesAmong(runGroupKey, edgeKeysInReach.current),
-        runWindowInputs.measureOf(unfurledWindow),
+        runWindowInputs.measureOf(logWindow),
       );
     },
-    [foldedRunGroupKeys, runCallWindows, unfurledWindow, runWindowInputs],
+    [foldedRunGroupKeys, runCallWindows, unfurledWindow, logWindow, runWindowInputs],
   );
   useReleaseOutsideWindow({
     history,

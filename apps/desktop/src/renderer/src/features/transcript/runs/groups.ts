@@ -28,7 +28,7 @@ import {
 } from "#renderer/store/session/entities/vocabulary.js";
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { SystemMessageClassifier } from "../system-messages/classifier.js";
-import { type ProviderNameOf } from "../system-messages/kinds.js";
+import { SEND_FAILED_ROW_TYPE, type ProviderNameOf } from "../system-messages/kinds.js";
 import { PublishedKeyedList } from "../window/published-keyed-list.js";
 
 /** The session store's run entities by run id, whose facts each run group reads. */
@@ -141,8 +141,9 @@ export class RunGroupIndex {
    */
   public admit(row: ProjectedTranscriptRow, isNotification: boolean): string | undefined {
     const rowKind = classifyTranscriptRow(row)?.kind;
-    if (rowKind === "user-message") {
-      // A person's message is never a run's own row, even one stamped with the run it steers.
+    if (rowKind === "user-message" || row.type === SEND_FAILED_ROW_TYPE) {
+      // A person's message is never a run's own row, even one stamped with the run it steers, and
+      // neither is the line a failed send leaves where the message stood.
       this.#countOutsideCard();
       return undefined;
     }

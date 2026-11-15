@@ -82,7 +82,7 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
   );
   const backgroundRefusal = useMoveToBackground(props.bridge, props.sessionStore.sessionId);
   const { sendNow } = useLeadRunControlCommands(props.bridge, props.sessionStore);
-  useServeComposerRequests(props.sessionStore, props.draftStore, sendNow);
+  useServeComposerRequests(props.sessionStore, props.draftStore, heldDraft, sendNow);
   const sendCalls = useMemo(() => sendCallsOver(props.bridge), [props.bridge]);
   const workflowStartOperations = useMemo(
     () => workflowStartOperationsOver(props.bridge),

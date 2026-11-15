@@ -57,6 +57,11 @@ export interface TranscriptViewportProps {
    */
   readonly earlierHistoryControl?: React.ReactNode;
   /**
+   * A line drawn after the last row, in the flow, where the rows waiting to be taken stand, such as
+   * a refused read of them. Absent, nothing follows the rows.
+   */
+  readonly tailLine?: React.ReactNode;
+  /**
    * The line a pointer to something gone draws, such as `Message not found`, in the place
    * `Jump to latest` takes; absent, that place holds the pill as the reading anchor shows it.
    */
@@ -141,6 +146,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
                 })}
               </DrawnBandContext>
             </div>
+            {props.tailLine}
             {/*
              * Empty only once the first read has landed: while it is in flight the feed draws its
              * loading line, and a second element would talk over it.

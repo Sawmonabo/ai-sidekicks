@@ -6,7 +6,7 @@
 // `MessageContent` and `ToolOutput` give an unread body. A type the kind table does not name has no
 // card, and `drawsTranscriptRowBody` says so before the feed lists it.
 
-import { useCallback, useContext, useMemo, useState } from "react";
+import { useCallback, useContext, useMemo, useState, useSyncExternalStore } from "react";
 
 import { useRowReveal } from "../reveal/hooks/useRowReveal.js";
 import { useRowToggle } from "./hooks/useRowToggle.js";
@@ -62,8 +62,13 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
   // channel, not the renderer's props, as the lane's handle rather than its text, and is
   // `undefined` for every row of a settled log.
   const liveText = useRowReveal(rowId);
-  // A person's message the agent has not taken yet, from the press on.
-  const waitingRows = useContext(WaitingRowsContext);
+  // A person's message the agent has not taken yet, from the press on. A row that does not wait
+  // reads `undefined` however the waiting rows change, so it does not render for them.
+  const waitingRowsChannel = useContext(WaitingRowsContext);
+  const waitingRows = useSyncExternalStore(
+    waitingRowsChannel?.subscribe ?? subscribeToNothing,
+    () => waitingRowsChannel?.waitingRowsOf(rowId),
+  );
   const waitingRow = waitingRows?.waitingRowByKey.get(rowId);
 
   if (rowKind === undefined) {
@@ -149,6 +154,11 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
  */
 export function drawsTranscriptRowBody(row: ProjectedTranscriptRow): boolean {
   return classifyTranscriptRow(row) !== undefined;
+}
+
+/** Outside a feed no row waits, so there is nothing to watch. */
+function subscribeToNothing(): () => void {
+  return () => undefined;
 }
 
 /** The edit control the footer renderer draws, or nothing. */

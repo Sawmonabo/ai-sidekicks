@@ -44,7 +44,8 @@ export type QueueTailCall = (
 
 /**
  * Sends a not-delivered message again through `agent.queueItem.create`, the request replacing it
- * in its own words, answering the item it queued. Rejects where the daemon refuses or cannot be reached.
+ * in its own words, answering the item it queued. Rejects where the daemon refuses or cannot be
+ * reached.
  */
 export type QueueRetryCall = (
   request: AgentQueueItemCreateRequest,
@@ -81,8 +82,11 @@ export interface QueueFeed extends WireReadState {
   readonly pendingRetryIds: ReadonlySet<string>;
   /** Sends one not-delivered item again; a second ask while one is in flight does nothing. */
   readonly retryItem: (queueItemId: string) => Promise<void>;
-  /** The items this reading's retries queued, so a retry that fails again is told apart. */
-  readonly retriedItemIds: ReadonlySet<string>;
+  /**
+   * Each item this reading's retries queued, to the item it sent again, so a retry that fails
+   * again is told apart and its row keeps the place and key of the row it sent again.
+   */
+  readonly retriedItemFrom: ReadonlyMap<string, string>;
   /**
    * Puts the waiting items in `queueItemIds`' order, which names each waiting item once. Rejects
    * with the daemon's refusal; the rows move when the tail reports the new order.
@@ -121,7 +125,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
   #phase: WireReadPhase = "reading";
   #readRefusal: ExtendedRefusal | undefined = undefined;
   #items: readonly QueueItemSummary[] = EMPTY_ITEMS;
-  #retriedItemIds: ReadonlySet<string> = new Set<string>();
+  #retriedItemFrom: ReadonlyMap<string, string> = new Map<string, string>();
   #feed: QueueFeed;
   readonly #readAgain = (): void => {
     this.requestRead("user-request");
@@ -258,7 +262,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
       replacesQueueItemId: item.id,
     };
     const queued = await this.#calls.retry(request);
-    this.#retriedItemIds = new Set([...this.#retriedItemIds, queued.queueItemId]);
+    this.#retriedItemFrom = new Map([...this.#retriedItemFrom, [queued.queueItemId, item.id]]);
     this.#publish();
   }
 
@@ -270,7 +274,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
       cancelItem: cancels.ask,
       pendingRetryIds: retries.pendingIds,
       retryItem: retries.ask,
-      retriedItemIds: this.#retriedItemIds,
+      retriedItemFrom: this.#retriedItemFrom,
       reorderItems: this.#reorderItems,
       readAgain: this.#readAgain,
       phase: this.#phase,

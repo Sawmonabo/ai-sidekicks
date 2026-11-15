@@ -1,12 +1,14 @@
 // What the controller does with a line, driven through the real hook over the real `DraftStore`:
 // the line clears only once the command applied, a refused command keeps it, a line its command
-// does not act on goes to the provider exactly as typed, and a sent message carries the held
-// draft's extras and clears the draft the daemon holds.
+// does not act on goes to the provider exactly as typed, a sent message carries the held draft's
+// extras and clears the draft the daemon holds, and a press takes the draft as it stands, so what
+// is typed while a file of the first message copies is the second message.
 
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { SessionDraft } from "@ai-sidekicks/contracts/session/draft";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
+import type { SessionAttachmentSummary, SessionDraft } from "@ai-sidekicks/contracts/session/draft";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { inertBridge } from "#renderer/features/composer/Composer.test-support.js";
@@ -301,5 +303,67 @@ describe("useSendController — a sent message and the held draft", () => {
       { draft: { text: "/codemod Run it", extras: { skills: [pick] } }, expectedRevision: 0 },
       { draft: { text: "", extras: {} }, expectedRevision: 1 },
     ]);
+  });
+});
+
+describe("useSendController — a press takes the draft as it stands", () => {
+  it("keeps words typed while the first message's file copies, and sends them second", async () => {
+    // Mutations: clearing the draft once the copy lands wipes the words typed meanwhile; a latch
+    // held over the copy drops the second press; a message that does not wait for the file it was
+    // pressed with leaves without it.
+    const notes: SessionAttachmentSummary = {
+      artifactId: "6a7b8c9d-0e1f-4a2b-8c3d-4e5f6a7b8c9d" as ArtifactId,
+      fileName: "notes.md",
+      mimeType: "text/markdown",
+      sizeBytes: 2048,
+    };
+    const wireCalls: RecordedDaemonCall[] = [];
+    const driven = driveController(
+      undefined,
+      sendCallsAnswering(async (call) => {
+        wireCalls.push(call);
+        return QUEUE_CREATED;
+      }),
+    );
+    let landCopy: () => void = () => undefined;
+    driven.heldDraft.trackCopy(
+      new Promise<void>((resolve) => {
+        landCopy = () => {
+          driven.heldDraft.setStagedFiles([notes]);
+          resolve();
+        };
+      }),
+    );
+    driven.draftStore.write(driven.draftKey, "Read the notes");
+    let first: Promise<void> = Promise.resolve();
+    act(() => {
+      first = driven.latest().send();
+    });
+    expect(driven.draftStore.read(driven.draftKey)).toBeUndefined();
+
+    driven.draftStore.write(driven.draftKey, "Then fix the tests");
+    await act(async () => {
+      landCopy();
+      await first;
+    });
+    expect(driven.draftStore.read(driven.draftKey)?.text).toBe("Then fix the tests");
+
+    await act(async () => {
+      await driven.latest().send();
+    });
+    expect(wireCalls.map((call) => call.params)).toStrictEqual([
+      {
+        sessionId: SESSION_ID,
+        clientIdempotencyKey: expect.any(String),
+        content: "Read the notes",
+        attachments: [notes.artifactId],
+      },
+      {
+        sessionId: SESSION_ID,
+        clientIdempotencyKey: expect.any(String),
+        content: "Then fix the tests",
+      },
+    ]);
+    expect(driven.draftStore.read(driven.draftKey)).toBeUndefined();
   });
 });

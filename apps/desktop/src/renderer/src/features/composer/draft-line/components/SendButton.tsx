@@ -5,7 +5,8 @@
 // the daemon refuses. A message that fails says so in the transcript, not under the line.
 //
 // The disabled button covers only the pointer path: a second press in the same frame reaches
-// the handler, so the controller's synchronous latch is what holds inside one frame.
+// the handler. A message's press takes the draft at once, so the second finds it empty; a console
+// command keeps its line until it acts, so the controller's latch drops the second.
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
@@ -30,6 +31,7 @@ import { composerDraftKey } from "../draft-key.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 import { SendIconButton } from "../../components/SendIconButton.js";
 import type { DraftLineCaret } from "../send/controller-contract.js";
+import { draftLineIn, isCaretFreeFor } from "../caret.js";
 
 /** What Send is handed beyond the composer's own props. */
 export type SendButtonProps = ComposerProps & {
@@ -117,14 +119,15 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
 
 /**
  * The caret of the message line in `region`. It is put back on the frame after the words are
- * written back, once the line has drawn them, since a line drawing new words moves its caret.
+ * written back, once the line has drawn them, since a line drawing new words moves its caret, and
+ * only while no field outside the region takes typing.
  */
 function draftLineCaretIn(
   region: React.RefObject<HTMLElement | null>,
   clock: Clock,
 ): DraftLineCaret {
   const lineOf = (): HTMLTextAreaElement | null =>
-    region.current?.querySelector("textarea") ?? null;
+    region.current === null ? null : draftLineIn(region.current);
   return {
     read: () => {
       const line = lineOf();
@@ -139,8 +142,11 @@ function draftLineCaretIn(
     place: (caret) => {
       clock.scheduleFrame(() => {
         const line = lineOf();
-        line?.focus();
-        line?.setSelectionRange(caret.selectionStart, caret.selectionEnd);
+        if (line === null || region.current === null || !isCaretFreeFor(region.current)) {
+          return;
+        }
+        line.focus();
+        line.setSelectionRange(caret.selectionStart, caret.selectionEnd);
       });
     },
   };
@@ -165,7 +171,7 @@ function useSendOnEnter(
         event.defaultPrevented ||
         event.shiftKey ||
         event.isComposing ||
-        event.target !== element.querySelector("textarea")
+        event.target !== draftLineIn(element)
       ) {
         return;
       }

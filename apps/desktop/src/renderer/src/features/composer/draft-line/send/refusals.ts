@@ -1,8 +1,13 @@
 // The composer's refusal vocabulary. A composer-side refusal is minted here from a closed code
 // set; a daemon-side one is the daemon's own. Rejections are normalized once by `callDaemon`,
 // so nothing here reads one. A failed send's line reads its refusal's code as words, never the
-// service's sentence, which can name an id.
+// service's sentence, which can name an id. A call the connection refused reads by its own refusal:
+// one whose connect failed never left, `Not connected`; any other reads the code's words alone.
 
+import {
+  CONNECTION_UNAVAILABLE_CODE,
+  type ConnectionUnavailableReason,
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 
 import { refusalCause } from "#renderer/lib/code-words.js";
@@ -36,12 +41,20 @@ export function unparsableIdentifier(): Refusal {
 
 /**
  * The line a failed send leaves in the transcript: `Send failed · <cause>`, the cause the code's
- * words, and for a message the provider refused as too long, its name and the limit it named.
+ * words, `Not connected` for a call whose connect failed, and for a message the provider refused
+ * as too long, its name and the limit it named.
  */
 export function sendFailedLabel(
   refusal: ExtendedRefusal,
   providerName: string | undefined,
 ): string {
+  if (refusal.code === CONNECTION_UNAVAILABLE_CODE) {
+    return `Send failed · ${
+      NEVER_CONNECTED_REASONS.has(refusal.reason ?? "")
+        ? "Not connected"
+        : refusalCause(refusal.code, undefined, refusal.detail)
+    }`;
+  }
   if (
     refusal.code === MESSAGE_TOO_LARGE_CODE &&
     refusal.limit !== undefined &&
@@ -52,6 +65,12 @@ export function sendFailedLabel(
   }
   return `Send failed · ${refusalCause(refusal.code, refusal.reason, refusal.detail)}`;
 }
+
+/** The reasons a connect that failed gives, so a call refused with one never left. */
+const NEVER_CONNECTED_REASONS: ReadonlySet<string> = new Set<ConnectionUnavailableReason>([
+  "notListening",
+  "accessDenied",
+]);
 
 /** The refusal a provider's limit on one message's length raises. */
 const MESSAGE_TOO_LARGE_CODE = "session.message.tooLarge" satisfies RefusalCode;

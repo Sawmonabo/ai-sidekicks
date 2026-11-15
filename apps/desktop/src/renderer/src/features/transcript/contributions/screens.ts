@@ -3,7 +3,6 @@
 
 import { createElement, type ComponentType, type ReactNode } from "react";
 
-import { routeSessionId } from "#renderer/routing/readers.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { type DismissedSessionNotices } from "#renderer/store/session/open/dismissed-notices.js";
 import { type ScreenContext } from "#renderer/registries/screens/context.js";
@@ -62,21 +61,19 @@ type SessionScreenMountProps = Omit<
 };
 
 /**
- * Mount the session screen: the session header, the pane layout, and the composer. The body is
- * keyed on the session because the screen holds per-session state nothing else resets (the pane
- * layout's arrangement, the panes in windows of their own), and moving between two open sessions
- * re-renders this position rather than unmounting it.
+ * Mount the session screen: the session header, the pane layout, and the composer. The router keys
+ * the mounted screen on its session, so moving to another session mounts the screen anew and none
+ * of one session's state (the pane layout's arrangement, the panes in windows of their own) is
+ * carried into the next.
  */
 function mountSessionScreen(
   context: ScreenContext,
   SessionScreenBody: ComponentType<SessionScreenMountProps>,
 ): ReactNode {
-  const sessionId = routeSessionId(context.route);
   return createElement(
     SessionScreenContainer,
     null,
     createElement(SessionScreenBody, {
-      key: sessionId ?? "no-session",
       bridge: context.bridge,
       frameStore: context.frameStore,
       sessionStore: context.sessionStore,

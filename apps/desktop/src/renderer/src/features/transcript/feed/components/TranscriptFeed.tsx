@@ -9,14 +9,17 @@
 
 import "./TranscriptFeed.css";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useLayoutEffect, useMemo, useState } from "react";
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { type MissingTargetLineProps } from "#renderer/components/MissingTargetLine/MissingTargetLine.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useUntilNextAct } from "#renderer/hooks/useUntilNextAct.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
+import { findReadRefusal } from "#renderer/lib/reads/wire-state.js";
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
 import { LoadEarlier } from "../../history/components/LoadEarlier.js";
@@ -57,7 +60,7 @@ import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 import { useQueueFeed, useQueueRepairRead } from "../../queue/feed.js";
 import { queueCallsThroughDaemon } from "../../queue/services/daemon-calls.js";
 import { useWaitingRows } from "../../queue/hooks/useWaitingRows.js";
-import { WaitingRowsContext } from "../../queue/waiting-rows.js";
+import { WaitingRowsChannel, WaitingRowsContext } from "../../queue/waiting-rows.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 
 /** What the feed is a log of and the row body it draws each row through. */
@@ -117,6 +120,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     drawsBody: props.rowRenderer.drawsBody,
     prepareRow: props.rowRenderer.prepareRow,
     queueItems: queue.items,
+    retriedItemFrom: queue.retriedItemFrom,
   });
   const { folds, transcriptWindow, viewport, history } = windows;
   // The first rows are in the document once the virtualizer holds some, or there are none to hold,
@@ -336,6 +340,16 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     isServiceUnreachable: props.isServiceUnreachable ?? false,
     clock,
   });
+  // Adopted as the feed renders, so a row this render draws reads it, and said once it commits, so
+  // a row that did not render for it reads it too.
+  const [waitingRowsChannel] = useState(() => new WaitingRowsChannel());
+  waitingRowsChannel.adopt(waitingRows);
+  useLayoutEffect(() => {
+    waitingRowsChannel.publish();
+  }, [waitingRowsChannel, waitingRows]);
+  // A refused read of the queue says so where its rows would stand; the cause went to the
+  // diagnostic capture, and the line names none.
+  const queueReadRefusal = findReadRefusal(queue);
 
   // `Load earlier` comes from `history/`, over the daemon's verdict about the log before the head.
   return (
@@ -350,7 +364,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
               <ListedBodiesContext value={windows.offListTables}>
                 <PreparedBodiesContext value={windows.preparedBodies}>
                   <DrawnWindowSourcesContext value={windows.drawnWindowSources}>
-                    <WaitingRowsContext value={waitingRows}>
+                    <WaitingRowsContext value={waitingRowsChannel}>
                       <TranscriptViewport
                         binding={viewport}
                         renderRow={renderRow}
@@ -360,6 +374,17 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
                         hasActiveTurn={hasActiveTurn}
                         earlierHistoryControl={
                           history === undefined ? undefined : <LoadEarlier history={history} />
+                        }
+                        tailLine={
+                          queueReadRefusal === undefined ? undefined : (
+                            <Nothing
+                              kind="error"
+                              placement="block"
+                              title="Couldn't load queue"
+                              attempt={queueReadRefusal}
+                              action={<TryAgainButton onPress={queue.readAgain} />}
+                            />
+                          )
                         }
                         missingTarget={missingTargetOf(
                           isGoneSessionStanding ? props.goneSessionTarget : undefined,

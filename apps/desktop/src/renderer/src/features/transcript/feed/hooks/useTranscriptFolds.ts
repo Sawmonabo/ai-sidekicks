@@ -49,7 +49,7 @@ export interface TranscriptFolds {
    * Hold the newest calls again in each long run's window that stops short of its newest call:
    * asked once the reader pins the follow again.
    */
-  readonly releaseKeptRunWindowEnds: () => void;
+  readonly returnRunWindowsToNewestCalls: () => void;
 }
 
 /**
@@ -152,8 +152,8 @@ export function useTranscriptFolds(): TranscriptFolds {
     },
     [runCallWindows, publishRunWindowMoveCount],
   );
-  const releaseKeptRunWindowEnds = useCallback(() => {
-    if (runCallWindows.releaseKeptEnds()) {
+  const returnRunWindowsToNewestCalls = useCallback(() => {
+    if (runCallWindows.returnToNewestCalls()) {
       publishRunWindowMoveCount((moveCount) => moveCount + 1);
     }
   }, [runCallWindows, publishRunWindowMoveCount]);
@@ -176,7 +176,7 @@ export function useTranscriptFolds(): TranscriptFolds {
       runWindowMoveCount,
       openRunStretch,
       openRunStretchAt,
-      releaseKeptRunWindowEnds,
+      returnRunWindowsToNewestCalls,
     }),
     [
       foldedRunGroupKeys,
@@ -192,7 +192,7 @@ export function useTranscriptFolds(): TranscriptFolds {
       runWindowMoveCount,
       openRunStretch,
       openRunStretchAt,
-      releaseKeptRunWindowEnds,
+      returnRunWindowsToNewestCalls,
     ],
   );
 }

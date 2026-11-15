@@ -144,3 +144,35 @@ export class FilteredMap<TValue> extends MapView<TValue> {
     }
   }
 }
+
+/**
+ * The entries of `head` and then those of `tail`, whose keys `head` never holds. A lookup asks
+ * `tail` first, the smaller of the two.
+ */
+export class JoinedMap<TValue> extends MapView<TValue> {
+  readonly #head: ReadonlyMap<string, TValue>;
+  readonly #tail: ReadonlyMap<string, TValue>;
+
+  public constructor(head: ReadonlyMap<string, TValue>, tail: ReadonlyMap<string, TValue>) {
+    super();
+    this.#head = head;
+    this.#tail = tail;
+  }
+
+  public override get size(): number {
+    return this.#head.size + this.#tail.size;
+  }
+
+  public override get(key: string): TValue | undefined {
+    return this.#tail.get(key) ?? this.#head.get(key);
+  }
+
+  public override has(key: string): boolean {
+    return this.#tail.has(key) || this.#head.has(key);
+  }
+
+  public override *entries(): MapIterator<[string, TValue]> {
+    yield* this.#head.entries();
+    yield* this.#tail.entries();
+  }
+}

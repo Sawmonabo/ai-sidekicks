@@ -22,6 +22,7 @@ import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import type { DaemonReply } from "#renderer/services/daemon/reply.js";
 import type { SessionDraftFrame } from "#renderer/services/daemon/session-draft.js";
 import type { DraftStore } from "#renderer/store/drafts.js";
+import type { SentDraftExtras } from "#renderer/store/session/composer-requests.js";
 import { COMPOSER_DRAFT_SAVE_PAUSE_MILLISECONDS } from "../bounds.js";
 import { mergeDrafts } from "./merge.js";
 
@@ -32,16 +33,6 @@ export interface HeldDraftReading {
   readonly files: readonly SessionAttachmentSummary[];
   /** Why the last save was refused, until a save lands; a stale save is merged, never shown. */
   readonly saveRefusal: ExtendedRefusal | undefined;
-}
-
-/**
- * What a send took out of the held draft: the extras it carried, the staged files they name, and
- * the call each skill pick wrote into the line, so a send that comes back puts each back as it was.
- */
-export interface SentDraftExtras {
-  readonly extras: SessionDraftExtras;
-  readonly files: readonly SessionAttachmentSummary[];
-  readonly callFormByPick: ReadonlyMap<string, string>;
 }
 
 /** How a holder saves: the daemon call, and the clock the pause is timed on. */
@@ -81,6 +72,8 @@ export class ComposerHeldDraft {
   readonly #copies = new Set<Promise<void>>();
   /** The call each skill picked here wrote into the line, by the pick's key. */
   readonly #callFormByPick = new Map<string, string>();
+  /** Who waits for the next save that carries the draft as it stood when they asked. */
+  #saveWatchers: ((refusal: ExtendedRefusal | undefined) => void)[] = [];
 
   /** The reading as it stands. Stable between changes. */
   public snapshot = (): HeldDraftReading => this.#reading;
@@ -197,16 +190,12 @@ export class ComposerHeldDraft {
     });
   }
 
-  /** Whether a file's copy to the daemon is still on its way, which the next send waits for. */
-  public get isCopying(): boolean {
-    return this.#copies.size > 0;
-  }
-
-  /** Settle once every copy tracked so far, and any tracked while waiting, has settled. */
-  public async whenCopied(): Promise<void> {
-    while (this.#copies.size > 0) {
-      await Promise.allSettled([...this.#copies]);
-    }
+  /**
+   * The files' copies to the daemon still on their way now, which the message pressed now waits
+   * for and carries; a copy started after is the next message's.
+   */
+  public copiesInFlight(): readonly Promise<void>[] {
+    return [...this.#copies];
   }
 
   /**
@@ -254,9 +243,10 @@ export class ComposerHeldDraft {
 
   /**
    * Put back what a send that came back carried, ahead of what was picked or staged since, and
-   * save the draft with it. A turn speed or repository chosen since stays as chosen.
+   * save the draft with it. A turn speed or repository chosen since stays as chosen. Answers the
+   * refusal of the save that carries it, or `undefined` once that save lands.
    */
-  public restoreSent(sent: SentDraftExtras): void {
+  public async restoreSent(sent: SentDraftExtras): Promise<ExtendedRefusal | undefined> {
     const { extras, files } = this.#reading;
     const sentFiles = new Set(sent.extras.attachments ?? []);
     const sentSkills = new Set((sent.extras.skills ?? []).map(skillPickKey));
@@ -283,29 +273,37 @@ export class ComposerHeldDraft {
       },
       files: [...sent.files, ...files.filter((file) => !sentFiles.has(file.artifactId))],
     });
-    this.saveNow();
+    return await new Promise<ExtendedRefusal | undefined>((resolve) => {
+      this.#saveWatchers.push(resolve);
+      this.saveNow();
+    });
   }
 
   /** Save the draft now when it differs from what the daemon holds; one save at a time. */
   public saveNow(): void {
     const saving = this.#saving;
     if (saving === undefined) {
+      this.#answerSaveWatchers(this.#saveWatchers, undefined);
       return;
     }
     this.#cancelPause(saving);
     if (this.#inFlight !== undefined) {
+      // The save after this one carries what the watchers wait for.
       this.#saveAgain = true;
       return;
     }
     const draft = this.#current();
     if (sameDraft(draft, this.#synced)) {
+      this.#answerSaveWatchers(this.#saveWatchers, undefined);
       return;
     }
     const expectedRevision = this.#revision;
+    const watchers = this.#saveWatchers;
+    this.#saveWatchers = [];
     this.#inFlight = draft;
     void saving.save(draft, expectedRevision).then((reply) => {
       this.#inFlight = undefined;
-      this.#settle(draft, expectedRevision, reply);
+      this.#settle(draft, expectedRevision, reply, watchers);
     });
   }
 
@@ -313,21 +311,38 @@ export class ComposerHeldDraft {
     draft: SessionDraft,
     expectedRevision: number,
     reply: DaemonReply<SessionDraftUpdateResponse>,
+    watchers: readonly ((refusal: ExtendedRefusal | undefined) => void)[],
   ): void {
     if (reply.status === "served") {
       this.#revision = Math.max(this.#revision, reply.value.revision);
       this.#synced = draft;
       this.#publishRefusal(undefined);
+      this.#answerSaveWatchers(watchers, undefined);
     } else if (reply.refusal.code === SESSION_DRAFT_REVISION_STALE_CODE) {
       // A newer draft is held. Where the stream has brought it, `take` merged it and the draft is
-      // saved again over it now; otherwise its arrival merges and saves.
+      // saved again over it now; otherwise its arrival merges and saves. Either save carries what
+      // the watchers wait for.
       this.#saveAgain ||= this.#revision > expectedRevision;
+      this.#saveWatchers = [...watchers, ...this.#saveWatchers];
     } else {
       this.#publishRefusal(reply.refusal);
+      this.#answerSaveWatchers(watchers, reply.refusal);
     }
     if (this.#saveAgain) {
       this.#saveAgain = false;
       this.saveNow();
+    }
+  }
+
+  #answerSaveWatchers(
+    watchers: readonly ((refusal: ExtendedRefusal | undefined) => void)[],
+    refusal: ExtendedRefusal | undefined,
+  ): void {
+    if (watchers === this.#saveWatchers) {
+      this.#saveWatchers = [];
+    }
+    for (const watcher of watchers) {
+      watcher(refusal);
     }
   }
 

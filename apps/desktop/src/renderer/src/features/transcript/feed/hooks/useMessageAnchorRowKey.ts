@@ -3,7 +3,8 @@
 // reached by asking the daemon for the page around it, which takes the window's place; one a fold
 // hides has its run group opened and its long run's window moved onto it first, once, so the row
 // is drawn rather than hidden under a header or past an edge line. An event the feed draws nothing
-// for lands on the first row after it the feed does draw.
+// for lands on the first row after it the feed does draw, and a message this window sent lands on
+// the row drawn under its send's key.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -27,6 +28,8 @@ export interface MessageAnchorRowKeyInputs {
   readonly messageAnchorCursor: string | undefined;
   /** The history the page around a message outside the window is read through, if any. */
   readonly history: TranscriptHistory | undefined;
+  /** The key a log event drawn under a send's key is drawn under, by the event's id. */
+  readonly rowKeyByEventId: ReadonlyMap<string, string>;
   /** Every row of every run group, before any fold. */
   readonly unfurledWindow: TranscriptWindowModel;
   /** The window the viewport draws: folded by run group, its lists holding only drawn rows. */
@@ -73,10 +76,13 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): Messa
     [sessionStore, messageAnchorCursor, oldestEvent, newestDetachedEvent],
   );
   const readBack = useReadBackToMessage(messageAnchorCursor, eventId, inputs.history);
+  // One lookup: a message sent from this window is drawn under its send's key.
+  const rowKey =
+    eventId === undefined ? undefined : (inputs.rowKeyByEventId.get(eventId) ?? eventId);
 
   const landingRowKey = useMemo(
-    () => landingRowKeyFor(eventId, unfurledWindow, transcriptWindow, drawsRow),
-    [eventId, unfurledWindow, transcriptWindow, drawsRow],
+    () => landingRowKeyFor(rowKey, unfurledWindow, transcriptWindow, drawsRow),
+    [rowKey, unfurledWindow, transcriptWindow, drawsRow],
   );
 
   // Settled once per link, when it has a drawn row to land on, and what hid the row is opened at
@@ -94,13 +100,13 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): Messa
       return;
     }
     if (
-      eventId !== undefined &&
+      rowKey !== undefined &&
       unfoldedCursor.current !== messageAnchorCursor &&
-      unfoldRow(eventId)
+      unfoldRow(rowKey)
     ) {
       unfoldedCursor.current = messageAnchorCursor;
     }
-  }, [landingRowKey, eventId, messageAnchorCursor, unfoldRow]);
+  }, [landingRowKey, rowKey, messageAnchorCursor, unfoldRow]);
 
   return { landingRowKey, readBack };
 }
