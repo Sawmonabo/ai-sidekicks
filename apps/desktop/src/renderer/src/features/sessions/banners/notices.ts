@@ -15,7 +15,7 @@ import type { SessionNoticePostedPayload } from "@ai-sidekicks/contracts/session
 import type { FilePathRef } from "#shared/preload-api.js";
 import { processEndWords } from "#shared/signal-words.js";
 
-import { refusalSentence } from "#renderer/lib/code-words.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { formatWholeDuration, formatWireString } from "#renderer/lib/wire/figures.js";
 import {
@@ -148,9 +148,12 @@ export function sessionNoticeBannerWords(
   }
 }
 
-/** The line a refused banner press draws beside its word: the code's words, then the message. */
+/**
+ * The line a refused banner press draws beside its word: the code's words, never the service's
+ * sentence, which can name an id, or the app's own sentence for a refusal it wrote.
+ */
 export function refusedLine(refusal: ExtendedRefusal): string {
-  return refusalSentence(refusal.code, refusal.reason, formatWireString(refusal.detail));
+  return refusalCause(refusal.code, refusal.reason, formatWireString(refusal.detail));
 }
 
 function keepNewest(newest: Map<string, number>, key: string, sequence: number): void {

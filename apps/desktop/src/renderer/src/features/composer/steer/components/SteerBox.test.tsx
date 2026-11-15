@@ -269,7 +269,7 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
 });
 
 describe("the composer outlives its dispatch", () => {
-  it("keeps the text and says why when the message is refused", async () => {
+  it("keeps the text and says why, in the code's words, when the message is refused", async () => {
     const refusal = {
       code: "agent.childRun.controlRefused",
       message: "The child has ended.",
@@ -279,9 +279,9 @@ describe("the composer outlives its dispatch", () => {
     await submit(container);
     expect(dismissCount()).toBe(0);
     expect(bodyValue(container)).toBe("stop editing that file");
-    expect(container.querySelector(".meridian-refusal")?.textContent).toContain(
-      "The child has ended.",
-    );
+    const line = container.querySelector(".meridian-refusal")?.textContent;
+    expect(line).toContain("Sidekick child run control refused");
+    expect(line).not.toContain("The child has ended.");
   });
 });
 

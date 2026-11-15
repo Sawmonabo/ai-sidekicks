@@ -56,7 +56,7 @@ export function RunsStrip(props: {
         </span>
       ) : null}
       {feedState.kind === "failed" ? (
-        <InlineRefusal code={feedState.refusal.code} detail={feedState.refusal.detail} />
+        <InlineRefusal {...feedState.refusal} />
       ) : (
         <PauseSwitch pause={pause} act={pauseAct} onSetPaused={props.onSetPaused} />
       )}
@@ -94,9 +94,7 @@ function PauseSwitch(props: {
         disabled={pause === undefined || act.kind === "sending"}
         onCheckedChange={props.onSetPaused}
       />
-      {act.kind === "refused" ? (
-        <InlineRefusal code={act.refusal.code} detail={act.refusal.detail} />
-      ) : null}
+      {act.kind === "refused" ? <InlineRefusal {...act.refusal} /> : null}
     </span>
   );
 }

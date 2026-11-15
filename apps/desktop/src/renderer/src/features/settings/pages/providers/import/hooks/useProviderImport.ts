@@ -33,7 +33,7 @@ import type {
   SessionImportStopRequest,
 } from "@ai-sidekicks/contracts/provider/import";
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
-import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /** The call that starts one provider's import. */
@@ -54,9 +54,9 @@ export interface ProviderImportModel {
   /** Where the provider's import stream got to, in the service's own words. */
   readonly progress: ImportProgressReading;
   /** The refusal the last start was answered with, or `undefined` where none was. */
-  readonly startRefusal: Refusal | undefined;
+  readonly startRefusal: ExtendedRefusal | undefined;
   /** The refusal the last stop was answered with, or `undefined` where none was. */
-  readonly stopRefusal: Refusal | undefined;
+  readonly stopRefusal: ExtendedRefusal | undefined;
   /** The daemon's import is still being read, so it can be stopped. */
   readonly isReading: boolean;
   /** A start is out, or the daemon's import is still being read. */
@@ -166,6 +166,6 @@ function isShowingReplayOf(
 
 function refusalOf<TAnswer>(
   settlement: ProviderImportCallSettlement<TAnswer>,
-): Refusal | undefined {
+): ExtendedRefusal | undefined {
   return settlement.status === "refused" ? settlement.refusal : undefined;
 }

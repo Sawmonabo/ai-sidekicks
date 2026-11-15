@@ -104,7 +104,7 @@ describe("Review over a workflow run", () => {
     expect(screen.queryByRole("button", { name: /All files/u })).toBeNull();
   });
 
-  it("shows the daemon's refusal, not an empty change set, and reads again on Try again", async () => {
+  it("shows the refusal in its code's words, not an empty change set, and reads again on Try again", async () => {
     let diffReads = 0;
     const { calls, engine } = await renderRunReview(
       FINISHED_RUN,
@@ -125,7 +125,8 @@ describe("Review over a workflow run", () => {
       },
     );
 
-    expect(screen.getByText("The run's snapshots could not be read.")).toBeDefined();
+    expect(screen.getByText("Git read failed")).toBeDefined();
+    expect(screen.queryByText("The run's snapshots could not be read.")).toBeNull();
     expect(screen.queryByText("This run changed no files")).toBeNull();
 
     act(() => {

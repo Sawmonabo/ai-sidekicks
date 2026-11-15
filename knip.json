@@ -156,6 +156,8 @@
         "src/renderer/src/features/composer/command-list/workflow/components/WorkflowStartCandidates.tsx",
         // An agent's question card.
         "src/renderer/src/features/composer/question-card/SessionQuestionCard.tsx",
+        // A child agent's steer box, under the flow of that agent's own view.
+        "src/renderer/src/features/composer/steer/components/SteerBox.tsx",
         // The inspector's Artifacts section and its rows.
         "src/renderer/src/features/inspector/artifacts/components/ArtifactRow.tsx",
         "src/renderer/src/features/inspector/artifacts/components/ArtifactsSection.tsx",

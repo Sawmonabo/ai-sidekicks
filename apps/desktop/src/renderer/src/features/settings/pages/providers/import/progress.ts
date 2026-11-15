@@ -12,7 +12,7 @@ import type {
   SessionImportRequest,
   SessionImportStopRequest,
 } from "@ai-sidekicks/contracts/provider/import";
-import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 
 /** An open progress subscription: the messages, and the way to let go of it. */
 export interface ImportProgressStream {
@@ -48,7 +48,7 @@ export type ImportProgressReading =
     }
   | {
       readonly status: "failed";
-      readonly refusal: Refusal;
+      readonly refusal: ExtendedRefusal;
       readonly newest: ProviderImportProgress | undefined;
     };
 

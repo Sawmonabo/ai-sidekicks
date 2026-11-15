@@ -18,7 +18,8 @@ import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { useReorderDrag } from "#renderer/hooks/useReorderDrag.js";
 import { type Clock } from "#renderer/lib/clock.js";
-import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
+import { type ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import { useFocusAfterClose } from "./hooks/useFocusAfterClose.js";
 import { TabMenu, type TabMenuRow, type TabMenuTarget } from "./TabMenu.js";
@@ -48,7 +49,7 @@ export interface TabStripProps<Key extends string> {
    * glides back to where it was; a served move leaves the tab drawn in its new place until the
    * tabs' order changes.
    */
-  readonly onReorder: (key: Key, toIndex: number) => Promise<Refusal | undefined>;
+  readonly onReorder: (key: Key, toIndex: number) => Promise<ExtendedRefusal | undefined>;
   /** The pane's own rows a tab's menu holds above its moves. */
   readonly menuRowsOf?: ((key: Key) => readonly TabMenuRow[]) | undefined;
   /** Drawn after the tabs, at the strip's end. */
@@ -73,12 +74,13 @@ export function TabStrip<Key extends string>(props: TabStripProps<Key>): React.J
     onClose(key);
   };
   // The one commit a drop and a menu row make: the live region names where the tab landed, or
-  // reads the refusal's own sentence. A canceled drag commits nothing, so it says nothing.
-  const commitMove = async (key: Key, toIndex: number): Promise<Refusal | undefined> => {
+  // reads the refusal by its code's words, since the service's sentence can name the tab's id. A
+  // canceled drag commits nothing, so it says nothing.
+  const commitMove = async (key: Key, toIndex: number): Promise<ExtendedRefusal | undefined> => {
     const tab = tabs.find((candidate) => candidate.key === key);
     const refusal = await onReorder(key, toIndex);
     if (refusal !== undefined) {
-      announce(refusal.detail, "assertive");
+      announce(refusalCause(refusal.code, refusal.reason, refusal.detail), "assertive");
       return refusal;
     }
     announce(

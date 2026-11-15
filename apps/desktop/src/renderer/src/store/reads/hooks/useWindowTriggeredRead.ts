@@ -47,7 +47,11 @@ export function useWindowTriggeredRead<TValue>(
   return { read, state: usePushDrivenRead(read) };
 }
 
-/** A read ends with its view, and a disposed one is replaced rather than reused. */
+/**
+ * A read ends with its view, and a disposed one is replaced rather than reused: the controller
+ * disposal's rule, here over a read that is absent while nothing on screen draws it, which the
+ * controller disposal's type does not admit.
+ */
 const HELD_READ_DISPOSAL: SubjectScopedDisposal<PushDrivenRead<unknown> | undefined> = {
   dispose: (read) => {
     read?.dispose();

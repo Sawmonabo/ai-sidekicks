@@ -35,7 +35,7 @@ export function PaneBody(props: {
     // No session: the address that would name one is what could not be read.
     return (
       <PaneFrame kind={descriptor.kind} sessionId={undefined}>
-        {props.isSessionOpen ? <InlineRefusal code={context.code} detail={context.detail} /> : null}
+        {props.isSessionOpen ? <InlineRefusal {...context} /> : null}
       </PaneFrame>
     );
   }

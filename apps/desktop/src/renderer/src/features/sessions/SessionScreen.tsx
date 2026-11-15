@@ -250,7 +250,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
         <ErrorBoundary regionName="The session header" clock={clock}>
           <SessionHeader sessionId={sessionId} />
         </ErrorBoundary>
-        <ErrorBoundary regionName="The banners" clock={clock}>
+        <ErrorBoundary regionName="The save-failure banners" clock={clock}>
           {banners.map((banner) => (
             <SessionBannerRow
               key={sessionBannerKey(banner)}
@@ -264,7 +264,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
         {props.sessionStore === undefined ||
         sessionId === undefined ||
         dismissedNotices === undefined ? null : (
-          <ErrorBoundary regionName="The banners" clock={clock}>
+          <ErrorBoundary regionName="The notice banners" clock={clock}>
             <SessionNoticeBanners
               bridge={props.bridge}
               sessionId={sessionId}

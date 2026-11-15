@@ -173,7 +173,7 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
         {controlRefusal === undefined ? (
           renderControlSettlement(settlement)
         ) : (
-          <InlineRefusal code={controlRefusal.code} detail={controlRefusal.detail} />
+          <InlineRefusal {...controlRefusal} />
         )}
       </section>
     </>

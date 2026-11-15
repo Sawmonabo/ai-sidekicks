@@ -319,7 +319,8 @@ describe("one provider's import", () => {
       importAction("Import sessions from Codex").click();
     });
     await settle();
-    expect(said.spokenOn("assertive")).toStrictEqual(["The import service is down."]);
+    // Said in its code's words, not the service's sentence.
+    expect(said.spokenOn("assertive")).toStrictEqual(["Connection lost"]);
     // The row shows the replay again, which no import this press began has reached.
     expect(rowText()).toBe(NOTHING_NEW_SENTENCE);
     expect(said.spokenOn("polite")).toStrictEqual(["Importing from Codex…"]);

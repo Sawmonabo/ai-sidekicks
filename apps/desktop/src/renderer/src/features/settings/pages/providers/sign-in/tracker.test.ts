@@ -193,10 +193,7 @@ describe("ProviderSignInFlowTracker", () => {
     refusedWith("provider.unavailable");
     tracker.start(RUNNING_ACCOUNT_ID);
     await crossMacrotaskBoundary();
-    expect(tracker.snapshot().flow).toEqual({
-      kind: "unfinished",
-      failureReason: "The provider refused the device code.",
-    });
+    expect(tracker.snapshot().flow).toEqual({ kind: "unfinished", failureReason: undefined });
     expect(tracker.snapshot().refusalByAccountId.size).toBe(0);
 
     // Negative control: a refusal of the start itself stays on the account's row.

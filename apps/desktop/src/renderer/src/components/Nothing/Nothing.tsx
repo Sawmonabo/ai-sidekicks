@@ -4,7 +4,8 @@
 //
 //   - `not-loaded`: a skeleton in the row's shape; the read is in flight and says nothing yet.
 //   - `empty`: a quiet line with the escape hatch (`action`); the read found none.
-//   - `error`: the daemon's message text under an alert glyph on a red edge, never paraphrased.
+//   - `error`: the cause under an alert glyph on a red edge: a refusal's code as words, never the
+//     service's own sentence, which can name an id.
 //   - `not-checked`: a dotted boundary; no question was put, which is neither "no" nor unknown.
 //   - `computing`: a clock glyph on a filled boundary; the answer is still being worked out.
 //
@@ -42,8 +43,9 @@ export interface NothingProps {
    */
   readonly title: string | readonly FigureSentencePart[];
   /**
-   * The second line. For `error` it is the daemon's message text, rendered verbatim; for every
-   * other kind it is the app's own prose. A block renders it as prose; a badge carries it in its
+   * The second line. For `error` it is the cause, `refusalCause` of the refusal (its code's words,
+   * or the app's own sentence for a refusal the app wrote); for every other kind it is the app's
+   * own prose. A block renders it as prose; a badge carries it in its
    * hover label, as plain words.
    */
   readonly detail?: string | readonly FigureSentencePart[];

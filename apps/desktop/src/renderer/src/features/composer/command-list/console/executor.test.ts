@@ -96,8 +96,8 @@ describe("createConsoleCommandExecutor", () => {
     );
   });
 
-  it("names a refused command and the refusal's words, or the act that failed", async () => {
-    const cause = "The run already ended";
+  it("names a refused command and its code's words, never the service's sentence", async () => {
+    const cause = "Run 019b7a20-0280-75e5-8510-ada11a5a5999 already ended";
     registerCommand({
       id: "test.stopRun",
       title: "Stop run",
@@ -119,8 +119,8 @@ describe("createConsoleCommandExecutor", () => {
     await executor(commandLine("test.undo"));
 
     expect(banner.map((refusal) => refusal.detail)).toStrictEqual([
-      `Couldn't stop run · ${cause}`,
-      `Undo failed · ${cause}`,
+      "Couldn't stop run · Run not running",
+      "Undo failed · Session restore failed",
     ]);
     // A cause drawn in words is not captured as a defect.
     expect(recorded).not.toHaveBeenCalled();

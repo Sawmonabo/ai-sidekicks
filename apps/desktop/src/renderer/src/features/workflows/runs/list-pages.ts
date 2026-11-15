@@ -4,7 +4,7 @@
 
 import type { WorkflowRunListResponse } from "@ai-sidekicks/contracts/workflow/run/list";
 
-import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 
 import type { RunFilters } from "./filters.js";
 
@@ -27,5 +27,5 @@ export interface RunListAnswer {
   readonly ask: RunListAsk;
   readonly response: WorkflowRunListResponse;
   readonly pageCount: number;
-  readonly earlierRefusal?: Refusal;
+  readonly earlierRefusal?: ExtendedRefusal;
 }

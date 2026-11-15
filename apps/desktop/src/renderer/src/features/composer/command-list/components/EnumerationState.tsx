@@ -40,7 +40,7 @@ export function EnumerationState(props: {
     case "refused":
       return (
         <div className="meridian-command-discovery__state">
-          <InlineRefusal code={enumeration.refusal.code} detail={enumeration.refusal.detail} />
+          <InlineRefusal {...enumeration.refusal} />
         </div>
       );
     case "served":

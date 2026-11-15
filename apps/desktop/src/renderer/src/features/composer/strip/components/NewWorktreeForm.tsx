@@ -12,6 +12,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { NewWorktreeSuggestion } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -32,8 +33,8 @@ export function NewWorktreeForm(props: NewWorktreeFormProps): React.JSX.Element 
   const [tail, setTail] = useState(props.suggestion.suggestedTail ?? "");
   const [base, setBase] = useState<string | undefined>(undefined);
   const [carriesChanges, setCarriesChanges] = useState(false);
-  // Git's refusal, kept with the request it refused so any edit of the form lifts it.
-  const [gitRefusal, setGitRefusal] = useState<
+  // The prepare's refusal, kept with the request it refused so any edit of the form lifts it.
+  const [prepareRefusal, setPrepareRefusal] = useState<
     { readonly request: string; readonly detail: string } | undefined
   >(undefined);
   const [refusal, setRefusal] = useState<ExtendedRefusal | undefined>(undefined);
@@ -81,12 +82,12 @@ export function NewWorktreeForm(props: NewWorktreeFormProps): React.JSX.Element 
   const name = `${props.suggestion.fixedPart}${tail}`;
   const isTailEmpty = tail.trim().length === 0;
   const request = JSON.stringify([name, base, carriesChanges]);
-  // Create stays disabled with its reason under the field while the tail is empty or git refuses
-  // the name.
+  // Create stays disabled with its reason under the field while the tail is empty or the service
+  // refused this name.
   const errorLine = isTailEmpty
     ? "Enter a name first"
-    : gitRefusal?.request === request
-      ? gitRefusal.detail
+    : prepareRefusal?.request === request
+      ? prepareRefusal.detail
       : undefined;
   return (
     <form
@@ -103,8 +104,10 @@ export function NewWorktreeForm(props: NewWorktreeFormProps): React.JSX.Element 
           ...(carriesChanges ? { carryUncommitted: true } : {}),
         }).then((reply) => {
           if (reply.status === "refused") {
-            // Git's own refusal reads as git printed it, under the field.
-            setGitRefusal({ request, detail: reply.refusal.detail });
+            // A refused prepare reads by its code's words under the field, since the service's
+            // sentence names the workspace or the repository by id.
+            const { code, reason, detail } = reply.refusal;
+            setPrepareRefusal({ request, detail: refusalCause(code, reason, detail) });
             return;
           }
           props.onCreated();
@@ -155,7 +158,7 @@ export function NewWorktreeForm(props: NewWorktreeFormProps): React.JSX.Element 
       {errorLine === undefined ? null : (
         <p className="meridian-composer-worktrees__error">{errorLine}</p>
       )}
-      {refusal === undefined ? null : <InlineRefusal code={refusal.code} detail={refusal.detail} />}
+      {refusal === undefined ? null : <InlineRefusal {...refusal} />}
       <button type="button" className="meridian-clickable-word" onClick={props.onCancel}>
         Cancel
       </button>

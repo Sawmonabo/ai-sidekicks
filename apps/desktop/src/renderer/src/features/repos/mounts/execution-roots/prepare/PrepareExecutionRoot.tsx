@@ -12,7 +12,7 @@ import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { codeWords } from "#renderer/lib/code-words.js";
+import { codeWords, refusalCause } from "#renderer/lib/code-words.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { BUTTON_CLASS_NAME } from "../../button-class.js";
 import { type BindControlAvailability } from "../../bind-control-availability.js";
@@ -138,7 +138,7 @@ function summaryLineFor(reading: PrepareReading): string {
     case "sending":
       return "preparing";
     case "refused":
-      return reading.refusal.detail;
+      return refusalCause(reading.refusal.code, reading.refusal.reason, reading.refusal.detail);
     case "prepared":
       return "prepared";
   }
@@ -155,7 +155,7 @@ function renderSettlement(
     case "sending":
       return <Nothing kind="computing" title="Preparing." />;
     case "refused":
-      return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
+      return <InlineRefusal {...reading.refusal} />;
     case "prepared":
       return (
         // The state is read out; the root path and the re-read control beside it are not.

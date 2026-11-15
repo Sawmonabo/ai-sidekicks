@@ -90,7 +90,7 @@ function renderSettlement(reading: RootRemovalReading): React.JSX.Element | null
     case "sending":
       return <Nothing kind="computing" title="Sending." />;
     case "refused":
-      return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
+      return <InlineRefusal {...reading.refusal} />;
     case "settled":
       return (
         <AnnouncedLine

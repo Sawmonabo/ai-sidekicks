@@ -20,6 +20,7 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
@@ -120,9 +121,7 @@ export function RunsTab(props: RunsTabProps): React.JSX.Element {
           <DeleteOlderRuns bridge={props.bridge} />
         </span>
       </div>
-      {props.namingRefusal === undefined ? null : (
-        <InlineRefusal code={props.namingRefusal.code} detail={props.namingRefusal.detail} />
-      )}
+      {props.namingRefusal === undefined ? null : <InlineRefusal {...props.namingRefusal} />}
       {filters.lastRefusal === undefined ? null : (
         <InlineRefusal
           code={filters.lastRefusal.code}
@@ -152,7 +151,11 @@ function RunsList(
         kind="error"
         placement="block"
         title="Couldn't load runs"
-        detail={listState.refusal.detail}
+        detail={refusalCause(
+          listState.refusal.code,
+          listState.refusal.reason,
+          listState.refusal.detail,
+        )}
         action={<TryAgainButton onPress={props.readListAgain} />}
         attempt={listState.refusal}
       />
@@ -196,7 +199,11 @@ function renderAnsweredRuns(
             kind="error"
             placement="block"
             title="Couldn't load older runs"
-            detail={answer.earlierRefusal.detail}
+            detail={refusalCause(
+              answer.earlierRefusal.code,
+              answer.earlierRefusal.reason,
+              answer.earlierRefusal.detail,
+            )}
             action={<TryAgainButton onPress={props.readListAgain} />}
             attempt={answer.earlierRefusal}
           />

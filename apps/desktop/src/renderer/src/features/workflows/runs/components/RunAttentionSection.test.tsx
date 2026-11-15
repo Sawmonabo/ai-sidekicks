@@ -152,7 +152,7 @@ describe("the attention list", () => {
     rerender(section);
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-    const failure = "Couldn't load pending runs. Not running.";
+    const failure = "Couldn't load pending runs. Background service unavailable";
     expect(said.spokenOn("assertive")).toStrictEqual([failure, failure]);
   });
 });

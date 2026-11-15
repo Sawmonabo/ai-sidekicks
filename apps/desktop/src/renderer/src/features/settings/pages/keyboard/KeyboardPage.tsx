@@ -281,10 +281,7 @@ export function KeyboardPage(): ReactNode {
           )}
         </StandingContent>
         {keybindingOverrides.readRefusal === undefined ? null : (
-          <InlineRefusal
-            code={keybindingOverrides.readRefusal.code}
-            detail={keybindingOverrides.readRefusal.detail}
-          />
+          <InlineRefusal {...keybindingOverrides.readRefusal} />
         )}
       </section>
 

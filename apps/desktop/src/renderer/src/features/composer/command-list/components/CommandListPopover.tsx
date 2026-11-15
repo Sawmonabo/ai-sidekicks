@@ -204,9 +204,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
           Couldn't load skills <TryAgainButton onPress={onReadSkillsAgain} />
         </div>
       ) : null}
-      {actionOutcome?.status === "refused" ? (
-        <InlineRefusal code={actionOutcome.refusal.code} detail={actionOutcome.refusal.detail} />
-      ) : null}
+      {actionOutcome?.status === "refused" ? <InlineRefusal {...actionOutcome.refusal} /> : null}
     </div>
   );
 }

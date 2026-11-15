@@ -1,7 +1,8 @@
 // The sessions list's one New session control and its picker: `Just chat`, then the recent
 // projects. Opening puts the caret on the first row and Escape closes it. A pick makes the session
 // at once and opens it; the first message is typed in the opened session's own message box. A
-// refused create is said in one line under the rows of the picker that asked, which stays open.
+// refused create is said in one line under the rows of the picker that asked, which stays open, or,
+// refused after the picker closed, in that line when it next opens.
 
 import "./NewSessionControl.css";
 
@@ -63,11 +64,7 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
             </>
           )}
           {picker.refusal === undefined ? null : (
-            <InlineRefusal
-              code={picker.refusal.code}
-              detail={refusedCreateLine(picker.refusal)}
-              attempt={picker.refusal}
-            />
+            <InlineRefusal {...refusedCreateLine(picker.refusal)} attempt={picker.refusal} />
           )}
         </div>
       ) : null}

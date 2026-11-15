@@ -148,9 +148,7 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
       {row.unavailableReason === undefined ? null : (
         <p className="meridian-keymap__unavailable">{row.unavailableReason}</p>
       )}
-      {props.refusal === undefined ? null : (
-        <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
-      )}
+      {props.refusal === undefined ? null : <InlineRefusal {...props.refusal} />}
     </>
   );
 }

@@ -8,12 +8,13 @@
 //   - card: the session's history now contains it, so it belongs in the transcript.
 //   - banner: what the whole room can do has changed, so it spans the frame.
 //
-// Every shape shows the refusing service's message verbatim, never paraphrased or shortened,
-// unless the screen gives that failure a fixed sentence of its own. The card and the banner add
-// the code and its reason as words (`RefusalWords`), never as their wire spelling; the inline line
-// and the strip show the message alone. The code also rides on the root as `data-refusal-code`
-// for diagnostics. The next move is the caller's `action`; the renderer computes no eligibility
-// and so no remedy.
+// No shape shows a code's wire spelling. The card and the banner draw a registered code and its
+// reason as words (`RefusalWords`) over the refusing service's message, verbatim. The inline line
+// draws those words alone, since the service's sentence can name an id, and a refusal the app
+// wrote, under its own kebab-case code, as its sentence: a caller that words its own line gives it
+// such a code. The strip draws the screen's own sentence for what failed, as its caller worded it.
+// The code also rides on the root as `data-refusal-code` for diagnostics. The next move is the
+// caller's `action`; the renderer computes no eligibility and so no remedy.
 
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { RefusalExtensions } from "#renderer/lib/refusal/extensions.js";

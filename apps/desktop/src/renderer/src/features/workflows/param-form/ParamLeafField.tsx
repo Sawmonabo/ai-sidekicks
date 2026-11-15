@@ -259,7 +259,7 @@ function FolderPicker(
         Browse…
       </ActionButton>
       {picked === undefined ? null : <WireFigure value={picked.name} />}
-      {refusal === undefined ? null : <InlineRefusal code={refusal.code} detail={refusal.detail} />}
+      {refusal === undefined ? null : <InlineRefusal {...refusal} />}
     </div>
   );
 }

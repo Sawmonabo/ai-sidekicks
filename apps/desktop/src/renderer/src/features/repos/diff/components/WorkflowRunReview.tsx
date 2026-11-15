@@ -5,6 +5,7 @@
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -42,7 +43,7 @@ export function WorkflowRunReview(props: WorkflowRunReviewProps): React.JSX.Elem
           kind="error"
           placement="block"
           title="Couldn't load changes"
-          detail={state.refusal.detail}
+          detail={refusalCause(state.refusal.code, state.refusal.reason, state.refusal.detail)}
           action={<TryAgainButton onPress={readAgain} />}
           attempt={state.refusal}
         />

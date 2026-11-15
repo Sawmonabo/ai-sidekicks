@@ -56,16 +56,18 @@ function renderRefusal(
 }
 
 describe("an account-plane refusal on a console screen", () => {
-  it("draws the daemon's sentence before what it adds, and reads both out in that order", () => {
+  it("draws the code's words before what it adds, and reads both out in that order", () => {
     const { shown, announced } = renderRefusal(PROVIDER_ACCOUNT_NOT_REGISTERED_CODE);
+    const words = "Provider account not registered";
     const remedy = "Sign in to run work on this provider.";
     const text = shown.textContent;
-    expect(text.indexOf(DAEMON_SENTENCE)).toBe(0);
-    expect(text.indexOf(DAEMON_SENTENCE)).toBeLessThan(text.indexOf(remedy));
+    expect(text.indexOf(words)).toBe(0);
+    expect(text.indexOf(words)).toBeLessThan(text.indexOf(remedy));
+    expect(text).not.toContain(DAEMON_SENTENCE);
     // The remedy is read out as drawn, after the reason; the button beside it is not.
     const drawnRemedy = shown.querySelector(".meridian-account-handoff__sentence")?.textContent;
     expect(drawnRemedy).toContain(remedy);
-    expect(announced()).toBe(`${DAEMON_SENTENCE} ${drawnRemedy ?? ""}`);
+    expect(announced()).toBe(`${words} ${drawnRemedy ?? ""}`);
   });
 
   it("offers one navigation, and moving is all pressing it does", () => {
@@ -87,6 +89,6 @@ describe("an account-plane refusal on a console screen", () => {
     cleanup();
     const uncarried = renderRefusal(PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE);
     expect(uncarried.shown.querySelector(".meridian-account-handoff")).toBeNull();
-    expect(uncarried.announced()).toBe(DAEMON_SENTENCE);
+    expect(uncarried.announced()).toBe("Login expired");
   });
 });

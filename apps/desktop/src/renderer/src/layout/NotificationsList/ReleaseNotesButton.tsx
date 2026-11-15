@@ -33,7 +33,7 @@ export function ReleaseNotesButton(props: { readonly address: string }): React.J
       >
         {"What's new"}
       </button>
-      {refusal === undefined ? null : <InlineRefusal code={refusal.code} detail={refusal.detail} />}
+      {refusal === undefined ? null : <InlineRefusal {...refusal} />}
     </>
   );
 }

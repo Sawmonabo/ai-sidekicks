@@ -47,9 +47,7 @@ export function DeleteOlderRuns(props: { readonly bridge: PlatformBridge }): Rea
                 "a person is never touched."}
             </span>
           )}
-          {state.refusal === undefined ? null : (
-            <InlineRefusal code={state.refusal.code} detail={state.refusal.detail} />
-          )}
+          {state.refusal === undefined ? null : <InlineRefusal {...state.refusal} />}
           <ActionButton onClick={act.close}>Cancel</ActionButton>
           <ActionButton
             className="meridian-action-button--destructive"

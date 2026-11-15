@@ -13,6 +13,7 @@ import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useSubjectRead } from "#renderer/hooks/useSubjectRead.js";
 import type { ScheduledHandle } from "#renderer/lib/clock.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -34,7 +35,7 @@ import { useWorkflowChecks } from "#renderer/features/workflows/param-form/hooks
 export type StepFormRead =
   | { readonly kind: "reading" }
   | { readonly kind: "read"; readonly form: WorkflowHumanFormReadResponse }
-  | { readonly kind: "failed"; readonly refusal: Refusal };
+  | { readonly kind: "failed"; readonly refusal: ExtendedRefusal };
 
 /** Everything a step's form panel draws, and the acts it takes. */
 export interface StepFormHold {

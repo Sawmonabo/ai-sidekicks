@@ -14,6 +14,7 @@ import { useMemo } from "react";
 import type { ProviderImportOutcome } from "@ai-sidekicks/contracts/provider/import";
 import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { joinFigureSentence, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
@@ -62,7 +63,11 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
     return (
       <InlineRefusal
         code={progress.refusal.code}
-        detail={progress.refusal.detail}
+        detail={refusalCause(
+          progress.refusal.code,
+          progress.refusal.reason,
+          progress.refusal.detail,
+        )}
         onTryAgain={model.reopen}
         attempt={progress.refusal}
       />
@@ -91,9 +96,7 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
           className="meridian-provider-import__bar"
           aria-label={`Importing from ${providerLabel}`}
         />
-        {model.stopRefusal === undefined ? null : (
-          <InlineRefusal code={model.stopRefusal.code} detail={model.stopRefusal.detail} />
-        )}
+        {model.stopRefusal === undefined ? null : <InlineRefusal {...model.stopRefusal} />}
       </div>
     );
   }

@@ -187,9 +187,10 @@ export class ProviderSignInFlowTracker {
         claim.settle(() => {
           claim.release();
           const refusal = refusalOfCall(error);
+          // An unfinished start carries no reason: the service's sentence is not the provider's.
           this.#publish(
             UNFINISHED_START_CODES.has(refusal.code)
-              ? { flow: { kind: "unfinished", failureReason: refusal.detail } }
+              ? { flow: { kind: "unfinished", failureReason: undefined } }
               : {
                   flow: IDLE_PROVIDER_SIGN_IN_FLOW,
                   refusalByAccountId: this.#refusalsWith(accountId, refusal),

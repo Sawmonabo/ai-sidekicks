@@ -83,9 +83,7 @@ export function ReplyAnswer(props: {
       <ActionButton type="submit" tone="primary" disabled={isSending || text.trim() === ""}>
         Answer
       </ActionButton>
-      {answer.state.kind === "refused" ? (
-        <InlineRefusal code={answer.state.refusal.code} detail={answer.state.refusal.detail} />
-      ) : null}
+      {answer.state.kind === "refused" ? <InlineRefusal {...answer.state.refusal} /> : null}
     </form>
   );
 }

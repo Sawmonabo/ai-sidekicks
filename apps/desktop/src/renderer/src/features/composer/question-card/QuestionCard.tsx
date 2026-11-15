@@ -125,9 +125,7 @@ export function QuestionCard(props: QuestionCardProps): React.JSX.Element | null
       >
         Answer
       </button>
-      {delivery.status === "refused" ? (
-        <InlineRefusal code={delivery.refusal.code} detail={delivery.refusal.detail} />
-      ) : null}
+      {delivery.status === "refused" ? <InlineRefusal {...delivery.refusal} /> : null}
     </form>
   );
 }

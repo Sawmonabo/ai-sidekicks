@@ -10,7 +10,7 @@ import type { WorktreeStatusReadResponse } from "@ai-sidekicks/contracts/worktre
 
 import { bridgeOnClock, withDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { handAnsweredCall } from "#test/helpers/held-calls.js";
-import { useWorktreeStatus } from "./useWorktreeStatus.js";
+import { useWorktreeStatus, type WorktreeStatusAsk } from "./useWorktreeStatus.js";
 
 const PROJECT_ID = "019b7892-1a00-7c31-8110-cca0117a07ff" as ProjectId;
 const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5" as SessionId;
@@ -28,18 +28,21 @@ describe("the worktree read", () => {
       async (call, passThrough) =>
         call.method === "worktree.status.read" ? await statusRead.invoke() : await passThrough(),
     );
+    const loaded: WorktreeStatusReadResponse[] = [];
     const { result, rerender } = renderHook(
-      (props: { readonly isOpen: boolean; readonly isRootNameAwaited: boolean }) =>
-        useWorktreeStatus(bridge, PROJECT_ID, SESSION_ID, props.isOpen, props.isRootNameAwaited),
-      { initialProps: { isOpen: true, isRootNameAwaited: false } },
+      (ask: WorktreeStatusAsk) =>
+        useWorktreeStatus(bridge, PROJECT_ID, SESSION_ID, ask, (status) => {
+          loaded.push(status);
+        }),
+      { initialProps: { isOpen: true, openingCount: 1, isRootNameAwaited: false } },
     );
     // The call goes out once the method's checks have loaded.
     await vi.waitFor(() => {
       expect(calls).toHaveLength(1);
     });
 
-    rerender({ isOpen: true, isRootNameAwaited: true });
-    rerender({ isOpen: false, isRootNameAwaited: true });
+    rerender({ isOpen: true, openingCount: 1, isRootNameAwaited: true });
+    rerender({ isOpen: false, openingCount: 1, isRootNameAwaited: true });
     await act(async () => {
       statusRead.open(STATUS);
       await Promise.resolve();
@@ -49,5 +52,7 @@ describe("the worktree read", () => {
       expect(result.current.reading).toStrictEqual({ kind: "loaded", status: STATUS });
     });
     expect(calls).toHaveLength(1);
+    // The landed read is handed on, which names the waiting root.
+    expect(loaded).toStrictEqual([STATUS]);
   });
 });

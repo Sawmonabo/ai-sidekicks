@@ -95,9 +95,7 @@ export function ToolServersChip(props: ToolServersChipProps): React.JSX.Element 
             {chip.notWorking.map((server) => row(server, false))}
           </ul>
         )}
-        {refusal === undefined ? null : (
-          <InlineRefusal code={refusal.code} detail={refusal.detail} />
-        )}
+        {refusal === undefined ? null : <InlineRefusal {...refusal} />}
         <button
           type="button"
           className="meridian-clickable-word"

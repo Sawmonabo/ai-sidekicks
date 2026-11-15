@@ -115,12 +115,8 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
           />
         }
       />
-      {reading.saveRefusal === undefined ? null : (
-        <InlineRefusal code={reading.saveRefusal.code} detail={reading.saveRefusal.detail} />
-      )}
-      {backgroundRefusal === undefined ? null : (
-        <InlineRefusal code={backgroundRefusal.code} detail={backgroundRefusal.detail} />
-      )}
+      {reading.saveRefusal === undefined ? null : <InlineRefusal {...reading.saveRefusal} />}
+      {backgroundRefusal === undefined ? null : <InlineRefusal {...backgroundRefusal} />}
       <CommandList
         {...props}
         region={regionRef}

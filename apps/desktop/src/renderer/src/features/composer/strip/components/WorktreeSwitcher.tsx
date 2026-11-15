@@ -23,6 +23,7 @@ import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.
 import { OverlayPopoverPopup } from "#renderer/components/OverlayPopups/OverlayPopoverPopup.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -33,7 +34,8 @@ import {
   type MoveTarget,
   type PickedRow,
 } from "../hooks/useHeldWorktreeMove.js";
-import { moveRefusalWords, type MovedTree } from "../move-refusal.js";
+import { useWorktreeStatus } from "../hooks/useWorktreeStatus.js";
+import { moveRefusalLine, type MovedTree } from "../move-refusal.js";
 import { NewWorktreeForm } from "./NewWorktreeForm.js";
 import { readWorktreeRow, type WorktreeRow } from "../worktrees.js";
 
@@ -56,16 +58,22 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
   const clock = useClock();
   const clockLocale = useClockLocale();
   const [isOpen, setIsOpen] = useState(false);
+  // Counted at the press that opens the popover, so each opening reads the trees afresh.
+  const [openingCount, setOpeningCount] = useState(0);
   const [standIn, setStandIn] = useState<RowStandIn | undefined>(undefined);
   const [isMakingNew, setIsMakingNew] = useState(false);
   const [refusal, setRefusal] = useState<ExtendedRefusal | undefined>(undefined);
   const [moveRefusal, setMoveRefusal] = useState<MoveRefusal | undefined>(undefined);
-  const { pending, holdMove, reading, readAgain } = useHeldWorktreeMove(
+  const { pending, isRootNameAwaited, holdMove, nameRoot } = useHeldWorktreeMove(props.currentName);
+  // A root picked before the read landed is named by that read, open or closed.
+  const { reading, readAgain } = useWorktreeStatus(
     props.bridge,
     props.project.projectId,
     props.sessionId,
-    isOpen,
-    props.currentName,
+    { isOpen, openingCount, isRootNameAwaited },
+    (status) => {
+      nameRoot(status.repoRoot.branchName);
+    },
   );
   // `row` is the row pressed, where a refusal is said; `target` is the picked tree, or `undefined`
   // for a cancel, which leaves no move.
@@ -76,8 +84,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
       path: tree.path,
     }).then((reply) => {
       if (reply.status === "refused") {
-        const words = moveRefusalWords(reply.refusal, tree);
-        setMoveRefusal({ row, refusal: reply.refusal, words });
+        setMoveRefusal({ row, refusal: reply.refusal, line: moveRefusalLine(reply.refusal, tree) });
         return;
       }
       setMoveRefusal(undefined);
@@ -136,11 +143,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
         </span>
       ) : null}
       {moveRefusal !== undefined && isSameRow(moveRefusal.row, row) ? (
-        <InlineRefusal
-          code={moveRefusal.refusal.code}
-          detail={moveRefusal.words}
-          attempt={moveRefusal.refusal}
-        />
+        <InlineRefusal {...moveRefusal.line} attempt={moveRefusal.refusal} />
       ) : null}
     </>
   );
@@ -160,7 +163,9 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
       open={isOpen}
       onOpenChange={(open) => {
         setIsOpen(open);
-        if (!open) {
+        if (open) {
+          setOpeningCount((count) => count + 1);
+        } else {
           setStandIn(undefined);
           setIsMakingNew(false);
           setRefusal(undefined);
@@ -349,7 +354,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
           </ul>
         ) : null}
         {refusal === undefined ? null : (
-          <InlineRefusal code={refusal.code} detail={refusal.detail} />
+          <InlineRefusal code={refusal.code} reason={refusal.reason} detail={refusal.detail} />
         )}
         <div role="separator" className="meridian-composer-worktrees__rule" />
         <button
@@ -369,11 +374,11 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
 
 const ROOT_ROW: PickedRow = { kind: "root" };
 
-/** A move the daemon refused: the row it was pressed on, the refusal, and the words it reads. */
+/** A move the daemon refused: the row it was pressed on, the refusal, and the line it reads. */
 interface MoveRefusal {
   readonly row: PickedRow;
   readonly refusal: ExtendedRefusal;
-  readonly words: string;
+  readonly line: Pick<Refusal, "code" | "detail">;
 }
 
 /** `row` when it names a tree `status` does not list, else `undefined`. */

@@ -8,6 +8,7 @@ import type {
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { Clock } from "#renderer/lib/clock.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
@@ -52,7 +53,7 @@ export function RunAttentionSection(props: {
           kind="error"
           placement="block"
           title="Couldn't load pending runs"
-          detail={state.refusal.detail}
+          detail={refusalCause(state.refusal.code, state.refusal.reason, state.refusal.detail)}
           action={<TryAgainButton onPress={props.readAgain} />}
           attempt={state.refusal}
         />

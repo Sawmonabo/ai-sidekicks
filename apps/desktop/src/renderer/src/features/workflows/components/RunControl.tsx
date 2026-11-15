@@ -32,9 +32,7 @@ export function RunControl(props: {
           {props.label}
         </ActionButton>
       </HoverLabel>
-      {reason === undefined && act.kind === "refused" ? (
-        <InlineRefusal code={act.refusal.code} detail={act.refusal.detail} />
-      ) : null}
+      {reason === undefined && act.kind === "refused" ? <InlineRefusal {...act.refusal} /> : null}
     </span>
   );
 }

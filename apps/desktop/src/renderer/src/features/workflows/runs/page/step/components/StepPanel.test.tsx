@@ -5,7 +5,7 @@
 // data` sends the output as stored, read from its artifact where it was kept as one, announces the
 // pin and keeps its label, and refuses output that carries a file or a node with more than one
 // main output; a node the run never reached reads `Not reached` and its acts keep their place,
-// each refusing in its own words; a refused Keep says so in the daemon's words; and
+// each refusing in its own words; a refused Keep says so in its code's words, with no id; and
 // `Fix in a fresh session` opens the run's fix session again once there is one.
 
 import type {
@@ -299,15 +299,17 @@ describe("the step panel", () => {
     expect(screen.getByText("Pin · this step was not reached")).toBeDefined();
   });
 
-  it("says in the daemon's words when it refuses the Keep mark", async () => {
-    const refusal = Object.assign(new Error("That run is not on this computer."), {
+  it("says a refused Keep mark in its code's words, never the run id the service names", async () => {
+    const workflowRunId = WORKFLOW_RUN_IDS.failed;
+    const refusal = Object.assign(new Error(`No workflow run answers to ${workflowRunId}.`), {
       code: -32603,
       data: { type: "workflow.run.notFound" },
     });
-    renderPanel(fixtureRun(WORKFLOW_RUN_IDS.failed), { keepRefusal: refusal });
+    renderPanel(fixtureRun(workflowRunId), { keepRefusal: refusal });
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Keep" }));
-    expect(await screen.findByText("That run is not on this computer.")).toBeDefined();
+    expect(await screen.findByText("Workflow run not found")).toBeDefined();
+    expect(screen.queryByText(new RegExp(workflowRunId))).toBeNull();
   });
 
   it("opens the run's fix session again rather than making a second one", () => {

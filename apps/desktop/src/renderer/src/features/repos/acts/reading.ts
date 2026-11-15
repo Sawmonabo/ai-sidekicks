@@ -1,7 +1,7 @@
 // What an act publishes: the arms the act half owns and the caller's settled arm. A dialog
 // renders these types and never constructs the machine.
 
-import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 
 /** The three statuses the act half owns. A settlement arm's discriminant is none of them. */
 export type ActArmStatus = "idle" | "sending" | "refused";
@@ -15,7 +15,7 @@ export type ActArmStatus = "idle" | "sending" | "refused";
 export type ActSettlementReading<TSettlement extends ActSettlementArm> =
   | { readonly status: "idle" }
   | { readonly status: "sending" }
-  | { readonly status: "refused"; readonly refusal: Refusal }
+  | { readonly status: "refused"; readonly refusal: ExtendedRefusal }
   | TSettlement;
 
 /**

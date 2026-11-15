@@ -8,6 +8,7 @@ import type {
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -49,7 +50,7 @@ export function StepForm(props: {
         kind="error"
         placement="block"
         title="Couldn't load form"
-        detail={read.refusal.detail}
+        detail={refusalCause(read.refusal.code, read.refusal.reason, read.refusal.detail)}
         action={<TryAgainButton onPress={form.readAgain} />}
         attempt={read.refusal}
       />
@@ -74,18 +75,13 @@ export function StepForm(props: {
         idPrefix={idPrefix}
         pickFolder={() => props.bridge.native.showOpenDialog({ purpose: "pickFolder" })}
       />
-      {form.draftRefusal === undefined ? null : (
-        <InlineRefusal code={form.draftRefusal.code} detail={form.draftRefusal.detail} />
-      )}
+      {form.draftRefusal === undefined ? null : <InlineRefusal {...form.draftRefusal} />}
       <div className="meridian-workflow-step__answer">
         <ActionButton type="submit" tone="primary" disabled={isSending}>
           Submit
         </ActionButton>
         {form.submitState.kind === "refused" ? (
-          <InlineRefusal
-            code={form.submitState.refusal.code}
-            detail={form.submitState.refusal.detail}
-          />
+          <InlineRefusal {...form.submitState.refusal} />
         ) : null}
       </div>
     </form>

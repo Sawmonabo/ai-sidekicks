@@ -54,7 +54,7 @@ export function ConvertToProjectForm(props: ConvertToProjectFormProps): React.JS
           setPath(event.target.value);
         }}
       />
-      {refusal === undefined ? null : <InlineRefusal code={refusal.code} detail={refusal.detail} />}
+      {refusal === undefined ? null : <InlineRefusal {...refusal} />}
       <button type="button" className="meridian-clickable-word" onClick={props.onClose}>
         Cancel
       </button>

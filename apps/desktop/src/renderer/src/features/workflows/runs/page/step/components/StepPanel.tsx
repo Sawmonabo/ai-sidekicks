@@ -310,9 +310,7 @@ function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefi
           />
           Keep
         </label>
-        {keep.state.kind === "refused" ? (
-          <InlineRefusal code={keep.state.refusal.code} detail={keep.state.refusal.detail} />
-        ) : null}
+        {keep.state.kind === "refused" ? <InlineRefusal {...keep.state.refusal} /> : null}
       </span>
       <RunControl
         label="Pin this output as builder test data"

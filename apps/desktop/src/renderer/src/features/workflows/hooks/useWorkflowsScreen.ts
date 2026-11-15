@@ -377,7 +377,7 @@ function nextWaitingUnavailable(
     case "not-loaded":
       return "Still reading what is waiting.";
     case "failed":
-      return nextWaiting.refusal.detail;
+      return "Couldn't load pending runs";
     case "loaded":
       return nextWaiting.workflowRunId === undefined ? "Nothing waiting" : undefined;
   }

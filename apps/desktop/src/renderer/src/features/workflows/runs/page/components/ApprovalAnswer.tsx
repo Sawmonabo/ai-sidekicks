@@ -60,9 +60,7 @@ export function ApprovalAnswer(props: {
       >
         Approve
       </ActionButton>
-      {answer.state.kind === "refused" ? (
-        <InlineRefusal code={answer.state.refusal.code} detail={answer.state.refusal.detail} />
-      ) : null}
+      {answer.state.kind === "refused" ? <InlineRefusal {...answer.state.refusal} /> : null}
     </div>
   );
 }

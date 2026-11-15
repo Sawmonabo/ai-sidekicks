@@ -1,7 +1,8 @@
-// The props the new-session control takes, and what it hands back.
+// The props the new-session control takes, and what it hands back: the session a pick created,
+// and a recheck of the session directory after a refused create.
 //
-// The created callback carries a session id and nothing else. What the app does with a session it just
-// started (open its store, declare the session directory stale, navigate) is
+// The created callback carries a session id and nothing else. What the app does with a session it
+// just started (open its store, declare the session directory stale, navigate) is
 // `features/sessions/start.ts`, because each step names a store or a route the control does not
 // hold.
 

@@ -1,10 +1,10 @@
 // An account-plane refusal, and the one place a person can do something about it.
 //
-// The refusal is never suppressed or reworded: it renders first through the inline shape with
-// the daemon's code and sentence verbatim, and whatever this adds comes after it and is about
-// navigation. The handoff opens the settings section where the act lives; it runs no sign-in
-// command, renders no credential-home path and re-derives no eligibility. It fires on a refusal
-// that already happened, so a run that would have been admitted is never interrupted by an offer.
+// The refusal is never suppressed: it renders first through the inline shape in its code's words,
+// and whatever this adds comes after it and is about navigation. The handoff opens the settings
+// section where the act lives; it runs no sign-in command, renders no credential-home path and
+// re-derives no eligibility. It fires on a refusal that already happened, so a run that would
+// have been admitted is never interrupted by an offer.
 
 import "./AccountPlaneRefusal.css";
 

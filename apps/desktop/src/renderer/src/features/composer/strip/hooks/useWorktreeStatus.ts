@@ -2,6 +2,7 @@
 // each time the popover opens and again on `Try again` or after a removal. A read still out when
 // the popover closes finishes while a picked root waits for its branch name, which the chip shows;
 // otherwise it is abandoned, so nothing is read while the popover is closed and nothing pends.
+// Each read that lands is handed to `onLoaded`, which names a waiting root.
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -9,6 +10,7 @@ import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorktreeStatusReadResponse } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 
@@ -18,6 +20,15 @@ export type WorktreeStatusReading =
   | { readonly kind: "loaded"; readonly status: WorktreeStatusReadResponse }
   | { readonly kind: "failed" };
 
+/** When the trees are read: at each opening of the popover, and while a picked root waits. */
+export interface WorktreeStatusAsk {
+  readonly isOpen: boolean;
+  /** How many times the popover has opened, counted where it opens; each opening reads afresh. */
+  readonly openingCount: number;
+  /** A picked root waits to be named by its branch, so a read out at the close still finishes. */
+  readonly isRootNameAwaited: boolean;
+}
+
 /** The read, and the act that reads again. */
 export interface WorktreeStatusBinding {
   readonly reading: WorktreeStatusReading;
@@ -25,28 +36,21 @@ export interface WorktreeStatusBinding {
 }
 
 /**
- * Read `projectId`'s trees for `sessionId` each time the popover opens, and while
- * `isRootNameAwaited` (a picked root waits to be named by its branch) until that read answers.
+ * Read `projectId`'s trees for `sessionId` as `ask` says, handing each read that lands to
+ * `onLoaded`, which needs no stable identity.
  */
 export function useWorktreeStatus(
   bridge: PlatformBridge,
   projectId: ProjectId,
   sessionId: SessionId,
-  isOpen: boolean,
-  isRootNameAwaited: boolean,
+  ask: WorktreeStatusAsk,
+  onLoaded: (status: WorktreeStatusReadResponse) => void,
 ): WorktreeStatusBinding {
   const [reading, setReading] = useState<WorktreeStatusReading>(LOADING);
   const [attempt, setAttempt] = useState(0);
-  // Counted so each opening reads afresh even while a read for a waiting root is still out.
-  const [openingCount, setOpeningCount] = useState(0);
-  const [wasOpen, setWasOpen] = useState(false);
-  if (isOpen !== wasOpen) {
-    setWasOpen(isOpen);
-    if (isOpen) {
-      setOpeningCount((count) => count + 1);
-    }
-  }
-  const isReadWanted = isOpen || (isRootNameAwaited && reading.kind === "loading");
+  const latestOnLoaded = useLatestRef(onLoaded);
+  const { openingCount } = ask;
+  const isReadWanted = ask.isOpen || (ask.isRootNameAwaited && reading.kind === "loading");
   useEffect(() => {
     if (!isReadWanted) {
       return undefined;
@@ -62,12 +66,17 @@ export function useWorktreeStatus(
       if (read.signal.aborted) {
         return;
       }
-      setReading(reply.status === "served" ? { kind: "loaded", status: reply.value } : FAILED);
+      if (reply.status === "refused") {
+        setReading(FAILED);
+        return;
+      }
+      setReading({ kind: "loaded", status: reply.value });
+      latestOnLoaded.current(reply.value);
     });
     return () => {
       read.abort();
     };
-  }, [bridge, projectId, sessionId, isReadWanted, openingCount, attempt]);
+  }, [bridge, projectId, sessionId, isReadWanted, openingCount, attempt, latestOnLoaded]);
   const readAgain = useCallback(() => {
     setAttempt((count) => count + 1);
   }, []);

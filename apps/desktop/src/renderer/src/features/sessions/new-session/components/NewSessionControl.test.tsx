@@ -1,7 +1,8 @@
 // A pick makes the session: one `session.create` and nothing else, settled into the destination's
 // own start (the session's store opened, the list asked again, the screen on the session). A
 // refused create is said in the picker and asks the list again, and the same row picked again,
-// even after the picker was closed and opened, sends the same key.
+// even after the picker was closed and opened, sends the same key, while a changed output speed
+// names another create.
 
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -113,5 +114,37 @@ describe("the New session picker", () => {
     expect(navigations).toStrictEqual([{ kind: "session", sessionId: CREATED_SESSION_ID }]);
     expect(screen.queryByRole("button", { name: JUST_CHAT })).toBeNull();
     expect(container.querySelector(".meridian-refusal__message")).toBeNull();
+  });
+
+  it("sends a fresh key for the same row once the lead's output speed changed", async () => {
+    const { bridge, calls } = bridgeAnswering(async (call, passThrough) => {
+      if (call.method !== "session.create") {
+        return await passThrough();
+      }
+      throw new Error("the service did not answer");
+    });
+    const control = (lead: SessionLead): React.JSX.Element => (
+      <LiveAnnouncerProvider>
+        <NewSessionControl
+          bridge={bridge}
+          lead={lead}
+          recentProjects={[]}
+          onSessionCreated={() => undefined}
+          recheckDirectory={() => undefined}
+        />
+      </LiveAnnouncerProvider>
+    );
+    const { rerender } = render(control({ ...LEAD, outputSpeed: "standard" }));
+
+    await press("New session");
+    await press(JUST_CHAT);
+    rerender(control({ ...LEAD, outputSpeed: "fast" }));
+    await press(JUST_CHAT);
+
+    const keys = calls
+      .filter((call) => call.method === "session.create")
+      .map((call) => (call.params as { clientIdempotencyKey: string }).clientIdempotencyKey);
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).not.toBe(keys[0]);
   });
 });

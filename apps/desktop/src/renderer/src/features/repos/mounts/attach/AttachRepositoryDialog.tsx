@@ -141,7 +141,7 @@ function renderSettlement(reading: AttachRequestReading): React.JSX.Element | nu
     case "sending":
       return <Nothing kind="computing" title="Attaching." />;
     case "refused":
-      return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
+      return <InlineRefusal {...reading.refusal} />;
     case "attached":
       return (
         // The line says what happened; the minted mount and root under it are not read out.

@@ -1,16 +1,9 @@
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 
-import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/disposal.js";
-import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
-import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
-import { useWindowReadTriggers } from "#renderer/store/reads/hooks/useWindowReadTriggers.js";
-import {
-  NO_TRIGGERING_EVENT_KINDS,
-  type ReadTriggerTarget,
-} from "#renderer/store/reads/triggers.js";
+import { useWindowTriggeredRead } from "#renderer/store/reads/hooks/useWindowTriggeredRead.js";
 import type { DiffModel } from "../model.js";
 import { createWorkflowRunDiffRead, type WorkflowRunDiffRequest } from "../workflow-run-read.js";
 
@@ -30,24 +23,14 @@ export function useWorkflowRunDiff(
   request: WorkflowRunDiffRequest,
 ): WorkflowRunDiffHold {
   const clock = useClock();
-  const { value: read } = useSubjectScopedResource(
+  const { read, state } = useWindowTriggeredRead(
+    bridge.transportReconnect,
     bridge,
     JSON.stringify(request),
     () => createWorkflowRunDiffRead(bridge, clock, request),
-    CONTROLLER_DISPOSAL,
   );
-  const triggerTarget = useMemo<ReadTriggerTarget>(
-    () => ({
-      triggeringEventKinds: NO_TRIGGERING_EVENT_KINDS,
-      requestRead: (reason) => {
-        read.refresh(reason);
-      },
-    }),
-    [read],
-  );
-  useWindowReadTriggers(triggerTarget, bridge.transportReconnect);
   const readAgain = useCallback(() => {
-    read.refresh("user-request");
+    read?.refresh("user-request");
   }, [read]);
-  return { state: usePushDrivenRead(read), readAgain };
+  return { state, readAgain };
 }

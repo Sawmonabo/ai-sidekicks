@@ -104,9 +104,7 @@ export function ComposerAttachmentStrip(
           refusal={refusal}
         />
       ))}
-      {snapshot.pickerRefusal === undefined ? null : (
-        <InlineRefusal code={snapshot.pickerRefusal.code} detail={snapshot.pickerRefusal.detail} />
-      )}
+      {snapshot.pickerRefusal === undefined ? null : <InlineRefusal {...snapshot.pickerRefusal} />}
     </section>
   );
 }

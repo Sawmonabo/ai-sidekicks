@@ -12,6 +12,7 @@ import type {
 } from "@ai-sidekicks/contracts/session/draft";
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 
+import { refusalCause } from "#renderer/lib/code-words.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
@@ -40,7 +41,7 @@ export interface PendingCopy {
 
 /**
  * Why one file was not staged: a session rule, the disk too full for it, other files still taking
- * the room, or the words the provider, the daemon or main gave.
+ * the room, or the words the provider or main gave, a daemon refusal read as its code's words.
  */
 export type StagingRefusalCause =
   | { readonly kind: "countLimit"; readonly limit: number }
@@ -180,7 +181,10 @@ export class ComposerStaging {
             {
               clientStagingId: artifactId,
               name: file?.fileName ?? artifactId,
-              cause: { kind: "ownWords", words: reply.refusal.detail },
+              cause: {
+                kind: "ownWords",
+                words: refusalCause(reply.refusal.code, reply.refusal.reason, reply.refusal.detail),
+              },
               retry: undefined,
             },
           ],
@@ -237,7 +241,10 @@ export class ComposerStaging {
           ...items.map((item) => ({
             clientStagingId: item.clientStagingId,
             name: item.file.name,
-            cause: { kind: "ownWords", words: reply.refusal.detail } as const,
+            cause: {
+              kind: "ownWords",
+              words: refusalCause(reply.refusal.code, reply.refusal.reason, reply.refusal.detail),
+            } as const,
             retry: item.file,
           })),
         ],

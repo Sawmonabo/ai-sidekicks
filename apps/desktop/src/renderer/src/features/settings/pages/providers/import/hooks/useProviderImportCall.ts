@@ -12,6 +12,7 @@ import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 
 /**
  * Where one import call has got to. `pressOrdinal` counts the calls put, from one, so a caller can
@@ -21,7 +22,11 @@ export type ProviderImportCallSettlement<TAnswer> =
   | { readonly status: "unattempted" }
   | { readonly status: "running"; readonly pressOrdinal: number }
   | { readonly status: "settled"; readonly answer: TAnswer; readonly pressOrdinal: number }
-  | { readonly status: "refused"; readonly refusal: Refusal; readonly pressOrdinal: number };
+  | {
+      readonly status: "refused";
+      readonly refusal: ExtendedRefusal;
+      readonly pressOrdinal: number;
+    };
 
 /** The subsystem every refusal this module raises carries. */
 const PROVIDER_IMPORT_ORIGIN = "provider-import";

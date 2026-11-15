@@ -9,6 +9,7 @@
 // is refused: no layout mounted, no pane focused, or no workspace for the inspector to open on.
 
 import { TITLE_BY_PANE_KIND } from "#renderer/components/PaneFrame/PaneFrame.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import type { Announce } from "#renderer/components/LiveAnnouncer/announcer.js";
 import { type DaemonReply } from "#renderer/services/daemon/reply.js";
 import { type InspectedCheckout } from "../services/session-workspace.js";
@@ -136,7 +137,8 @@ export function paneLayoutActsOn(
     openInspector: () => {
       void reach.readInspectedCheckout().then((read) => {
         if (read.status === "refused") {
-          announce(read.refusal.detail, "assertive");
+          const { code, reason, detail } = read.refusal;
+          announce(refusalCause(code, reason, detail), "assertive");
           return;
         }
         if (read.value === undefined) {

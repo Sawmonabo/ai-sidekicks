@@ -9,6 +9,7 @@
 import "./ProviderImportPanel.css";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
 import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 import { ImportProgressLine } from "./ImportProgressLine.js";
@@ -50,7 +51,11 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
       {model.startRefusal === undefined ? null : (
         <InlineRefusal
           code={model.startRefusal.code}
-          detail={model.startRefusal.detail}
+          detail={refusalCause(
+            model.startRefusal.code,
+            model.startRefusal.reason,
+            model.startRefusal.detail,
+          )}
           onTryAgain={model.start}
         />
       )}

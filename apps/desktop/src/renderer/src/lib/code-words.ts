@@ -61,8 +61,9 @@ export function refusalWords(code: string, reason?: string): string | undefined 
 }
 
 /**
- * The cause a refused act's line reads after its ` · `: the code and reason as words for a code the
- * other side registered, whose message can name an id, and the app's own sentence for one it wrote.
+ * The cause a refused act's line reads, and the words the inline refusal draws: the code and
+ * reason as words for a code the other side registered, whose message can name an id, and the
+ * app's own sentence for one it wrote.
  */
 export function refusalCause(code: string, reason: string | undefined, message: string): string {
   return refusalWords(code, reason) ?? message;
