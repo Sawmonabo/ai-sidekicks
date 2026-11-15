@@ -14,7 +14,7 @@ use super::{
 };
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
-use crate::driver::codex::service::registry::stored_turn_read::{
+use crate::driver::codex::service::registry::personal_folder::stored_turns::{
     StoredTurnCause, StoredTurnOutcome,
 };
 use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome, home_socket_path};

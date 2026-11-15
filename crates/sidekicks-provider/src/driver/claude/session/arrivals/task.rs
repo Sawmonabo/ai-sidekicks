@@ -35,9 +35,12 @@ use crate::driver::claude::delivery::stream::{
 };
 use crate::driver::claude::goals::ClaudeGoalCommands;
 use crate::driver::claude::goals::endings::ClaudeGoalEndings;
+use crate::driver::claude::hooks::callbacks::helper_calls::{
+    route_helper_start, route_helper_wake, route_message_target,
+};
 use crate::driver::claude::hooks::callbacks::{
     ClaudeRequestRoute, ClaudeToolCapture, answer_background_work_check, answer_claude_request,
-    route_claude_request, route_helper_start, route_helper_wake, route_message_target,
+    route_claude_request,
 };
 use crate::driver::claude::hooks::command_capture::{ClaudeCommandOwner, ClaudeCommandWindows};
 use crate::driver::claude::hooks::edit_checkpoint::keep_copy_then_answer;

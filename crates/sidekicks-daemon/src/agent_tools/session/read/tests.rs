@@ -338,11 +338,14 @@ async fn a_message_past_a_page_reads_on_by_its_lines_to_its_last() {
 }
 
 // A search finds text anywhere in a line longer than a page, however far in, holding a page at a
-// time. The text runs across the boundary between two parts of the stored body, deep in its second
-// line; a short first line matches too, so the result shows it and ends with the cursor at the
-// long line's page that holds the text, and that cursor's read shows the page. Killed by testing
-// only a line's opening page, by a scan that carries no bytes from one part into the next, and by
-// a cursor at any page but the one where the text starts.
+// time, and its cursors show only the pages that hold it. The text runs across the boundary
+// between two parts of the stored body, deep in its second line, and again far past that; a short
+// first line and a short third line match too. The result shows the first line and ends with the
+// cursor at the long line's page that holds the text; that cursor's read shows the page, the next
+// the page of the second match and the next the third line, with no page between. Killed by
+// testing only a line's opening page, by a scan that carries no bytes from one part into the next,
+// by a cursor at any page but the one where the text starts, and by a cursor from inside a line
+// that reads on without the search.
 #[tokio::test]
 async fn a_search_finds_text_past_a_long_lines_first_page_across_two_parts() {
     let (database, reader) = database_of_this_machine();
@@ -352,6 +355,7 @@ async fn a_search_finds_text_past_a_long_lines_first_page_across_two_parts() {
     insert_lead(&database, builder, PROVIDERS[0].id);
     let first_line = "line one NEEDLE\n";
     let long_line = "x".repeat(1_200_000);
+    let third_line = "\nline three NEEDLE";
     let insert_answer = |provider_message_id: &str, body: &str| {
         insert_test_event(
             &reader,
@@ -371,7 +375,7 @@ async fn a_search_finds_text_past_a_long_lines_first_page_across_two_parts() {
     };
     // Where the store's first part of such a body ends, read from a body of the same bytes but the
     // search's, so the text is placed across it.
-    let probe = insert_answer("probe", &format!("{first_line}{long_line}"));
+    let probe = insert_answer("probe", &format!("{first_line}{long_line}{third_line}"));
     let (directory, sessions) = directory_and_sessions(&database);
     let part = sessions
         .read_row_body(builder, probe, 0)
@@ -392,9 +396,15 @@ async fn a_search_finds_text_past_a_long_lines_first_page_across_two_parts() {
         at > first_room,
         "the text lies past the long line's first page"
     );
+    // The second match, far past the first, in the store's second part.
+    let second_at = 1_100_000;
     let mut searched_line = long_line;
     searched_line.replace_range(at..at + "NEEDLE".len(), "NEEDLE");
-    let output = insert_answer("searched", &format!("{first_line}{searched_line}"));
+    searched_line.replace_range(second_at..second_at + "NEEDLE".len(), "NEEDLE");
+    let output = insert_answer(
+        "searched",
+        &format!("{first_line}{searched_line}{third_line}"),
+    );
     let (_data_folder, _store, keychain) = test_keychain(KeychainService::ToolServerKey);
     let cursor_key = cursor_key(keychain.as_ref()).await;
     let read = |arguments: serde_json::Value| {
@@ -416,21 +426,35 @@ async fn a_search_finds_text_past_a_long_lines_first_page_across_two_parts() {
         .trim_matches('"');
     // Every page past a line's first holds as many bytes of this one-byte text.
     let room = READ_PAGE_MAX_BYTES - "2 (cont.): ".len();
-    let page_start = first_room + (at - first_room) / room * room;
+    let page_of = |offset: usize| first_room + (offset - first_room) / room * room;
+    let page_start = page_of(at);
     assert!(cursor.starts_with(&format!("2+{}.", first_line.len() + page_start)));
-
-    let page =
+    let search_on = |cursor: String| {
         read(json!({"session": "builder", "output": output, "search": "NEEDLE", "cursor": cursor}))
-            .await
-            .expect("the cursor reads");
-    let (text, _) = page.split_once('\n').expect("the page ends with a cursor");
-    assert_eq!(
-        text,
+    };
+    let shown_page = |page_start: usize| {
         format!(
             "2 (cont.): {}",
             &searched_line[page_start..page_start + room]
         )
-    );
+    };
+
+    let page = search_on(cursor.to_owned())
+        .await
+        .expect("the cursor reads");
+    let (text, more) = page.split_once('\n').expect("the page ends with a cursor");
+    assert_eq!(text, shown_page(page_start));
+    let second_page = search_on(quoted_cursor(more).to_owned())
+        .await
+        .expect("the next cursor reads");
+    let (text, more) = second_page
+        .split_once('\n')
+        .expect("the page ends with a cursor");
+    assert_eq!(text, shown_page(page_of(second_at)));
+    let third_page = search_on(quoted_cursor(more).to_owned())
+        .await
+        .expect("the last cursor reads");
+    assert_eq!(third_page, "3: line three NEEDLE");
 }
 
 // A page cut keeps a line ending's `\r\n` whole on the next page, so the line read on from the cut

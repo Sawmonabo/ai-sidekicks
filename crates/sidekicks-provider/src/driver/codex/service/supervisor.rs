@@ -15,7 +15,7 @@ mod launch;
 mod loaded_threads;
 pub(crate) mod own_record;
 mod rate_limit_readings;
-mod reconnect;
+pub(crate) mod reconnect;
 pub(crate) mod refusals;
 pub(crate) mod routing;
 mod runner;

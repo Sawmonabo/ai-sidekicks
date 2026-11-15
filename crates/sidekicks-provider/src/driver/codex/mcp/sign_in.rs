@@ -34,7 +34,7 @@ use crate::driver::codex::config_read::read_codex_config;
 use crate::driver::codex::mcp::config::plugins::{CodexPluginServer, read_plugin_server_entries};
 use crate::driver::codex::mcp::config::server_entry::{OAUTH_MEMBER, URL_MEMBER};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
+use crate::driver::codex::service::registry::personal_folder::read::PersonalFolderRead;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::codex::transport::connection::read_codex_object;

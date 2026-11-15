@@ -116,8 +116,8 @@ pub(crate) struct ClaudeSessionControls {
     one_turn_pricing: Arc<ClaudeOneTurnPricing>,
     // The helper limit a copy's helpers count under with its session's.
     helper_count: ClaudeSessionHelperCount,
-    // The one-turn processes whose spend is recorded apart from their caller, which the daemon's
-    // stop waits for.
+    // The one-turn processes whose spend is recorded apart from their caller, and the answers a
+    // copy's freed slot admits, which the daemon's stop waits for.
     recorded_turns: TaskTracker,
     tables: Arc<Mutex<ClaudeControlTables>>,
 }
@@ -179,8 +179,9 @@ impl ClaudeSideQuestionCopy {
 impl ClaudeSessionControls {
     /// The controls, which start the session's own runs through `run_start`, its one-turn
     /// processes through `starts`, a staged review's on a channel of `command_channels`, whose
-    /// spend `one_turn_pricing` records and prices and whose helpers count through `helper_count`,
-    /// and read its command list through `read_commands`.
+    /// spend `one_turn_pricing` records and prices on `recorded_turns`, the tasks `helper_count`
+    /// answers on, and whose helpers count through `helper_count`, and read its command list
+    /// through `read_commands`.
     #[expect(
         clippy::too_many_arguments,
         reason = "the controls take each port and service their session's controls reach"
@@ -195,6 +196,7 @@ impl ClaudeSessionControls {
         command_channels: Arc<ClaudeCommandChannels>,
         one_turn_pricing: ClaudeOneTurnPricing,
         helper_count: ClaudeSessionHelperCount,
+        recorded_turns: TaskTracker,
     ) -> Self {
         Self {
             run_start,
@@ -206,7 +208,7 @@ impl ClaudeSessionControls {
             command_channels,
             one_turn_pricing: Arc::new(one_turn_pricing),
             helper_count,
-            recorded_turns: TaskTracker::new(),
+            recorded_turns,
             tables: Arc::new(Mutex::new(ClaudeControlTables::default())),
         }
     }

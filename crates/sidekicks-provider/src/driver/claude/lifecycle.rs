@@ -23,6 +23,7 @@ use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::data_folder::{program_link_folder, tools_folder};
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
+use tokio_util::task::TaskTracker;
 
 use crate::command::askpass::command_askpass_program_path;
 use crate::command::channel::records::LineCapture;
@@ -474,6 +475,7 @@ impl ClaudeDriver {
                 Arc::clone(&helper_steers),
                 Arc::clone(&pauses),
             ));
+            let one_turn_tasks = TaskTracker::new();
             let session_controls = Arc::new(ClaudeSessionControls::new(
                 run_start.clone(),
                 Arc::clone(&self.starts),
@@ -489,7 +491,10 @@ impl ClaudeDriver {
                 ClaudeSessionHelperCount {
                     limit: Arc::clone(&helpers),
                     agent_tree_lookup: Arc::clone(&ports.agent_tree_lookup),
+                    pauses: Arc::clone(&pauses),
+                    tasks: one_turn_tasks.clone(),
                 },
+                one_turn_tasks,
             ));
             let run_controls = ClaudeRunControls {
                 start: run_start.clone(),

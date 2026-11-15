@@ -9,8 +9,7 @@
 //! folder of the daemon's own, which the registry never holds, and a read on the person's own
 //! folder with no fitting service there runs one on a socket of its own beside it.
 
-pub(crate) mod personal_folder_read;
-pub(crate) mod stored_turn_read;
+pub(crate) mod personal_folder;
 pub(crate) mod terminal_sessions;
 
 use std::collections::HashMap;
@@ -36,7 +35,7 @@ use crate::driver::codex::service::home::{
     CodexConversationHome, CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
 use crate::driver::codex::service::record::{recorded_home_keys, service_record_folder};
-use crate::driver::codex::service::registry::stored_turn_read::StoredTurnWaits;
+use crate::driver::codex::service::registry::personal_folder::stored_turns::StoredTurnWaits;
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
 use crate::driver::codex::service::supervisor::start::kept_records::{
     KeptServicesStop, report_kept_service_unstopped, stop_kept_services,
@@ -104,6 +103,8 @@ struct RegisteredServices {
     // Services started for one read on the person's own Codex folder, held until stopped so a
     // shutdown meanwhile stops them too.
     transient: Vec<Arc<CodexService>>,
+    // Whether the shutdown has begun, past which no transient service is made.
+    is_shut_down: bool,
 }
 
 impl CodexServiceRegistry {
@@ -550,6 +551,7 @@ impl CodexServiceRegistry {
         self.dependencies.drains.call_off();
         let services: Vec<Arc<CodexService>> = {
             let mut services = self.lock();
+            services.is_shut_down = true;
             let replaced = std::mem::take(&mut services.replaced);
             let transient = std::mem::take(&mut services.transient);
             services

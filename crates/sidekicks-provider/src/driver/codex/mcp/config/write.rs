@@ -20,7 +20,7 @@ use crate::driver::codex::mcp::config::observe::{codex_binding_folder, observe_c
 use crate::driver::codex::mcp::config::project_file::{
     CodexProjectFile, CodexProjectFileEdit, CodexProjectFileError, CodexProjectServerEdit,
 };
-use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
+use crate::driver::codex::service::registry::personal_folder::read::PersonalFolderRead;
 use crate::driver::codex::session::errors::{CODEX_INVALID_REQUEST_CODE, CodexError};
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};

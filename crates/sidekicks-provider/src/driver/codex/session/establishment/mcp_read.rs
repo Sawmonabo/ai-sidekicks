@@ -23,7 +23,7 @@ use crate::driver::codex::mcp::{
 };
 use crate::driver::codex::permission_level::codex_repository_root;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
+use crate::driver::codex::service::registry::personal_folder::read::PersonalFolderRead;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::CodexThreadSettings;

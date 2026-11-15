@@ -454,7 +454,8 @@ pub(crate) struct StreamingBlockCut {
     /// The tail's length when a parse of it past one window last froze nothing; the tail is parsed
     /// again only once a window or an eighth of that length, whichever is more, has arrived after
     /// it, so one block streamed in many frames costs parsed bytes in proportion to its length and
-    /// a start is frozen within an eighth of the tail. Zero while no such parse stands.
+    /// a start is frozen within a window or an eighth of the tail, whichever is more. Zero while no
+    /// such parse stands.
     unsplit_length: usize,
 }
 

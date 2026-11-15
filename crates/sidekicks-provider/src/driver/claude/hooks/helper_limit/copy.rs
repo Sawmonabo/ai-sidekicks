@@ -1,6 +1,8 @@
 //! A one-turn copy's helpers, counted with its session's: the copy's own routing band holds its
 //! running helpers, and its helper-limit hook is answered through the session's limit, so a start
-//! past the limit waits until one of the session's helpers, on its own process or a copy, finishes.
+//! past the limit waits until one of the session's helpers, on its own process or a copy, finishes,
+//! and through the session's own message-target checks, so the person's stops and pauses hold on a
+//! copy too.
 
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
@@ -8,20 +10,23 @@ use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use tokio_util::task::TaskTracker;
 
-use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::frame_routing::{bind_thread, route_in_band};
+use crate::driver::claude::hooks::callbacks::helper_calls::{
+    ClaudeMessageTarget, check_message_target,
+};
 use crate::driver::claude::hooks::callbacks::{
-    answer_claude_request, hooked_call_id, is_helper_tool_call, message_recipient, read_hook_input,
+    answer_claude_request, hook_agent_id, hooked_call_id, is_helper_tool_call, message_recipient,
+    read_hook_input,
 };
 use crate::driver::claude::hooks::helper_limit::{
     ClaudeCountedProcess, ClaudeHelperLimit, ClaudeHelperProcess, ClaudeHelperStartAnswer,
     answer_admitted_starts,
 };
-use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
+use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudeRunPauses};
 use crate::driver::claude::hooks::registration::ClaudeHookCallback;
 use crate::driver::claude::session::process::ClaudeStreamFrame;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
@@ -30,19 +35,23 @@ use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::inbound::{
     ClaudeInboundRequest, ClaudeInboundRequestBody,
 };
-use crate::driver::session_messages::target_unread_reason;
 use crate::port::agent_tree_lookup::AgentTreeLookup;
 use crate::thread_frame_router::SubagentLifecycleEventType;
 use crate::usage_delta_accountant::ThreadBaseEstablishment;
 
-/// The session's helper limit a one-turn copy counts under, and the agent tree that says which
-/// of the session's helpers a message from the copy wakes.
+/// The session's helper limit a one-turn copy counts under, the agent tree that says which of the
+/// session's helpers a message from the copy wakes, the pauses and stops a message is checked
+/// against, and the tasks the answers a freed slot admits run on.
 #[derive(Clone)]
 pub(crate) struct ClaudeSessionHelperCount {
     /// Every session's helper limit.
     pub(crate) limit: Arc<Mutex<ClaudeHelperLimit>>,
     /// The session's agent tree, once registered.
     pub(crate) agent_tree_lookup: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
+    /// Every session's pauses and stopped helpers.
+    pub(crate) pauses: Arc<Mutex<ClaudeRunPauses>>,
+    /// The one-turn processes' tasks, which the daemon's stop waits for.
+    pub(crate) tasks: TaskTracker,
 }
 
 /// One copy counted with its session's helpers, until [`Self::release`].
@@ -101,7 +110,8 @@ impl ClaudeCopyHelpers {
 
     /// Routes `frame` through the copy's band, so the helpers it starts and ends count, hands the
     /// frame back, and answers the held starts that frees on any of the session's processes on a
-    /// task of their own, so a stop that drops the copy's turn leaves none admitted unanswered.
+    /// task of their own the daemon's stop waits for, so a stop that drops the copy's turn leaves
+    /// none admitted unanswered.
     pub(crate) fn take_frame(&mut self, frame: ClaudeStreamFrame) -> ClaudeStreamFrame {
         let routed = route_in_band(
             &mut lock(&self.band),
@@ -128,15 +138,20 @@ impl ClaudeCopyHelpers {
         }
         if !admitted.is_empty() {
             let session_id = self.session_id;
-            tokio::spawn(async move { answer_admitted_starts(&session_id, admitted).await });
+            self.count
+                .tasks
+                .spawn(async move { answer_admitted_starts(&session_id, admitted).await });
         }
         routed.frame
     }
 
     /// Answers `asked` where it is the helper-limit hook's callback, and hands back any other
     /// request: a helper start, or a message that wakes an ended helper, is let through while the
-    /// session has room and held otherwise; any other call passes, and a message whose target
-    /// cannot be read is denied with the cause.
+    /// session has room and held otherwise; a message the session's own message-target checks deny
+    /// is denied in their words and takes no slot, and any other call passes. A message's check
+    /// reads the session's agent tree inside the copy's arrivals loop, as the session's own process
+    /// reads it inside its own, so the copy's frames behind it, one that frees a slot among them,
+    /// wait for that read.
     pub(crate) async fn take_request(
         &self,
         asked: ClaudeInboundRequest,
@@ -157,7 +172,8 @@ impl ClaudeCopyHelpers {
         let is_counted = if is_helper_tool_call(input.as_ref()) {
             Ok(true)
         } else if let Some(to) = message_recipient(input.as_ref()) {
-            self.wakes_ended_helper(&to).await
+            let agent_id = hook_agent_id(input.as_ref());
+            self.wakes_ended_helper(agent_id.as_deref(), &to).await
         } else {
             Ok(false)
         };
@@ -175,7 +191,7 @@ impl ClaudeCopyHelpers {
                 }
             }
             Ok(false) => ClaudeHookAnswer::Pass,
-            Err(reason) => ClaudeHookAnswer::Deny { reason },
+            Err(denial) => denial,
         };
         answer_claude_request(
             &*self.channel,
@@ -188,25 +204,32 @@ impl ClaudeCopyHelpers {
         None
     }
 
-    // Whether a message to `to` wakes an ended helper, which Claude Code runs again in the copy:
-    // one not running in the copy whose transcript the copy holds, a helper the copy started or one
-    // the session's agent tree holds. The reason the call is denied with where the tree cannot be
-    // read.
-    async fn wakes_ended_helper(&self, to: &str) -> Result<bool, String> {
+    // Whether a message to `to` by the copy's helper `agent_id` or its lead wakes an ended helper,
+    // which Claude Code runs again in the copy, once the session's own message-target checks let it
+    // through: one not running in the copy whose transcript the copy holds, a helper the copy
+    // started or one the session's agent tree holds. The checks' denial where they deny it.
+    async fn wakes_ended_helper(
+        &self,
+        agent_id: Option<&str>,
+        to: &str,
+    ) -> Result<bool, ClaudeHookAnswer> {
+        let stored = match check_message_target(
+            self.count.agent_tree_lookup.port().cloned(),
+            &self.count.pauses,
+            &self.session_id,
+            agent_id,
+            to,
+        )
+        .await
+        {
+            ClaudeMessageTarget::Denied(denial) => return Err(denial),
+            ClaudeMessageTarget::Unread(reason) => return Err(ClaudeHookAnswer::Deny { reason }),
+            ClaudeMessageTarget::Open(stored) => stored,
+        };
         if lock(&self.band).router.child_attribution_for(to).is_some() {
             return Ok(false);
         }
-        if self.started_helpers.contains(to) {
-            return Ok(true);
-        }
-        let Some(lookup) = self.count.agent_tree_lookup.port().cloned() else {
-            return Ok(false);
-        };
-        lookup
-            .helper_by_subagent_id(self.session_id, DESCRIPTOR.provider_id(), to.to_owned())
-            .await
-            .map(|helper| helper.is_some())
-            .map_err(|error| target_unread_reason(&describe_error(&*error)))
+        Ok(self.started_helpers.contains(to) || stored.is_some())
     }
 
     /// Drops the start the copy's request `request_id` held, which Claude Code withdrew.

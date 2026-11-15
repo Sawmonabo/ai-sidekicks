@@ -8,6 +8,7 @@ use std::error::Error;
 use std::time::Duration;
 
 use serde_json::{Value, json};
+use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
@@ -389,6 +390,18 @@ impl CodexError {
             return Some(message.as_str());
         }
         None
+    }
+
+    /// Whether this is a refusal that asking again cannot change: Codex's JSON-RPC error answer
+    /// other than the overloaded, the draining and the internal-error one, which carries a store's
+    /// read or write that failed and may pass.
+    pub(crate) fn is_standing_refusal(&self) -> bool {
+        if let Self::ProviderRequest { code, .. } = self
+            && *code == i64::from(JsonRpcErrorCode::InternalError.code())
+        {
+            return false;
+        }
+        self.provider_refusal_words().is_some()
     }
 
     /// Codex's own refusal of a request, the service neither overloaded nor draining, as the

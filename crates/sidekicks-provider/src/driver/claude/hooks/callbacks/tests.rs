@@ -21,10 +21,12 @@ use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 
+use super::helper_calls::{
+    helper_start_refused_reason, route_helper_start, route_helper_wake, route_message_target,
+};
 use super::{
     ClaudeHeldHelper, ClaudeRequestRoute, ClaudeShellCall, HookToolInput,
-    UNTIMED_BACKGROUND_REASON, answer_background_work_check, helper_start_refused_reason,
-    route_claude_request, route_helper_start, route_helper_wake, route_message_target,
+    UNTIMED_BACKGROUND_REASON, answer_background_work_check, route_claude_request,
 };
 use crate::background_work::BackgroundWorkForms;
 use crate::driver::PROVIDERS;
@@ -47,6 +49,7 @@ use crate::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
 use crate::run::posture::{compose_execution_posture, resolve_posture};
 
 mod command_windows;
+mod copy_messages;
 mod edit_copies;
 
 // Routes one pre-tool callback of `hook` for `tool_name`, called by the helper `agent_id` or the

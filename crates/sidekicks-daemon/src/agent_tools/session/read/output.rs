@@ -103,10 +103,10 @@ struct BodyLine<'text> {
 impl SessionReading<'_> {
     /// One output's numbered lines: the range or matches asked for, from the cursor's place on.
     /// A line longer than a page is cut there with a cursor inside it, and the lines read on from
-    /// one carry `(cont.)`. A search reads each line to its end and hands the page of it that
-    /// holds the text, or the cursor at that page where the result has no room left. Refuses a
-    /// cursor not handed out for `output`, and an output the session holds neither a body nor a
-    /// message under; fails on a cursor's offset inside a character.
+    /// one carry `(cont.)`. A search reads each line to its end, from inside it too, and hands the
+    /// page of it that holds the text, or the cursor at that page where the result has no room
+    /// left. Refuses a cursor not handed out for `output`, and an output the session holds
+    /// neither a body nor a message under; fails on a cursor's offset inside a character.
     pub(super) async fn read_output(
         &self,
         output: &str,
@@ -385,7 +385,7 @@ fn line_label(number: u64, is_continued: bool) -> String {
 }
 
 // Which of a text's lines a read hands on: those from `first` to `last`, and with `search` only
-// the page of a line that holds it.
+// the pages of them that hold it.
 #[derive(Clone, Copy)]
 struct LineSelection<'search> {
     first: u64,
@@ -406,8 +406,10 @@ impl LineSelection<'_> {
 // where each starts in the text, handed as `LineSelection` selects them. A line longer than
 // `LINE_KEPT_MAX_BYTES` is handed once that much of it is held and the rest of it is passed over.
 // A searched line is held a page at a time, with the bytes a match opening on that page can run on
-// into, and its first page that holds the search is handed; the rest of it is passed over. So a
-// read holds no more of a line than a page and the search's length.
+// into, and its first page that holds the search is handed; the rest of it is passed over. A read
+// from inside a line is searched the same way from there, so a cursor that reads on from a handed
+// page finds the next match past it. So a read holds no more of a line than a page and the
+// search's length.
 struct BodyLines<'search> {
     ended: u64,
     line: String,
@@ -420,9 +422,6 @@ struct BodyLines<'search> {
     // Whether the line being read was handed already or is not selected, its rest passed over to
     // its end.
     is_handed: bool,
-    // The search the line being read is tested against: none for a line read on from inside it,
-    // whose opening was shown.
-    searched: Option<&'search str>,
     selection: LineSelection<'search>,
 }
 
@@ -437,7 +436,6 @@ impl<'search> BodyLines<'search> {
             line_start: from.offset,
             is_continued: from.place == LinePlace::Inside,
             is_handed: false,
-            searched: None,
             selection,
         };
         lines.open_line();
@@ -455,7 +453,7 @@ impl<'search> BodyLines<'search> {
             self.taken += byte_count(segment.len());
             let is_ended = segments.peek().is_some();
             if !self.is_handed {
-                let is_reading_on = match self.searched {
+                let is_reading_on = match self.selection.search {
                     Some(search) => self.search_in(search, segment, is_ended, each),
                     None => self.hold(segment, is_ended, each),
                 };
@@ -484,7 +482,7 @@ impl<'search> BodyLines<'search> {
             return;
         }
         // The text's last line, so whether `each` would read on changes nothing.
-        match self.searched {
+        match self.selection.search {
             Some(search) => self.search_last_pages(search, each),
             None => each(self.held(false)),
         };
@@ -495,11 +493,9 @@ impl<'search> BodyLines<'search> {
         self.ended + u64::from(!self.line.is_empty() || self.is_handed)
     }
 
-    // Sets how the line now being read is read: passed over before the first line selected, and
-    // tested against the search unless it is read on from inside.
+    // Sets whether the line now being read is passed over, as a line before the first selected is.
     fn open_line(&mut self) {
         self.is_handed = self.ended + 1 < self.selection.first;
-        self.searched = self.selection.search.filter(|_| !self.is_continued);
     }
 
     // Adds `segment` to the line being read and hands the line once it ends or once more of it is

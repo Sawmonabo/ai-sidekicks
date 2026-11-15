@@ -1,7 +1,8 @@
-//! The wait before each redial of a service whose connection dropped while it still runs: from 1
-//! second, each wait 1.6 times the last, a fifth either way, never past 120 seconds, and never
-//! giving up. The base stops growing at 100 seconds, so the jittered wait at the cap stays within
-//! 80 to 120 seconds and keeps its fifth either way.
+//! The wait before each redial of a service whose connection dropped while it still runs, and
+//! before each try of the retry a folder's waits on stored turns share: from 1 second, each wait
+//! 1.6 times the last, a fifth either way, never past 120 seconds, and never giving up. The base
+//! stops growing at 100 seconds, so the jittered wait at the cap stays within 80 to 120 seconds
+//! and keeps its fifth either way.
 
 use std::time::Duration;
 

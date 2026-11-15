@@ -1,15 +1,15 @@
-//! The reads that run on the person's own Codex folder: Codex's config read, the machine probe and
-//! a conversation's stored turn. Each runs on the daemon's service there where one fits; otherwise
+//! Codex's config read and the machine probe on the person's own Codex folder, and the transient
+//! service a read there starts. Each runs on the daemon's service there where one fits; otherwise
 //! on a transient service the daemon starts as its own child on a socket of its own beside the
-//! folder's, never the folder's service, and stops once the read settles. A transient service
-//! unloads a conversation as its connection drops, so a probe that follows a config read runs on
-//! the service the read started. The probe never runs on a joined service, whose unload delay the
-//! daemon does not set, so its throwaway conversation would outlive it. A stored turn is read only
-//! where the folder's own service failed a wait's reads or answers nothing, so always on a
-//! transient service.
+//! folder's, never the folder's service, while the read holds the folder, and stops once the read
+//! settles. A transient service unloads a conversation as its connection drops, so a probe that
+//! follows a config read runs on the service the read started. The probe never runs on a joined
+//! service, whose unload delay the daemon does not set, so its throwaway conversation would outlive
+//! it. A stored turn is read only where the folder's own service failed a wait's reads or answers
+//! nothing, so always on a transient service.
 
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,10 +18,12 @@ use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::service::command_line::compose_thread_unload_override;
-use crate::driver::codex::service::home::CodexServiceKind;
+use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
+use crate::driver::codex::service::registry::personal_folder::PERSONAL_FOLDER_HOLDS;
 use crate::driver::codex::service::registry::{
     CodexServiceRegistry, home_socket_path, own_socket_path,
 };
+use crate::driver::codex::service::supervisor::refusals::shut_down_refusal;
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
 use crate::driver::codex::session::errors::CodexError;
 
@@ -34,27 +36,15 @@ pub(crate) enum PersonalFolderRead {
     /// The machine probe, whose throwaway conversation must unload as its connection drops: only
     /// the terminal service, or a transient one that unloads at once.
     Probe,
-    /// The stored turns waited on in the folder, read where the folder's own service failed a
-    /// wait's reads or answers nothing: only a transient service, whose reads load no
-    /// conversation.
-    StoredTurn,
-}
-
-/// The service one read on the person's own folder runs on, and whether it was started for that
-/// read alone.
-pub(super) struct PersonalFolderService {
-    /// The service.
-    pub(super) service: Arc<CodexService>,
-    /// Whether it was started for the read alone, so it is stopped once the read settles.
-    pub(super) is_transient: bool,
 }
 
 impl CodexServiceRegistry {
     /// Runs `read` on a started service on the person's own Codex folder: for a config read the
     /// daemon's service there, the terminal or a joined one, while it serves; for a probe the
-    /// terminal service while it serves; otherwise a transient service started for the read and
-    /// stopped once the read settled and the service is free. Fails as the transient service's
-    /// socket cannot be named or its folder made, as the start fails, and as `read` fails.
+    /// terminal service while it serves; otherwise a transient service started for the read once
+    /// the read holds the folder, and stopped once the read settled and the service is free.
+    /// Fails as the transient service's socket cannot be named or its folder made, once the
+    /// daemon is shutting down, as the start fails, and as `read` fails.
     pub(crate) async fn read_on_personal_folder<Answer, Reading>(
         &self,
         purpose: PersonalFolderRead,
@@ -63,22 +53,21 @@ impl CodexServiceRegistry {
     where
         Reading: Future<Output = Result<Answer, CodexError>>,
     {
-        let PersonalFolderService {
-            service,
-            is_transient,
-        } = self.personal_folder_service(purpose)?;
-        if !is_transient {
+        let folder = self.homes.terminal_reach_home().codex_home;
+        if let Some(service) = self.fitting_service(purpose, &folder) {
             service
                 .ensure_started(self.dependencies.startup_timeout)
                 .await?;
             return read(service).await;
         }
+        let hold = PERSONAL_FOLDER_HOLDS.acquire(folder).await;
+        let service = self.transient_service(&hold)?;
         let answered = async {
             self.start_transient(&service).await?;
             read(Arc::clone(&service)).await
         }
         .await;
-        self.retire_transient(service, None);
+        self.retire_transient(service, hold);
         answered
     }
 
@@ -118,43 +107,51 @@ impl CodexServiceRegistry {
             .await
     }
 
-    // The service `purpose` runs on: one of the daemon's on the folder that fits and serves, else
-    // a transient one, made but not started and held among the transient services.
-    pub(super) fn personal_folder_service(
+    // The service of the daemon's on `folder` that `purpose` fits and that serves; `None` where
+    // the read takes a transient one.
+    pub(in crate::driver::codex::service::registry) fn fitting_service(
         &self,
         purpose: PersonalFolderRead,
-    ) -> Result<PersonalFolderService, CodexError> {
-        let home = self.homes.terminal_reach_home();
-        let fitting = match purpose {
-            PersonalFolderRead::Config => self.service_on(&home.codex_home),
+        folder: &Path,
+    ) -> Option<Arc<CodexService>> {
+        match purpose {
+            PersonalFolderRead::Config => self.service_on(folder),
             PersonalFolderRead::Probe => self.daemon_terminal_service(),
-            PersonalFolderRead::StoredTurn => None,
-        };
-        if let Some(service) = fitting.filter(|service| service.is_serving()) {
-            return Ok(PersonalFolderService {
-                service,
-                is_transient: false,
-            });
         }
+        .filter(|service| service.is_serving())
+    }
+
+    // A transient service on the folder `hold` holds, made but not started and held among the
+    // transient services. Fails as its socket cannot be named, and once the daemon is shutting
+    // down, so a read that takes the folder after the shutdown began starts no process.
+    pub(in crate::driver::codex::service::registry) fn transient_service(
+        &self,
+        hold: &KeyHold<'static, PathBuf>,
+    ) -> Result<Arc<CodexService>, CodexError> {
+        let codex_home = hold.key().clone();
         // After the shared delay, so a probe's conversation unloads as its connection drops.
         let config_overrides = vec![compose_thread_unload_override(Duration::ZERO)];
-        let path = own_socket_path(&home.codex_home).map_err(|error| CodexError::Transport {
+        let path = own_socket_path(&codex_home).map_err(|error| CodexError::Transport {
             detail: "The socket of a Codex read's own service could not be named.".to_owned(),
             cause: Some(Box::new(error)),
         })?;
-        let home_socket = home_socket_path(&home.codex_home);
+        let home_socket = home_socket_path(&codex_home);
         let service = CodexService::new(
-            home,
+            CodexServiceHome {
+                codex_home,
+                kind: CodexHomeKind::PersonalFolder,
+            },
             CodexServiceSocket { path, home_socket },
             CodexServiceKind::Account,
             Arc::clone(&self.dependencies),
             config_overrides,
         );
-        self.lock().transient.push(Arc::clone(&service));
-        Ok(PersonalFolderService {
-            service,
-            is_transient: true,
-        })
+        let mut services = self.lock();
+        if services.is_shut_down {
+            return Err(shut_down_refusal());
+        }
+        services.transient.push(Arc::clone(&service));
+        Ok(service)
     }
 
     // The daemon's own terminal service on the person's own folder, serving or not; `None` where
@@ -170,11 +167,12 @@ impl CodexServiceRegistry {
 
     // Stops `service`, a read's transient one, on the driver's tracked tasks once it is free to
     // stop, and forgets it, then lets `hold` go, so no read on its folder starts another while it
-    // stops; a shutdown meanwhile ends the wait, the shutdown stopping it.
+    // stops; a shutdown meanwhile ends the wait once it has stopped the service, and a read that
+    // takes the folder after it starts none.
     pub(super) fn retire_transient(
         &self,
         service: Arc<CodexService>,
-        hold: Option<KeyHold<'static, PathBuf>>,
+        hold: KeyHold<'static, PathBuf>,
     ) {
         let services = Arc::clone(&self.services);
         self.dependencies.tasks.spawn(async move {

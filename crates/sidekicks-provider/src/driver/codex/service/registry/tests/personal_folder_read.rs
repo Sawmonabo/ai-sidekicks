@@ -16,7 +16,8 @@ use crate::driver::codex::service::command_line::{
     CodexServiceCommandLineInput, compose_codex_service_arguments,
 };
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
-use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
+use crate::driver::codex::service::registry::personal_folder::PERSONAL_FOLDER_HOLDS;
+use crate::driver::codex::service::registry::personal_folder::read::PersonalFolderRead;
 use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome, home_socket_path};
 use crate::driver::codex::service::supervisor::test_service::{
     TestCodexProgram, UnheardEvents, script_codex_service, test_codex_service_dependencies,
@@ -126,12 +127,20 @@ async fn only_the_probe_s_own_service_unloads_a_conversation_at_once() {
         CodexServiceKind::Terminal,
         Arc::clone(&holding.dependencies),
     );
+    let folder = holding.on_folder.home().codex_home.clone();
+    assert!(
+        holding
+            .registry
+            .fitting_service(PersonalFolderRead::Probe, &folder)
+            .is_none()
+    );
+    let hold = PERSONAL_FOLDER_HOLDS.acquire(folder).await;
     let probe = holding
         .registry
-        .personal_folder_service(PersonalFolderRead::Probe)
+        .transient_service(&hold)
         .expect("the probe's service is made");
 
-    let probe_arguments = launch_arguments(&probe.service);
+    let probe_arguments = launch_arguments(&probe);
     let position = |switch: &str| {
         probe_arguments
             .iter()
@@ -176,26 +185,27 @@ async fn the_probe_gets_a_service_of_its_own_only_off_the_terminal_service(
     #[case] is_transient: bool,
 ) {
     let holding = hold_folder(kind);
+    let folder = holding.on_folder.home().codex_home.clone();
 
+    let fitting = holding.registry.fitting_service(purpose, &folder);
+
+    assert_eq!(fitting.is_none(), is_transient);
+    if let Some(fitting) = fitting {
+        assert!(Arc::ptr_eq(&fitting, &holding.on_folder));
+        return;
+    }
+    let hold = PERSONAL_FOLDER_HOLDS.acquire(folder).await;
     let probe = holding
         .registry
-        .personal_folder_service(purpose)
-        .expect("the read's service is chosen");
-
-    assert_eq!(probe.is_transient, is_transient);
-    assert_eq!(
-        Arc::ptr_eq(&probe.service, &holding.on_folder),
-        !is_transient
+        .transient_service(&hold)
+        .expect("the read's service is made");
+    assert!(probe.kind().is_daemons_own());
+    assert_ne!(probe.socket_path(), holding.on_folder.socket_path());
+    let registered = holding.registry.services();
+    assert!(
+        registered.len() == 1 && Arc::ptr_eq(&registered[0], &holding.on_folder),
+        "the probe's service took the folder"
     );
-    if is_transient {
-        assert!(probe.service.kind().is_daemons_own());
-        assert_ne!(probe.service.socket_path(), holding.on_folder.socket_path());
-        let registered = holding.registry.services();
-        assert!(
-            registered.len() == 1 && Arc::ptr_eq(&registered[0], &holding.on_folder),
-            "the probe's service took the folder"
-        );
-    }
 }
 
 // A refresh's read that finds no server to probe, or only a target no place loads, reads the

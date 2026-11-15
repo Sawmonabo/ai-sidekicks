@@ -15,7 +15,7 @@ use tokio::runtime::Handle;
 use crate::account::credential_home::CredentialHome;
 use crate::driver::codex::account::CodexAccountLegs;
 use crate::driver::codex::config_read::read_codex_config;
-use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
+use crate::driver::codex::service::registry::personal_folder::read::PersonalFolderRead;
 use crate::driver::codex::service::registry::{CodexServiceRegistry, switching_home};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::read_codex_object;

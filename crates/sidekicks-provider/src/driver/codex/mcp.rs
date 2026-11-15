@@ -32,7 +32,7 @@ use crate::driver::codex::mcp::requirements::{
     CodexRequirementsSources, read_codex_mcp_requirements,
 };
 use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
+use crate::driver::codex::service::registry::personal_folder::read::PersonalFolderRead;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 

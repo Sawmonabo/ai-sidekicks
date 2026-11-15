@@ -18,7 +18,7 @@ use crate::driver::codex::mcp::machine_probe::{
 use crate::driver::codex::mcp::read_codex_mcp_servers;
 use crate::driver::codex::mcp::requirements::CodexRequirementsSources;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
-use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
+use crate::driver::codex::service::registry::personal_folder::read::PersonalFolderRead;
 use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome};
 use crate::driver::codex::service::supervisor::test_service::{
     CONFIG_READ_REPLY_NAME, PROBE_THREAD_ID, PROBE_TOOL_NAME, REQUEST_RECORD_NAME,
