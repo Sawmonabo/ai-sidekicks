@@ -202,6 +202,8 @@ impl ClaudeSessionStream {
             binding_id: run.binding_id.clone(),
             turn_number: Some(turn_number),
             opening: None,
+            awaited_members: Vec::new(),
+            group_start: None,
         });
         before
     }

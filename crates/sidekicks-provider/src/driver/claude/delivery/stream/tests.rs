@@ -134,8 +134,8 @@ async fn a_turn_opened_by_a_written_message_names_that_messages_item(#[case] is_
 }
 
 // A resume writes every waiting message into one turn, which the oldest opens, as the first of a
-// start's messages opens a Codex turn; the newer lands in it as a message of its own. Killed by
-// taking the newest message written as the opening.
+// start's messages opens a Codex turn. Killed by taking the newest message written as the
+// opening.
 #[tokio::test(start_paused = true)]
 async fn a_turn_taking_two_written_messages_is_opened_by_the_older() {
     let session = ScriptedSession::new().await;

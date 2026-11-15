@@ -336,7 +336,15 @@ impl ClaudeDeliveryStream {
         match kind {
             ClaudeWireFrameKind::SystemInit => {
                 after.context_read = Some(None);
-                session.lock().has_turn_message = false;
+                {
+                    let mut readings = session.lock();
+                    readings.has_turn_message = false;
+                    // Claude Code reports every member of the command a turn took before the
+                    // turn's `system/init`, so a message it takes after is a command of its own.
+                    if let Some(turn) = readings.turn.as_mut() {
+                        turn.awaited_members.clear();
+                    }
+                }
                 self.mark_initialized(session, &lead, read_non_empty_string(&members, "model"))
                     .await;
             }

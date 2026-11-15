@@ -1,5 +1,6 @@
-//! What the stream reads off one session's process while it runs: the open turn's run, number and
-//! opening message, the messages taken while no turn of their run was open, its readings (the
+//! What the stream reads off one session's process while it runs: the open turn's run, number,
+//! opening message and the members of its command still to be reported, the messages taken while
+//! no turn of their run was open, its readings (the
 //! refusal, spent retries, a failed call's words, the step messages counted), each run's start
 //! report, the rows held for their tool call's start, the blocks streaming, the events each message
 //! was written as, the steers written `now` and not yet named taken, the runs an interrupt stopped,
@@ -13,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use sidekicks_contracts::event::declared_variants::RunAgentOutputPayload;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::events::CutGroupStart;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
@@ -70,6 +72,31 @@ pub(crate) struct ClaudeOpenTurn {
     /// The uuid of the message that opened it; `None` for a turn Claude Code started itself or a
     /// continued one, which opened on no message written.
     pub(crate) opening: Option<String>,
+    /// The run's messages written before the turn opened and not yet reported taken, which
+    /// Claude Code reports as members of the command the turn took until the turn's
+    /// `system/init`; empty from then on.
+    pub(crate) awaited_members: Vec<QueueItemId>,
+    /// Where the cut group of the command the turn took begins, which a member reported after the
+    /// turn's start names; `None` until a turn opened at no message lands its first member.
+    pub(crate) group_start: Option<CutGroupStart>,
+}
+
+impl ClaudeOpenTurn {
+    /// Where `message_id`, reported taken in this turn, begins its cut group: a member of the
+    /// command the turn took names the group's start, the first member of a turn opened at no
+    /// message naming none and becoming that start; any other message is a command of its own.
+    pub(crate) fn take_group_start(&mut self, message_id: QueueItemId) -> Option<CutGroupStart> {
+        let at = self
+            .awaited_members
+            .iter()
+            .position(|awaited| *awaited == message_id)?;
+        self.awaited_members.swap_remove(at);
+        if self.group_start.is_none() {
+            self.group_start = Some(CutGroupStart::Message { message_id });
+            return None;
+        }
+        self.group_start.clone()
+    }
 }
 
 /// One of the person's messages Claude Code took while no turn of its run was open, which lands

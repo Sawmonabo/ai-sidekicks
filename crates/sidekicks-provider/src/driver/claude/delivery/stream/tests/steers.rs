@@ -1,6 +1,7 @@
 //! Where a message Claude Code took lands among its run's deliveries.
 
 use serde_json::{Value, json};
+use sidekicks_contracts::run::events::CutGroupStart;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -74,6 +75,17 @@ fn landings(session: &ScriptedSession) -> Vec<(QueueItemId, u64)> {
         .collect()
 }
 
+// Where each landing of the session's deliveries says its cut group begins, as (message, start).
+fn group_starts(session: &ScriptedSession) -> Vec<(QueueItemId, Option<CutGroupStart>)> {
+    session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter(|delivery| delivery.kind == "turnSteered")
+        .filter_map(|delivery| Some((delivery.message_id?, delivery.cut_group_start)))
+        .collect()
+}
+
 // The deliveries after the run's `nth` turn start (from 1), in order.
 fn deliveries_after_start(
     session: &ScriptedSession,
@@ -103,20 +115,26 @@ fn deliveries_after_start(
 }
 
 // A steer taken mid-turn lands once, at its first sign, between the tool result before it and the
-// reply after it; one kept past its turn's end lands right after the next turn's start; the
-// opening's `started` lands nothing; of two written messages taken into one turn, the newer lands
-// right after the turn's start, before its rows, and the older, which opens it, lands nothing; one
-// kept past its turn's end lands in the turn a continue reopens, before that turn's rows, and in
-// the run's next turn when the continue is put back before any frame. Killed by a `started` with
-// no turn open dropped, by both signs landing, by the opening landed, by a turn's later message
-// dropped, by a continue that leaves the kept message for a later turn and by a put-back continue
+// reply after it, as a command of its own though it was written before the turn opened; one kept
+// past its turn's end lands right after the next turn's start; the opening's `started` lands
+// nothing; of two written messages taken into one command, the newer lands right after the turn's
+// start, before its rows, naming the older, which opens it and lands nothing; a steer kept past
+// the turn before and taken into one command with a later written message, which opens the turn,
+// lands naming that opening; one kept past its turn's end lands in the turn a continue reopens,
+// before that turn's rows, and in the run's next turn when the continue is put back before any
+// frame. Killed by a `started` with no turn open dropped, by both signs landing, by a steer taken
+// after the turn's `system/init` named a member, by the opening landed, by a turn's later message
+// dropped or landed as a command of its own, by a member reported after the turn opened naming no
+// group, by a continue that leaves the kept message for a later turn and by a put-back continue
 // that lands it in the turn it never reopened or forgets it.
 #[tokio::test(start_paused = true)]
 async fn a_claude_steer_lands_where_claude_code_took_it() {
-    // Mid-turn: a tool result, the steer's echo, its `started`, a reply.
+    // Mid-turn: a tool result, the steer's echo, its `started`, a reply; the steer and the
+    // message that opens the turn were both written before the turn's `system/init`.
     let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
-    let steer = new_item();
+    let (opening, steer) = (new_item(), new_item());
+    write(&session, run_id, opening, false);
     write(&session, run_id, steer, true);
     session.frame(&init());
     session.frame(&tool_call("message-1", "call-1", "Read", None));
@@ -127,6 +145,7 @@ async fn a_claude_steer_lands_where_claude_code_took_it() {
     session.frame(&result(&json!({})));
     settle().await;
     assert_eq!(landings(&session), [(steer, 1)]);
+    assert_eq!(group_starts(&session), [(steer, None)]);
     let deliveries = session.engine.deliveries();
     let row_at = |is_row: fn(&LateAppendableRow) -> bool| {
         deliveries
@@ -216,6 +235,42 @@ async fn a_claude_steer_lands_where_claude_code_took_it() {
         "{after_start:?}"
     );
     assert_eq!(landings(&session), [(newer, 1)]);
+    assert_eq!(
+        group_starts(&session),
+        [(newer, Some(CutGroupStart::Message { message_id: older }))]
+    );
+
+    // A steer kept past the turn before, merged with a later written message: Claude Code echoes
+    // the steer, the command's other member, then every member gets `started`, then the turn's
+    // `system/init`. The steer's echo is the turn's first frame, and the turn opens at the written
+    // message.
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+    let (steer, later) = (new_item(), new_item());
+    write(&session, run_id, steer, true);
+    session.frame(&init());
+    session.frame(&result(&json!({})));
+    settle().await;
+    write(&session, run_id, later, false);
+    session.frame(&echo(steer));
+    session.frame(&started(steer));
+    session.frame(&started(later));
+    session.frame(&init());
+    session.frame(&result(&json!({})));
+    settle().await;
+    assert!(
+        session
+            .engine
+            .calls()
+            .contains(&EngineCall::StartTurn(run_id, Some(later))),
+        "{:?}",
+        session.engine.calls()
+    );
+    assert_eq!(landings(&session), [(steer, 2)]);
+    assert_eq!(
+        group_starts(&session),
+        [(steer, Some(CutGroupStart::Message { message_id: later }))]
+    );
 
     // Kept past the turn's end, then the turn continued: `result`, the steer's `started`, the
     // continue, a reply.

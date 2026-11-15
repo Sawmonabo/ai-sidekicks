@@ -173,9 +173,25 @@ impl ClaudeSentPrompts {
             .any(|prompt| prompt.is_steer && prompt.run_id == run_id)
     }
 
+    /// The uuids of the messages written to the session's process for `run_id`, steers included,
+    /// that Claude Code has not yet reported taken.
+    pub(crate) fn untaken_for(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+    ) -> impl Iterator<Item = &str> {
+        self.unreported
+            .iter()
+            .filter(move |(_uuid, prompt)| {
+                prompt.session_id == session_id && prompt.run_id == run_id
+            })
+            .map(|(uuid, _prompt)| uuid.as_str())
+    }
+
     /// The message that opens the session's turn starting now, its user message's uuid: the
-    /// oldest message sent to its process since its last turn opened that is no steer, the rest
-    /// taken into the same turn; `None` for a turn Claude Code started itself.
+    /// oldest message sent to its process since its last turn opened that is no steer; `None` for
+    /// a turn Claude Code started itself. The rest are forgotten here: those Claude Code took into
+    /// the same command are reported taken in the turn as its members.
     pub(crate) fn take_turn_opening(&mut self, session_id: SessionId) -> Option<String> {
         self.unopened_by_session
             .remove(&session_id)?

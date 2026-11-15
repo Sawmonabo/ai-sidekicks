@@ -2,7 +2,8 @@
 //! `started` reports it taken under the run it was written for, a terminal drop settles it with no
 //! report, and a peer message the receiver's policy refused is published as refused. A message
 //! this process wrote lands where Claude Code took it: in its run's open turn, unless it opened
-//! that turn, else kept for that run's next turn.
+//! that turn, naming where its group begins when it is a member of the command the turn took,
+//! else kept for that run's next turn.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -110,7 +111,9 @@ impl ClaudeDeliveryStream {
     }
 
     // Lands a message in its run's open, numbered turn unless it opened that turn; with no turn of
-    // its run open it waits for the run's next turn.
+    // its run open it waits for the run's next turn. A member of the command the turn took names
+    // where its group begins; a steer taken mid-turn is a command of its own, which Claude Code's
+    // cut finds exactly.
     async fn land_taken(
         &self,
         session: &ClaudeSessionStream,
@@ -120,11 +123,13 @@ impl ClaudeDeliveryStream {
     ) {
         let landing = {
             let mut readings = session.lock();
-            match readings.turn.as_ref().filter(|turn| turn.run_id == run_id) {
+            match readings.turn.as_mut().filter(|turn| turn.run_id == run_id) {
                 Some(turn) if turn.opening.as_deref() == Some(uuid) => None,
-                Some(turn) => turn
-                    .turn_number
-                    .map(|turn_number| (turn.binding_id.clone(), turn_number)),
+                Some(turn) => {
+                    let cut_group_start = turn.take_group_start(message_id);
+                    turn.turn_number
+                        .map(|turn_number| (turn.binding_id.clone(), turn_number, cut_group_start))
+                }
                 None => {
                     readings
                         .taken_without_turn
@@ -133,13 +138,12 @@ impl ClaudeDeliveryStream {
                 }
             }
         };
-        // A steer taken mid-turn is a command of its own, which Claude Code's cut finds exactly.
-        if let Some((binding_id, turn_number)) = landing {
+        if let Some((binding_id, turn_number, cut_group_start)) = landing {
             let steered = InboundDelivery::TurnSteered {
                 binding_id,
                 turn_number,
                 message_id,
-                cut_group_start: None,
+                cut_group_start,
             };
             self.send(session, steered, None).await;
         }
