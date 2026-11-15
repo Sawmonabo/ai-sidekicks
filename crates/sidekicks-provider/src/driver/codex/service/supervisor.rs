@@ -88,6 +88,7 @@ use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_servic
 use crate::driver::codex::version::CODEX_CLIENT_NAME;
 use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::ports::RequestHeldListener;
 use crate::port::raw_provider_messages::RawProviderMessages;
 use crate::pricing::receiver::TelemetryTarget;
 use crate::process_identity::ProviderProcessIdentity;
@@ -160,6 +161,9 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) telemetry_target: Arc<PortRegistration<Arc<TelemetryTarget>>>,
     /// The register each launch takes its tag from, which the driver's export reader reads.
     pub(crate) exports: Arc<CodexExports>,
+    /// The repricing's intake, which takes a launch's exported response no session will ever own
+    /// as its account's spend; until it is registered such a response is refused.
+    pub(crate) request_held: Arc<PortRegistration<Arc<dyn RequestHeldListener>>>,
     /// Where every message a service sends on a connection is recorded word for word.
     pub(crate) raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
 }
@@ -179,6 +183,25 @@ impl CodexServiceSocket {
     /// `unix://`.
     pub(crate) fn is_home_socket(&self) -> bool {
         self.path == self.home_socket
+    }
+}
+
+/// The accounts one service runs on through its life.
+#[derive(Clone)]
+pub(crate) enum CodexAccountTimeline {
+    /// A home of one account, `None` on a home of none.
+    Fixed(Option<ProviderAccountId>),
+    /// The switching service's carried account and its changes.
+    Switching(Arc<CodexSwitchingAccount>),
+}
+
+impl CodexAccountTimeline {
+    /// The account run on at `at_ms`, in Unix milliseconds.
+    pub(crate) fn account_at(&self, at_ms: u64) -> Option<ProviderAccountId> {
+        match self {
+            Self::Fixed(provider_account_id) => provider_account_id.clone(),
+            Self::Switching(switching) => switching.carried_account_at(at_ms),
+        }
     }
 }
 
@@ -365,14 +388,24 @@ impl CodexService {
     /// The account the service ran on at `at_ms`, in Unix milliseconds: the account a switching
     /// service carried then, else its home's; `None` where [`Self::provider_account_id`] is.
     pub(crate) fn account_at(&self, at_ms: u64) -> Option<ProviderAccountId> {
+        self.account_timeline().account_at(at_ms)
+    }
+
+    /// The accounts the service runs on through its life, which a charge of its launch keeps past
+    /// the service's end: the switching account's changes, else its home's one account.
+    pub(crate) fn account_timeline(&self) -> CodexAccountTimeline {
         match &self.home.kind {
-            CodexHomeKind::Switching => self.dependencies.switching.carried_account_at(at_ms),
+            CodexHomeKind::Switching => {
+                CodexAccountTimeline::Switching(Arc::clone(&self.dependencies.switching))
+            }
             CodexHomeKind::Account(_)
             | CodexHomeKind::ApiKeyAccount(_)
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
             | CodexHomeKind::McpSignIn
-            | CodexHomeKind::TokenStatusRead => self.home.provider_account_id().cloned(),
+            | CodexHomeKind::TokenStatusRead => {
+                CodexAccountTimeline::Fixed(self.home.provider_account_id().cloned())
+            }
         }
     }
 
@@ -656,10 +689,12 @@ impl CodexService {
         let mut routing = self.lock_routing();
         for warning in routing.config_warnings.take_owed(&session_id) {
             // A queue whose task ended takes nothing more; its session is closing.
-            let _unheard = sender.push(CodexSessionInbound::Frame {
-                method: CODEX_CONFIG_WARNING_METHOD.to_owned(),
-                params: warning,
-            });
+            let _unheard = sender
+                .push(CodexSessionInbound::Frame {
+                    method: CODEX_CONFIG_WARNING_METHOD.to_owned(),
+                    params: warning,
+                })
+                .is_ok();
         }
         routing.attach(sender);
     }
@@ -672,15 +707,16 @@ impl CodexService {
         }
     }
 
-    /// Queues `item` for one session; answers whether an attached session's queue took it.
+    /// Queues `item` for one session; hands it back where no attached session's queue took it.
     pub(crate) fn push_session_item(
         &self,
         session_id: &SessionId,
         item: CodexSessionInbound,
-    ) -> bool {
-        self.lock_routing()
-            .session(session_id)
-            .is_some_and(|session| session.push(item))
+    ) -> Result<(), Box<CodexSessionInbound>> {
+        match self.lock_routing().session(session_id) {
+            Some(session) => session.push(item),
+            None => Err(Box::new(item)),
+        }
     }
 
     /// Records a conversation as a session's and delivers the frames held for it, in order.
@@ -701,10 +737,12 @@ impl CodexService {
         if let Some(session_id) = self.lock_threads().release(thread_id) {
             let thread_id = thread_id.to_owned();
             // A session already let go holds no turn of the copy.
-            let _is_taken = self.push_session_item(
-                &session_id,
-                CodexSessionInbound::SideQuestionReleased { thread_id },
-            );
+            let _is_taken = self
+                .push_session_item(
+                    &session_id,
+                    CodexSessionInbound::SideQuestionReleased { thread_id },
+                )
+                .is_ok();
         }
     }
 

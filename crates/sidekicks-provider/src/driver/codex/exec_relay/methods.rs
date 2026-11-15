@@ -6,6 +6,9 @@
 pub(super) const INITIALIZE_METHOD: &str = "initialize";
 pub(super) const INITIALIZED_METHOD: &str = "initialized";
 
+/// The terminate the relay sends itself for a process a dropped connection's ended hold kept.
+pub(super) const PROCESS_TERMINATE_METHOD: &str = "process/terminate";
+
 /// The write the relay sends itself for the person's input.
 pub(super) const PROCESS_WRITE_METHOD: &str = "process/write";
 
@@ -120,7 +123,7 @@ impl ClientMethod {
             INITIALIZE_METHOD => Self::Initialize,
             INITIALIZED_METHOD => Self::Initialized,
             "process/start" => Self::ProcessStart,
-            "process/terminate" => Self::ProcessTerminate,
+            PROCESS_TERMINATE_METHOD => Self::ProcessTerminate,
             "process/read" | PROCESS_WRITE_METHOD | "process/signal" => Self::ProcessNamed,
             "fs/open" => Self::FileOpen,
             "fs/readBlock" | "fs/writeBlock" => Self::FileNamed,

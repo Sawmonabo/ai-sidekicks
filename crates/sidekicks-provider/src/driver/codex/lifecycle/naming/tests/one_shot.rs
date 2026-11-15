@@ -6,10 +6,10 @@ use std::sync::Arc;
 use rstest::rstest;
 use serde_json::json;
 use sidekicks_platforms::{
-    StandInAnswer, StandInProgram, read_recorded_arguments, write_stand_in_program,
+    StandInAnswer, StandInHold, StandInProgram, read_recorded_arguments, write_stand_in_program,
 };
-use sidekicks_std::file::atomic_write::write_file_atomically;
 use tokio::sync::watch;
+use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
@@ -17,6 +17,7 @@ use super::usage::{held_keys, metered_filing, recorded_rows};
 use super::{filing_over, locked_down_config};
 use crate::bounded_poll::poll_until;
 use crate::driver::child_records::UnrecordedChildren;
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::lifecycle::naming::lockdown::read_exec_overrides;
 use crate::driver::codex::lifecycle::naming::one_shot::name_in_one_shot;
 use crate::driver::codex::lifecycle::naming::{CODEX_NAMING_DEADLINE, CODEX_SERVER_LIST_DEADLINE};
@@ -26,10 +27,18 @@ use crate::driver::codex::service::supervisor::test_service::{
     TestCodexProgram, UnheardEvents, script_codex_service, test_codex_service_dependencies,
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
+use crate::driver::codex::telemetry::completed_response::tests::{
+    codex_record, completed_response_attributes,
+};
+use crate::driver::codex::telemetry::exports::tests::export_carrying;
 use crate::driver::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::ports::DriverPorts;
 use crate::port::usage_sink::MeteredUsageOwner;
+use crate::pricing::receiver::bearers::TelemetryBearers;
+use crate::pricing::receiver::{TelemetryExportReader as _, TelemetryTarget};
+use crate::runtime_binding::test_store::test_provider_account_id;
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// What a one-shot pass's `codex exec --json` prints: its thread's start and its turn's counts.
 const EXEC_EVENTS: &str = concat!(
@@ -40,42 +49,96 @@ const EXEC_EVENTS: &str = concat!(
     "\n",
 );
 
-// A stand-in for Codex's program in `folder`: `codex mcp list --json` prints `listing` and exits
-// with `list_exit`; any other call records its arguments in `arguments`, prints `exec_printed`
-// and exits with `exec_exit`.
-fn write_stand_in(
-    folder: &Path,
-    (listing, list_exit): (&str, u8),
-    arguments: &Path,
-    (exec_printed, exec_exit): (&str, u8),
-) -> PathBuf {
-    write_stand_in_program(
-        folder,
-        "codex",
-        &StandInProgram {
-            answers_by_first_argument: vec![(
-                "mcp".to_owned(),
-                StandInAnswer {
-                    standard_output: listing.to_owned(),
-                    exit_code: list_exit,
-                    argument_record: None,
-                },
-            )],
-            otherwise: StandInAnswer {
-                standard_output: exec_printed.to_owned(),
-                exit_code: exec_exit,
-                argument_record: Some(arguments.to_owned()),
-            },
-            first_call_wait: None,
-        },
-    )
-    .expect("the stand-in is written")
+// A stand-in for Codex's program in `folder`, and where its exec writes what it ran with: the
+// exec's record holds its arguments, then its export's tag and headers, a line each; a held exec
+// marks `waiting` once it wrote them and waits for `release`.
+struct StandIn {
+    program: PathBuf,
+    record: PathBuf,
+    waiting: PathBuf,
+    release: PathBuf,
 }
 
-// A service whose program is `program`, with its folders under `folder`, up on a connection the
-// test scripts; on the person's own folder, whose commands carry no store switch, so the stand-in
-// reads the server list by its first argument.
-fn service_running(folder: &Path, program: PathBuf) -> (Arc<CodexService>, ScriptedService) {
+impl StandIn {
+    // A stand-in in `folder` whose `mcp list --json`, wherever the home's switches put it, prints
+    // `listing` and exits with `list_exit`; any other call records what it ran with, waits for
+    // its release where `is_held`, prints `exec_printed` and exits with `exec_exit`.
+    fn write(
+        folder: &Path,
+        (listing, list_exit): (&str, u8),
+        (exec_printed, exec_exit): (&str, u8),
+        is_held: bool,
+    ) -> Self {
+        let (record, waiting, release) = (
+            folder.join("record"),
+            folder.join("waiting"),
+            folder.join("release"),
+        );
+        let program = write_stand_in_program(
+            folder,
+            "codex",
+            &StandInProgram {
+                answers_by_argument: vec![(
+                    "mcp".to_owned(),
+                    StandInAnswer {
+                        standard_output: listing.to_owned(),
+                        exit_code: list_exit,
+                        ..StandInAnswer::default()
+                    },
+                )],
+                otherwise: StandInAnswer {
+                    standard_output: exec_printed.to_owned(),
+                    exit_code: exec_exit,
+                    argument_record: Some(record.clone()),
+                    recorded_environment: vec![
+                        "OTEL_RESOURCE_ATTRIBUTES".to_owned(),
+                        "OTEL_EXPORTER_OTLP_LOGS_HEADERS".to_owned(),
+                    ],
+                    hold: is_held.then(|| StandInHold {
+                        waiting: waiting.clone(),
+                        release: release.clone(),
+                    }),
+                },
+                first_call_wait: None,
+            },
+        )
+        .expect("the stand-in is written");
+        Self {
+            program,
+            record,
+            waiting,
+            release,
+        }
+    }
+
+    // What the exec ran with: its arguments, then its export's tag and headers, each empty where
+    // the exec carries none.
+    fn recorded(&self) -> (Vec<String>, String, String) {
+        let mut lines = read_recorded_arguments(&self.record).expect("the exec wrote its record");
+        let headers = lines.pop().expect("the record ends with the headers");
+        let tag = lines.pop().expect("the headers follow the tag");
+        (lines, tag, headers)
+    }
+
+    // Once a held exec wrote what it ran with, what that was.
+    async fn ran_with(&self) -> (Vec<String>, String, String) {
+        poll_until(|| self.waiting.exists(), |is_waiting| *is_waiting).await;
+        self.recorded()
+    }
+
+    fn release(&self) {
+        std::fs::write(&self.release, "").expect("the exec is released");
+    }
+}
+
+// A service on a home of `home_kind` whose program is `program`, with its folders under `folder`,
+// up on a connection the test scripts. A home of the person's own folder carries no store switch,
+// so a stand-in reads the server list by its first argument.
+fn service_running(
+    folder: &Path,
+    program: PathBuf,
+    home_kind: CodexHomeKind,
+) -> (Arc<CodexService>, ScriptedService) {
     let dependencies = test_codex_service_dependencies(
         folder,
         Arc::new(TestCodexProgram {
@@ -89,7 +152,7 @@ fn service_running(folder: &Path, program: PathBuf) -> (Arc<CodexService>, Scrip
     script_codex_service(
         CodexServiceHome {
             codex_home: folder.join("home"),
-            kind: CodexHomeKind::PersonalFolder,
+            kind: home_kind,
         },
         CodexServiceSocket {
             path: socket.clone(),
@@ -112,16 +175,14 @@ async fn a_one_shot_pass_disables_every_listed_server_or_runs_no_exec(
     #[case] is_listed: bool,
 ) {
     let folder = tempfile::tempdir().expect("the test makes a folder");
-    let arguments_file = folder.path().join("arguments");
     let listing =
         r#"[{"name": "docs", "enabled": true}, {"name": "team.search", "enabled": true}]"#;
-    let program = write_stand_in(
+    let stand_in = StandIn::write(folder.path(), (listing, list_exit), ("", 1), false);
+    let (service, mut script) = service_running(
         folder.path(),
-        (listing, list_exit),
-        &arguments_file,
-        ("", 1),
+        stand_in.program.clone(),
+        CodexHomeKind::PersonalFolder,
     );
-    let (service, mut script) = service_running(folder.path(), program);
     // Read only once the servers are listed; the catalog offers the small title model.
     let catalog = is_listed.then(|| {
         tokio::spawn(async move {
@@ -155,14 +216,14 @@ async fn a_one_shot_pass_disables_every_listed_server_or_runs_no_exec(
             "the stand-in names nothing"
         );
         catalog.await.expect("the catalog was read");
-        let arguments = read_recorded_arguments(&arguments_file).expect("`exec` ran");
+        let (arguments, _tag, _headers) = stand_in.recorded();
         let mut expected = locked_down_config();
         expected["model"] = json!("gpt-5.6-luna");
         expected["model_reasoning_effort"] = json!("low");
         assert_eq!(read_exec_overrides(&arguments), expected);
     } else {
         assert!(named.is_err(), "an unread list fails the pass");
-        assert!(!arguments_file.exists(), "`exec` never ran");
+        assert!(!stand_in.record.exists(), "`exec` never ran");
     }
 }
 
@@ -172,9 +233,12 @@ async fn a_one_shot_pass_disables_every_listed_server_or_runs_no_exec(
 #[tokio::test]
 async fn a_one_shot_pass_whose_catalog_never_answers_ends_at_its_deadline_with_nothing_run() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
-    let arguments_file = folder.path().join("arguments");
-    let program = write_stand_in(folder.path(), ("[]", 0), &arguments_file, ("", 1));
-    let (service, mut script) = service_running(folder.path(), program);
+    let stand_in = StandIn::write(folder.path(), ("[]", 0), ("", 1), false);
+    let (service, mut script) = service_running(
+        folder.path(),
+        stand_in.program.clone(),
+        CodexHomeKind::PersonalFolder,
+    );
     let unanswered = tokio::spawn(async move {
         let listed = script.next_sent().await;
         assert_eq!(listed["method"], "model/list");
@@ -198,27 +262,13 @@ async fn a_one_shot_pass_whose_catalog_never_answers_ends_at_its_deadline_with_n
     .expect("the pass ends at its deadline, before the catalog read's own bound");
 
     assert_eq!(named.expect("a pass past its deadline names nothing"), None);
-    assert!(!arguments_file.exists(), "`exec` never ran");
+    assert!(!stand_in.record.exists(), "`exec` never ran");
     drop(unanswered.await.expect("the catalog read was sent"));
 }
 
-// Real time, since the list's fetch carries a client timeout. The exec names nothing, yet its
-// printed counts are one row as the session's own on the filing's binding at the session model it
-// ran, held under that model with no tier and no region. Killed by dropping `--json`, by leaving
-// the printed counts unread (no row), by recording only once an answer was read (the stand-in
-// writes none, so no row), and by leaving the model unstamped (nothing held).
-#[tokio::test]
-async fn a_one_shot_pass_records_its_counts_as_the_session_s_spend() {
-    let folder = tempfile::tempdir().expect("the test makes a folder");
-    let arguments_file = folder.path().join("arguments");
-    let program = write_stand_in(folder.path(), ("[]", 0), &arguments_file, (EXEC_EVENTS, 0));
-    let (service, mut script) = service_running(folder.path(), program);
-    let usage = Arc::new(GatedUsage::new(watch::channel(true).1));
-    let stop = CancellationToken::new();
-    let (filing, _server) = metered_filing(&usage, folder.path(), &stop).await;
-    let binding = filing.binding_id.as_str().to_owned();
-    // The catalog offers no small model; the row's region is read once the exec ran.
-    let served = tokio::spawn(async move {
+// What the catalog and the region read answer on a pass's service: one model and no region.
+fn serve_catalog_and_region(mut script: ScriptedService) -> JoinHandle<ScriptedService> {
+    tokio::spawn(async move {
         let listed = script.next_sent().await;
         assert_eq!(listed["method"], "model/list");
         let models = [json!({"id": "gpt-5", "displayName": "GPT-5", "hidden": false})];
@@ -227,17 +277,117 @@ async fn a_one_shot_pass_records_its_counts_as_the_session_s_spend() {
         assert_eq!(region["method"], "config/read");
         script.answer(&region, &json!({"config": {}, "origins": {}}));
         script
-    });
+    })
+}
 
-    let named = name_in_one_shot(
-        &service,
-        "Name this.",
-        Some("gpt-5"),
-        Instant::now() + CODEX_NAMING_DEADLINE,
-        &CancellationToken::new(),
-        filing,
-    )
-    .await;
+// Real time, since the list's fetch carries a client timeout. The exec names nothing, yet its
+// spend is the session's own on the filing's binding: on an account's home once the telemetry
+// target is registered, each response its export stated, at the model and tier the record names,
+// with the printed counts, which differ, unread, and a failed exec's responses counted too; before
+// the target, on a home that exports nowhere, or where the export stated nothing, its printed
+// counts, one row at the session model it ran, held under that model with no tier. Killed by
+// dropping `--json`, by leaving the printed counts unread (no row before the target), by recording
+// only once an answer was read (the stand-in writes none, so no row), by leaving the model
+// unstamped (nothing held), by the printed counts read on the export's path (a 1,200 row), by
+// dropping a failed exec's export (no row in the failed case), by counting an exec that exported
+// nothing as no spend (no row), by the export taken with no target or on the person's own home (a
+// tag), by a token the receiver refuses while the exec runs, and by one it admits after.
+#[rstest]
+#[case::before_the_target(true, false, 0, Vec::new(), vec![(1_200, 30)], "gpt-5", None)]
+#[case::exported(true, true, 0, vec![(700, 9)], vec![(700, 9)], "gpt-5.6-luna", Some("priority"))]
+#[case::exported_then_failed(
+    true,
+    true,
+    1,
+    vec![(700, 9), (300, 4)],
+    vec![(700, 9), (300, 4)],
+    "gpt-5.6-luna",
+    Some("priority")
+)]
+#[case::exported_nothing(true, true, 0, Vec::new(), vec![(1_200, 30)], "gpt-5", None)]
+#[case::own_home_with_the_target(false, true, 0, Vec::new(), vec![(1_200, 30)], "gpt-5", None)]
+#[tokio::test]
+async fn a_one_shot_pass_records_its_counts_as_the_session_s_spend(
+    #[case] is_account_home: bool,
+    #[case] is_registered: bool,
+    #[case] exec_exit: u8,
+    #[case] exported: Vec<(u64, u64)>,
+    #[case] expected_rows: Vec<(u64, u64)>,
+    #[case] expected_model: &str,
+    #[case] expected_speed: Option<&str>,
+) {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let stand_in = StandIn::write(folder.path(), ("[]", 0), (EXEC_EVENTS, exec_exit), true);
+    let home_kind = if is_account_home {
+        CodexHomeKind::Account(test_provider_account_id())
+    } else {
+        CodexHomeKind::PersonalFolder
+    };
+    let (service, script) = service_running(folder.path(), stand_in.program.clone(), home_kind);
+    let bearers = Arc::new(TelemetryBearers::default());
+    if is_registered {
+        let target = Arc::new(TelemetryTarget::new(4318, Arc::clone(&bearers)));
+        assert!(
+            service
+                .dependencies()
+                .telemetry_target
+                .register(target)
+                .is_ok()
+        );
+    }
+    let usage = Arc::new(GatedUsage::new(watch::channel(true).1));
+    let stop = CancellationToken::new();
+    let (filing, _server) = metered_filing(&usage, folder.path(), &stop).await;
+    let binding = filing.binding_id.as_str().to_owned();
+    let served = serve_catalog_and_region(script);
+
+    let pass = tokio::spawn({
+        let service = Arc::clone(&service);
+        async move {
+            let deadline = Instant::now() + CODEX_NAMING_DEADLINE;
+            let cancel = CancellationToken::new();
+            name_in_one_shot(
+                &service,
+                "Name this.",
+                Some("gpt-5"),
+                deadline,
+                &cancel,
+                filing,
+            )
+            .await
+        }
+    });
+    let (arguments, tag, headers) = stand_in.ran_with().await;
+    let presented = headers.strip_prefix("authorization=").map(str::as_bytes);
+    if is_registered && is_account_home {
+        let holder = bearers
+            .resolve(&DESCRIPTOR.provider_id(), presented)
+            .expect("the exec's token is admitted while it runs")
+            .holder();
+        let records: Vec<_> = exported
+            .iter()
+            .map(|&(input, output)| {
+                let counts = UsageAxisCounts {
+                    input: Some(input),
+                    output: Some(output),
+                    total: Some(input + output),
+                    ..UsageAxisCounts::default()
+                };
+                codex_record(completed_response_attributes("exec-thread", &counts))
+            })
+            .collect();
+        if !records.is_empty() {
+            service
+                .dependencies()
+                .exports
+                .read_telemetry_export(holder, export_carrying(&tag, records))
+                .await;
+        }
+    } else {
+        assert!(tag.is_empty(), "this exec exports nowhere: {tag}");
+    }
+    stand_in.release();
+    let named = pass.await.expect("the pass ran to its end");
     drop(served.await.expect("the catalog and the region were read"));
     stop.cancel();
 
@@ -246,46 +396,45 @@ async fn a_one_shot_pass_records_its_counts_as_the_session_s_spend() {
         None,
         "the stand-in names nothing"
     );
-    let arguments = read_recorded_arguments(&arguments_file).expect("`exec` ran");
     assert!(arguments.iter().any(|argument| argument == "--json"));
-    assert_eq!(
-        recorded_rows(&usage),
-        [(binding, MeteredUsageOwner::Session, Some(1_200), Some(30))]
+    assert!(
+        bearers
+            .resolve(&DESCRIPTOR.provider_id(), presented)
+            .is_none(),
+        "the exec's token is refused once it ended"
     );
-    assert_eq!(held_keys(&usage), [(Some("gpt-5".to_owned()), None, None)]);
+    let expected: Vec<_> = expected_rows
+        .into_iter()
+        .map(|(input, output)| {
+            let owner = MeteredUsageOwner::Session;
+            (binding.clone(), owner, Some(input), Some(output))
+        })
+        .collect();
+    assert_eq!(recorded_rows(&usage), expected);
+    let key = (
+        Some(expected_model.to_owned()),
+        expected_speed.map(str::to_owned),
+        None::<String>,
+    );
+    assert_eq!(held_keys(&usage), vec![key; expected.len()]);
 }
 
-// Real time, as above. The exec waits for a release file once started, so the cancel lands while it
+// Real time, as above. The exec waits for its release once started, so the cancel lands while it
 // runs; it then prints its turn's counts and ends. Killed by a cancel that drops the running exec,
 // which kills it with its request done and files no row.
 #[tokio::test]
 async fn a_one_shot_pass_canceled_mid_exec_still_records_its_counts() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
-    let (started, release) = (folder.path().join("started"), folder.path().join("release"));
-    let program = folder.path().join("codex");
-    let stand_in = format!(
-        "#!/bin/sh\nif [ \"$1\" = mcp ]; then printf '[]'; exit 0; fi\n: > '{}'\n\
-         while [ ! -e '{}' ]; do sleep 0.05; done\nprintf '%s' '{EXEC_EVENTS}'\n",
-        started.display(),
-        release.display(),
+    let stand_in = StandIn::write(folder.path(), ("[]", 0), (EXEC_EVENTS, 0), true);
+    let (service, script) = service_running(
+        folder.path(),
+        stand_in.program.clone(),
+        CodexHomeKind::PersonalFolder,
     );
-    write_file_atomically(&program, stand_in, 0o755)
-        .await
-        .expect("the stand-in is written");
-    let (service, mut script) = service_running(folder.path(), program);
     let usage = Arc::new(GatedUsage::new(watch::channel(true).1));
     let stop = CancellationToken::new();
     let (filing, _server) = metered_filing(&usage, folder.path(), &stop).await;
-    let served = tokio::spawn(async move {
-        let listed = script.next_sent().await;
-        assert_eq!(listed["method"], "model/list");
-        let models = [json!({"id": "gpt-5", "displayName": "GPT-5", "hidden": false})];
-        script.answer(&listed, &json!({"data": models, "nextCursor": null}));
-        let region = script.next_sent().await;
-        assert_eq!(region["method"], "config/read");
-        script.answer(&region, &json!({"config": {}, "origins": {}}));
-        script
-    });
+    let served = serve_catalog_and_region(script);
     let cancel = CancellationToken::new();
 
     let pass = tokio::spawn({
@@ -303,9 +452,9 @@ async fn a_one_shot_pass_canceled_mid_exec_still_records_its_counts() {
             .await
         }
     });
-    poll_until(|| started.exists(), |is_started| *is_started).await;
+    stand_in.ran_with().await;
     cancel.cancel();
-    std::fs::write(&release, "").expect("the exec is released");
+    stand_in.release();
     let named = pass.await.expect("the pass ran to its end");
     drop(served.await.expect("the catalog and the region were read"));
     stop.cancel();

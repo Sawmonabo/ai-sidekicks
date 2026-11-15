@@ -62,6 +62,8 @@ sidekicks-policy.workspace = true
 sidekicks-std = { workspace = true, features = ["outbound-http"] }
 sidekicks-store.workspace = true
 sidekicks-workspace.workspace = true
+# Reads a Claude Code conversation's chain lines for an undo's ask.
+sonic-rs.workspace = true
 starlark.workspace = true
 strum.workspace = true
 subtle.workspace = true

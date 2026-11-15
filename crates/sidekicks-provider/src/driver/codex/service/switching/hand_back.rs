@@ -382,16 +382,18 @@ fn move_back(
             attached_since.remove(&session.session_id);
             let (moved, landed) = oneshot::channel();
             // A queue that takes nothing drops the wait, and the settling moves the binding.
-            let _taken = service.push_session_item(
-                &session.session_id,
-                CodexSessionInbound::AccountMoved(CodexAccountMove {
-                    provider_account_id: previous.clone(),
-                    binding_id: session.binding_id.clone(),
-                    moved: Some(moved),
-                    actor: None,
-                    first_request: None,
-                }),
-            );
+            let _taken = service
+                .push_session_item(
+                    &session.session_id,
+                    CodexSessionInbound::AccountMoved(CodexAccountMove {
+                        provider_account_id: previous.clone(),
+                        binding_id: session.binding_id.clone(),
+                        moved: Some(moved),
+                        actor: None,
+                        first_request: None,
+                    }),
+                )
+                .is_ok();
             (session, landed)
         })
         .collect();

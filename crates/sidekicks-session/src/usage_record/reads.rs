@@ -1,7 +1,8 @@
 //! The usage record's reads of the log and the accounts: where a reading's row goes, an account's
 //! generation and the quota windows kept for it, a run's tally seeded once per run, the turn a
-//! provider's turn id opened, and a thread's prior counts; and the one expression of a token count,
-//! which the agent tree's heads read too.
+//! provider's turn id opened, a thread's prior counts, whether a request's rows are held, the
+//! thread tier live at an instant and the tokens of a sighting record's row; and the one expression
+//! of a token count, which the agent tree's heads read too.
 
 use std::sync::LazyLock;
 
@@ -20,7 +21,9 @@ use sidekicks_provider::account::registry::credential_generation;
 use sidekicks_provider::port::usage_sink::MeteredUsageOwner;
 use sidekicks_provider::runtime_binding::store::read_binding;
 use sidekicks_provider::usage_delta_accountant::UsageAxisCounts;
-use sidekicks_store::database::stored_column::{safe_int_column, text_column};
+use sidekicks_store::database::stored_column::{
+    optional_text_column, safe_int_column, text_column,
+};
 use sidekicks_store::events::session::read::{
     DamagedFromSequenceReader, readable_event_sql, session_read_bound,
 };
@@ -85,16 +88,43 @@ pub(crate) const TOKEN_COUNT_SUM_SQL: &str = "COALESCE(SUM(
     COALESCE(json_extract(payload, '$.inputTokens'), 0)
       + COALESCE(json_extract(payload, '$.outputTokens'), 0)), 0)";
 
-// A run's token count.
+// A run's token count: its own rows, the session's rows whose sighting records a later sighting
+// counted toward the run, each through the record's link to its row, and the tokens of each row
+// no session owns whose record a later sighting counted toward the run, kept on its record.
 static SELECT_TOKEN_COUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     let recorded = SessionEventType::UsageTokenCountRecorded;
     format!(
-        "SELECT {TOKEN_COUNT_SUM_SQL}
-  FROM session_events
-  WHERE session_id = @session_id
-    AND type = '{recorded}'
-    AND run_id = @run_id",
+        "SELECT
+  (SELECT {TOKEN_COUNT_SUM_SQL}
+     FROM session_events
+     WHERE session_id = @session_id
+       AND type = '{recorded}'
+       AND run_id = @run_id)
+  + (SELECT {TOKEN_COUNT_SUM_SQL}
+       FROM session_events
+       WHERE id IN (SELECT opener.event_id
+                      FROM usage_sightings AS counted
+                      JOIN usage_sightings AS opener ON opener.record_id = counted.record_id
+                     WHERE counted.run_id = @run_id AND opener.event_id IS NOT NULL))
+  + (SELECT COALESCE(SUM(opener.token_count), 0)
+       FROM usage_sightings AS counted
+       JOIN usage_sightings AS opener ON opener.record_id = counted.record_id
+      WHERE counted.run_id = @run_id AND opener.token_count IS NOT NULL)",
         recorded = recorded.as_str(),
+    )
+});
+
+// The token count of the row a sighting record's first sighting priced: a session's row, or one
+// no session owns, whose tokens its record keeps.
+static SELECT_RECORD_TOKEN_COUNT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT
+  (SELECT {TOKEN_COUNT_SUM_SQL}
+     FROM session_events
+     WHERE id IN (SELECT event_id FROM usage_sightings
+                   WHERE record_id = @record_id AND event_id IS NOT NULL))
+  + (SELECT COALESCE(SUM(token_count), 0) FROM usage_sightings
+      WHERE record_id = @record_id AND token_count IS NOT NULL)"
     )
 });
 
@@ -110,6 +140,18 @@ static SELECT_TURN_OPENING_SQL: LazyLock<String> = LazyLock::new(|| {
         readable_event_sql("event")
     )
 });
+
+// The thread tier of a session's latest row carrying one at or before an instant, found by the
+// session and time index; the stored instants share one fixed-width form, so text orders them.
+const SELECT_THREAD_SPEED_AT_SQL: &str = "SELECT thread_speed FROM provider_account_usage_turns
+   WHERE session_id = @session_id AND occurred_at <= @at AND thread_speed IS NOT NULL
+   ORDER BY occurred_at DESC LIMIT 1";
+
+// The run of a session's latest row of its own, a helper's aside, at or before an instant, found
+// by the session and time index; NULL where that row has no run.
+const SELECT_RUN_AT_SQL: &str = "SELECT run_id FROM provider_account_usage_turns
+   WHERE session_id = @session_id AND occurred_at <= @at AND subagent_id IS NULL
+   ORDER BY occurred_at DESC LIMIT 1";
 
 // The cumulative counts the rows of a thread's own runs carry, the helpers' rows aside, since a
 // helper meters a thread of its own; an axis no row reported is NULL. A row's input is put back to
@@ -267,8 +309,9 @@ pub(super) fn read_stored_windows(
 }
 
 /// `run_id`'s tally as its log stands, read at its first report: the token limit admitted with it
-/// and, under a limit, the count of its rows so far; `None` for a run that has ended or that the
-/// daemon has no row for, which no limit stops.
+/// and, under a limit, the count of its rows so far with the session's rows its sightings counted
+/// toward it; `None` for a run that has ended or that the daemon has no row for, which no limit
+/// stops.
 pub(super) fn read_tally_seed(
     reader: &Connection,
     session_id: SessionId,
@@ -303,13 +346,7 @@ pub(super) fn read_tally_seed(
             },
             |row| row.get(0),
         )?;
-        u64::try_from(count).map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                0,
-                rusqlite::types::Type::Integer,
-                Box::new(error),
-            )
-        })?
+        token_count_of(count)?
     };
     Ok(Some(RunUsageTally {
         token_limit,
@@ -317,6 +354,29 @@ pub(super) fn read_tally_seed(
         limit_stop: TokenLimitStop::Unasked,
         turn_opening: None,
     }))
+}
+
+/// The token count of the row that opened the sighting record `record_id`, a session's or one no
+/// session owns, 0 where the record names no row. Fails as the read fails.
+pub(super) fn read_counted_record_tokens(
+    reader: &Connection,
+    record_id: i64,
+) -> Result<u64, UsageRecordError> {
+    let count: i64 = reader
+        .prepare_cached(&SELECT_RECORD_TOKEN_COUNT_SQL)?
+        .query_row(named_params! { "@record_id": record_id }, |row| row.get(0))?;
+    Ok(token_count_of(count)?)
+}
+
+// A summed token count as stored, which is never negative.
+fn token_count_of(count: i64) -> rusqlite::Result<u64> {
+    u64::try_from(count).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            0,
+            rusqlite::types::Type::Integer,
+            Box::new(error),
+        )
+    })
 }
 
 /// The epoch and run position of `run_id`'s newest turn the provider opened under
@@ -392,4 +452,45 @@ pub(super) fn read_prior_emitted(
             },
         )?;
     Ok(sums)
+}
+
+/// The thread tier of `session_id`'s latest row that carries one at or before `at`, in the stored
+/// form; `None` where no such row carries one.
+pub(super) fn read_thread_speed_at(
+    reader: &Connection,
+    session_id: SessionId,
+    at: &str,
+) -> Result<Option<String>, UsageRecordError> {
+    let thread_speed = reader
+        .prepare_cached(SELECT_THREAD_SPEED_AT_SQL)?
+        .query_row(
+            named_params! {
+                "@session_id": session_id.text().as_str(),
+                "@at": at,
+            },
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(thread_speed)
+}
+
+/// The run of `session_id`'s latest row of its own at or before `at`, a stored instant, a helper's
+/// rows aside: the run that held the session's turn then; `None` where that row has no run, or no
+/// row is stored by then.
+pub(super) fn read_run_at(
+    reader: &Connection,
+    session_id: SessionId,
+    at: &str,
+) -> Result<Option<RunId>, UsageRecordError> {
+    let run_id = reader
+        .prepare_cached(SELECT_RUN_AT_SQL)?
+        .query_row(
+            named_params! {
+                "@session_id": session_id.text().as_str(),
+                "@at": at,
+            },
+            |row| optional_text_column(row, 0, |text| RunId::new(&text)),
+        )
+        .optional()?;
+    Ok(run_id.flatten())
 }

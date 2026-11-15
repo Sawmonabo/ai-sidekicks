@@ -60,8 +60,8 @@ async fn summarize_on_copy(
     let is_project_untrusted = false;
     let (service, mut copy) =
         fork_resting_copy(establishment, &params.resume, is_project_untrusted).await?;
-    // Held until the copy's read ends, so the export's twins of its filed requests pass over.
-    let _copy_read = service.dependencies().exports.copy_thread(
+    // Each exported response on the copy's thread is filed where its stream files.
+    service.dependencies().exports.copy_thread(
         service.id(),
         &copy.thread_id,
         &filing,

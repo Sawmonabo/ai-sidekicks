@@ -102,7 +102,8 @@ pub enum InterruptPendingChoice {
     NextTurn,
     /// They return to the draft.
     ReturnToDraft,
-    /// They keep waiting, and none starts a turn of its own: the daemon's interrupt at a limit.
+    /// They keep waiting, and none starts a turn of its own: the daemon's interrupt at a limit,
+    /// and its interrupt for an undo, whose release orders them.
     KeepWaiting,
 }
 

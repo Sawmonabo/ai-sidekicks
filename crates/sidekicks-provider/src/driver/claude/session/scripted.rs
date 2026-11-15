@@ -46,7 +46,7 @@ use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::intervention::ClaudeInterventions;
 use crate::driver::claude::lifecycle::{ClaudeDriver, ClaudeSessionParts};
-use crate::driver::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoutes};
+use crate::driver::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoutes, ClaudeTurnOpener};
 use crate::driver::claude::run::start::ClaudeRunStart;
 use crate::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, unreadable_claude_command_choices,
@@ -408,12 +408,18 @@ impl ScriptedSession {
             .expect("a test withdrawal reads")
     }
 
-    /// Holds the session's turn for a fresh lead run on `binding`, as a run's start does.
+    /// Holds the session's turn for a fresh lead run on `binding`, as a run's start does for the
+    /// daemon's message.
     pub(crate) fn hold_lead_turn(&self, binding: &str) -> RunId {
         let run_id = new_run_id();
         self.start
             .routes
-            .hold_turn(run_id, self.session_id, binding_id(binding))
+            .hold_turn(
+                run_id,
+                self.session_id,
+                binding_id(binding),
+                ClaudeTurnOpener::Daemon,
+            )
             .expect("the session's turn is free");
         run_id
     }

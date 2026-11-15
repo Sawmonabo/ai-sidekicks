@@ -319,8 +319,9 @@ impl TurnAnswer {
     }
 
     /// The answer of a turn whose events committed at `event_sequences` under `event_ids`, both in
-    /// write order, and whose write replaced the kept values naming `dropped_kept_artifact_ids`,
-    /// once each move, gate answer and status move went to `record`, where there is one.
+    /// write order, and whose write left `dropped_kept_artifact_ids` unnamed: each one a kept value
+    /// it replaced named, or one it stored for a value it could not keep, its workflow deleted
+    /// meanwhile; once each move, gate answer and status move went to `record`, where there is one.
     async fn recorded(
         self,
         event_sequences: Vec<SafeInt<0>>,

@@ -27,7 +27,6 @@ use crate::driver::codex::session::detached_conversation::{
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::CodexSessionEstablishment;
 use crate::driver::codex::session::side_questions::copy_turn::SessionUsageFiling;
-use crate::driver::codex::telemetry::exports::CodexCopyThreadRead;
 use crate::driver::codex::thread::view::{assert_active_permission_profile, read_thread};
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
@@ -92,8 +91,8 @@ impl CodexSideQuestions {
             provider_account_id: resume.provider_account_id.clone(),
             pricing: CodexRecorderPricing::new(pricing),
         };
-        // Held until the copy's read ends, so the export's twins of its filed requests pass over.
-        let copy_read = question.service.dependencies().exports.copy_thread(
+        // Each exported response on the copy's thread is filed where its stream files.
+        question.service.dependencies().exports.copy_thread(
             question.service.id(),
             &copy.thread_id,
             &filing,
@@ -140,7 +139,6 @@ impl CodexSideQuestions {
             copy,
             turn_id,
             Arc::clone(&self.copy_stops),
-            copy_read,
         ));
         Ok(answer)
     }
@@ -198,7 +196,7 @@ pub(crate) struct CodexRestingCopy {
 // reading filed through `filing` on the copy's service; once its connection dropped the ask fails
 // with no answer, and once the question's stop fired its turn is stopped, the readings received by
 // then filed, and nothing is delivered. The copy leaves `copy_stops` and is let go with its
-// connection, and its read on the launch's register ends as `_copy_read` drops.
+// connection.
 async fn answer_at_rest(
     dispatch: Arc<dyn InboundDispatch>,
     mut filing: SessionUsageFiling,
@@ -206,7 +204,6 @@ async fn answer_at_rest(
     mut copy: CodexRestingCopy,
     turn_id: String,
     copy_stops: Arc<Mutex<CodexCopyStops>>,
-    _copy_read: CodexCopyThreadRead,
 ) {
     let stop = question.stop.clone();
     let read = read_detached_turn(

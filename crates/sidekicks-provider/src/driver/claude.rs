@@ -68,7 +68,9 @@ use crate::driver::mcp_server::write::{
     McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
 };
 use crate::driver::message_handing::{HandMoment, MessageHanding};
-use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::rewind::{
+    RewindConversationParams, RewindConversationResult, RewindTargetAsk, RewindTargetPresence,
+};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
@@ -96,6 +98,7 @@ use crate::port::running_command_publisher::{
     RunningCommandParams, StopCommandParams, WriteCommandInputParams,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::pricing::receiver::TelemetryExportReader;
 use crate::pricing::rule::RequestPricer;
 
 mod account;
@@ -129,6 +132,7 @@ mod settings_rows;
 mod spawn;
 mod spent_retries_signal;
 mod switch_variable;
+mod telemetry;
 mod tools;
 mod turn_evidence;
 mod version;
@@ -166,6 +170,10 @@ const NO_HELD_TURN_REASON: &str = "Claude Code holds no turn for a safety check.
 impl ProviderDriver for ClaudeDriver {
     fn request_pricer(&self) -> Option<Arc<dyn RequestPricer>> {
         Some(Arc::new(pricing::ClaudeRequestPricer))
+    }
+
+    fn telemetry_export_reader(&self) -> Option<Arc<dyn TelemetryExportReader>> {
+        Some(Arc::clone(&self.exports) as _)
     }
 
     fn create_session(
@@ -223,9 +231,24 @@ impl ProviderDriver for ClaudeDriver {
         self.rewind_conversation(params).boxed()
     }
 
-    // Claude Code's rewind names any of the person's messages, a steer's included.
-    fn can_cut_inside_turn(&self) -> bool {
-        true
+    fn read_rewind_target(
+        &self,
+        params: RewindConversationParams,
+    ) -> BoxFuture<'_, Result<RewindTargetPresence, DriverError>> {
+        self.read_rewind_target(params).boxed()
+    }
+
+    // Claude Code checks a cut against its own live conversation and refuses one it does not
+    // hold with nothing changed, so the cut goes first.
+    fn rewind_target_ask(&self) -> RewindTargetAsk {
+        RewindTargetAsk::AfterRefusal
+    }
+
+    fn adopt_conversation_rewind(
+        &self,
+        params: RewindConversationParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.adopt_conversation_rewind(params).boxed()
     }
 
     fn respond_to_request(

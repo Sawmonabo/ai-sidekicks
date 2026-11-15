@@ -96,9 +96,9 @@ pub(crate) type ScriptedProcessOpener =
     Arc<dyn Fn(SessionId) -> BoxFuture<'static, ()> + Send + Sync>;
 
 /// Approval ports, the queue's intake of taken messages, the status line intake, the session
-/// message readings and the tool traces, each recording what reaches it, and the queue's opening of a daemon turn's
-/// process once a test sets one, its refusal of every daemon turn's binding, or a live-only
-/// binding answered as one whose process was let go.
+/// message readings and the tool traces, each recording what reaches it, and the queue's opening
+/// of a daemon turn's process once a test sets one, its refusal of every daemon turn's binding,
+/// or a live-only binding answered as one whose process was let go.
 #[derive(Default)]
 pub(crate) struct RecordingPorts {
     calls: Mutex<Vec<PortCall>>,
@@ -343,6 +343,25 @@ impl UsageSink for RecordingUsage {
         _thread_id: String,
     ) -> BoxFuture<'_, Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>> {
         ready(Ok(*lock(&self.reported))).boxed()
+    }
+
+    fn read_thread_speed_at(
+        &self,
+        _session_id: SessionId,
+        _at: sidekicks_contracts::wire::instant::WireInstant,
+    ) -> BoxFuture<'_, Result<Option<String>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
+
+    fn read_run_at(
+        &self,
+        _session_id: SessionId,
+        _at: sidekicks_contracts::wire::instant::WireInstant,
+    ) -> BoxFuture<
+        '_,
+        Result<Option<sidekicks_contracts::run::id::RunId>, Box<dyn Error + Send + Sync>>,
+    > {
+        async { Ok(None) }.boxed()
     }
 
     fn record_quota_windows(

@@ -9,6 +9,7 @@
 use serde_json::Value;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::RunFailureCategory;
+use sidekicks_contracts::run::events::CutGroupStart;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::turn::ProviderTurnId;
@@ -16,6 +17,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
+use super::taken_messages::batch_landings;
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, bound, report_engine_failure};
 use crate::driver::claude::delivery::run_readings::{
     ClaudeEndedAs, ClaudeOpenTurn, ClaudeTurnEndDelivery,
@@ -23,7 +25,7 @@ use crate::driver::claude::delivery::run_readings::{
 use crate::driver::claude::delivery::turn_end::{ClaudeTurnEndMarks, compose_claude_turn_end};
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::hooks::peer_send::ClaudeTurnSenders;
-use crate::driver::claude::run::routes::ClaudeBoundRun;
+use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeTurnOpener};
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::run::turn_end::ProviderTurnEnd;
@@ -37,9 +39,14 @@ const CLAUDE_UNRECORDED_TURN_END_DETAIL: &str =
 impl ClaudeDeliveryStream {
     // The first frame of a run's turn opens it: an interrupt still held answered as taken, the
     // continued run's report, the boundary, then the turn numbered under the uuid of the user
-    // message that opened it, which is that message's queue item, the readings of the turn before
-    // emptied; the run's other messages taken before it opened land after its start, in the order
-    // taken, and every other run's are dropped.
+    // message that opened it, the readings of the turn before emptied. The run's other messages
+    // taken before it opened rode that command with it, so the turn opens at the first of them all
+    // in send order and the others land after its start naming that first one; an opening the
+    // daemon made, a review's, stays the turn's opening and the person's messages land after it
+    // naming it. A turn Claude Code started itself with the messages it kept opens at none of
+    // them, and they land after its start as one batch. Every other run's are dropped. The run's
+    // messages written before the turn opened and not yet reported taken are awaited as members
+    // of the same command, which land when reported naming where its group begins.
     pub(super) async fn open_turn(&self, session: &ClaudeSessionStream, lead: &ClaudeBoundRun) {
         let routes = &self.dependencies.routes;
         if session
@@ -50,7 +57,19 @@ impl ClaudeDeliveryStream {
         {
             return;
         }
-        let opening_uuid = session.lock_prompts().take_turn_opening(session.session_id);
+        let (opening_uuid, is_daemons_opening, awaited_members) = {
+            let mut prompts = session.lock_prompts();
+            let opening_uuid = prompts.take_turn_opening(session.session_id);
+            let is_daemons_opening = opening_uuid
+                .as_deref()
+                .is_some_and(|uuid| prompts.take_daemon_opening(session.session_id, uuid));
+            let awaited_members: Vec<QueueItemId> = prompts
+                .untaken_for(session.session_id, lead.run_id)
+                .filter(|uuid| Some(*uuid) != opening_uuid.as_deref())
+                .filter_map(|uuid| QueueItemId::new(uuid).ok())
+                .collect();
+            (opening_uuid, is_daemons_opening, awaited_members)
+        };
         let opening = opening_uuid
             .as_deref()
             .and_then(|uuid| QueueItemId::new(uuid).ok());
@@ -74,6 +93,8 @@ impl ClaudeDeliveryStream {
                 binding_id: lead.binding_id.clone(),
                 turn_number: None,
                 opening: opening_uuid,
+                awaited_members,
+                group_start: None,
             });
             let taken: Vec<QueueItemId> = std::mem::take(&mut readings.taken_without_turn)
                 .into_iter()
@@ -106,10 +127,32 @@ impl ClaudeDeliveryStream {
             binding_id: lead.binding_id.clone(),
         };
         self.send(session, boundary, None).await;
+        // A queue item's id is minted as the person sends it, so the ids sort in send order.
+        let mut members = taken;
+        if !is_daemons_opening {
+            members.extend(opening);
+        }
+        members.sort_unstable();
+        // A turn the daemon made keeps its opening; one Claude Code started itself with the
+        // messages it kept has none.
+        let opened_at = if is_daemons_opening || opening.is_none() {
+            opening
+        } else {
+            members.first().copied()
+        };
+        // Where the command's group begins, which its members reported after the start name too:
+        // a turn the daemon made at its opening, any other at the first of its members.
+        let group_start = if is_daemons_opening {
+            Some(CutGroupStart::TurnOpening)
+        } else {
+            members
+                .first()
+                .map(|first| CutGroupStart::Message { message_id: *first })
+        };
         let started = match self
             .dependencies
             .engine
-            .start_turn(lead.run_id, turn_id, session.step_bound, opening)
+            .start_turn(lead.run_id, turn_id, session.step_bound, opened_at)
             .await
         {
             Ok(started) => started,
@@ -122,17 +165,31 @@ impl ClaudeDeliveryStream {
             && turn.run_id == lead.run_id
         {
             turn.turn_number = started.as_ref().map(|started| started.turn_number);
+            turn.group_start.clone_from(&group_start);
         }
         // A turn its run ended as it opened has no number to land them in.
         let Some(started) = started else {
             return;
         };
-        for message_id in taken {
-            let steered = InboundDelivery::TurnSteered {
-                binding_id: lead.binding_id.clone(),
-                turn_number: started.turn_number,
-                message_id,
-            };
+        // Claude Code merged them into one command, which its cut finds only whole.
+        let landings: Vec<InboundDelivery> = if is_daemons_opening {
+            members
+                .into_iter()
+                .map(|message_id| InboundDelivery::TurnSteered {
+                    binding_id: lead.binding_id.clone(),
+                    turn_number: started.turn_number,
+                    message_id,
+                    cut_group_start: group_start.clone(),
+                })
+                .collect()
+        } else {
+            // The first lands nothing where the turn opened at it.
+            batch_landings(&lead.binding_id, started.turn_number, members)
+                .into_iter()
+                .skip(usize::from(opened_at.is_some()))
+                .collect()
+        };
+        for steered in landings {
             self.send(session, steered, None).await;
         }
     }
@@ -338,7 +395,7 @@ impl ClaudeDeliveryStream {
         match (reader_carried, is_carried) {
             (true, false) => routes.unbind_run(run_id),
             (false, true) => {
-                if let Err(refusal) = routes.hold_turn_again(run_id) {
+                if let Err(refusal) = routes.hold_turn_again(run_id, ClaudeTurnOpener::Daemon) {
                     tracing::debug!(
                         %run_id,
                         ?refusal,

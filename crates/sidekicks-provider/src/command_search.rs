@@ -207,6 +207,7 @@ impl ProviderCommandSearch {
             request,
             VERSION_READ_DEADLINE,
             VERSION_OUTPUT_BOUND,
+            None,
         )
         .await
         .map_err(VersionReadError::Run)?;
@@ -424,11 +425,12 @@ mod tests {
                 &folder,
                 "tool",
                 &StandInProgram {
-                    answers_by_first_argument: Vec::new(),
+                    answers_by_argument: Vec::new(),
                     otherwise: StandInAnswer {
                         standard_output: (*report).to_owned(),
                         exit_code: 0,
                         argument_record: None,
+                        ..StandInAnswer::default()
                     },
                     first_call_wait: is_first_read_slow.then_some(FIRST_READ_WAIT),
                 },

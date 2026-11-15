@@ -1,0 +1,872 @@
+//! Each Codex launch's rollout fallback: for each stop its export status counts, the rollout files
+//! in its service's home are read for the requests no export carried, stamped after the newest
+//! record the launch's last export carried before that stop: one pass as the stop is found, one at
+//! each request turn the launch settles and one at each export read, each file resumed from the
+//! offset its last read stopped at and opened only once it grew. A file of a thread a session
+//! streams is read too; any other is read once the walk from the thread it came from reaches a
+//! thread a session holds. Each record, and each billed web search, is handed to its session with
+//! its sighting, which the usage record passes over where the stream or the export priced the
+//! request first; one read's charges go over together, up to `HAND_OVER_LINES` at a time, before
+//! the read answers the offset it reached. The first export after a stop ends it, under the export
+//! status's lock, and the pass at that end reads every file on; each file is then read on at each
+//! export that names its thread, and at each turn of its session's thread that settles, until the
+//! turn it showed live at that export's newest record has ended, and let go, its offset kept, so no
+//! later stop reads it from its start. A pass that a settled turn named and that leaves a session
+//! waiting on its turn's end asks the export status for one wake two intervals out, whose pass
+//! reads that session's files once more and arms nothing; a turn settled while the stop was read
+//! is judged at the pass at its end, which names every file and still asks the wake. A turn still
+//! open after it waits for the next export, settle or stop. A file no export and no settled turn
+//! names costs a pass nothing. A stop an export ended before the fallback looked is read the same
+//! way. A hand-over no session takes is charged through the launch's charge, each line with its
+//! own sighting, since the offset moves past it and no later read takes it. While the export
+//! arrives, the file of an off-stream thread an export's response was placed on is read on as the
+//! response is placed, so a search inside that request, which no export carries, is charged; it is
+//! kept beside the files let go.
+
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::io;
+use std::ops::ControlFlow;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, Weak};
+
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
+use tokio::sync::{Notify, watch};
+
+use crate::bounded_queue::remember;
+use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::telemetry::drain::push_exported_responses;
+use crate::driver::codex::telemetry::exported_response::{
+    CodexExportedResponse, CodexOffStreamPlacement,
+};
+use crate::driver::codex::telemetry::rollouts::file::{CodexRolloutFile, CodexRolloutThread};
+use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
+use crate::driver::codex::thread::ancestry::{
+    CodexListedThread, CodexThreadPlacement, CodexUnplacedThread, list_recent_helper_threads,
+    place_codex_thread,
+};
+use crate::pricing::export_status::{ExportStatusTracker, PublishedExportStatus};
+use crate::pricing::usage_files::read_usage_file_lines;
+use named_threads::CodexNamedThreads;
+use sessions_folder::{SESSIONS_FOLDER, find_rollouts, find_thread_rollout, is_rollout_of};
+
+/// How many rollout files one launch's fallback follows, and how many it keeps the offset of once
+/// let go; past the first a new file is passed over, logged, and past the second the oldest let go
+/// is forgotten, so a later stop reads it from its start, its records passed over by the usage
+/// record.
+const ROLLOUTS_KEPT: usize = 256;
+
+/// How many walks a file's thread gets while the listing lacks it before it is given up.
+const WALKS_KEPT: u8 = 3;
+
+/// How many charges one read hands its session at a time, as many as the store's writer commits
+/// together, so a long first read holds no more than that.
+const HAND_OVER_LINES: usize = 50;
+
+/// The handles a launch's fallback reads and publishes through: the launch's export status, which
+/// counts its stops and takes the rollout files it cannot read, its exports' stamps, the stops
+/// they ended and the threads they named, and the wake each export read and settled turn gives.
+#[derive(Clone)]
+pub(crate) struct CodexLaunchRollouts {
+    tracker: Weak<ExportStatusTracker>,
+    status: watch::Receiver<PublishedExportStatus>,
+    times: Arc<Mutex<CodexExportTimes>>,
+    wake: Arc<Notify>,
+}
+
+impl CodexLaunchRollouts {
+    /// The handles of a launch registered at `registered_at_ms`, in Unix milliseconds, whose
+    /// export status `tracker` keeps.
+    pub(crate) fn new(tracker: &Arc<ExportStatusTracker>, registered_at_ms: u64) -> Self {
+        Self {
+            tracker: Arc::downgrade(tracker),
+            status: tracker.status(),
+            times: Arc::new(Mutex::new(CodexExportTimes {
+                registered_at_ms,
+                newest_export_stamp_ms: None,
+                exports_read: 0,
+                last_ended_stop: 0,
+                ended_stops: VecDeque::new(),
+                named: CodexNamedThreads::default(),
+                is_woken: false,
+            })),
+            wake: Arc::new(Notify::new()),
+        }
+    }
+
+    /// An export of the launch was read after `stops` stops of its status, its records naming
+    /// `threads`, its newest record stamped at `newest_record_ms` (`None` where none is stamped)
+    /// and arriving at `arrived_at_ms`, in Unix milliseconds. The first export after a stop ends
+    /// that stop at its newest record, since a response logged after it goes in a later export, or
+    /// just before its arrival where no record is stamped, and names every file. Runs under the
+    /// export status's lock, so no stop comes between it and the turn.
+    pub(crate) fn export_read(
+        &self,
+        stops: u64,
+        threads: HashSet<String>,
+        newest_record_ms: Option<u64>,
+        arrived_at_ms: u64,
+    ) {
+        let mut times = lock(&self.times);
+        times.named.name_exported(threads);
+        if stops > times.last_ended_stop {
+            let since_ms = times.since_ms();
+            times.ended_stops.push_back(CodexEndedStop {
+                stop: stops,
+                since_ms,
+                newest_record_ms: newest_record_ms.unwrap_or(arrived_at_ms.saturating_sub(1)),
+            });
+            times.last_ended_stop = stops;
+            times.named.name_every();
+        }
+        times.newest_export_stamp_ms = times.newest_export_stamp_ms.max(newest_record_ms);
+        times.exports_read += 1;
+        drop(times);
+        self.wake.notify_one();
+    }
+
+    /// A turn of `session_id`'s thread settled: every file placed on the session, its thread's and
+    /// those of the threads below it, helpers and their helpers included, is read on at the next
+    /// pass, since a response whose export was lost may be the turn's last, which no later export
+    /// names.
+    pub(crate) fn turn_settled(&self, session_id: SessionId) {
+        lock(&self.times).named.name_settled([session_id]);
+        self.wake.notify_one();
+    }
+}
+
+// The stamps of a launch's exports and how many were read, the stops they ended with where each
+// stop's reading starts, and whether the wake a waiting session asked for fired since the last
+// pass.
+struct CodexExportTimes {
+    registered_at_ms: u64,
+    newest_export_stamp_ms: Option<u64>,
+    exports_read: u64,
+    // The last stop an export ended.
+    last_ended_stop: u64,
+    // The stops an export ended that the fallback has not let go, oldest first.
+    ended_stops: VecDeque<CodexEndedStop>,
+    // The threads named since the last pass.
+    named: CodexNamedThreads,
+    is_woken: bool,
+}
+
+// A stop an export ended: where its reading starts, and the newest record of that export, the
+// last stamp a response it lost can have been logged at.
+struct CodexEndedStop {
+    stop: u64,
+    since_ms: u64,
+    newest_record_ms: u64,
+}
+
+impl CodexExportTimes {
+    // Where a stop that begins now starts pricing: just past the newest record exported, since a
+    // record stamped as it was in its export, else at the launch's registration.
+    fn since_ms(&self) -> u64 {
+        self.newest_export_stamp_ms
+            .map_or(self.registered_at_ms, |newest_ms| newest_ms + 1)
+    }
+
+    // The stop `stop` an export ended, if one has.
+    fn ended(&self, stop: u64) -> Option<&CodexEndedStop> {
+        self.ended_stops.iter().find(|ended| ended.stop == stop)
+    }
+}
+
+// Where a followed file's requests are filed.
+enum CodexRolloutPlacement {
+    // Its thread is not yet known, or the walk has not reached a held thread yet; `walks` counts
+    // the walks the listing lacked it for.
+    Unplaced {
+        walks: u8,
+    },
+    // A thread `session_id` streams, each record checked against the stream's own.
+    Streamed {
+        session_id: SessionId,
+    },
+    // Below `session_thread`, which `session_id` holds, filed as `child_thread`.
+    Below {
+        session_id: SessionId,
+        session_thread: String,
+        child_thread: String,
+    },
+    // A thread reaching no held thread: never read for price.
+    Passed,
+}
+
+// One followed rollout file: what its lines told, where its next read starts, its size when last
+// seen, where its requests go, and whether its last read failed.
+struct CodexFollowedRollout {
+    file: CodexRolloutFile,
+    offset: u64,
+    size: u64,
+    placement: CodexRolloutPlacement,
+    is_read_failed: bool,
+}
+
+impl CodexFollowedRollout {
+    // Whether the file is still to be read past a stop's end at `ended_ms`: its thread known and
+    // not yet placed, its walks not used up, or a turn it showed live then not yet ended, whose
+    // records Codex writes before its end; a turn the file never ends is let go at the next turn
+    // the file shows begun, or with the launch.
+    fn is_followed_past(&self, ended_ms: u64) -> bool {
+        match &self.placement {
+            CodexRolloutPlacement::Unplaced { .. } => self.file.thread().is_some(),
+            CodexRolloutPlacement::Streamed { .. } | CodexRolloutPlacement::Below { .. } => {
+                self.file.has_turn_live_from(ended_ms)
+            }
+            CodexRolloutPlacement::Passed => false,
+        }
+    }
+}
+
+// Where a file's requests are filed: the session, and the placement off its stream, `None` on the
+// thread the session streams.
+#[derive(Clone)]
+struct CodexRolloutTarget {
+    session_id: SessionId,
+    placed: Option<CodexOffStreamPlacement>,
+}
+
+// What the fallback reads: from `since_ms` on, begun at a stop and kept until the newest stop it
+// began, `stop`, has ended and each file it follows is let go; `is_scanned` says a pass has looked
+// for its files.
+struct CodexReading {
+    stop: u64,
+    since_ms: u64,
+    is_scanned: bool,
+}
+
+/// Why a launch's fallback woke.
+pub(crate) enum CodexFallbackDue {
+    /// A pass is due, [`CodexRolloutFallback::next_pass`] saying which.
+    Pass,
+    /// The launch's export status is gone, after its last export was read.
+    LaunchEnded,
+}
+
+/// One launch's rollout fallback, run by the launch's own work task, which owns it: what it reads,
+/// begun at each stop the export status counts, the files it follows meanwhile, and the files it
+/// let go, oldest first, each kept as its last read left it.
+pub(crate) struct CodexRolloutFallback {
+    rollouts: CodexLaunchRollouts,
+    last_begun_stop: u64,
+    // The exports read as the last pass began.
+    exports_seen: u64,
+    reading: Option<CodexReading>,
+    // The threads named for the pass due, taken as it was found due.
+    named: CodexNamedThreads,
+    // The sessions whose settled turn the files placed on them do not show ended yet, named again
+    // at the next pass, since Codex may write a turn's end after its settle.
+    unended_settled: HashSet<SessionId>,
+    // The sessions a turn settled on while the stop was read, judged at the pass at its end.
+    unjudged_settled: HashSet<SessionId>,
+    files: HashMap<PathBuf, CodexFollowedRollout>,
+    let_go: VecDeque<(PathBuf, CodexFollowedRollout)>,
+    // The placed off-stream threads found with no rollout file, oldest first.
+    fileless: VecDeque<String>,
+}
+
+impl CodexRolloutFallback {
+    /// A fallback over `rollouts`, which begins at the first stop [`Self::next_pass`] finds.
+    pub(crate) fn new(rollouts: CodexLaunchRollouts) -> Self {
+        Self {
+            rollouts,
+            last_begun_stop: 0,
+            exports_seen: 0,
+            reading: None,
+            named: CodexNamedThreads::default(),
+            unended_settled: HashSet::new(),
+            unjudged_settled: HashSet::new(),
+            files: HashMap::new(),
+            let_go: VecDeque::new(),
+            fileless: VecDeque::new(),
+        }
+    }
+
+    /// Whether the fallback reads.
+    pub(crate) fn is_reading(&self) -> bool {
+        self.reading.is_some()
+    }
+
+    /// Waits until a pass is due or the launch has ended. The files the status names never wake
+    /// it.
+    pub(crate) async fn wait_until_due(&mut self) -> CodexFallbackDue {
+        loop {
+            if self.is_pass_due() {
+                return CodexFallbackDue::Pass;
+            }
+            let wake = Arc::clone(&self.rollouts.wake);
+            tokio::select! {
+                changed = self.rollouts.status.changed() => {
+                    if changed.is_err() {
+                        return CodexFallbackDue::LaunchEnded;
+                    }
+                }
+                () = wake.notified() => {}
+            }
+        }
+    }
+
+    // Whether a stop the fallback has not begun is counted, or an export was read or a thread
+    // named since the last pass while it reads.
+    fn is_pass_due(&mut self) -> bool {
+        let stops = self.rollouts.status.borrow_and_update().stops;
+        let is_read_due = self.reading.is_some() && self.is_named_since();
+        stops > self.last_begun_stop || is_read_due
+    }
+
+    // Whether an export was read, a thread named or the wake fired since the last pass.
+    fn is_named_since(&self) -> bool {
+        let times = lock(&self.rollouts.times);
+        times.exports_read > self.exports_seen || !times.named.is_empty() || times.is_woken
+    }
+
+    /// Moves on to the next pass due, answering whether one is: the stops counted since the last
+    /// one begun, read from the first one's start, which an export that ended it already set, and
+    /// a reading still alive from an earlier stop begins there too; else a read at the exports
+    /// read, the threads named and the wake fired since the last pass. Each stop's start is read
+    /// under the stamps' lock, so an export ending it however soon bounds it.
+    pub(crate) fn next_pass(&mut self) -> bool {
+        let stops = self.rollouts.status.borrow().stops;
+        let mut times = lock(&self.rollouts.times);
+        let is_woken = std::mem::take(&mut times.is_woken);
+        if stops > self.last_begun_stop {
+            self.named = std::mem::take(&mut times.named);
+            let first = self.last_begun_stop + 1;
+            let since_ms = times
+                .ended(first)
+                .map_or_else(|| times.since_ms(), |ended| ended.since_ms);
+            self.last_begun_stop = stops;
+            self.exports_seen = times.exports_read;
+            match &mut self.reading {
+                Some(reading) => {
+                    reading.stop = stops;
+                    reading.since_ms = since_ms;
+                    reading.is_scanned = false;
+                }
+                None => {
+                    self.reading = Some(CodexReading {
+                        stop: stops,
+                        since_ms,
+                        is_scanned: false,
+                    });
+                }
+            }
+            return true;
+        }
+        if self.reading.is_some()
+            && (times.exports_read > self.exports_seen || !times.named.is_empty() || is_woken)
+        {
+            self.exports_seen = times.exports_read;
+            self.named = std::mem::take(&mut times.named);
+            return true;
+        }
+        false
+    }
+
+    // Stops reading once every file it followed was let go: the stops ended up to the one read go.
+    fn stop_reading(&mut self) {
+        let Some(reading) = self.reading.take() else {
+            return;
+        };
+        lock(&self.rollouts.times)
+            .ended_stops
+            .retain(|ended| ended.stop > reading.stop);
+    }
+
+    /// One pass over `service`'s rollout files. Until the stop read has ended, and once as it is
+    /// begun: new ones in its home found, a file let go taken up again from where it was left,
+    /// and a recent helper's in the day folder of its thread's making where the scan missed it;
+    /// past its end, only the followed files whose thread was named since the last pass are
+    /// looked at. Each such file that grew is read on from its offset once its thread is placed,
+    /// each request it states handed to its session, what no session takes charged through
+    /// `charge`, the launch's, the files whose turn live at the stop's end has ended let go, and
+    /// the files it cannot read published.
+    pub(crate) async fn pass(&mut self, service: &Arc<CodexService>, charge: &CodexLaunchCharge) {
+        let Some(reading) = &self.reading else {
+            return;
+        };
+        let (stop, since_ms, is_scanned) = (reading.stop, reading.since_ms, reading.is_scanned);
+        let ended_ms = lock(&self.rollouts.times)
+            .ended(stop)
+            .map(|ended| ended.newest_record_ms);
+        let mut named = std::mem::take(&mut self.named);
+        let newly_settled = self.judge_settled(&mut named, ended_ms.is_some());
+        let is_past_end = ended_ms.is_some() && is_scanned;
+        let found = if is_past_end {
+            let followed: Vec<PathBuf> = self
+                .files
+                .iter()
+                .filter(|(_path, followed)| named.is_named(followed))
+                .map(|(path, _followed)| path.clone())
+                .collect();
+            tokio::task::spawn_blocking(move || {
+                followed
+                    .into_iter()
+                    .filter_map(|path| {
+                        let size = std::fs::metadata(&path).ok()?.len();
+                        Some((path, size))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await
+        } else {
+            let sessions = service.home().codex_home.join(SESSIONS_FOLDER);
+            let helpers = self.list_unfollowed_helpers(service, since_ms).await;
+            tokio::task::spawn_blocking(move || {
+                let mut found = find_rollouts(&sessions, since_ms);
+                for helper in helpers {
+                    found.extend(find_thread_rollout(
+                        &sessions,
+                        &helper.id,
+                        &[helper.created_at],
+                    ));
+                }
+                found
+            })
+            .await
+        };
+        let found = found.unwrap_or_else(|error| {
+            tracing::warn!(%error, "a codex launch's rollout files could not be listed");
+            Vec::new()
+        });
+        if let Some(reading) = &mut self.reading {
+            reading.is_scanned = true;
+        }
+        for (path, size) in found {
+            if let Some(followed) = self.files.get_mut(&path) {
+                followed.size = size;
+                continue;
+            }
+            if self.files.len() >= ROLLOUTS_KEPT {
+                tracing::warn!(
+                    path = %path.display(),
+                    "a codex launch follows too many rollout files; this one is passed over"
+                );
+                continue;
+            }
+            let followed = match self.let_go.iter().position(|(kept, _)| *kept == path) {
+                Some(index) => {
+                    let (_path, mut followed) = self
+                        .let_go
+                        .remove(index)
+                        .expect("the position is in the queue");
+                    followed.size = size;
+                    // A thread passed over before is walked again for this stop.
+                    if matches!(followed.placement, CodexRolloutPlacement::Passed) {
+                        followed.placement = CodexRolloutPlacement::Unplaced { walks: 0 };
+                    }
+                    followed
+                }
+                None => CodexFollowedRollout {
+                    file: CodexRolloutFile::default(),
+                    offset: 0,
+                    size,
+                    placement: CodexRolloutPlacement::Unplaced { walks: 0 },
+                    is_read_failed: false,
+                },
+            };
+            self.files.insert(path, followed);
+        }
+        // Past the stop's end a file nothing named is left as it is, unless its thread still
+        // waits for its walk.
+        for (path, followed) in &mut self.files {
+            let is_walk_due = matches!(followed.placement, CodexRolloutPlacement::Unplaced { .. });
+            if !is_past_end || is_walk_due || named.is_named(followed) {
+                follow(service, path, followed, since_ms, charge).await;
+            }
+        }
+        if let Some(ended_ms) = ended_ms {
+            let waiting: HashSet<SessionId> = self
+                .files
+                .values()
+                .filter(|followed| followed.is_followed_past(ended_ms))
+                .filter_map(|followed| named.settled_session_of(followed))
+                .collect();
+            self.wait_for_turn_ends(waiting, &newly_settled);
+            let ended: Vec<_> = self
+                .files
+                .extract_if(|_path, followed| !followed.is_followed_past(ended_ms))
+                .collect();
+            for (path, followed) in ended {
+                self.let_go_of(path, followed);
+            }
+            if self.files.is_empty() {
+                self.stop_reading();
+            }
+        }
+        self.publish_unreadable();
+    }
+
+    // The sessions a turn settled on that this pass judges against the stop's end, named on `named`
+    // with those still waiting on their turn's end: the ones settled since the last pass and, once
+    // `is_ended`, the ones settled while the stop was read, which wait unjudged until then.
+    fn judge_settled(
+        &mut self,
+        named: &mut CodexNamedThreads,
+        is_ended: bool,
+    ) -> HashSet<SessionId> {
+        let mut newly_settled = named.settled().clone();
+        if is_ended {
+            newly_settled.extend(std::mem::take(&mut self.unjudged_settled));
+            named.name_settled(newly_settled.iter().copied());
+        } else {
+            self.unjudged_settled.extend(newly_settled.iter().copied());
+        }
+        named.name_settled(std::mem::take(&mut self.unended_settled));
+        newly_settled
+    }
+
+    // Keeps `waiting`, the sessions whose settled turn their files do not show ended yet, for the
+    // next pass, and asks the export status for one wake where one of them is among
+    // `newly_settled`, a turn having settled on it since the last pass; the wake's own pass names
+    // none, so it arms nothing, and nothing is armed where no session waits.
+    fn wait_for_turn_ends(
+        &mut self,
+        waiting: HashSet<SessionId>,
+        newly_settled: &HashSet<SessionId>,
+    ) {
+        let is_wake_due = waiting
+            .iter()
+            .any(|session_id| newly_settled.contains(session_id));
+        self.unended_settled.extend(waiting);
+        if !is_wake_due {
+            return;
+        }
+        let Some(tracker) = self.rollouts.tracker.upgrade() else {
+            return;
+        };
+        let (times, wake) = (
+            Arc::clone(&self.rollouts.times),
+            Arc::clone(&self.rollouts.wake),
+        );
+        let armed = tracker.arm_wake(move || {
+            lock(&times).is_woken = true;
+            wake.notify_one();
+        });
+        if let Err(error) = armed {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "a codex launch's wake for a turn's end could not be armed; the next export, \
+                 settle or stop reads its files"
+            );
+        }
+    }
+
+    // Keeps `followed`, at `path`, as its last read left it among the files let go, the oldest
+    // forgotten past `ROLLOUTS_KEPT`.
+    fn let_go_of(&mut self, path: PathBuf, followed: CodexFollowedRollout) {
+        if let Some((forgotten, _followed)) =
+            remember(&mut self.let_go, (path, followed), ROLLOUTS_KEPT)
+        {
+            tracing::debug!(
+                path = %forgotten.display(),
+                "a codex launch keeps too many rollout files let go; the oldest is forgotten"
+            );
+        }
+    }
+
+    // The helper threads `service` updated from `since_ms` on whose rollout file the fallback does
+    // not follow; none where the listing fails, which is logged.
+    async fn list_unfollowed_helpers(
+        &self,
+        service: &CodexService,
+        since_ms: u64,
+    ) -> Vec<CodexListedThread> {
+        let listed = match service.connection() {
+            Ok(connection) => list_recent_helper_threads(&connection).await,
+            Err(error) => Err(error),
+        };
+        let listed = listed.unwrap_or_else(|error| {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "a codex launch's helper threads could not be listed for their rollout files"
+            );
+            Vec::new()
+        });
+        listed
+            .into_iter()
+            .filter(|thread| {
+                let since_s = i64::try_from(since_ms / 1_000).unwrap_or(i64::MAX);
+                thread.updated_at >= since_s
+                    && !self
+                        .files
+                        .keys()
+                        .any(|path| is_rollout_of(path, &thread.id))
+            })
+            .collect()
+    }
+
+    // Publishes the files the fallback cannot read: one whose read failed, or whose settled turn
+    // left no record.
+    fn publish_unreadable(&self) {
+        let Some(tracker) = self.rollouts.tracker.upgrade() else {
+            return;
+        };
+        let mut names: Vec<PathBuf> = self
+            .files
+            .iter()
+            .filter(|(_path, followed)| followed.is_read_failed || followed.file.is_unreadable())
+            .map(|(path, _followed)| path.clone())
+            .collect();
+        names.sort();
+        tracker.publish_unreadable_files(names);
+    }
+}
+
+// Reads `followed` on where it grew past its offset: up to its first `session_meta` while its
+// thread is unknown, then, once its thread is placed, to its end, each request stamped from
+// `since_ms` on handed to the session its placement names as it is read, or charged through
+// `charge` where no session takes it.
+async fn follow(
+    service: &Arc<CodexService>,
+    path: &Path,
+    followed: &mut CodexFollowedRollout,
+    since_ms: u64,
+    charge: &CodexLaunchCharge,
+) {
+    loop {
+        let held_thread = match &followed.placement {
+            CodexRolloutPlacement::Below { session_thread, .. } => Some(session_thread.as_str()),
+            CodexRolloutPlacement::Streamed { .. } => followed
+                .file
+                .thread()
+                .map(|thread| thread.thread_id.as_str()),
+            CodexRolloutPlacement::Unplaced { .. } | CodexRolloutPlacement::Passed => None,
+        };
+        if held_thread.is_some_and(|thread| service.session_of_thread(thread).is_none()) {
+            followed.placement = CodexRolloutPlacement::Unplaced { walks: 0 };
+        }
+        let unplaced = match (&followed.placement, followed.file.thread()) {
+            (CodexRolloutPlacement::Passed, _) => return,
+            (CodexRolloutPlacement::Unplaced { walks }, Some(thread)) => {
+                Some((*walks, thread.clone()))
+            }
+            (
+                CodexRolloutPlacement::Unplaced { .. }
+                | CodexRolloutPlacement::Below { .. }
+                | CodexRolloutPlacement::Streamed { .. },
+                _,
+            ) => None,
+        };
+        if let Some((walks, thread)) = unplaced {
+            followed.placement = place(service, &thread, walks).await;
+            if matches!(followed.placement, CodexRolloutPlacement::Unplaced { .. }) {
+                return;
+            }
+            continue;
+        }
+        if followed.size <= followed.offset {
+            return;
+        }
+        let is_thread_unknown = followed.file.thread().is_none();
+        let target = match &followed.placement {
+            CodexRolloutPlacement::Below {
+                session_id,
+                session_thread,
+                child_thread,
+            } => Some(CodexRolloutTarget {
+                session_id: *session_id,
+                placed: Some(CodexOffStreamPlacement::BelowThread {
+                    session_thread: session_thread.clone(),
+                    child_thread: child_thread.clone(),
+                }),
+            }),
+            CodexRolloutPlacement::Streamed { session_id } => Some(CodexRolloutTarget {
+                session_id: *session_id,
+                placed: None,
+            }),
+            CodexRolloutPlacement::Unplaced { .. } | CodexRolloutPlacement::Passed => None,
+        };
+        if !read_followed(service, path, followed, since_ms, target, charge).await {
+            return;
+        }
+        // A read that stopped at the file's first line places its thread next.
+        if !(is_thread_unknown && followed.file.thread().is_some()) {
+            return;
+        }
+    }
+}
+
+// Reads `followed`, at `path`, on from its offset as `read_on` does, handing what it charges to
+// `target`'s session, or through `charge` where no session takes it, and keeps where the read
+// stopped; answers whether it read, a failed read logged and the file marked as one whose read
+// failed.
+async fn read_followed(
+    service: &Arc<CodexService>,
+    path: &Path,
+    followed: &mut CodexFollowedRollout,
+    since_ms: u64,
+    target: Option<CodexRolloutTarget>,
+    charge: &CodexLaunchCharge,
+) -> bool {
+    let file = std::mem::take(&mut followed.file);
+    let read_path = path.to_owned();
+    let offset = followed.offset;
+    let read_service = Arc::clone(service);
+    let read_charge = charge.clone();
+    let read = tokio::task::spawn_blocking(move || {
+        read_on(
+            &read_path,
+            offset,
+            file,
+            since_ms,
+            target.as_ref().map(|target| (target, &*read_service)),
+            &read_charge,
+        )
+    })
+    .await;
+    let (file, read) = match read {
+        Ok(read) => read,
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                path = %path.display(),
+                "a codex rollout read did not end"
+            );
+            followed.is_read_failed = true;
+            return false;
+        }
+    };
+    followed.file = file;
+    match read {
+        Ok(offset) => {
+            followed.offset = offset;
+            followed.is_read_failed = false;
+            true
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                path = %path.display(),
+                "a codex rollout file could not be read"
+            );
+            followed.is_read_failed = true;
+            false
+        }
+    }
+}
+
+// Reads `path` on from `offset` into `file`, stopping just past the line that names its thread
+// where it is not known yet; the charges read are handed to `target`'s session on its service
+// together, `HAND_OVER_LINES` at a time and the rest before this answers, so the offset is kept
+// only once every line before it was handed over or, where no session took it, charged through
+// `charge`. Answers the file, and the offset the next read starts at or the failure. Blocking.
+fn read_on(
+    path: &Path,
+    offset: u64,
+    mut file: CodexRolloutFile,
+    since_ms: u64,
+    target: Option<(&CodexRolloutTarget, &CodexService)>,
+    charge: &CodexLaunchCharge,
+) -> (CodexRolloutFile, io::Result<u64>) {
+    let is_thread_unknown = file.thread().is_none();
+    let mut hand_over = Vec::new();
+    let read = read_usage_file_lines(path, offset, |line| {
+        let request = file.read_line(line, since_ms);
+        if let (Some(request), Some((target, service)), Some(thread)) =
+            (request, target, file.thread())
+        {
+            let provider_account_id = service.account_at(request.at_ms);
+            hand_over.extend(CodexExportedResponse::from_rollout(
+                &thread.thread_id,
+                request,
+                target.placed.clone(),
+                provider_account_id,
+            ));
+            if hand_over.len() >= HAND_OVER_LINES {
+                let lines = std::mem::take(&mut hand_over);
+                push_exported_responses(service, target.session_id, lines, charge);
+            }
+        }
+        if is_thread_unknown && file.thread().is_some() {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    });
+    if let Some((target, service)) = target {
+        push_exported_responses(service, target.session_id, hand_over, charge);
+    }
+    (file, read)
+}
+
+// Where `thread`'s requests go: on the session that streams it, else below the first held thread
+// up from the thread it came from, on that thread's session; one with no held thread above it is
+// passed. A walk the listing lacks the thread for, or that fails, leaves it unplaced for the next
+// pass, past `WALKS_KEPT` walks passed.
+async fn place(
+    service: &CodexService,
+    thread: &CodexRolloutThread,
+    walks: u8,
+) -> CodexRolloutPlacement {
+    if let Some(session_id) = service.session_of_thread(&thread.thread_id) {
+        return CodexRolloutPlacement::Streamed { session_id };
+    }
+    let Some(parent) = &thread.parent_thread_id else {
+        return CodexRolloutPlacement::Passed;
+    };
+    if let Some(session_id) = service.session_of_thread(parent) {
+        return CodexRolloutPlacement::Below {
+            session_id,
+            session_thread: parent.clone(),
+            child_thread: thread.thread_id.clone(),
+        };
+    }
+    let walked = match service.connection() {
+        Ok(connection) => {
+            place_codex_thread(&connection, parent, |thread| {
+                service.session_of_thread(thread)
+            })
+            .await
+        }
+        Err(error) => Err(error),
+    };
+    // A walk the listing lacked the thread for, or that failed, is one of its `WALKS_KEPT`.
+    let unplaced = if walks < WALKS_KEPT {
+        CodexRolloutPlacement::Unplaced { walks: walks + 1 }
+    } else {
+        CodexRolloutPlacement::Passed
+    };
+    match walked {
+        Ok(CodexThreadPlacement::BelowSession {
+            session_id,
+            session_thread,
+            child_thread,
+        }) => CodexRolloutPlacement::Below {
+            session_id,
+            session_thread,
+            child_thread,
+        },
+        // Taken by a session between the two looks: placed by the next pass.
+        Ok(CodexThreadPlacement::Streamed) => CodexRolloutPlacement::Unplaced { walks },
+        Ok(CodexThreadPlacement::Unplaced(
+            CodexUnplacedThread::NoHeldAncestor | CodexUnplacedThread::Loop,
+        )) => CodexRolloutPlacement::Passed,
+        Ok(CodexThreadPlacement::Unplaced(CodexUnplacedThread::NotListed)) => {
+            if matches!(unplaced, CodexRolloutPlacement::Passed) {
+                tracing::warn!(
+                    conversation_id = thread.thread_id.as_str(),
+                    "a codex rollout's thread is still not listed; its file is passed over"
+                );
+            }
+            unplaced
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                conversation_id = thread.thread_id.as_str(),
+                "a codex rollout's thread could not be walked; it is walked again next pass, \
+                 while its walks last"
+            );
+            unplaced
+        }
+    }
+}
+
+mod named_threads;
+mod placed_threads;
+mod sessions_folder;
+#[cfg(test)]
+mod tests;

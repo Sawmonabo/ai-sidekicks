@@ -11,6 +11,7 @@ use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
+use sidekicks_contracts::event::usage::UsageSightingSource;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -23,10 +24,12 @@ use crate::driver::codex::event_normalizer::{
 };
 use crate::driver::codex::pricing::{CodexRecorderPricing, compose_codex_request_facts};
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::telemetry::sighting::compose_codex_sighting;
 use crate::driver::codex::token_usage::read_codex_token_usage;
 use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
+use crate::driver::codex::web_search::CodexWebSearch;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, MeteredUsageDelta, ThreadBaseEstablishment, UsageAxisCounts,
@@ -115,8 +118,17 @@ impl CopyTurnMeter {
         }
     }
 
-    /// Reads one frame of the turn, each usage reading metered on the turn's thread.
+    /// Reads one frame of the turn, each usage reading metered on the turn's thread as the
+    /// stream's sighting of its request, whose export twin the copy's filing takes too, and each
+    /// billed hosted web search charged at the turn's facts.
     pub(crate) fn read_frame(&mut self, method: &str, params: &RawValue) -> CopyFrameReading {
+        if let Some(search) = CodexWebSearch::read(method, params)
+            .filter(|search| search.thread_id() == self.thread_id)
+        {
+            return CopyFrameReading::Usage(Box::new(
+                search.meter(UsageSightingSource::Stream, self.request.clone()),
+            ));
+        }
         match method {
             CODEX_ITEM_COMPLETED_METHOD => read_codex_object::<CopyFrame>(params.get())
                 .and_then(|frame| frame.item)
@@ -126,7 +138,13 @@ impl CopyTurnMeter {
                 .map_or(CopyFrameReading::Other, CopyFrameReading::Reply),
             CODEX_THREAD_TOKEN_USAGE_METHOD => read_codex_token_usage(params)
                 .and_then(|reading| self.meter_reading(reading))
-                .map_or(CopyFrameReading::Other, |delta| {
+                .map_or(CopyFrameReading::Other, |mut delta| {
+                    delta.sighting = compose_codex_sighting(
+                        UsageSightingSource::Stream,
+                        &delta.thread_id,
+                        &delta.axis_deltas,
+                        None,
+                    );
                     CopyFrameReading::Usage(Box::new(delta))
                 }),
             CODEX_TURN_COMPLETED_METHOD => CopyFrameReading::Ended(
@@ -204,9 +222,8 @@ pub(crate) struct SessionUsageFiling {
 impl SessionUsageFiling {
     /// Records `delta` as the session's own, counted toward no run, and prices it, its region read
     /// on `service` for `folder`; a refused record or region read is reported under the account.
-    /// A copy's thread's ledger on the service's launch takes it first, so its exported twin is
-    /// passed over. With no usage record registered it goes nowhere and reads no region. Boxed,
-    /// so a future that holds a filing does not nest the live pricing's whole type.
+    /// With no usage record registered it goes nowhere and reads no region. Boxed, so a future
+    /// that holds a filing does not nest the live pricing's whole type.
     pub(crate) fn file<'filing>(
         &'filing mut self,
         delta: MeteredUsageDelta,
@@ -217,8 +234,6 @@ impl SessionUsageFiling {
     }
 
     async fn file_now(&mut self, delta: MeteredUsageDelta, service: &CodexService, folder: &Path) {
-        let exports = &service.dependencies().exports;
-        exports.copy_filed(service.id(), &delta.thread_id, delta.axis_deltas);
         let Some(sink) = self.usage.port() else {
             return;
         };
@@ -240,7 +255,14 @@ impl SessionUsageFiling {
             .report();
         };
         self.pricing
-            .record(&**sink, vec![metered], service, folder, &report)
+            .record(
+                &**sink,
+                vec![metered],
+                provider_account_id,
+                service,
+                folder,
+                &report,
+            )
             .await;
     }
 }

@@ -33,6 +33,7 @@ use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::observer::AccountLiveTurns;
 use crate::account::token_custody::{ProviderTokenCustody, TokenCustodyError};
+use crate::account::usage_turns::sightings::release_account_sightings_statement;
 use crate::driver::registry::ProviderRegistry;
 
 // Every row, those whose removal has begun included.
@@ -249,14 +250,17 @@ impl ProviderAccountRegistry {
         })
         .await
         .map_err(ProviderAccountRegistryError::RemovedMark)?;
-        self.write(vec![WriteStatement {
-            sql: Cow::Borrowed(DELETE_MARKED_ACCOUNT_SQL),
-            bindings: StatementBindings::Named(vec![text_binding(
-                "@account_id",
-                account_id.as_str(),
-            )]),
-            expected_row_count: Some(1),
-        }])
+        let account_binding =
+            || StatementBindings::Named(vec![text_binding("@account_id", account_id.as_str())]);
+        self.write(vec![
+            WriteStatement {
+                sql: Cow::Borrowed(DELETE_MARKED_ACCOUNT_SQL),
+                bindings: account_binding(),
+                expected_row_count: Some(1),
+            },
+            // The account's usage sightings, which name it by value, gone in the same write.
+            release_account_sightings_statement(account_id),
+        ])
         .await
         .map(drop)
     }

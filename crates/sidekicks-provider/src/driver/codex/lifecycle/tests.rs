@@ -11,6 +11,7 @@ mod diagnostic_recorders;
 mod export_usage;
 mod intake;
 mod kept_turns;
+mod off_stream_usage;
 mod peer_messages;
 mod questions;
 mod resume;
@@ -23,7 +24,6 @@ pub(super) mod usage;
 use std::error::Error;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 use futures::future::BoxFuture;
 use interprocess::local_socket::traits::tokio::Listener as _;
@@ -147,6 +147,11 @@ impl LiveCodexSession {
     /// kept, so a faster-model retry can stop the turn and send that input again.
     pub(super) async fn retriable(steers: &[QueueItemId]) -> Self {
         Self::open(None, &[TEST_TURN], steers, &[], true).await
+    }
+
+    /// The session with its run open on each of `turns`, none of them started yet.
+    pub(super) async fn on_turns(turns: &[&str]) -> Self {
+        Self::open(None, turns, &[], &[], false).await
     }
 
     /// The session with no turn running, its run bound but not started.
@@ -413,17 +418,6 @@ pub(super) fn driver_holding(scripted: &ScriptedCodexService, folder: &Path) -> 
     let mut driver = CodexDriver::new(&services);
     driver.registry = CodexServiceRegistry::holding(scripted);
     driver
-}
-
-/// Yields until `holds` reads true, failing after a bound.
-pub(super) async fn wait_until(mut holds: impl FnMut() -> bool) {
-    for _turn in 0..2_000 {
-        if holds() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    panic!("the condition never held");
 }
 
 /// Answers what stopping a turn sends, a close's or an interrupt's: an interrupt, with the end of

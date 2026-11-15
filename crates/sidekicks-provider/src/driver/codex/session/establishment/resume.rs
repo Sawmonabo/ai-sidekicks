@@ -8,9 +8,9 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 
 use super::adoption::answer_codex_resumed_turns;
+use super::resumed_thread::{CodexResumedThread, prepare_adoption, read_resumed_thread};
 use super::{
-    CodexInPlaceOutcome, CodexInPlaceResume, CodexResumedThread, CodexSessionEstablishment,
-    compose_failed_resume, prepare_adoption, read_resumed_thread,
+    CodexInPlaceOutcome, CodexInPlaceResume, CodexSessionEstablishment, compose_failed_resume,
 };
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::service::supervisor::CodexService;

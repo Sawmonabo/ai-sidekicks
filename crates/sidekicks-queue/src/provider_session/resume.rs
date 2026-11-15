@@ -193,8 +193,9 @@ impl ProviderSessions {
     /// provider answers for it. Answers what the resume brought back, nothing for a session this
     /// process already opened. Fails with [`ProviderSessionError::Closed`] or
     /// [`ProviderSessionError::BeingDeleted`] for an ended session,
-    /// [`ProviderSessionError::NoConversation`] for one with none to resume, the driver never
-    /// called, [`ProviderSessionError::ResumeRefused`] for a resume the provider refused,
+    /// [`ProviderSessionError::UnclosedFork`] while an unrecorded fork of it left running does not
+    /// close, [`ProviderSessionError::NoConversation`] for one with none to resume, the driver
+    /// never called, [`ProviderSessionError::ResumeRefused`] for a resume the provider refused,
     /// [`ProviderSessionError::ResumedRuns`] for runs the resume named that were not settled, and
     /// as the composition, the driver or the binding's record fails. A resume whose provider no
     /// driver answers, or is not installed, posts the `providerMissing` notice first.
@@ -204,6 +205,7 @@ impl ProviderSessions {
     ) -> Result<ResumedSession, ProviderSessionError> {
         let _hold = self.deps.transition_lock.acquire(session_id).await;
         self.refuse_ended(session_id).await?;
+        self.close_held_fork(session_id).await?;
         if self.is_opened(session_id) {
             return Ok(ResumedSession::default());
         }

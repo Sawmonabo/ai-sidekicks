@@ -8,13 +8,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::event::usage::UsageSighting;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::DatabaseWriter;
 
@@ -23,6 +28,7 @@ use crate::account::registry::ProviderAccountRegistry;
 use crate::account::usage_turns::unpriced::UnpricedUsageKey;
 use crate::callback_tools::host::CallbackToolHost;
 use crate::command::running_set::RunningCommandSets;
+use crate::driver::contract::account::WindowTurnSpend;
 use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
@@ -151,6 +157,41 @@ pub struct HeldRequest {
     pub row_ids: Vec<FreeFormText<EVENT_FIELD_MAX_LEN>>,
 }
 
+/// A request no session owns that a driver read from its provider's own records: the account's
+/// spend outside any session.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionlessRequest {
+    /// The provider that ran it.
+    pub provider: ProviderId,
+    /// The account it ran on.
+    pub provider_account_id: ProviderAccountId,
+    /// When the provider observed it.
+    pub occurred_at: WireInstant,
+    /// The region the provider processed it in, in the word its pricer reads; `None` for none.
+    pub processing_region: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// What it spent, at its model and tier.
+    pub spend: WindowTurnSpend,
+    /// The hosted web searches it ran; `None` for none.
+    pub web_search_requests: Option<SafeInt<0>>,
+    /// Its sighting, which a session's later sighting of the same request is passed over by, and
+    /// which passes it over where a session's sighting priced it first; `None` for none.
+    pub sighting: Option<UsageSighting>,
+}
+
+/// What became of one request handed over as no session's spend: its row written and its key
+/// queued for the repricing, passed over since another sighting priced it first, or dropped
+/// with its account, which is being removed or is no longer registered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionlessOutcome {
+    /// Its row was written held and its key queued.
+    Written,
+    /// Another sighting priced it first: its sighting marked that record, or its source's own id
+    /// was recorded already.
+    PassedOver,
+    /// Its account is being removed or is no longer registered, so nothing was written.
+    AccountGone,
+}
+
 /// The repricing's intake of a request its driver left unpriced.
 pub trait RequestHeldListener: Send + Sync {
     /// Takes `held` into the repricing, marking its listed rows held before it answers; fails as
@@ -159,6 +200,16 @@ pub trait RequestHeldListener: Send + Sync {
         &self,
         held: HeldRequest,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+
+    /// Writes each of `requests`, never empty, as a held usage row no session owns, all in one
+    /// write, then takes the key of each written into the repricing; a request whose sighting is
+    /// passed over writes no row and marks its sighting, and one whose account is being removed or
+    /// is not registered writes nothing. Answers each request's outcome in order. Fails as the
+    /// write fails, which writes none of them.
+    fn sessionless_requests_held(
+        &self,
+        requests: Vec<SessionlessRequest>,
+    ) -> BoxFuture<'_, Result<Vec<SessionlessOutcome>, Box<dyn Error + Send + Sync>>>;
 }
 
 /// One place the daemon runs sessions in, as its start found it.

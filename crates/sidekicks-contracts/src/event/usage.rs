@@ -213,6 +213,48 @@ pub struct UsageTokenCountRecordedPayload {
     )]
     #[schemars(with = "SourcePosition")]
     pub source_position: Option<SourcePosition>,
+    /// The sighting the row was priced from, where its provider sees one request more than once;
+    /// a later sighting of the same request marks this row's record and is passed over.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "UsageSighting")]
+    pub sighting: Option<UsageSighting>,
+}
+
+/// One sighting of a provider's request: the key two sightings of one request share, which
+/// source saw it, and that source's own id of the request where it has one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UsageSighting {
+    /// The key every sighting of the request carries alike.
+    pub match_key: BoundedText<1, EVENT_FIELD_MAX_LEN>,
+    /// The source that saw the request.
+    pub source: UsageSightingSource,
+    /// The source's own id of the request; absent where the source names none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BoundedText<1, EVENT_FIELD_MAX_LEN>")]
+    pub sighting_key: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+}
+
+/// Where a provider's request was seen: its live stream, its usage export, or a file it wrote;
+/// converts to its wire word.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, IntoStaticStr)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum UsageSightingSource {
+    /// The provider's live stream.
+    Stream,
+    /// The provider's usage export.
+    Export,
+    /// A file the provider wrote.
+    File,
 }
 
 /// Where a priced request's figure came from; converts to its wire word.
@@ -738,6 +780,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<UsageContainment>(),
         Definition::read::<UsageTokenCountRecordedPayload>().checked(),
+        Definition::read::<UsageSighting>(),
+        Definition::read::<UsageSightingSource>(),
         Definition::read::<UsageCostSource>(),
         Definition::read::<UsagePricedEvent>(),
         Definition::read::<UsageCostUpdatedPayload>().checked(),
