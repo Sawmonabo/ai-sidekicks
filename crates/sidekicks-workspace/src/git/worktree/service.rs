@@ -49,9 +49,9 @@ use crate::git::worktree::event_emitter::{EmitWorktreeEventInput, WorktreeEventE
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::risks::{RemovalRiskReadError, read_removal_risk_reading};
 use crate::git::worktree::rows::{
-    AttachedMountRow, MARK_READY_SQL, NewWorktreeRow, UNRELEASED_RUN_IN_WORKTREE_SQL, WorktreeRow,
-    WorktreeRowChange, WorktreeRowRefusal, insert_worktree_statement, read_unreleased_runs,
-    transition_statement,
+    AttachedMountRow, MARK_READY_SQL, NewWorktreeRow, UNRELEASED_RUN_IN_WORKTREE_SQL,
+    UNRELEASED_RUNS_STATEMENT_CAPACITY, WorktreeRow, WorktreeRowChange, WorktreeRowRefusal,
+    insert_worktree_statement, read_unreleased_runs, transition_statement,
 };
 use crate::repo::errors::RepoRefusal;
 
@@ -241,9 +241,9 @@ pub enum WorktreeRowsReadError {
 }
 
 /// The statements the worktree service prepares on a read connection: a tree's row by id, by
-/// folder and its state, the attached mount, the retired among a list, the unreleased runs, and
-/// the sweep's sweepable and uncleaned retired trees.
-pub const WORKTREE_SERVICE_STATEMENT_CAPACITY: usize = 8;
+/// folder and its state, the attached mount, the retired among a list, the sweep's sweepable and
+/// uncleaned retired trees, and the unreleased runs, a read the working folders share.
+pub const WORKTREE_SERVICE_STATEMENT_CAPACITY: usize = 7 + UNRELEASED_RUNS_STATEMENT_CAPACITY;
 
 /// Owns every `worktrees` transition and worktree-scoped git call.
 pub struct WorktreeService {

@@ -254,6 +254,7 @@ mod tests {
     use crate::git::turn_snapshot::capture::GitFloorReports;
     use crate::git::turn_snapshot::command_capture::tests::{command_in, write_files};
     use crate::git::turn_snapshot::command_capture::{CommandCaptureService, TreeChange};
+    use crate::git::turn_snapshot::repack::CapturePacking;
 
     const SHA1: &str = "1111111111111111111111111111111111111111";
     const MADE_UP: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -324,6 +325,10 @@ mod tests {
         let service = CommandCaptureService::new(
             git.clone(),
             Arc::new(KeyedLock::new()),
+            Arc::new(CapturePacking::new(
+                git.clone(),
+                Arc::new(GitFloorReports::default()),
+            )),
             Arc::new(GitFloorReports::default()),
         );
         let input = command_in(&repository, &owner);
@@ -394,6 +399,10 @@ mod tests {
         let service = CommandCaptureService::new(
             git.clone(),
             Arc::new(KeyedLock::new()),
+            Arc::new(CapturePacking::new(
+                git.clone(),
+                Arc::new(GitFloorReports::default()),
+            )),
             Arc::new(GitFloorReports::default()),
         );
         let before = service

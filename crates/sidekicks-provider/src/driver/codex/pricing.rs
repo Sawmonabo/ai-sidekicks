@@ -6,10 +6,11 @@
 //!   region.
 //! - **An API key** takes the long-context rates once the request's input, cache reads and writes
 //!   pass the row's threshold, its region's multiplier where the service's host is one of the API's
-//!   regional hosts, and every cache write at the row's 30-minute rate. Any other host is unpriced.
+//!   regional hosts, and every cache write at the row's 30-minute rate, or at the input rate where
+//!   the row carries no write rate for the request. Any other host is unpriced. Each hosted web
+//!   search is one call at the row's per-search rate, or the API's published rate for the tool
+//!   where the row carries none.
 //! - **Any other sign-in kind**, or none read yet, holds the request for the kind.
-//!
-//! Web searches carry no count on Codex's usage, so none is priced.
 //!
 //! A session's recorder, and each side question's or hand-over's copy, prices each row as it
 //! records it: it reads its service's region once per service, stamps it on every row so the
@@ -18,12 +19,13 @@
 //! is recorded unpriced.
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Weak};
 
 use sidekicks_contracts::event::usage::UsageCostSource;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
-use sidekicks_contracts::provider::account::record::ProviderAuthMode;
+use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
+use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
@@ -34,11 +36,14 @@ use crate::driver::codex::config_read::{
     CodexProcessingRegion, OPENAI_REGION_PREFIXES, read_codex_processing_region,
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
+use crate::driver::codex::session::errors::CodexError;
+use crate::driver::ports::DriverPorts;
 use crate::port::usage_sink::{MeteredUsage, UsageSink};
 use crate::pricing::BoxedError;
-use crate::pricing::list::{PriceRow, PriceTable, SpeedPricing};
+use crate::pricing::decimal::ExactDecimal;
+use crate::pricing::list::{PriceRow, PriceTable, RateBase, SpeedPricing};
 use crate::pricing::live::{LivePricing, LiveUsageRow};
-use crate::pricing::quote::{RequestTokenCounts, RequestUsage, quote_request_rows};
+use crate::pricing::quote::{QuoteRefusal, RequestTokenCounts, RequestUsage, quote_request_rows};
 use crate::pricing::rule::{RequestPricer, RequestPricing};
 use crate::usage_delta_accountant::UsageRequestFacts;
 type RegionWord = BoundedText<1, EVENT_FIELD_MAX_LEN>;
@@ -47,23 +52,45 @@ type RegionWord = BoundedText<1, EVENT_FIELD_MAX_LEN>;
 // stamps on its rows; no regional prefix equals it, so the rule holds an API key's requests.
 const UNKNOWN_HOST_REGION: &str = "unknownHost";
 
+// OpenAI's published price of one call of the Responses API's hosted web search tool, in dollars:
+// $10.00 per 1,000 calls, whatever the model or context size.
+const OPENAI_WEB_SEARCH_CALL_RATE: &str = "0.01";
+
+// The published rate as the quote reads it, parsed once.
+static PUBLISHED_SEARCH_RATE: LazyLock<ExactDecimal> = LazyLock::new(|| {
+    ExactDecimal::parse_json_number(OPENAI_WEB_SEARCH_CALL_RATE)
+        .expect("the published rate is a decimal")
+});
+
+// The context size Codex's hosted search runs at: the API's default, which Codex sends unless the
+// person's config names a size; every row prices the three sizes alike.
+const CODEX_SEARCH_CONTEXT_SIZE: &str = "medium";
+
 /// The models Codex's automatic reviewer runs by default, on a plan sign-in and on an API key.
 pub(crate) const CODEX_REVIEWER_MODELS: [&str; 2] = ["codex-auto-review", "gpt-5.6-luna"];
 
-/// The facts a Codex request carries: its `model`, and the `tier` it was sent at as both its own
-/// speed and its thread's; shared by a copy's readings and the export's responses.
+/// The facts a Codex request carries: its `model` and the `tier` it was sent at; shared by a
+/// copy's readings and the export's responses, none of them a root thread's, so none states the
+/// thread tier a helper's request is priced at.
 pub(crate) fn compose_codex_request_facts(model: &str, tier: Option<&str>) -> UsageRequestFacts {
-    let speed = tier.and_then(|tier| BoundedText::new(tier.to_owned()));
     UsageRequestFacts {
         model_id: FreeFormText::new(model.to_owned()).ok(),
-        speed: speed.clone(),
-        thread_speed: speed,
+        speed: tier.and_then(|tier| BoundedText::new(tier.to_owned())),
         ..UsageRequestFacts::default()
     }
 }
 
 /// Codex's rule for pricing its requests from the held price table by the account's sign-in kind.
 pub(crate) struct CodexRequestPricer;
+
+/// The driver's one live pricing of Codex's requests, writing through `ports`.
+pub(crate) fn compose_codex_live_pricing(ports: &DriverPorts) -> Arc<LivePricing> {
+    Arc::new(LivePricing::new(
+        DESCRIPTOR.provider_id(),
+        Arc::new(CodexRequestPricer),
+        ports,
+    ))
+}
 
 impl RequestPricer for CodexRequestPricer {
     fn needs_sign_in_kind(&self) -> bool {
@@ -97,13 +124,8 @@ impl RequestPricer for CodexRequestPricer {
         request: &UnpricedRequest,
         sign_in_kind: Option<ProviderAuthMode>,
     ) -> RequestPricing {
-        let is_plan = match sign_in_kind {
-            Some(ProviderAuthMode::OauthSubscription | ProviderAuthMode::OauthToken) => true,
-            Some(ProviderAuthMode::ApiKey) => false,
-            Some(
-                ProviderAuthMode::External | ProviderAuthMode::None | ProviderAuthMode::Unknown,
-            )
-            | None => return RequestPricing::HeldForSignInKind,
+        let Some(is_plan) = is_plan_sign_in(sign_in_kind) else {
+            return RequestPricing::HeldForSignInKind;
         };
         let Some(model_id) = &key.model_id else {
             return RequestPricing::HeldForPrice;
@@ -116,23 +138,65 @@ impl RequestPricer for CodexRequestPricer {
         if region.is_some_and(|region| !OPENAI_REGION_PREFIXES.contains(&region)) {
             return RequestPricing::HeldForPrice;
         }
-        let row_tokens: Vec<RequestTokenCounts> = request
+        match quote_codex_request(table, model_id.as_str(), key, request, region, is_plan) {
+            Ok(shares) => RequestPricing::Priced {
+                cost_source: UsageCostSource::DerivedExact,
+                shares,
+            },
+            Err(_refusal) => RequestPricing::HeldForPrice,
+        }
+    }
+}
+
+// Whether `sign_in_kind` is a plan's, `false` for an API key; `None` for a kind the rule holds a
+// request for.
+fn is_plan_sign_in(sign_in_kind: Option<ProviderAuthMode>) -> Option<bool> {
+    match sign_in_kind {
+        Some(ProviderAuthMode::OauthSubscription | ProviderAuthMode::OauthToken) => Some(true),
+        Some(ProviderAuthMode::ApiKey) => Some(false),
+        Some(ProviderAuthMode::External | ProviderAuthMode::None | ProviderAuthMode::Unknown)
+        | None => None,
+    }
+}
+
+// The shares of `request`'s rows on `model_id` under the rule: a plan's at the standard rates with
+// each cache write at the input rate, a key's at its long-context sum and `region`, its searches
+// charged and each cache write at the row's 30-minute rate, or at the input rate where the row
+// carries no write rate at the request's threshold and tier.
+fn quote_codex_request(
+    table: &PriceTable,
+    model_id: &str,
+    key: &UnpricedUsageKey,
+    request: &UnpricedRequest,
+    region: Option<&str>,
+    is_plan: bool,
+) -> Result<Vec<UsdMicros>, QuoteRefusal> {
+    let quote = |is_write_at_input: bool| {
+        let row_tokens: Vec<(RequestTokenCounts, u64)> = request
             .rows
             .iter()
             .map(|row| {
-                let count = |axis: usize| row.tokens[axis].map_or(0, SafeInt::get);
-                let (input, cache_write) = if is_plan {
-                    (count(0).saturating_add(count(3)), 0)
+                let count = |figure: Option<SafeInt<0>>| figure.map_or(0, SafeInt::get);
+                let [input, output, cache_read, cache_write, _reasoning] = row.tokens.map(count);
+                let (input, cache_write) = if is_write_at_input {
+                    (input.saturating_add(cache_write), 0)
                 } else {
-                    (count(0), count(3))
+                    (input, cache_write)
                 };
-                RequestTokenCounts {
+                let tokens = RequestTokenCounts {
                     input,
-                    output: count(1),
-                    cache_read: count(2),
+                    output,
+                    cache_read,
                     cache_write,
                     cache_write_extended: 0,
-                }
+                };
+                // A plan's searches are part of the plan.
+                let searches = if is_plan {
+                    0
+                } else {
+                    count(row.web_search_requests)
+                };
+                (tokens, searches)
             })
             .collect();
         let long_context_tokens = if is_plan {
@@ -140,7 +204,7 @@ impl RequestPricer for CodexRequestPricer {
         } else {
             row_tokens
                 .iter()
-                .map(|tokens| {
+                .map(|(tokens, _searches)| {
                     tokens
                         .input
                         .saturating_add(tokens.cache_read)
@@ -150,8 +214,8 @@ impl RequestPricer for CodexRequestPricer {
         };
         let rows: Vec<RequestUsage<'_>> = row_tokens
             .into_iter()
-            .map(|tokens| RequestUsage {
-                model_id: model_id.as_str(),
+            .map(|(tokens, web_searches)| RequestUsage {
+                model_id,
                 speed: rate_speed(key),
                 region,
                 region_words: &OPENAI_REGION_PREFIXES,
@@ -159,17 +223,19 @@ impl RequestPricer for CodexRequestPricer {
                 // Codex writes the cache at one lifetime only, so no count reads this.
                 extended_cache_lifetime_hours: 1,
                 tokens,
-                web_searches: 0,
-                search_context_size: "medium",
+                web_searches,
+                search_context_size: CODEX_SEARCH_CONTEXT_SIZE,
+                published_search_rate: Some(*PUBLISHED_SEARCH_RATE),
             })
             .collect();
-        match quote_request_rows(table, &rows) {
-            Ok(shares) => RequestPricing::Priced {
-                cost_source: UsageCostSource::DerivedExact,
-                shares,
-            },
-            Err(_refusal) => RequestPricing::HeldForPrice,
-        }
+        quote_request_rows(table, &rows)
+    };
+    match quote(is_plan) {
+        Err(QuoteRefusal::RateAbsent {
+            base: RateBase::CacheWrite,
+            cache_lifetime_hours: None,
+        }) => quote(true),
+        quoted => quoted,
     }
 }
 
@@ -187,34 +253,63 @@ impl CodexRecorderPricing {
         Self { live, region: None }
     }
 
-    /// Records `batch`, metered on `service` for `folder`, through `sink` in order, each delta
-    /// stamped with the service's region, then prices what was recorded once per model. A region
-    /// that could not be read, which leaves the batch on the unknown host's region, and a delta
-    /// that was not recorded are each handed to `report`.
+    /// Records `batch`, metered on `service` for `folder`, through `sink` together, so the store
+    /// commits it as one, each delta stamped with the service's region, then prices what was
+    /// recorded once per model; a hosted search on an account a plan signs in, a delta naming no
+    /// account being `binding_account`'s, is part of the plan and records nothing. A region that
+    /// could not be read, which leaves the batch on the unknown host's region, and a delta that was
+    /// not recorded are each handed to `report`.
     pub(crate) async fn record(
         &mut self,
         sink: &dyn UsageSink,
         batch: Vec<MeteredUsage>,
+        binding_account: &ProviderAccountId,
         service: &CodexService,
         folder: &Path,
         report: &impl Fn(BoxedError),
     ) {
+        let batch = drop_plan_searches(&self.live, batch, |metered| {
+            metered
+                .delta
+                .request
+                .web_search_requests
+                .is_some()
+                .then(|| {
+                    metered
+                        .provider_account_id
+                        .as_ref()
+                        .unwrap_or(binding_account)
+                        .clone()
+                })
+        })
+        .await;
+        if batch.is_empty() {
+            return;
+        }
         let region = self.read_region(service, folder, report).await;
         let mut rows_by_model: Vec<(
             SessionId,
             FreeFormText<EVENT_FIELD_MAX_LEN>,
             Vec<LiveUsageRow>,
         )> = Vec::new();
+        let mut priced = Vec::with_capacity(batch.len());
+        let mut stamped = Vec::with_capacity(batch.len());
         for mut metered in batch {
             metered.delta.request.processing_region.clone_from(&region);
-            let session_id = metered.session_id;
-            let priced = metered
-                .delta
-                .request
-                .model_id
-                .clone()
-                .map(|model_id| (model_id, metered.delta.clone()));
-            match sink.record_metered(metered).await {
+            priced.push((
+                metered.session_id,
+                metered
+                    .delta
+                    .request
+                    .model_id
+                    .clone()
+                    .map(|model_id| (model_id, metered.delta.clone())),
+            ));
+            stamped.push(metered);
+        }
+        let recorded = sink.record_metered_together(stamped).await;
+        for ((session_id, priced), recorded) in priced.into_iter().zip(recorded) {
+            match recorded {
                 Ok(Some(recorded)) => {
                     let Some((model_id, delta)) = priced else {
                         continue;
@@ -250,21 +345,99 @@ impl CodexRecorderPricing {
         {
             return region.clone();
         }
-        let read = match service.connection() {
-            Ok(connection) => read_codex_processing_region(&connection, folder).await,
-            Err(error) => Err(error),
-        };
-        let region = match read {
-            Ok(region) => region,
+        match read_region_word(service, Some(folder)).await {
+            Ok(word) => {
+                self.region = Some((service.id(), word.clone()));
+                word
+            }
             Err(error) => {
                 report(Box::new(error));
-                return region_word(&CodexProcessingRegion::UnknownHost);
+                unknown_host_region()
             }
-        };
-        let word = region_word(&region);
-        self.region = Some((service.id(), word.clone()));
-        word
+        }
     }
+
+    /// The region what a session cannot file is charged at: the one its rows are stamped with, of
+    /// `service`'s settings for `folder`, read as [`Self::record`] reads it; where the service is
+    /// gone, the region last read for `service_id`, else the unknown host's. A failed read is
+    /// handed to `report`.
+    pub(crate) async fn read_unfiled_region(
+        &mut self,
+        service: &Weak<CodexService>,
+        service_id: CodexServiceId,
+        folder: &Path,
+        report: &impl Fn(BoxedError),
+    ) -> Option<RegionWord> {
+        if let Some(service) = service.upgrade() {
+            return self.read_region(&service, folder, report).await;
+        }
+        match &self.region {
+            Some((read_for, region)) if *read_for == service_id => region.clone(),
+            Some(_) | None => unknown_host_region(),
+        }
+    }
+}
+
+/// `items` less each hosted search charged to an account a plan signs in, each account's kind
+/// read through `live` once per call, so a plan's search writes no row, event or sighting;
+/// `search_account` names the account of an item that is a search, `None` for any other. A search
+/// whose kind reads as none yet, or whose read fails, which is logged, is kept: its pricing reads
+/// the kind again and holds it.
+pub(crate) async fn drop_plan_searches<Item>(
+    live: &LivePricing,
+    items: Vec<Item>,
+    search_account: impl Fn(&Item) -> Option<ProviderAccountId>,
+) -> Vec<Item> {
+    let mut read: Vec<(ProviderAccountId, bool)> = Vec::new();
+    let mut kept = Vec::with_capacity(items.len());
+    for item in items {
+        let Some(account) = search_account(&item) else {
+            kept.push(item);
+            continue;
+        };
+        let is_read = read
+            .iter()
+            .find(|(read_account, _)| *read_account == account)
+            .map(|(_, is_plan)| *is_plan);
+        let is_plan = if let Some(is_plan) = is_read {
+            is_plan
+        } else {
+            let is_plan = match live.read_sign_in_kind(&account).await {
+                Ok(sign_in_kind) => is_plan_sign_in(sign_in_kind) == Some(true),
+                Err(error) => {
+                    tracing::warn!(
+                        error = &*error as &(dyn std::error::Error + 'static),
+                        "a codex account's sign-in kind could not be read; its hosted search is \
+                         kept, its pricing held for the kind"
+                    );
+                    false
+                }
+            };
+            read.push((account, is_plan));
+            is_plan
+        };
+        if !is_plan {
+            kept.push(item);
+        }
+    }
+    kept
+}
+
+/// The word a row carries for the region of `service`'s model provider, read from its settings
+/// for `folder`, or for no folder. Fails as the read fails.
+pub(crate) async fn read_region_word(
+    service: &CodexService,
+    folder: Option<&Path>,
+) -> Result<Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>, CodexError> {
+    let connection = service.connection()?;
+    let region = read_codex_processing_region(&connection, folder).await?;
+    Ok(region_word(&region))
+}
+
+/// The word a row carries where its service's region could not be read: the unknown host's, which
+/// holds an API key's request.
+pub(crate) fn unknown_host_region() -> Option<BoundedText<1, EVENT_FIELD_MAX_LEN>> {
+    region_word(&CodexProcessingRegion::UnknownHost)
 }
 
 // The word a row carries for `region`: none, the regional host's prefix, or the unknown host's.
@@ -294,7 +467,7 @@ fn rate_speed(key: &UnpricedUsageKey) -> Option<&str> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use rstest::rstest;
     use sidekicks_contracts::event::usage::UsageCostSource;
     use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
@@ -335,14 +508,15 @@ mod tests {
     }"#;
 
     const API_KEY: Option<ProviderAuthMode> = Some(ProviderAuthMode::ApiKey);
-    const PLAN: Option<ProviderAuthMode> = Some(ProviderAuthMode::OauthSubscription);
+    /// A plan sign-in, valued at the standard rates or its tier's.
+    pub(crate) const PLAN: Option<ProviderAuthMode> = Some(ProviderAuthMode::OauthSubscription);
 
-    // One request's counts: input, output, cache read and cache write.
-    type Counts = [u64; 4];
+    /// One request's counts: input, output, cache read and cache write.
+    pub(crate) type Counts = [u64; 4];
 
-    // What one request of `counts` on `model` at `speed` in `region` makes under `sign_in_kind`,
-    // through `prices_key` first as both callers ask.
-    fn price(
+    /// What one request of `counts` on `model` at `speed` in `region` makes under `sign_in_kind`,
+    /// through `prices_key` first as both callers ask, from two rows as the list carries them.
+    pub(crate) fn price(
         model: &str,
         speed: Option<&str>,
         region: Option<&str>,
@@ -398,8 +572,8 @@ mod tests {
     // Killed by leaving cached input in the input count (24,000), by `>=` at the threshold
     // (814,400 for 272,000 tokens), by long context or the region on a plan (818,400; 450,120), by
     // a plan's write at the write rate (409,700), by `default` read as a tier (unpriced), by a
-    // write at the longer lifetime (5,000), by the region ignored (3,000) and by pricing a kind
-    // that holds.
+    // write at the longer lifetime (5,000), by a key's write on a row with no write rate held, by
+    // the region ignored (3,000) and by pricing a kind that holds.
     #[rstest]
     #[case::standard("gpt-6.1-sol", None, None, API_KEY, [1_000, 100, 10_000, 0], priced(4_000))]
     #[case::default_tier(
@@ -441,6 +615,14 @@ mod tests {
         API_KEY,
         [0, 0, 0, 1_000],
         priced(2_500)
+    )]
+    #[case::write_on_a_row_with_no_write_rate(
+        "gpt-5.3-codex",
+        None,
+        None,
+        API_KEY,
+        [0, 0, 0, 1_000],
+        priced(1_750)
     )]
     #[case::plan(
         "gpt-6.1-sol",

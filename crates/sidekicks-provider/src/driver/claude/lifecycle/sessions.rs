@@ -16,6 +16,7 @@ use super::held_calls::{HELD_TASK_STOP_BOUND, stop_held_tasks};
 use super::{ClaudeDriver, ClaudeSessionParts, internal};
 use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeHeldCallSettle;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
+use crate::driver::claude::run::rewind::read_claude_rewind_target;
 use crate::driver::claude::session::conversation_file::{
     conversation_file_of, find_claude_taken_messages,
 };
@@ -36,7 +37,9 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::{DaemonStopIntent, run_until};
 use crate::driver::diagnostics::DriverDiagnosticKind;
-use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::rewind::{
+    RewindConversationParams, RewindConversationResult, RewindTargetPresence,
+};
 use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, MoveSessionToForkParams,
@@ -141,6 +144,30 @@ impl ClaudeDriver {
                 &params.target_message_id,
                 &self.sources.ports.reviewer_denials,
             )
+            .await
+    }
+
+    /// Reads whether a cut Claude Code made took the person's message from the live conversation;
+    /// see `read_claude_rewind_target`.
+    pub(crate) async fn read_rewind_target(
+        &self,
+        params: RewindConversationParams,
+    ) -> Result<RewindTargetPresence, DriverError> {
+        let parts = self.parts()?;
+        let live = parts.run_start.live_session(params.session_id)?;
+        read_claude_rewind_target(&live, &params.target_message_id).await
+    }
+
+    /// Brings the driver's own state to a cut Claude Code already made; see the cuts' adopt.
+    pub(crate) async fn adopt_conversation_rewind(
+        &self,
+        params: RewindConversationParams,
+    ) -> Result<(), DriverError> {
+        let parts = self.parts()?;
+        let live = parts.run_start.live_session(params.session_id)?;
+        parts
+            .cuts
+            .adopt(&live, &self.sources.ports.reviewer_denials)
             .await
     }
 
@@ -290,10 +317,17 @@ impl ClaudeDriver {
     }
 
     /// Ends every Claude Code process as the daemon stops, every wait ended by `deadline`, records
-    /// each one-turn process's spend, and leaves each session's runs for the stop's own settle. A
-    /// session still coming up or going down at the deadline is left to the process stop, which
-    /// ends its process too.
+    /// each one-turn process's spend, files no exported request once the filings running are done,
+    /// and leaves each session's runs for the stop's own settle. A session still coming up or
+    /// going down at the deadline is left to the process stop, which ends its process too.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) {
+        // No exported request is filed from here on, as no stream prices one either.
+        if timeout_at(deadline, self.exports.stop()).await.is_err() {
+            tracing::warn!(
+                "a Claude Code process's exported requests were still being filed at the stop's \
+                 deadline"
+            );
+        }
         let Some(parts) = self.composed_parts() else {
             self.starts.stop_every_process(deadline).await;
             return;

@@ -540,7 +540,9 @@ impl ClaudeSessionEstablishment {
         ));
         let is_continuing_turn = continued_turn.is_some();
         if let Some(turn) = continued_turn {
-            stream.continue_turn(&turn.run, turn.turn_number, turn.provider_turn_id);
+            // The resumed process continues the turn itself, with no message to wait on.
+            let before = stream.continue_turn(&turn.run, turn.turn_number, turn.provider_turn_id);
+            stream.confirm_continued_turn(before);
         }
         // The calls the resumed conversation held, rebuilt before its process can end one: its
         // kept files are the resumed conversation's, a fork's predecessor's for a fork.
@@ -591,6 +593,7 @@ impl ClaudeSessionEstablishment {
                 turn_holds: Some(crate::driver::claude::session::process::ClaudeTurnHolds {
                     routes: Arc::clone(&self.routes),
                     session_id,
+                    exports: Arc::clone(&self.task_services.exports),
                 }),
                 permission_mode: requested_mode,
                 messaging_socket: messaging_socket.as_deref(),

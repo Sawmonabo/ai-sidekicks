@@ -1,53 +1,65 @@
 //! The drain of the export register's hand-off, which only routes: each completed response taken
 //! to the session holding its thread on its own launch, to the session its launch streamed it for
-//! before the thread moved to another launch, or to its copy's ledger; a response on a thread
-//! another launch streams that its own launch never did is refused; anything that waits on Codex
-//! (a walk off the stream, a retry of kept responses, an ended copy's filing) goes to the work
-//! queue of its own launch, whose task runs it, so one launch's hang stalls no other.
+//! before the thread moved to another launch, or to its copy's filing; anything that waits on
+//! Codex (a walk off the stream, a retry of kept responses, a copy's filing, a read of the
+//! launch's rollout files while its export is absent) goes to the work queue of its own launch,
+//! whose task runs it, so one launch's hang stalls no other. A response on a thread another
+//! launch streams that its own launch never filed there is filed on no other launch's session; it,
+//! and one that the daemon's stop, an ended service or launch, or a full queue leaves unrouted, or
+//! that no session takes, is charged through its own launch's charge as its account's spend
+//! outside any session.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::{Notify, mpsc};
-use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
-use crate::driver::codex::telemetry::copy_threads::CodexEndedCopy;
-use crate::driver::codex::telemetry::exports::{
-    CODEX_EXPORT_HAND_OFF_DEPTH, CodexDueCopies, CodexExports,
-};
-use crate::driver::codex::telemetry::held_responses::{
+use crate::driver::codex::telemetry::copy_threads::CodexCopyThread;
+use crate::driver::codex::telemetry::exported_response::{
     CodexExportedResponse, CodexOffStreamPlacement,
 };
+use crate::driver::codex::telemetry::exports::{CODEX_EXPORT_HAND_OFF_DEPTH, CodexExports};
 use crate::driver::codex::telemetry::placement::{
-    CodexLaunchPlacement, bucket_off_stream, place_bucket, refuse_response, take_kept_buckets,
+    CodexKeptBucket, CodexLaunchPlacement, bucket_off_stream, place_bucket, read_launch_region,
+    take_kept_buckets,
 };
-
-// Why a response whose placement the daemon's stop abandoned was refused.
-const STOPPED: &str = "the daemon stopped before its thread could be placed";
+use crate::driver::codex::telemetry::rollouts::fallback::{
+    CodexFallbackDue, CodexLaunchRollouts, CodexRolloutFallback,
+};
+use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
 
 // What the reader hands the drain, each with the service that ran it and its launch's placement
-// state: one completed response of the export numbered `export_number`, or, after that export's
-// responses, a retry of the responses the launch kept before it.
+// state and charge: the completed responses of the export numbered `export_number`, handed over
+// together, or, after that export's responses, a retry of the responses the launch kept before
+// it; or, as the launch registers and as it settles a request turn while its export status reads
+// stopped, a read of its rollout files, with its fallback's handles.
 pub(super) enum CodexExportItem {
-    Response {
+    Responses {
         service: Weak<CodexService>,
         launch: Weak<Mutex<CodexLaunchPlacement>>,
-        response: Box<CodexCompletedResponse>,
-        arrived_at: Instant,
+        charge: CodexLaunchCharge,
+        responses: Vec<CodexCompletedResponse>,
         export_number: u64,
     },
     Retry {
         service: Weak<CodexService>,
         launch: Weak<Mutex<CodexLaunchPlacement>>,
+        charge: CodexLaunchCharge,
         export_number: u64,
+    },
+    ReadRollouts {
+        service: Weak<CodexService>,
+        launch: Weak<Mutex<CodexLaunchPlacement>>,
+        charge: CodexLaunchCharge,
+        rollouts: CodexLaunchRollouts,
     },
 }
 
@@ -55,34 +67,33 @@ pub(super) enum CodexExportItem {
 enum CodexLaunchWork {
     Place {
         response: Box<CodexCompletedResponse>,
-        arrived_at: Instant,
         export_number: u64,
     },
     Retry {
         export_number: u64,
     },
-    FileCopies(Vec<CodexEndedCopy>),
+    FileCopy {
+        copy: CodexCopyThread,
+        response: Box<CodexCompletedResponse>,
+    },
+    ReadRollouts(CodexLaunchRollouts),
 }
 
 impl CodexLaunchWork {
-    // Refuses each response the work carries, naming its thread and `reason`; a retry carries
-    // none, since its launch keeps what it retries.
-    fn refuse(self, reason: &str) {
+    // The response the work carries, which a work no task runs is charged by; a retry carries
+    // none, since its launch keeps what it retries and charges it as it closes.
+    fn into_responses(self) -> Vec<CodexCompletedResponse> {
         match self {
-            Self::Place { response, .. } => refuse_response(&response, reason),
-            Self::Retry { .. } => {}
-            Self::FileCopies(copies) => {
-                for response in copies.iter().flat_map(|copy| &copy.unclaimed) {
-                    refuse_response(response, reason);
-                }
-            }
+            Self::Place { response, .. } | Self::FileCopy { response, .. } => vec![*response],
+            Self::Retry { .. } | Self::ReadRollouts(_) => Vec::new(),
         }
     }
 }
 
-// A launch's work queue, and its placement state, whose drop ends the queue.
+// A launch's work queue, its placement state, whose drop ends the queue, and its charge.
 struct CodexLaunchWorker {
     launch: Weak<Mutex<CodexLaunchPlacement>>,
+    charge: CodexLaunchCharge,
     work: mpsc::Sender<CodexLaunchWork>,
 }
 
@@ -91,139 +102,155 @@ struct CodexLaunchWorker {
 pub(crate) struct CodexExportDrain {
     pub(super) register: Weak<CodexExports>,
     pub(super) items: mpsc::Receiver<CodexExportItem>,
-    pub(super) copies_ended: Arc<Notify>,
     pub(super) stop: CancellationToken,
 }
 
 impl CodexExportDrain {
-    /// Routes each handed-off response and files each ended copy when due, each launch's work on
-    /// a task of `tasks`, until the register stops; then refuses each response left in the
-    /// hand-off, naming its thread.
+    /// Routes each handed-off response, each launch's work on a task of `tasks`, until the
+    /// register stops; then charges each response left in the hand-off as its account's spend
+    /// outside any session.
     pub(crate) async fn run(mut self, tasks: TaskTracker) {
         let mut workers: HashMap<usize, CodexLaunchWorker> = HashMap::new();
         loop {
-            let next_due = self
-                .register
-                .upgrade()
-                .and_then(|register| register.next_copy_due());
-            let copy_due = async {
-                match next_due {
-                    Some(due_at) => tokio::time::sleep_until(due_at).await,
-                    None => std::future::pending().await,
-                }
-            };
             let item = tokio::select! {
                 biased;
                 () = self.stop.cancelled() => break,
                 item = self.items.recv() => item,
-                // A copy's read ended, so the next copy due may be sooner.
-                () = self.copies_ended.notified() => continue,
-                () = copy_due => {
-                    let due = self
-                        .register
-                        .upgrade()
-                        .map(|register| register.take_due_copies(Instant::now()))
-                        .unwrap_or_default();
-                    for CodexDueCopies { service, launch, copies } in due {
-                        let work = CodexLaunchWork::FileCopies(copies);
-                        self.hand_to_launch(&mut workers, &tasks, &service, &launch, work);
-                    }
-                    continue;
-                }
             };
             // The register holds the sender, so its drop ends the drain too.
             let Some(item) = item else {
                 return;
             };
-            if let Some((service, launch, work)) = self.route(item) {
-                self.hand_to_launch(&mut workers, &tasks, &service, &launch, work);
+            match item {
+                CodexExportItem::Responses {
+                    service,
+                    launch,
+                    charge,
+                    responses,
+                    export_number,
+                } => {
+                    let works =
+                        self.route_responses(&service, &launch, &charge, responses, export_number);
+                    for work in works {
+                        self.hand_to_launch(&mut workers, &tasks, &service, &launch, &charge, work);
+                    }
+                }
+                CodexExportItem::Retry {
+                    service,
+                    launch,
+                    charge,
+                    export_number,
+                } => {
+                    let work = CodexLaunchWork::Retry { export_number };
+                    self.hand_to_launch(&mut workers, &tasks, &service, &launch, &charge, work);
+                }
+                CodexExportItem::ReadRollouts {
+                    service,
+                    launch,
+                    charge,
+                    rollouts,
+                } => {
+                    let work = CodexLaunchWork::ReadRollouts(rollouts);
+                    self.hand_to_launch(&mut workers, &tasks, &service, &launch, &charge, work);
+                }
             }
         }
         self.items.close();
         while let Ok(item) = self.items.try_recv() {
-            if let CodexExportItem::Response { response, .. } = item {
-                refuse_response(&response, STOPPED);
+            if let CodexExportItem::Responses {
+                charge, responses, ..
+            } = item
+            {
+                charge.charge(responses);
             }
         }
     }
 
-    // Routes `item`: a response on a thread a session of its service holds goes onto that
-    // session's queue, one on a thread another live launch streams to the session its own service
-    // released the thread from, else refused, one on a copy's thread to the copy's ledger; any
-    // other, and a retry, is answered as work for its launch. A response whose service or launch
-    // is gone is refused.
-    fn route(
+    // Routes one export's `responses`: those on threads a session of their service holds go onto
+    // that session's queue together, one hand-over per session; one on a thread another live
+    // launch streams goes to the session its own service released the thread from; one on a
+    // copy's thread, and any other, is answered as work for its launch, which this returns. A
+    // response whose service or launch is gone, that no session takes, or on a thread another
+    // launch streams that its own launch did not release to it, is charged through `charge`, its
+    // launch's, as its account's spend outside any session.
+    fn route_responses(
         &self,
-        item: CodexExportItem,
-    ) -> Option<(
-        Weak<CodexService>,
-        Weak<Mutex<CodexLaunchPlacement>>,
-        CodexLaunchWork,
-    )> {
-        match item {
-            CodexExportItem::Response {
-                service,
-                launch,
-                response,
-                arrived_at,
-                export_number,
-            } => {
-                let Some(live_service) = service.upgrade() else {
-                    refuse_response(&response, "the service that sent it has ended");
-                    return None;
+        service: &Weak<CodexService>,
+        launch: &Weak<Mutex<CodexLaunchPlacement>>,
+        charge: &CodexLaunchCharge,
+        responses: Vec<CodexCompletedResponse>,
+        export_number: u64,
+    ) -> Vec<CodexLaunchWork> {
+        let Some(live_service) = service.upgrade() else {
+            charge.charge(responses);
+            return Vec::new();
+        };
+        let mut held: Vec<(SessionId, Vec<CodexExportedResponse>)> = Vec::new();
+        let mut others: Option<Vec<Arc<CodexService>>> = None;
+        let mut works = Vec::new();
+        for response in responses {
+            if let Some(session_id) = live_service.session_of_thread(&response.conversation_id) {
+                let exported = CodexExportedResponse {
+                    response,
+                    placed: None,
+                    rollout: None,
                 };
-                if let Some(session_id) = live_service.session_of_thread(&response.conversation_id)
+                match held
+                    .iter_mut()
+                    .find(|(held_id, _group)| *held_id == session_id)
                 {
-                    let exported = CodexExportedResponse {
-                        response: *response,
-                        arrived_at,
-                        placed: None,
-                    };
-                    push_exported_response(&live_service, session_id, exported);
-                    return None;
+                    Some((_held_id, group)) => group.push(exported),
+                    None => held.push((session_id, vec![exported])),
                 }
-                let others = self
-                    .register
+                continue;
+            }
+            let others = others.get_or_insert_with(|| {
+                self.register
                     .upgrade()
                     .map(|register| live_services(&register))
-                    .unwrap_or_default();
-                if others
-                    .iter()
-                    .any(|other| other.session_of_thread(&response.conversation_id).is_some())
-                {
-                    deliver_moved(&live_service, &others, *response, arrived_at);
-                    return None;
-                }
-                let Some(live_launch) = launch.upgrade() else {
-                    refuse_response(&response, "the launch that sent it has ended");
-                    return None;
-                };
-                // A copy's thread claims against the copy's own stream.
-                let response = Box::new(lock(&live_launch).copies().offer(*response)?);
-                let work = CodexLaunchWork::Place {
-                    response,
-                    arrived_at,
-                    export_number,
-                };
-                Some((service, launch, work))
+                    .unwrap_or_default()
+            });
+            if others
+                .iter()
+                .any(|other| other.session_of_thread(&response.conversation_id).is_some())
+            {
+                deliver_moved(&live_service, others, response, charge);
+                continue;
             }
-            CodexExportItem::Retry {
-                service,
-                launch,
-                export_number,
-            } => Some((service, launch, CodexLaunchWork::Retry { export_number })),
+            let Some(live_launch) = launch.upgrade() else {
+                charge.charge(vec![response]);
+                continue;
+            };
+            // A copy's thread is filed where the copy's spend is.
+            let copy = lock(&live_launch)
+                .copies()
+                .copy_of(&response.conversation_id);
+            let response = Box::new(response);
+            works.push(match copy {
+                Some(copy) => CodexLaunchWork::FileCopy { copy, response },
+                None => CodexLaunchWork::Place {
+                    response,
+                    export_number,
+                },
+            });
         }
+        for (session_id, group) in held {
+            push_exported_responses(&live_service, session_id, group, charge);
+        }
+        works
     }
 
-    // Hands `work` to the queue of `launch`, starting its task on `tasks` where none runs; a full
-    // queue refuses what the work carries. The queues of launches that are gone are let go here,
-    // which ends their tasks.
+    // Hands `work` to the queue of `launch`, starting its task on `tasks` where none runs; what a
+    // full or closed queue cannot take is charged through `charge`, the launch's, as its account's
+    // spend outside any session. The queues of launches that are gone are let go here, which ends
+    // their tasks.
     fn hand_to_launch(
         &self,
         workers: &mut HashMap<usize, CodexLaunchWorker>,
         tasks: &TaskTracker,
         service: &Weak<CodexService>,
         launch: &Weak<Mutex<CodexLaunchPlacement>>,
+        charge: &CodexLaunchCharge,
         work: CodexLaunchWork,
     ) {
         workers.retain(|_key, worker| worker.launch.strong_count() > 0);
@@ -235,126 +262,219 @@ impl CodexExportDrain {
                 Weak::clone(launch),
                 receiver,
                 self.stop.clone(),
+                charge.clone(),
             ));
             CodexLaunchWorker {
                 launch: Weak::clone(launch),
+                charge: charge.clone(),
                 work: sender,
             }
         });
         match worker.work.try_send(work) {
             Ok(()) => {}
-            Err(TrySendError::Full(work)) => work.refuse("its launch's placement work is full"),
-            Err(TrySendError::Closed(work)) => work.refuse(STOPPED),
+            Err(TrySendError::Full(work) | TrySendError::Closed(work)) => {
+                worker.charge.charge(work.into_responses());
+            }
         }
     }
 }
 
-// Runs one launch's work in order until its queue ends or the daemon stops; each piece is raced
-// against the stop, and whatever the stop abandons, and what is left in the queue, is refused,
-// naming its thread. Work whose service or launch is gone is refused.
+// What wakes a launch's task: its next work, or its rollout fallback falling due.
+enum CodexLaunchEvent {
+    Work(Option<CodexLaunchWork>),
+    FallbackDue(CodexFallbackDue),
+}
+
+// Runs one launch's work in order until its queue ends or the daemon stops; each placement is
+// raced against the stop, and whatever the stop abandons, and what is left in the queue, is
+// charged through `charge`, the launch's, as its account's spend outside any session, as is work
+// whose service or launch is gone; a copy's filing runs to its end, since its write may have
+// landed when the stop comes. The launch's region is read at its first export's work, or at its
+// first pass that reads its rollout files, before either places or reads anything, raced against
+// the stop like the work it comes before. From the launch's first read of its rollout files on,
+// the task also owns its rollout fallback, which reads each stop the export status counts: once
+// as it is found, at each settled request turn and at each export read until its files are let
+// go, and ends with the launch's export status; through it, each bucket placed off the stream
+// reads on its thread's file. A pass due is taken before queued work, so no queued read runs past
+// an export's read.
 async fn run_launch_work(
     service: Weak<CodexService>,
     launch: Weak<Mutex<CodexLaunchPlacement>>,
     mut work: mpsc::Receiver<CodexLaunchWork>,
     stop: CancellationToken,
+    charge: CodexLaunchCharge,
 ) {
+    let mut fallback: Option<CodexRolloutFallback> = None;
     loop {
-        let next = tokio::select! {
+        let fallback_due = async {
+            match fallback.as_mut() {
+                Some(fallback) => fallback.wait_until_due().await,
+                None => std::future::pending().await,
+            }
+        };
+        let event = tokio::select! {
             biased;
             () = stop.cancelled() => break,
-            next = work.recv() => next,
+            due = fallback_due => CodexLaunchEvent::FallbackDue(due),
+            next = work.recv() => CodexLaunchEvent::Work(next),
+        };
+        let next = match event {
+            CodexLaunchEvent::Work(next) => next,
+            CodexLaunchEvent::FallbackDue(due) => {
+                let Some(live_fallback) = fallback.as_mut() else {
+                    continue;
+                };
+                match due {
+                    CodexFallbackDue::LaunchEnded => fallback = None,
+                    CodexFallbackDue::Pass => {
+                        let Some(live_service) = service.upgrade() else {
+                            // Nothing is left to read with; the passes due are taken unread, so
+                            // they do not wake the task again.
+                            while live_fallback.next_pass() {}
+                            continue;
+                        };
+                        let mut is_stopping = false;
+                        tokio::select! {
+                            biased;
+                            () = stop.cancelled() => is_stopping = true,
+                            () = read_launch_region(&live_service, &charge) => {}
+                        }
+                        while !is_stopping && live_fallback.next_pass() {
+                            tokio::select! {
+                                biased;
+                                () = stop.cancelled() => {
+                                    is_stopping = true;
+                                    break;
+                                }
+                                () = live_fallback.pass(&live_service, &charge) => {}
+                            }
+                        }
+                        if is_stopping {
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
         };
         let Some(next) = next else {
             return;
         };
         let Some((service, launch)) = service.upgrade().zip(launch.upgrade()) else {
-            next.refuse("the launch that sent it has ended");
+            charge.charge(next.into_responses());
             continue;
         };
+        if matches!(
+            next,
+            CodexLaunchWork::Place { .. } | CodexLaunchWork::Retry { .. }
+        ) {
+            tokio::select! {
+                biased;
+                () = stop.cancelled() => {
+                    charge.charge(next.into_responses());
+                    break;
+                }
+                () = read_launch_region(&service, &charge) => {}
+            }
+        }
         match next {
-            CodexLaunchWork::Place {
-                response,
-                arrived_at,
-                export_number,
-            } => {
-                if let Some(bucket) =
-                    bucket_off_stream(&launch, *response, arrived_at, export_number)
-                {
-                    let refusal = bucket.refusal();
+            CodexLaunchWork::ReadRollouts(rollouts) => {
+                let fallback = fallback.get_or_insert_with(|| CodexRolloutFallback::new(rollouts));
+                if fallback.is_reading() {
+                    let read = async {
+                        read_launch_region(&service, &charge).await;
+                        fallback.pass(&service, &charge).await;
+                    };
                     tokio::select! {
                         biased;
-                        () = stop.cancelled() => {
-                            refusal.refuse(STOPPED);
-                            break;
-                        }
-                        () = place_bucket(&service, &launch, bucket) => {}
+                        () = stop.cancelled() => break,
+                        () = read => {}
                     }
+                }
+            }
+            CodexLaunchWork::Place {
+                response,
+                export_number,
+            } => {
+                if let Some(bucket) = bucket_off_stream(&launch, *response, export_number)
+                    && !place_and_read(&service, &launch, &charge, bucket, fallback.as_mut(), &stop)
+                        .await
+                {
+                    break;
                 }
             }
             CodexLaunchWork::Retry { export_number } => {
                 let mut buckets = take_kept_buckets(&launch, export_number).into_iter();
                 while let Some(bucket) = buckets.next() {
-                    let refusal = bucket.refusal();
-                    tokio::select! {
-                        biased;
-                        () = stop.cancelled() => {
-                            refusal.refuse(STOPPED);
-                            for bucket in buckets {
-                                bucket.refusal().refuse(STOPPED);
-                            }
-                            break;
-                        }
-                        () = place_bucket(&service, &launch, bucket) => {}
+                    let fallback = fallback.as_mut();
+                    if !place_and_read(&service, &launch, &charge, bucket, fallback, &stop).await {
+                        let left = buckets.flat_map(CodexKeptBucket::into_responses).collect();
+                        charge.charge(left);
+                        break;
                     }
                 }
             }
-            CodexLaunchWork::FileCopies(copies) => {
-                if !file_copies(&service, copies, &stop).await {
-                    break;
-                }
+            CodexLaunchWork::FileCopy { copy, response } => {
+                file_copy(&service, copy, &response).await;
             }
         }
     }
     work.close();
-    while let Ok(left) = work.try_recv() {
-        left.refuse(STOPPED);
+    let mut left = Vec::new();
+    while let Ok(work) = work.try_recv() {
+        left.extend(work.into_responses());
+    }
+    if !left.is_empty() {
+        charge.charge(left);
     }
 }
 
-// Files, as its session's own, each response a copy due now never stated on its stream, each
-// filing raced against the stop; answers `false` where the stop came first, every response not
-// yet filed then refused.
-async fn file_copies(
-    service: &CodexService,
-    copies: Vec<CodexEndedCopy>,
+// Places `bucket` for `launch`, then, where it went off the stream, reads on its thread's rollout
+// file through `fallback`, since a search inside its request reaches no export; answers `false`
+// where the daemon's stop came first, the bucket charged through `charge`, the launch's, as its
+// account's spend outside any session where it was not placed yet. A placement acts only once it
+// waits on nothing more, so a stop that abandons it finds the bucket untouched.
+async fn place_and_read(
+    service: &Arc<CodexService>,
+    launch: &Mutex<CodexLaunchPlacement>,
+    charge: &CodexLaunchCharge,
+    bucket: CodexKeptBucket,
+    fallback: Option<&mut CodexRolloutFallback>,
     stop: &CancellationToken,
 ) -> bool {
-    let mut unfiled = copies.into_iter().flat_map(|copy| {
-        let CodexEndedCopy {
-            filing,
-            folder,
-            unclaimed,
-        } = copy;
-        unclaimed
-            .into_iter()
-            .map(move |response| (filing.clone(), folder.clone(), response))
-    });
-    while let Some((mut filing, folder, response)) = unfiled.next() {
-        tokio::select! {
-            biased;
-            () = stop.cancelled() => {
-                refuse_response(&response, STOPPED);
-                for (_filing, _folder, response) in unfiled {
-                    refuse_response(&response, STOPPED);
-                }
-                return false;
-            }
-            () = filing.file(response.meter(), service, &folder) => {
-                response.log_read_for_price();
-            }
+    let responses = bucket.responses();
+    let off_stream = tokio::select! {
+        biased;
+        () = stop.cancelled() => {
+            charge.charge(responses);
+            return false;
         }
+        off_stream = place_bucket(service, launch, bucket) => off_stream,
+    };
+    let (Some(off_stream), Some(fallback)) = (off_stream, fallback) else {
+        return true;
+    };
+    tokio::select! {
+        biased;
+        () = stop.cancelled() => false,
+        () = fallback.read_placed(service, off_stream, charge) => true,
     }
-    true
+}
+
+// Files `response`, an exported response on `copy`'s thread, as its session's own, with its
+// sighting, which the usage record passes over where the copy's stream filed it first.
+async fn file_copy(
+    service: &CodexService,
+    copy: CodexCopyThread,
+    response: &CodexCompletedResponse,
+) {
+    let CodexCopyThread {
+        mut filing, folder, ..
+    } = copy;
+    let mut delta = response.meter();
+    delta.sighting = response.export_sighting();
+    filing.file(delta, service, &folder).await;
+    response.log_read_for_price();
 }
 
 // Every live service a launch of `register` started, each once, taken out of its lock.
@@ -372,19 +492,18 @@ fn live_services(register: &CodexExports) -> Vec<Arc<CodexService>> {
 
 // Files `response`, on a thread another of `services` streams now, on the session `service`, its
 // own launch's, streamed it for before releasing it, through the first of `services` that
-// session is attached to; one on a thread `service` never streamed, or whose session no service
-// holds, is refused, naming its thread, so no other launch's session takes it.
+// session is attached to. One on a thread `service` never streamed, or whose session no service
+// holds, is filed on no other launch's session, so a record under one launch's token never lands
+// on another's: it is charged through `charge`, its own launch's, as its account's spend outside
+// any session, as is one the session's queue does not take.
 fn deliver_moved(
     service: &CodexService,
     services: &[Arc<CodexService>],
     response: CodexCompletedResponse,
-    arrived_at: Instant,
+    charge: &CodexLaunchCharge,
 ) {
     let Some(session_id) = service.former_session_of_thread(&response.conversation_id) else {
-        refuse_response(
-            &response,
-            "another launch streams its thread and its own launch never did",
-        );
+        charge.charge(vec![response]);
         return;
     };
     let attached = services.iter().find(|service| {
@@ -393,29 +512,39 @@ fn deliver_moved(
             .iter()
             .any(|queue| queue.session_id() == session_id)
     });
+    let Some(attached) = attached else {
+        charge.charge(vec![response]);
+        return;
+    };
     let exported = CodexExportedResponse {
         response,
-        arrived_at,
         placed: Some(CodexOffStreamPlacement::Released),
+        rollout: None,
     };
-    match attached {
-        Some(attached) => push_exported_response(attached, session_id, exported),
-        None => refuse_response(
-            &exported.response,
-            "the session its launch streamed it for is attached to no service",
-        ),
-    }
+    push_exported_responses(attached, session_id, vec![exported], charge);
 }
 
-/// Pushes `exported` onto `session_id`'s queue on `service`; one no session takes is refused,
-/// naming its thread.
-pub(crate) fn push_exported_response(
+/// Pushes `exported`, one hand-over, onto `session_id`'s queue on `service` as one item, which the
+/// session prices together and charges what it cannot file of at its own region. A hand-over no
+/// session takes is handed back and charged through `charge`, the launch's that read it, at once,
+/// each response with its own sighting, an export's, its rollout line's or its search's. An empty
+/// one pushes nothing.
+pub(crate) fn push_exported_responses(
     service: &CodexService,
     session_id: SessionId,
-    exported: CodexExportedResponse,
+    exported: Vec<CodexExportedResponse>,
+    charge: &CodexLaunchCharge,
 ) {
-    let response = exported.response.clone();
-    if !service.push_session_item(&session_id, CodexSessionInbound::ExportedResponse(exported)) {
-        refuse_response(&response, "no session took it");
+    if exported.is_empty() {
+        return;
+    }
+    let pushed = service.push_session_item(
+        &session_id,
+        CodexSessionInbound::ExportedResponses(exported),
+    );
+    if let Err(untaken) = pushed
+        && let CodexSessionInbound::ExportedResponses(untaken) = *untaken
+    {
+        charge.charge_exported(untaken);
     }
 }

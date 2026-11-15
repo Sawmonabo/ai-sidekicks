@@ -11,13 +11,21 @@ use sidekicks_std::mutex_lock::lock;
 
 use super::connection_ids::UNKNOWN_ID;
 use super::policy_requests::deny_answer;
-use super::{ClientRequest, CodexExecutor, RELAY_REQUEST_PREFIX, record_end};
+use super::{ClientRequest, CodexExecutor, RELAY_REQUEST_PREFIX, WatchedAnswer, record_end};
 use crate::driver::codex::exec_relay::executor_end::ProcessEventKind;
 use crate::driver::codex::exec_relay::message::{RoutedMessage, RoutedParams, splice, text_of};
 use crate::driver::codex::exec_relay::methods::{
     ClientMethod, FS_MISSING_CHANGED_METHOD, HTTP_REQUEST_BODY_DELTA_METHOD,
     NETWORK_POLICY_REQUEST_METHOD, PROCESS_CLOSED_METHOD, RelayIdKind, is_process_notification,
 };
+
+/// What an answer began that no connection holds any more, by its relay id, for the relay to end.
+enum UnownedEnd {
+    /// A process started after its connection or its hold went.
+    Process(String),
+    /// A file opened after its connection went.
+    FileHandle(String),
+}
 
 impl CodexExecutor {
     // Routes one line the executor wrote.
@@ -52,22 +60,44 @@ impl CodexExecutor {
             && let Some(id) = message.id
         {
             let watching = lock(&self.client_replies).remove(id.get());
-            if let Some(watching) = watching {
-                // The relay's watch may have stopped waiting; the client still gets the answer.
-                let _unheard = watching.send(message.error.is_some());
-            }
             let request = lock(&self.client_requests).remove(id.get());
-            let Some(request) = request else {
+            let (answer, mut unowned) = match &request {
+                Some(request) => {
+                    let (answer, unowned) = self.client_answer(line, &message, id, request);
+                    (Some((request.connection, answer)), unowned)
+                }
+                None => (None, None),
+            };
+            if let Some(watching) = watching {
+                let watched = if message.error.is_some() {
+                    WatchedAnswer::Refused
+                } else if matches!(unowned, Some(UnownedEnd::Process(_))) {
+                    WatchedAnswer::TakenUnowned
+                } else {
+                    WatchedAnswer::Taken
+                };
+                // A watcher still waiting ends or keeps the unowned process itself; the client
+                // gets the answer whether the watcher hears it or not.
+                if watching.send(watched).is_ok() && watched == WatchedAnswer::TakenUnowned {
+                    unowned = None;
+                }
+            }
+            let Some((connection, answer)) = answer else {
                 tracing::debug!(
                     length = line.len(),
                     "the Codex executor answered a request no connection waits on"
                 );
                 return;
             };
-            let (answer, unowned_file) = self.client_answer(line, &message, id, &request);
-            self.answer_connection(request.connection, answer);
-            if let Some(handle) = unowned_file {
-                self.send_own_lines(vec![self.compose_file_close(&handle)]);
+            self.answer_connection(connection, answer);
+            match unowned {
+                Some(UnownedEnd::Process(process)) => {
+                    self.send_own_line_awaited(self.compose_process_terminate(&process));
+                }
+                Some(UnownedEnd::FileHandle(handle)) => {
+                    self.send_own_line_awaited(self.compose_file_close(&handle));
+                }
+                None => {}
             }
             return;
         }
@@ -119,29 +149,33 @@ impl CodexExecutor {
     }
 
     // The executor's answer `line` to the client's `request` under the client's own id, the table
-    // its method names kept in step, and the handle of a file opened after its connection went,
-    // for the caller to close.
+    // its method names kept in step, and what the answer began for no one: a file opened after its
+    // connection went, and a process started once its connection or its hold was gone.
     fn client_answer(
         &self,
         line: &str,
         message: &RoutedMessage<'_>,
         id: &RawValue,
         request: &ClientRequest,
-    ) -> (String, Option<String>) {
+    ) -> (String, Option<UnownedEnd>) {
         match request.method {
-            // A process started after its connection went runs on; only a file is closed.
             ClientMethod::ProcessStart => {
-                let (answer, _unowned) =
+                let (answer, unowned) =
                     self.mint_answer(RelayIdKind::Process, line, message, id, request);
-                if message.error.is_none()
-                    && let Some(minted) = &request.relay_id
-                {
-                    lock(&self.ledger).open_process(minted);
+                if let Some(minted) = &request.relay_id {
+                    let mut ledger = lock(&self.ledger);
+                    if message.error.is_none() {
+                        ledger.open_process(minted);
+                    } else {
+                        ledger.forget_process(minted);
+                    }
                 }
-                (answer, None)
+                (answer, unowned.map(UnownedEnd::Process))
             }
             ClientMethod::FileOpen => {
-                self.mint_answer(RelayIdKind::FileHandle, line, message, id, request)
+                let (answer, unowned) =
+                    self.mint_answer(RelayIdKind::FileHandle, line, message, id, request);
+                (answer, unowned.map(UnownedEnd::FileHandle))
             }
             ClientMethod::FileClose => {
                 if let Some(handle) = &request.relay_id {

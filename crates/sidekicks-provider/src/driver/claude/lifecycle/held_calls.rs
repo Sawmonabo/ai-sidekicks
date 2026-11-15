@@ -106,11 +106,12 @@ impl ClaudeDriver {
     }
 
     // Ends each of `calls`, the open calls of the turns an undo cuts, stopped on `session_id`'s
-    // live process: each is taken off the session's stream, its task stopped through Claude Code's
-    // `stop_task`, each stop held to the bound alone, and the close of each stop Claude Code took
-    // sent, landed before this answers. Fails `NoLiveSession` when no process of the session
-    // lives, and naming each task whose stop was refused or not answered within the bound, whose
-    // call stays open.
+    // live process: each is set apart on the session's stream, its task stopped through Claude
+    // Code's `stop_task`, each stop held to the bound alone, and the close of each stop Claude Code
+    // took, or of each task that ended meanwhile, sent, landed before this answers. Fails
+    // `NoLiveSession` when no process of the session lives, and naming each task whose stop was
+    // refused or not answered within the bound, whose call stays open and is held on the stream
+    // again, so its task's own ending closes it.
     async fn settle_cut_held_calls(
         &self,
         session_id: SessionId,
@@ -123,7 +124,7 @@ impl ClaudeDriver {
             .iter()
             .map(|call| call.task_id.as_str().to_owned())
             .collect();
-        let ends = ClaudeDeliveryStream::take_cut_held_calls(stream.as_deref(), calls);
+        ClaudeDeliveryStream::begin_cut_held_call_stops(stream.as_deref(), &calls);
         let channel = &*live.channel;
         let stops = join_all(task_ids.iter().map(|task_id: &String| async move {
             timeout(
@@ -134,26 +135,19 @@ impl ClaudeDriver {
             .unwrap_or(false)
         }))
         .await;
-        let mut stopped = Vec::with_capacity(ends.len());
-        let mut not_stopped = Vec::new();
-        for ((end, task_id), is_stopped) in ends.into_iter().zip(task_ids).zip(stops) {
-            if is_stopped {
-                stopped.push(end);
-            } else {
-                not_stopped.push(task_id);
-            }
-        }
+        let settled =
+            ClaudeDeliveryStream::finish_cut_held_call_stops(stream.as_deref(), calls, &stops);
         parts
             .establishment
             .task_services
             .delivery
-            .close_held_calls_directly(session_id, stopped)
+            .close_held_calls_directly(session_id, settled.ends)
             .await;
-        if not_stopped.is_empty() {
+        if settled.not_stopped.is_empty() {
             Ok(())
         } else {
             Err(DriverError::Internal(Box::new(HeldTasksNotStopped {
-                task_ids: not_stopped,
+                task_ids: settled.not_stopped,
             })))
         }
     }

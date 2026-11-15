@@ -2,14 +2,18 @@
 //! each export is admitted by the live token of one provider process or launch and its headers
 //! before its body is read, read within a cap and a bound on bodies read at once, decoded, kept
 //! whole as OTLP JSON while raw messages are recorded, and handed to the reader of the provider its
-//! path names with the holder its token was minted for. Also the target a provider's exporter is
-//! set to.
+//! path names with the holder its token was minted for, its driver's guard held until the read
+//! ends. An export whose token is refused is logged at most once a minute, with the count of
+//! refusals since the last line. Also the target a provider's exporter is set to, and what every
+//! reader reads off an export's records.
 
 pub mod bearers;
+pub(crate) mod records;
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::Router;
 use axum::extract::rejection::PathRejection;
@@ -27,7 +31,9 @@ use opentelemetry_proto::tonic::collector::trace::v1::{
 };
 use prost::Message as _;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::Semaphore;
+use tokio::time::Instant;
 
 use crate::port::raw_provider_messages::RawProviderMessages;
 use crate::pricing::receiver::bearers::{TelemetryBearers, TelemetryHolderId};
@@ -47,6 +53,10 @@ const EXPORT_BODY_LIMIT: usize = 4 * 1024 * 1024;
 /// How many export bodies are read at once across every provider; a further export waits for a
 /// permit before its body is read.
 const BODIES_READ_AT_ONCE: usize = 4;
+
+/// The shortest time between two lines logged for exports refused their token; a stale exporter
+/// retries every second, so the refusals between are counted into the next line.
+const REFUSED_TOKEN_LOG_INTERVAL: Duration = Duration::from_mins(1);
 
 /// The media type OTLP/HTTP's binary encoding is sent and answered in.
 const PROTOBUF_CONTENT_TYPE: &str = "application/x-protobuf";
@@ -72,6 +82,11 @@ impl TelemetryTarget {
     /// `bearers`.
     pub fn new(port: u16, bearers: Arc<TelemetryBearers>) -> Self {
         Self { port, bearers }
+    }
+
+    /// The loopback port the receiver listens on, which a launch's record keeps.
+    pub fn port(&self) -> u16 {
+        self.port
     }
 
     /// The registry a driver mints each process's or launch's bearer from.
@@ -167,6 +182,32 @@ pub struct TelemetryReceiver {
     readers: HashMap<ProviderId, Arc<dyn TelemetryExportReader>>,
     raw_messages: Arc<dyn RawProviderMessages>,
     body_read_permits: Semaphore,
+    // Held only to note one refusal.
+    refused_tokens: Mutex<RefusedTokenLog>,
+}
+
+// When the receiver last logged an export refused its token, and how many it refused since
+// without a line.
+#[derive(Default)]
+struct RefusedTokenLog {
+    last_logged_at: Option<Instant>,
+    held_back: u64,
+}
+
+impl RefusedTokenLog {
+    // Notes one refusal at `now`: answers how many refusals were held back since the last line
+    // where this one is to be logged, `None` where it is held back.
+    fn note(&mut self, now: Instant) -> Option<u64> {
+        let is_due = self
+            .last_logged_at
+            .is_none_or(|logged_at| now.duration_since(logged_at) >= REFUSED_TOKEN_LOG_INTERVAL);
+        if !is_due {
+            self.held_back += 1;
+            return None;
+        }
+        self.last_logged_at = Some(now);
+        Some(std::mem::take(&mut self.held_back))
+    }
 }
 
 impl TelemetryReceiver {
@@ -182,6 +223,7 @@ impl TelemetryReceiver {
             readers,
             raw_messages,
             body_read_permits: Semaphore::new(BODIES_READ_AT_ONCE),
+            refused_tokens: Mutex::default(),
         }
     }
 
@@ -240,7 +282,7 @@ async fn receive(
             "No provider here takes telemetry at this path.",
         );
     };
-    let Some(holder) = receiver.bearers.resolve(
+    let Some(admission) = receiver.bearers.resolve(
         &provider,
         request
             .headers()
@@ -248,11 +290,16 @@ async fn receive(
             .map(HeaderValue::as_bytes),
     ) else {
         // The provider and signal only; the token presented is never logged.
-        tracing::info!(
-            provider = provider.as_str(),
-            signal = signal.name(),
-            "a telemetry export presented a token that is missing, wrong or no longer live"
-        );
+        let held_back = lock(&receiver.refused_tokens).note(Instant::now());
+        if let Some(held_back) = held_back {
+            tracing::info!(
+                provider = provider.as_str(),
+                signal = signal.name(),
+                held_back,
+                "a telemetry export presented a token that is missing, wrong or no longer live; \
+                 held_back counts the refusals since the last such line"
+            );
+        }
         return refusal(
             StatusCode::UNAUTHORIZED,
             "The telemetry token is missing, wrong or no longer live.",
@@ -293,7 +340,10 @@ async fn receive(
             ),
         }
     }
-    reader.read_telemetry_export(holder, export).await;
+    reader
+        .read_telemetry_export(admission.holder(), export)
+        .await;
+    drop(admission);
     drop(permit);
     (
         StatusCode::OK,
@@ -769,7 +819,9 @@ mod tests {
             .restore(codex(), TelemetryHolderId::new(0), &token)
             .expect("the kept text is a token");
         assert_eq!(
-            joining.resolve(&codex(), Some(authorization.as_bytes())),
+            joining
+                .resolve(&codex(), Some(authorization.as_bytes()))
+                .map(|admission| admission.holder()),
             Some(TelemetryHolderId::new(0))
         );
         assert!(
@@ -778,9 +830,10 @@ mod tests {
                 .is_none()
         );
         drop(restored);
-        assert_eq!(
-            joining.resolve(&codex(), Some(authorization.as_bytes())),
-            None
+        assert!(
+            joining
+                .resolve(&codex(), Some(authorization.as_bytes()))
+                .is_none()
         );
     }
 }

@@ -64,7 +64,9 @@ use crate::driver::mcp_server::write::{
     McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
 };
 use crate::driver::message_handing::{HandMoment, MessageHanding};
-use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::rewind::{
+    RewindConversationParams, RewindConversationResult, RewindTargetAsk, RewindTargetPresence,
+};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
@@ -141,6 +143,7 @@ mod usage_limit_signal;
 #[cfg(test)]
 mod vendored_schema;
 mod version;
+mod web_search;
 mod written_names;
 
 pub(super) use self::descriptor::DESCRIPTOR;
@@ -273,9 +276,26 @@ impl ProviderDriver for CodexDriver {
         self.rewind_conversation(params).boxed()
     }
 
-    // Codex's `thread/revert` cuts before a whole turn and has no verb that cuts inside one.
-    fn can_cut_inside_turn(&self) -> bool {
-        false
+    fn read_rewind_target(
+        &self,
+        params: RewindConversationParams,
+    ) -> BoxFuture<'_, Result<RewindTargetPresence, DriverError>> {
+        self.read_rewind_target(params).boxed()
+    }
+
+    // The ask reads the driver's record and Codex's listing and cuts nothing, so a retried undo
+    // learns before anything stops whether its cut was made or went past its point.
+    fn rewind_target_ask(&self) -> RewindTargetAsk {
+        RewindTargetAsk::BeforeCut
+    }
+
+    // The driver reads a message cut away only from its own record, which the cut Codex applied,
+    // or the refused cut that showed it made, already brought to the cut, so nothing is left.
+    fn adopt_conversation_rewind(
+        &self,
+        _params: RewindConversationParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        async { Ok(()) }.boxed()
     }
 
     fn respond_to_request(

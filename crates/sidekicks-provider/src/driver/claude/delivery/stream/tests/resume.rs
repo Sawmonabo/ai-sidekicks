@@ -15,6 +15,8 @@ use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
 use crate::driver::test_registry::new_run_id;
+use crate::port::run_host::test_host::EngineCall;
+use crate::run::state_entry::RunStateEntry;
 
 // Fails when a resume leaves the log's held calls unrebuilt, ignores a saved ending, or times a
 // rebuilt opening from the rebuild rather than its stored time. Mutations: the hook in
@@ -294,4 +296,103 @@ async fn a_restored_call_waits_until_the_first_list_or_reply(
             Ending::Failed(Some(ToolCallEndCause::ProcessExit)),
         )]
     );
+}
+
+// Claude Code reports a background task with a `result` of no model turn, as a relaunched or
+// forked process does before it takes any input. While the daemon's run holds the turn, the run
+// keeps it until its own turn's `result`; on an idle session the report ends the run its own
+// `system/init` opened, whether the reader read both frames before the session's task took the
+// first or a daemon run took the turn between the report's read and its delivery; one naming a
+// message the daemon sent ends that turn. Killed by the reader's end check reading the report as
+// the held turn's end (the run ends empty and frees the turn), by the session's task opening the
+// held turn on it, by setting the report aside whatever holds the turn or whenever a daemon run
+// holds it (the idle session's run never ends), and by setting aside a report that names a
+// message.
+#[tokio::test(start_paused = true)]
+async fn a_task_notification_result_ends_only_a_turn_claude_code_opened() {
+    let notice = result(&json!({
+        "result": "",
+        "num_turns": 0,
+        "origin": {"kind": "task-notification"},
+    }));
+    let completed = [RunStateEntry::Completed {
+        intended_close: None,
+    }];
+
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+
+    session.frame(&notice);
+    settle().await;
+
+    let is_started = |calls: Vec<EngineCall>| {
+        calls
+            .iter()
+            .any(|call| matches!(call, EngineCall::StartTurn(started, _) if *started == run_id))
+    };
+    assert_eq!(session.engine.moves_of_run(run_id), []);
+    assert!(!is_started(session.engine.calls()));
+    assert_eq!(
+        session
+            .start
+            .routes
+            .lead_run_on(session.session_id)
+            .map(|lead| lead.run_id),
+        Some(run_id)
+    );
+
+    session.frame(&init());
+    session.frame(&result(&json!({})));
+    settle().await;
+
+    assert!(is_started(session.engine.calls()));
+    assert_eq!(session.engine.moves_of_run(run_id), completed);
+
+    let idle = ScriptedSession::new().await;
+    idle.frame(&init());
+    idle.frame(&notice);
+    settle().await;
+
+    let opened = idle
+        .engine
+        .first_daemon_turn_run()
+        .expect("the report's `system/init` opens a run");
+    assert_eq!(idle.engine.moves_of_run(opened), completed);
+    assert!(!idle.start.routes.is_turn_held(idle.session_id));
+
+    let taken = ScriptedSession::new().await;
+    taken.frame(&init());
+    settle().await;
+    taken.frame(&notice);
+    let person_run = taken.hold_lead_turn("person");
+    settle().await;
+
+    let opened = taken
+        .engine
+        .first_daemon_turn_run()
+        .expect("the report's `system/init` opens a run");
+    assert_eq!(taken.engine.moves_of_run(opened), completed);
+    assert_eq!(taken.engine.moves_of_run(person_run), []);
+    assert_eq!(
+        taken
+            .start
+            .routes
+            .lead_run_on(taken.session_id)
+            .map(|lead| lead.run_id),
+        Some(person_run)
+    );
+
+    let named = ScriptedSession::new().await;
+    let named_run = named.hold_lead_turn("lead");
+    named.frame(&init());
+    named.frame(&result(&json!({
+        "result": "",
+        "num_turns": 0,
+        "origin": {"kind": "task-notification"},
+        "user_message_uuids": ["message-1"],
+    })));
+    settle().await;
+
+    assert_eq!(named.engine.moves_of_run(named_run), completed);
+    assert!(!named.start.routes.is_turn_held(named.session_id));
 }

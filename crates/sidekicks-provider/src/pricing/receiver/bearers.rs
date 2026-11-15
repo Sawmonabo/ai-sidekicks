@@ -1,6 +1,8 @@
 //! The live telemetry bearers: one token per provider process or launch that exports, minted for
-//! its provider and the holder its driver names it by, admitted only while its holder keeps it.
+//! its provider and the holder its driver names it by, admitted only while its holder keeps it,
+//! with the guard its driver keeps alive across the read of each export it admits.
 
+use std::any::Any;
 use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::provider::id::ProviderId;
@@ -31,12 +33,30 @@ pub struct TelemetryBearers {
     live: Mutex<Vec<LiveBearer>>,
 }
 
-// One live bearer: the provider it was minted for, its holder and its token, which its guard
-// shares and whose allocation names the entry.
+// What the driver keeps alive across the read of an export its holder's token admitted.
+type ReadGuard = Arc<dyn Any + Send + Sync>;
+
+// One live bearer: the provider it was minted for, its holder, its token, which its guard shares
+// and whose allocation names the entry, and what its reads hold.
 struct LiveBearer {
     provider: ProviderId,
     holder: TelemetryHolderId,
     token: Arc<BearerToken>,
+    read_guard: Option<ReadGuard>,
+}
+
+/// One export admitted by a live bearer: the holder its token was minted for, and the guard its
+/// driver keeps alive while the export is read, which the receiver holds until the read ends.
+pub struct TelemetryAdmission {
+    holder: TelemetryHolderId,
+    _read_guard: Option<ReadGuard>,
+}
+
+impl TelemetryAdmission {
+    /// The process or launch the export's token was minted for.
+    pub fn holder(&self) -> TelemetryHolderId {
+        self.holder
+    }
 }
 
 impl TelemetryBearers {
@@ -74,6 +94,7 @@ impl TelemetryBearers {
             provider,
             holder,
             token: Arc::clone(&token),
+            read_guard: None,
         });
         TelemetryBearer {
             bearers: Arc::downgrade(self),
@@ -82,18 +103,21 @@ impl TelemetryBearers {
         }
     }
 
-    /// The holder of the live bearer `authorization`, a request's `Authorization` header,
+    /// The admission of the live bearer `authorization`, a request's `Authorization` header,
     /// presents on `provider`'s path; `None` for a token never minted, one whose guard dropped and
     /// one minted for another provider.
     pub fn resolve(
         &self,
         provider: &ProviderId,
         authorization: Option<&[u8]>,
-    ) -> Option<TelemetryHolderId> {
+    ) -> Option<TelemetryAdmission> {
         lock(&self.live)
             .iter()
             .find(|live| &live.provider == provider && live.token.admits(authorization))
-            .map(|live| live.holder)
+            .map(|live| TelemetryAdmission {
+                holder: live.holder,
+                _read_guard: live.read_guard.clone(),
+            })
     }
 }
 
@@ -123,6 +147,21 @@ impl TelemetryBearer {
     /// The process or launch the bearer was minted for.
     pub fn holder(&self) -> TelemetryHolderId {
         self.holder
+    }
+
+    /// Keeps `guard` alive across the read of each export the token admits from now on, so what
+    /// the holder's driver registers under it outlives an export admitted just before it drops.
+    pub fn keep_during_reads(&self, guard: Arc<dyn Any + Send + Sync>) {
+        let Some(bearers) = self.bearers.upgrade() else {
+            return;
+        };
+        let mut live = lock(&bearers.live);
+        if let Some(entry) = live
+            .iter_mut()
+            .find(|entry| Arc::ptr_eq(&entry.token, &self.token))
+        {
+            entry.read_guard = Some(guard);
+        }
     }
 }
 

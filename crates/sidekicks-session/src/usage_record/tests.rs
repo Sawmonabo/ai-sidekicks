@@ -1,4 +1,5 @@
 mod cost;
+mod sightings;
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -33,6 +34,7 @@ use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::account::usage_turns::usage_turn_projection_statements;
 use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::test_registry::new_run_id;
 use sidekicks_provider::port::usage_sink::{
@@ -43,7 +45,7 @@ use sidekicks_provider::usage_delta_accountant::{
 };
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::test_fixture::open_log;
+use sidekicks_store::events::log_service::test_fixture::open_projected_log;
 use tempfile::TempDir;
 
 use super::{USAGE_RECORD_STATEMENT_CAPACITY, UsageRecord, UsageRecordError};
@@ -95,6 +97,8 @@ struct Harness {
     engine: Arc<RunEngine>,
     interrupts: Arc<CountedInterrupts>,
     record: UsageRecord,
+    // The store writer's count of committed batches.
+    commits: tokio::sync::watch::Receiver<u64>,
 }
 
 impl Harness {
@@ -103,7 +107,16 @@ impl Harness {
     async fn new(token_limit: Option<u64>, is_cursor_open: bool) -> Self {
         let database = TestDatabase::new(schema_parts());
         let home = tempfile::tempdir().expect("the test makes a home folder");
-        let log = open_log(&database, None).await;
+        // The usage rows' projection runs in each append, so a sighting record is linked to the
+        // row that priced it, as on the daemon.
+        let daemon_started_at = WireInstant::now();
+        let log = open_projected_log(&database, move |envelope| {
+            Ok(usage_turn_projection_statements(
+                envelope,
+                &daemon_started_at,
+            )?)
+        })
+        .await;
         let engine = test_engine(&database, Arc::clone(&log.service), home.path());
         let interrupts = Arc::new(CountedInterrupts::default());
         let handed: Weak<CountedInterrupts> = Arc::downgrade(&interrupts);
@@ -172,11 +185,13 @@ impl Harness {
             log.service,
             test_choices(&database, &engine),
         ));
+        let commits = log.writer.follow_commits();
         let record = UsageRecord::new(
             Arc::new(DatabaseReadPool::new(
                 database.path(),
                 USAGE_RECORD_STATEMENT_CAPACITY,
             )),
+            Arc::clone(&log.writer),
             Arc::new(|_: &SessionId| None),
             dispatch,
             Arc::clone(&engine),
@@ -190,6 +205,7 @@ impl Harness {
             engine,
             interrupts,
             record,
+            commits,
         }
     }
 
@@ -281,6 +297,7 @@ impl Harness {
                     cache_write_tokens_delta: 0,
                 },
                 request: UsageRequestFacts::default(),
+                sighting: None,
             },
             provider_account_id: None,
         }
@@ -741,4 +758,69 @@ async fn a_whole_set_files_rows_only_when_it_moved_from_the_stored_windows(
         .expect("the set is recorded");
 
     assert_eq!(rate_limit_rows(&harness.database), rows);
+}
+
+// The thread tier a request from a provider's own usage file reads: that of the session's latest
+// row carrying one at or before an instant. Killed by reading a row's own `speed`, by taking the
+// session's latest row whatever its time, and by a row with no tier hiding an earlier one's.
+#[tokio::test]
+async fn a_usage_file_request_reads_the_thread_tier_live_at_it() {
+    let harness = Harness::new(None, true).await;
+    let rows = [
+        (
+            "row-1",
+            "2026-11-09T10:00:00.000Z",
+            Some("resp-1"),
+            Some("priority"),
+            Some("default"),
+        ),
+        (
+            "row-2",
+            "2026-11-09T10:05:00.000Z",
+            None,
+            Some("priority"),
+            None,
+        ),
+        (
+            "row-3",
+            "2026-11-09T10:10:00.000Z",
+            None,
+            Some("default"),
+            Some("priority"),
+        ),
+    ];
+    let connection = harness.database.reader();
+    for (turn_id, occurred_at, request_key, speed, thread_speed) in rows {
+        connection
+            .execute(
+                "INSERT INTO provider_account_usage_turns (turn_id, account_id, provider,
+                   occurred_at, session_id, request_key, speed, thread_speed,
+                   observed_credential_generation)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)",
+                params![
+                    turn_id,
+                    ACCOUNT,
+                    test_provider().as_str(),
+                    occurred_at,
+                    harness.session_id.text().as_str(),
+                    request_key,
+                    speed,
+                    thread_speed,
+                ],
+            )
+            .expect("the test writes the row");
+    }
+    for (at, thread_speed) in [
+        ("2026-11-09T09:59:59.999Z", None),
+        ("2026-11-09T10:07:00.000Z", Some("default")),
+        ("2026-11-09T10:10:00.000Z", Some("priority")),
+    ] {
+        let at = WireInstant::try_from(at.to_owned()).expect("an instant");
+        let read = harness
+            .record
+            .read_thread_speed_at(harness.session_id, at)
+            .await
+            .expect("the record reads");
+        assert_eq!(read.as_deref(), thread_speed);
+    }
 }

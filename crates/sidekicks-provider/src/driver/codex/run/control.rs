@@ -250,9 +250,11 @@ impl CodexRunControl {
                 }
             };
             // A session whose task ended keeps no turn to settle.
-            let _unheard = inbound.push(CodexSessionInbound::Call(CodexSessionCall::RunControl(
-                CodexRunControlCall::SettlePauseInterrupt { turn_id, answer },
-            )));
+            let _unheard = inbound
+                .push(CodexSessionInbound::Call(CodexSessionCall::RunControl(
+                    CodexRunControlCall::SettlePauseInterrupt { turn_id, answer },
+                )))
+                .is_ok();
         });
     }
 
@@ -512,13 +514,15 @@ pub(crate) async fn interrupt_codex_run(
     }
     let interrupted = interrupt_codex_turn(&send.connection, &send.thread_id, &send.turn_id).await;
     // A session whose task ended keeps no turn to settle.
-    let _unheard = inbound.push(CodexSessionInbound::Call(CodexSessionCall::RunControl(
-        CodexRunControlCall::SettleInterrupt {
-            run_id,
-            turn_id: send.turn_id.clone(),
-            is_stopped: interrupted.is_ok(),
-        },
-    )));
+    let _unheard = inbound
+        .push(CodexSessionInbound::Call(CodexSessionCall::RunControl(
+            CodexRunControlCall::SettleInterrupt {
+                run_id,
+                turn_id: send.turn_id.clone(),
+                is_stopped: interrupted.is_ok(),
+            },
+        )))
+        .is_ok();
     interrupted?;
     end_codex_running_commands(&send.connection, &send.thread_id, false).await;
     // Codex writes every echo of the turn before its end, so what the turn still holds then is

@@ -397,8 +397,9 @@ fn record_fork_source(record: &CodexSessionRecord) -> CodexForkSource<'_> {
 // Moves the record onto its fork: the binding first, durable before anything lets go of the
 // conversation the session leaves, then the record's own view of the fork, the routing band and
 // the service bound to it, the left conversation's helpers released, and that conversation let go
-// once no command of it runs. The message-to-turn map is dropped, since a fork's turns carry ids
-// of their own; an undo rebuilds it from the fork's history. A fork onto another binding ends the
+// once no command of it runs. The message-to-turn map is dropped: the fork keeps the source's ids
+// for the turns it copies and none past its point, and a retry sends its messages again on a new
+// turn, so an undo rebuilds the map from the fork's history. A fork onto another binding ends the
 // leg the record holds and takes legs of its own, opened before the binding's write under a
 // binding minted for them, so they never share the pair of a leg that is still open. A failed
 // opening or binding write lets the fork go, the record unchanged.
@@ -446,6 +447,7 @@ async fn move_record_to_fork(
     record.declared_output_speed = read_codex_declared_tier(session_id, &forked.reply);
     record.reasoning_effort = read_thread_reasoning_effort(&forked.reply);
     record.turn_id_by_client_message_id.clear();
+    record.cut_client_message_ids.clear();
     if is_rebound {
         record.end_mcp_server_status_leg();
         record.on_mcp_server_status = legs.and_then(|legs| legs.on_mcp_server_status);

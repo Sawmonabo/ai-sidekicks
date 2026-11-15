@@ -239,7 +239,9 @@ async fn a_process_reads_its_settings_from_a_private_file_gone_at_its_end() {
         Some(TelemetryTarget::new(43_210, Arc::clone(&bearers))),
     );
     let resolve = |authorization: &str| {
-        bearers.resolve(&DESCRIPTOR.provider_id(), Some(authorization.as_bytes()))
+        bearers
+            .resolve(&DESCRIPTOR.provider_id(), Some(authorization.as_bytes()))
+            .map(|admission| admission.holder())
     };
 
     let process = launcher

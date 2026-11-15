@@ -219,12 +219,12 @@ struct CodexModelProviderEndpoint {
 }
 
 /// The processing region of the Codex service `connection` reaches, read from its settings for
-/// `cwd`. Fails as [`read_codex_config`] does.
+/// `cwd`, or for no folder. Fails as [`read_codex_config`] does.
 pub(crate) async fn read_codex_processing_region(
     connection: &CodexAppServerConnection,
-    cwd: &Path,
+    cwd: Option<&Path>,
 ) -> Result<CodexProcessingRegion, CodexError> {
-    let read = read_codex_config::<CodexEndpointConfig>(connection, Some(cwd), false).await?;
+    let read = read_codex_config::<CodexEndpointConfig>(connection, cwd, false).await?;
     Ok(processing_region_of(&read.config))
 }
 

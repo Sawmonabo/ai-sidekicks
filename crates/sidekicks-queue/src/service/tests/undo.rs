@@ -1,12 +1,15 @@
 //! An undo through the queue: the conversation cut, asked of the provider only once every run it
 //! reaches holds no open turn and written in one write with the caller's companions, the fence on
-//! the session's binding, the reach of an undo to a steer, and the release that sends the edited
-//! message ahead of the held sends. The scenes and the fixture's writes they share are here.
+//! the session's binding, the reach of an undo to a steer, the release that sends the edited
+//! message ahead of the held sends, and the ends a retried undo comes to. The scenes and the
+//! fixture's writes they share are here.
 
 mod cut;
 mod release;
+mod retry;
 mod steer;
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -16,18 +19,26 @@ use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::events::CutGroupStart;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
-use sidekicks_contracts::session::restore::{SessionRestoreTarget, SnapshotId};
+use sidekicks_contracts::session::restore::{
+    SessionRestoreScope, SessionRestoreTarget, SnapshotId,
+};
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::rewind::RewindConversationResult;
+use sidekicks_provider::driver::rewind::{
+    ForkedBinding, RewindConversationResult, RewindTargetAsk, RewindTargetPresence,
+};
 use sidekicks_provider::driver::session_control::SessionCloseCause;
 use sidekicks_provider::port::run_host::RunHost;
+use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_session::checkpoints::schema::{CheckpointVersionContent, CheckpointVersionLeg};
 use sidekicks_session::checkpoints::store::{
     Checkpoint, CheckpointVersion, insert_checkpoint_statement, insert_version_statement,
@@ -38,8 +49,8 @@ use sidekicks_session::run::engine::test_fixture::{append, stored_run_state};
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use tokio::time::timeout;
 
-use super::{DriverCalls, Fixture, HELD_WATCH, fixture, recording_driver};
-use crate::service::undo::reach::UndoReach;
+use super::{DriverCalls, Fixture, HELD_WATCH, fixture, recording_driver, take_one};
+use crate::service::undo::reach::{ReachRead, UndoReach};
 use crate::session_lock::QueueSessionLock;
 use crate::test_items::Form;
 
@@ -87,6 +98,15 @@ struct Scene {
     rewound_message_ids: Arc<Mutex<Vec<String>>>,
     /// Each close of the session's process the provider was asked for, in order.
     closes: Arc<Mutex<Vec<ProcessClose>>>,
+    /// How many of the next closes the provider fails.
+    failing_closes: Arc<AtomicUsize>,
+    /// How many cuts the provider already made the driver was brought to.
+    adopts: Arc<AtomicUsize>,
+    /// What the provider's read answers of each message, by its queue item; one not named reads
+    /// held.
+    presence: Arc<Mutex<HashMap<String, RewindTargetPresence>>>,
+    /// When the daemon asks the provider's read of a cut, before it at first.
+    ask: Arc<Mutex<RewindTargetAsk>>,
     run_id: RunId,
     target: SessionRestoreTarget,
     /// The queue item of the message at `target`.
@@ -114,15 +134,30 @@ fn applied_in_place() -> RewindAnswer {
     })
 }
 
-/// The scene, its provider answering every cut with `answer` and cutting inside a turn.
-async fn scene(answer: RewindAnswer) -> Scene {
-    scene_on(answer, true, Form::Words(OPENING_WORDS)).await
+/// A cut the provider applied by forking the conversation onto `binding_id`, which runs on the
+/// conversation `resume_handle` under the build `2.0.0` at `/opt/provider/fork`.
+fn applied_on_fork(binding_id: &RuntimeBindingId, resume_handle: &str) -> RewindAnswer {
+    let fork = ForkedBinding {
+        binding_id: binding_id.clone(),
+        resume_handle: NonEmptyText::new(resume_handle.to_owned()).expect("a resume handle"),
+        spawned_version: spawned_build("2.0.0", "/opt/provider/fork"),
+    };
+    Arc::new(move || {
+        Ok(RewindConversationResult::Applied {
+            fork: Some(fork.clone()),
+            cut_message_text: None,
+        })
+    })
 }
 
-/// The scene, its provider answering every cut with `answer`, its cut landing inside a turn as
-/// `can_cut_inside_turn` says, the target message sent in `opening`'s form; the provider answers
-/// each skill pick by its name and folder.
-async fn scene_on(answer: RewindAnswer, can_cut_inside_turn: bool, opening: Form) -> Scene {
+/// The scene, its provider answering every cut with `answer`.
+async fn scene(answer: RewindAnswer) -> Scene {
+    scene_on(answer, Form::Words(OPENING_WORDS)).await
+}
+
+/// The scene, its provider answering every cut with `answer`, the target message sent in
+/// `opening`'s form; the provider answers each skill pick by its name and folder.
+async fn scene_on(answer: RewindAnswer, opening: Form) -> Scene {
     let calls = Arc::new(DriverCalls::default());
     let rewinds = Arc::new(AtomicUsize::new(0));
     let rewound_message_ids = Arc::new(Mutex::new(Vec::new()));
@@ -140,9 +175,30 @@ async fn scene_on(answer: RewindAnswer, can_cut_inside_turn: bool, opening: Form
             let answered = answer();
             async move { answered }.boxed()
         });
+    let presence = Arc::new(Mutex::new(HashMap::new()));
+    let read = Arc::clone(&presence);
+    driver.expect_read_rewind_target().returning(move |params| {
+        let answered = read
+            .lock()
+            .expect("unpoisoned")
+            .get(&params.target_message_id)
+            .copied()
+            .unwrap_or(RewindTargetPresence::Held);
+        async move { Ok(answered) }.boxed()
+    });
+    let ask = Arc::new(Mutex::new(RewindTargetAsk::BeforeCut));
+    let asking = Arc::clone(&ask);
     driver
-        .expect_can_cut_inside_turn()
-        .return_const(can_cut_inside_turn);
+        .expect_rewind_target_ask()
+        .returning(move || *asking.lock().expect("unpoisoned"));
+    let adopts = Arc::new(AtomicUsize::new(0));
+    let adopted = Arc::clone(&adopts);
+    driver
+        .expect_adopt_conversation_rewind()
+        .returning(move |_| {
+            adopted.fetch_add(1, Ordering::SeqCst);
+            async { Ok(()) }.boxed()
+        });
     driver
         .expect_skill_resolve_starts_process()
         .return_const(false);
@@ -163,11 +219,14 @@ async fn scene_on(answer: RewindAnswer, can_cut_inside_turn: bool, opening: Form
         });
     let closes = Arc::new(Mutex::new(Vec::new()));
     let closing = Arc::clone(&closes);
+    let failing_closes = Arc::new(AtomicUsize::new(0));
+    let failing = Arc::clone(&failing_closes);
     // Set once the queue is built, before any close can run.
     let queue_lock: Arc<OnceLock<Arc<QueueSessionLock>>> = Arc::new(OnceLock::new());
     let closing_queue_lock = Arc::clone(&queue_lock);
     driver.expect_close_session().returning(move |params| {
         let closes = Arc::clone(&closing);
+        let is_failed = take_one(&failing);
         let queue_lock = Arc::clone(
             closing_queue_lock
                 .get()
@@ -187,6 +246,9 @@ async fn scene_on(answer: RewindAnswer, can_cut_inside_turn: bool, opening: Form
                 is_append_lock_free,
                 is_queue_lock_free,
             });
+            if is_failed {
+                return Err(DriverError::Internal("the test's close fails".into()));
+            }
             Ok(())
         }
         .boxed()
@@ -214,9 +276,29 @@ async fn scene_on(answer: RewindAnswer, can_cut_inside_turn: bool, opening: Form
         rewinds,
         rewound_message_ids,
         closes,
+        failing_closes,
+        adopts,
+        presence,
+        ask,
         run_id,
         target,
         target_message_id,
+    }
+}
+
+impl Scene {
+    /// The reach of the scene's target with the conversation in scope, read once as an undo
+    /// reads it.
+    async fn reach(&self) -> ReachRead {
+        self.fixture
+            .queue
+            .read_undo_reach(
+                self.fixture.session_id,
+                &self.target,
+                SessionRestoreScope::Conversation,
+            )
+            .await
+            .expect("the reach reads")
     }
 }
 
@@ -228,36 +310,123 @@ struct SteerScene {
     scene: Scene,
     /// The queue item of the turn's opening message.
     opening_message_id: QueueItemId,
-    /// The opening's checkpoint.
+    /// The opening message's checkpoint.
     opening: SessionRestoreTarget,
     /// The queue item of O3, which opened the run's next turn.
     later_message_id: QueueItemId,
+    /// The queue item of S2 and its checkpoint.
+    second_steer: (QueueItemId, SessionRestoreTarget),
 }
 
-/// The steer scene, its provider answering every cut with `answer` and cutting inside a turn as
-/// `can_cut_inside_turn` says, O sent in `opening`'s form.
-async fn steer_scene(answer: RewindAnswer, can_cut_inside_turn: bool, opening: Form) -> SteerScene {
-    let mut scene = scene_on(answer, can_cut_inside_turn, opening).await;
+/// How the steer scene's steers S and S2 land, which says what group the provider's cut takes
+/// each with.
+#[derive(Clone, Copy, Debug)]
+enum SteerLanding {
+    /// Each is cut alone, as a Claude Code steer taken mid-turn.
+    Alone,
+    /// Each is cut alone, S2 sent before S and taken after it, as Claude Code takes a `Send now`
+    /// steer ahead of a message already waiting.
+    AloneTakenAhead,
+    /// Each is cut with its turn's opening, as a provider whose cut lands only at turns has it.
+    AtTurns,
+    /// Both rode one command with O, which the turn opens at as its first message, as Claude Code
+    /// merges a message held over from the turn before with the turn's own; P, a priority steer
+    /// sent after O, landed in the turn before at [`PRIORITY_POSITION`].
+    MergedWithOpening,
+    /// Both rode one command of their own, S first, as Claude Code merges a batch it takes into a
+    /// turn continued after an interrupt.
+    Continued,
+}
+
+/// The run position P takes in the turn before the steer scene's.
+const PRIORITY_POSITION: u64 = TARGET_POSITION - 1;
+/// The words of P.
+const PRIORITY_WORDS: &str = "Stop that first";
+
+/// The steer scene, its provider answering every cut with `answer`, its steers landing as
+/// `landing` says, O sent in `opening`'s form.
+async fn steer_scene(answer: RewindAnswer, landing: SteerLanding, opening: Form) -> SteerScene {
+    let mut scene = scene_on(answer, opening).await;
     let fixture = &scene.fixture;
     let run_id = scene.run_id;
     let opening = scene.target.clone();
     let opening_message_id = scene.target_message_id;
+    if let SteerLanding::MergedWithOpening = landing {
+        let turn_before = TARGET_TURN_NUMBER - 1;
+        fixture
+            .append_turn_event(run_id, "agent.turn.started", turn_before)
+            .await;
+        fixture
+            .insert_steer(run_id, PRIORITY_WORDS, turn_before, PRIORITY_POSITION, None)
+            .await;
+        fixture
+            .append_turn_event(run_id, "agent.turn.completed", turn_before)
+            .await;
+    }
+    // S begins the group it rides where it rides one of its own, as a continued batch's first
+    // does, so its landing names none.
+    let steer_group = |first: Option<QueueItemId>| match landing {
+        SteerLanding::Alone | SteerLanding::AloneTakenAhead => None,
+        SteerLanding::AtTurns => Some(CutGroupStart::TurnOpening),
+        SteerLanding::MergedWithOpening => Some(CutGroupStart::Message {
+            message_id: opening_message_id,
+        }),
+        SteerLanding::Continued => first.map(|message_id| CutGroupStart::Message { message_id }),
+    };
     fixture
         .append_turn_event(run_id, "agent.turn.started", TARGET_TURN_NUMBER)
         .await;
     fixture.insert_edit(&opening, OPENING_EDIT).await;
-    let (steer_message_id, steer) = fixture
-        .insert_steer(run_id, STEER_WORDS, TARGET_TURN_NUMBER, STEER_POSITION)
+    let second_sent_ahead = match landing {
+        SteerLanding::AloneTakenAhead => Some(
+            fixture
+                .insert_sent_message(run_id, Form::Words(SECOND_STEER_WORDS))
+                .await,
+        ),
+        SteerLanding::Alone
+        | SteerLanding::AtTurns
+        | SteerLanding::MergedWithOpening
+        | SteerLanding::Continued => None,
+    };
+    let steer_message_id = fixture
+        .insert_sent_message(run_id, Form::Words(STEER_WORDS))
         .await;
-    fixture.insert_edit(&steer, STEER_EDIT).await;
-    fixture
-        .insert_steer(
+    let steer = fixture
+        .insert_landing(
             run_id,
-            SECOND_STEER_WORDS,
+            steer_message_id,
             TARGET_TURN_NUMBER,
-            SECOND_STEER_POSITION,
+            STEER_POSITION,
+            steer_group(None),
         )
         .await;
+    let steer_message_id = steer_message_id.0;
+    fixture.insert_edit(&steer, STEER_EDIT).await;
+    let second_steer = match second_sent_ahead {
+        Some(sent) => (
+            sent.0,
+            fixture
+                .insert_landing(
+                    run_id,
+                    sent,
+                    TARGET_TURN_NUMBER,
+                    SECOND_STEER_POSITION,
+                    None,
+                )
+                .await,
+        ),
+        None => {
+            fixture
+                .insert_steer(
+                    run_id,
+                    SECOND_STEER_WORDS,
+                    TARGET_TURN_NUMBER,
+                    SECOND_STEER_POSITION,
+                    steer_group(Some(steer_message_id)),
+                )
+                .await
+        }
+    };
     fixture
         .append_turn_event(run_id, "agent.turn.completed", TARGET_TURN_NUMBER)
         .await;
@@ -284,10 +453,11 @@ async fn steer_scene(answer: RewindAnswer, can_cut_inside_turn: bool, opening: F
         opening_message_id,
         opening,
         later_message_id,
+        second_steer,
     }
 }
 
-/// The steer scene, cutting inside a turn as `can_cut_inside_turn` says, with a turn after it
+/// The steer scene, its steers landing as `is_cut_at_turns` says, with a turn after it
 /// that no new message of the person's opened, opened as `opening` says; it edits
 /// [`ANSWER_EDIT`], takes the steer S3, edits [`ANSWER_STEER_EDIT`] and ends.
 struct DaemonTurnScene {
@@ -312,10 +482,15 @@ enum DaemonTurnOpening {
 /// The daemon-turn scene, its provider answering every cut with `answer`.
 async fn daemon_turn_scene(
     answer: RewindAnswer,
-    can_cut_inside_turn: bool,
+    is_cut_at_turns: bool,
     opening: DaemonTurnOpening,
 ) -> DaemonTurnScene {
-    let steer = steer_scene(answer, can_cut_inside_turn, Form::Words(OPENING_WORDS)).await;
+    let landing = if is_cut_at_turns {
+        SteerLanding::AtTurns
+    } else {
+        SteerLanding::Alone
+    };
+    let steer = steer_scene(answer, landing, Form::Words(OPENING_WORDS)).await;
     let mut scene = steer.scene;
     let fixture = &scene.fixture;
     let run_id = scene.run_id;
@@ -360,6 +535,7 @@ async fn daemon_turn_scene(
             ANSWER_STEER_WORDS,
             started.turn_number.get(),
             turn_start.turn.position.0.get() + 1,
+            is_cut_at_turns.then_some(CutGroupStart::TurnOpening),
         )
         .await;
     fixture.insert_edit(&steer, ANSWER_STEER_EDIT).await;
@@ -465,31 +641,48 @@ impl Fixture {
     }
 
     /// Writes the person's message saying `words`, steered into turn `turn_number` of `run_id` at
-    /// run position `at` with its checkpoint, and answers its queue item and the checkpoint.
+    /// run position `at` with its checkpoint, its landing naming `cut_group_start`, and answers its
+    /// queue item and the checkpoint.
     async fn insert_steer(
         &self,
         run_id: RunId,
         words: &'static str,
         turn_number: u64,
         at: u64,
+        cut_group_start: Option<CutGroupStart>,
     ) -> (QueueItemId, SessionRestoreTarget) {
-        let (message_id, sequence) = self.insert_sent_message(run_id, Form::Words(words)).await;
-        self.insert_event(
-            run_id,
-            SessionEventType::AgentTurnSteered,
-            &json!({
-                "sessionId": self.session_id,
-                "runId": run_id,
-                "runVersion": 1,
-                "turnNumber": turn_number,
-                "position": at,
-                "messageId": message_id,
-            }),
-        );
+        let sent = self.insert_sent_message(run_id, Form::Words(words)).await;
         let checkpoint = self
-            .insert_checkpoint(run_id, sequence, turn_number, epoch_position(0, at))
+            .insert_landing(run_id, sent, turn_number, at, cut_group_start)
             .await;
-        (message_id, checkpoint)
+        (sent.0, checkpoint)
+    }
+
+    /// Writes the landing of `sent`, the person's message and its sequence, steered into turn
+    /// `turn_number` of `run_id` at run position `at` naming `cut_group_start`, with its
+    /// checkpoint, and answers the checkpoint.
+    async fn insert_landing(
+        &self,
+        run_id: RunId,
+        (message_id, sequence): (QueueItemId, u64),
+        turn_number: u64,
+        at: u64,
+        cut_group_start: Option<CutGroupStart>,
+    ) -> SessionRestoreTarget {
+        let mut payload = json!({
+            "sessionId": self.session_id,
+            "runId": run_id,
+            "runVersion": 1,
+            "turnNumber": turn_number,
+            "position": at,
+            "messageId": message_id,
+        });
+        if let Some(start) = cut_group_start {
+            payload["cutGroupStart"] = json!(start);
+        }
+        self.insert_event(run_id, SessionEventType::AgentTurnSteered, &payload);
+        self.insert_checkpoint(run_id, sequence, turn_number, epoch_position(0, at))
+            .await
     }
 
     /// Writes an edit's version of `path` into the checkpoint `target` names.
@@ -512,9 +705,9 @@ impl Fixture {
             .expect("the test writes the edit");
     }
 
-    /// The paths an undo to before the message at `message_sequence` puts back, in path order.
-    fn restored_paths(&self, message_sequence: SafeInt<0>) -> Vec<String> {
-        versions_after(&self.database.reader(), self.session_id, message_sequence)
+    /// The paths an undo to `point` puts back, in path order; the scenes run no later lead run.
+    fn restored_paths(&self, point: &Checkpoint) -> Vec<String> {
+        versions_after(&self.database.reader(), self.session_id, point, &[])
             .expect("the test reads the versions")
             .into_iter()
             .map(|stored| stored.version.path.as_str().to_owned())

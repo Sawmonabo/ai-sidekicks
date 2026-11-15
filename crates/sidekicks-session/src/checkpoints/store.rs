@@ -5,15 +5,18 @@
 //! a stop left open, and a saved undo outcome by its key. The reads that leave out a checkpoint a
 //! later undo cut away are in [`kept`]; the shadow rows of files over 10 MiB are in [`shadows`].
 //!
-//! A point is a place in the session's log: an undo goes back to before the event at
-//! `before_sequence`, so every checkpoint whose prompt sits at or past it lies after the point.
+//! A point is the checkpoint an undo goes back to, and the checkpoints after it are those its
+//! rollback cuts: the point's run from its run position on, whenever their prompts were sent, and
+//! each later lead run the undo lists, whole. An edit or a command is kept under the checkpoint of
+//! the turn it ran in, the newest run's latest run position, so a message sent before the point
+//! and taken after it keeps what its turn changed after the point too.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value as SqlValue;
-use rusqlite::{Connection, OptionalExtension as _, Row, named_params};
+use rusqlite::{Connection, OptionalExtension as _, Row, ToSql, named_params};
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
@@ -124,8 +127,34 @@ macro_rules! select_checkpoints {
     };
 }
 
-const NEWEST_CHECKPOINT_SQL: &str =
-    select_checkpoints!("WHERE session_id = @sessionId ORDER BY message_sequence DESC LIMIT 1");
+// The checkpoint of the turn running now: a run id is a UUIDv7, so the ids' order is the order the
+// runs were made, and in a run the latest run position is the latest place in its turns. Only a
+// lead run opens or steers a turn, so only a lead run keeps a checkpoint. Read on the checkpoints'
+// run position index, from its end.
+const NEWEST_CHECKPOINT_SQL: &str = select_checkpoints!(
+    "WHERE session_id = @sessionId ORDER BY run_id DESC, epoch DESC, position DESC LIMIT 1"
+);
+
+// The checkpoints, as `checkpoints`, an undo to the point at run `@runId`'s `@epoch` and
+// `@position` takes, as its rollback cuts them: the point's run from that run position on, and the
+// later lead runs `@laterRunIds`, a JSON array, each whole. Read on the checkpoints' run position
+// index from the point on.
+macro_rules! reached_checkpoints {
+    () => {
+        "checkpoints.session_id = @sessionId
+   AND (checkpoints.run_id, checkpoints.epoch, checkpoints.position) >= (@runId, @epoch, @position)
+   AND (checkpoints.run_id = @runId
+        OR checkpoints.run_id IN (SELECT value FROM json_each(@laterRunIds)))"
+    };
+}
+
+// The order `reached_checkpoints!` reads its checkpoints in, the order they ran, a tie kept in the
+// order written.
+macro_rules! reached_order {
+    () => {
+        "checkpoints.run_id, checkpoints.epoch, checkpoints.position, checkpoints.rowid"
+    };
+}
 
 const RECORDED_PATHS_SQL: &str =
     "SELECT DISTINCT path FROM checkpoint_versions WHERE checkpoint_id = @checkpointId";
@@ -134,31 +163,46 @@ const RECORDED_PATHS_SQL: &str =
 const HOLDS_PATH_SQL: &str = "SELECT EXISTS (SELECT 1 FROM checkpoint_versions
   WHERE checkpoint_id = @checkpointId AND path = @path)";
 
-// Per path, the earliest version of the checkpoints at or past the point: the earliest checkpoint,
-// then the earliest sequence in it. Every kind is kept, so a path with no copy is still named.
-const VERSIONS_AFTER_SQL: &str = "SELECT checkpoint_id, sequence, path, leg, kind, copy_hash,
+// Per path, the earliest version of the checkpoints after the point: the earliest checkpoint, then
+// the earliest sequence in it. Every kind is kept, so a path with no copy is still named.
+const VERSIONS_AFTER_SQL: &str = concat!(
+    "SELECT checkpoint_id, sequence, path, leg, kind, copy_hash,
        not_kept_reason, parent_real_path, window_id, shadow_id, is_executable, permissions,
        tool_call_id
   FROM (SELECT versions.*,
                ROW_NUMBER() OVER (PARTITION BY versions.path
-                                  ORDER BY checkpoints.message_sequence, versions.sequence)
+                                  ORDER BY ",
+    reached_order!(),
+    ", versions.sequence)
                  AS earliest
           FROM checkpoint_versions AS versions
           JOIN session_checkpoints AS checkpoints
             ON checkpoints.checkpoint_id = versions.checkpoint_id
-         WHERE checkpoints.session_id = @sessionId
-           AND checkpoints.message_sequence >= @beforeSequence)
+         WHERE ",
+    reached_checkpoints!(),
+    ")
  WHERE earliest = 1
- ORDER BY path";
+ ORDER BY path"
+);
 
-const UNCOVERED_COMMANDS_SQL: &str = "SELECT commands.window_id, commands.command,
+const COPY_HASHES_SQL: &str = "SELECT DISTINCT versions.copy_hash
+  FROM checkpoint_versions AS versions
+  JOIN session_checkpoints AS checkpoints ON checkpoints.checkpoint_id = versions.checkpoint_id
+ WHERE checkpoints.session_id = @sessionId AND versions.copy_hash IS NOT NULL";
+
+const UNCOVERED_COMMANDS_SQL: &str = concat!(
+    "SELECT commands.window_id, commands.command,
        commands.tool_call_id, commands.started_at
   FROM checkpoint_commands AS commands
   JOIN session_checkpoints AS checkpoints ON checkpoints.checkpoint_id = commands.checkpoint_id
- WHERE checkpoints.session_id = @sessionId
-   AND checkpoints.message_sequence >= @beforeSequence
+ WHERE ",
+    reached_checkpoints!(),
+    "
    AND commands.covered = 0
- ORDER BY checkpoints.message_sequence, commands.rowid";
+ ORDER BY ",
+    reached_order!(),
+    ", commands.rowid"
+);
 
 // The edits whose copy failed, named by their tool call, in the order `UNCOVERED_COMMANDS_SQL`
 // keeps.
@@ -170,11 +214,12 @@ static FAILED_EDITS_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT versions.path, versions.tool_call_id
   FROM checkpoint_versions AS versions
   JOIN session_checkpoints AS checkpoints ON checkpoints.checkpoint_id = versions.checkpoint_id
- WHERE checkpoints.session_id = @sessionId
-   AND checkpoints.message_sequence >= @beforeSequence
+ WHERE {}
    AND versions.leg = '{edit}' AND versions.kind = '{not_kept}'
    AND versions.not_kept_reason = '{failed}' AND versions.tool_call_id IS NOT NULL
- ORDER BY checkpoints.message_sequence, versions.sequence"
+ ORDER BY {}, versions.sequence",
+        reached_checkpoints!(),
+        reached_order!(),
     )
 });
 
@@ -544,81 +589,108 @@ pub fn insert_restore_statement(
     }
 }
 
-/// Per path, the version an undo of `session_id` to before the log event at `before_sequence`
-/// puts back: the earliest of the checkpoints at or past that point, a version that kept no copy
-/// returned as such so the undo names its skip. Ordered by path. Fails as SQLite does, or when a
-/// stored column does not read.
+// What `reached_checkpoints!` binds for an undo of a session to a point that also cuts the later
+// lead runs it lists.
+struct ReachedBindings {
+    session_id: String,
+    run_id: String,
+    epoch: i64,
+    position: i64,
+    // The later lead runs' ids, as one JSON array.
+    later_run_ids: String,
+}
+
+impl ReachedBindings {
+    fn new(session_id: SessionId, point: &Checkpoint, later_run_ids: &[RunId]) -> Self {
+        let later_run_ids: Vec<String> = later_run_ids
+            .iter()
+            .map(|run_id| run_id.text().as_str().to_owned())
+            .collect();
+        Self {
+            session_id: session_id.text().as_str().to_owned(),
+            run_id: point.run_id.text().as_str().to_owned(),
+            epoch: i64::from(point.turn.epoch.0),
+            position: i64::from(point.turn.position.0),
+            later_run_ids: serde_json::to_string(&later_run_ids)
+                .expect("a list of run ids writes as JSON"),
+        }
+    }
+
+    fn params(&self) -> [(&'static str, &dyn ToSql); 5] {
+        [
+            ("@sessionId", &self.session_id),
+            ("@runId", &self.run_id),
+            ("@epoch", &self.epoch),
+            ("@position", &self.position),
+            ("@laterRunIds", &self.later_run_ids),
+        ]
+    }
+}
+
+/// Per path, the version an undo of `session_id` to `point` puts back: the earliest of the
+/// checkpoints its rollback cuts, the point's run from its run position on and each of the later
+/// lead runs `later_run_ids` whole, a version that kept no copy returned as such so the undo names
+/// its skip. Ordered by path. Fails as SQLite does, or when a stored column does not read.
 pub fn versions_after(
     connection: &Connection,
     session_id: SessionId,
-    before_sequence: SafeInt<0>,
+    point: &Checkpoint,
+    later_run_ids: &[RunId],
 ) -> rusqlite::Result<Vec<StoredCheckpointVersion>> {
+    let bindings = ReachedBindings::new(session_id, point, later_run_ids);
     connection
         .prepare_cached(VERSIONS_AFTER_SQL)?
-        .query_map(
-            named_params! {
-                "@sessionId": session_id.text().as_str(),
-                "@beforeSequence": i64::from(before_sequence),
-            },
-            stored_version_of,
-        )?
+        .query_map(bindings.params().as_slice(), stored_version_of)?
         .collect()
 }
 
-/// Every command of `session_id` in the checkpoints at or past the log event at `before_sequence`
-/// that closed without its before-capture, oldest first. Fails as SQLite does, or when a stored
-/// column does not read.
+/// Every command of `session_id` in the checkpoints an undo to `point` that also cuts the later
+/// lead runs `later_run_ids` cuts that closed without its before-capture, in the order they ran.
+/// Fails as SQLite does, or when a stored column does not read.
 pub fn uncovered_commands(
     connection: &Connection,
     session_id: SessionId,
-    before_sequence: SafeInt<0>,
+    point: &Checkpoint,
+    later_run_ids: &[RunId],
 ) -> rusqlite::Result<Vec<UncoveredCommand>> {
+    let bindings = ReachedBindings::new(session_id, point, later_run_ids);
     connection
         .prepare_cached(UNCOVERED_COMMANDS_SQL)?
-        .query_map(
-            named_params! {
-                "@sessionId": session_id.text().as_str(),
-                "@beforeSequence": i64::from(before_sequence),
-            },
-            |row| {
-                Ok(UncoveredCommand {
-                    window_id: text_column(row, 0, |text| CommandWindowId::parse(&text))?,
-                    command: row.get(1)?,
-                    tool_call_id: optional_text_column(row, 2, ToolCallId::new)?,
-                    started_at: text_column(row, 3, WireInstant::try_from)?,
-                })
-            },
-        )?
+        .query_map(bindings.params().as_slice(), |row| {
+            Ok(UncoveredCommand {
+                window_id: text_column(row, 0, |text| CommandWindowId::parse(&text))?,
+                command: row.get(1)?,
+                tool_call_id: optional_text_column(row, 2, ToolCallId::new)?,
+                started_at: text_column(row, 3, WireInstant::try_from)?,
+            })
+        })?
         .collect()
 }
 
-/// The edits of `session_id` in the checkpoints at or past the log event at `before_sequence` whose
-/// copy failed, each by its tool call, oldest first. Fails as SQLite does, or when a stored column
-/// does not read.
+/// The edits of `session_id` in the checkpoints an undo to `point` that also cuts the later lead
+/// runs `later_run_ids` cuts whose copy failed, each by its tool call, in the order they ran. Fails
+/// as SQLite does, or when a stored column does not read.
 pub fn failed_edits(
     connection: &Connection,
     session_id: SessionId,
-    before_sequence: SafeInt<0>,
+    point: &Checkpoint,
+    later_run_ids: &[RunId],
 ) -> rusqlite::Result<Vec<FailedEdit>> {
+    let bindings = ReachedBindings::new(session_id, point, later_run_ids);
     connection
         .prepare_cached(FAILED_EDITS_SQL.as_str())?
-        .query_map(
-            named_params! {
-                "@sessionId": session_id.text().as_str(),
-                "@beforeSequence": i64::from(before_sequence),
-            },
-            |row| {
-                Ok(FailedEdit {
-                    path: text_column(row, 0, FilesystemPath::new)?,
-                    tool_call_id: text_column(row, 1, ToolCallId::new)?,
-                })
-            },
-        )?
+        .query_map(bindings.params().as_slice(), |row| {
+            Ok(FailedEdit {
+                path: text_column(row, 0, FilesystemPath::new)?,
+                tool_call_id: text_column(row, 1, ToolCallId::new)?,
+            })
+        })?
         .collect()
 }
 
-/// `session_id`'s checkpoint of its newest prompt, `None` when it holds none. Fails as SQLite does,
-/// or when a stored column does not read.
+/// `session_id`'s checkpoint of the turn running now, which an edit or a command is kept under: its
+/// newest run's at the latest run position, `None` when it holds none. Fails as SQLite does, or
+/// when a stored column does not read.
 pub fn newest_checkpoint(
     connection: &Connection,
     session_id: SessionId,
@@ -660,6 +732,21 @@ pub fn holds_path(
         },
         |row| row.get(0),
     )
+}
+
+/// The hash of every copy a version of `session_id` names, as each copy's file is named. Fails as
+/// SQLite does.
+pub fn copy_hashes(
+    connection: &Connection,
+    session_id: SessionId,
+) -> rusqlite::Result<HashSet<String>> {
+    connection
+        .prepare_cached(COPY_HASHES_SQL)?
+        .query_map(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            |row| row.get(0),
+        )?
+        .collect()
 }
 
 /// Every command window still open, with its checkpoint's session: the windows a stop left open,

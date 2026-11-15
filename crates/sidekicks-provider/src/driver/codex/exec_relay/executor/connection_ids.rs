@@ -4,19 +4,16 @@
 //! under an id of its own and turns the executor's messages naming it back to its owner's id.
 
 use std::collections::{HashMap, VecDeque};
-use std::time::Duration;
 
 use tokio::time::Instant;
 
 use super::RelayConnectionId;
+use super::detached::DETACHED_CONNECTION_HOLD;
 use crate::driver::codex::exec_relay::methods::RelayIdKind;
 
 /// The id a connection's request reaches the executor under when it names no id the connection
 /// minted; it names nothing there, so the executor answers it as unknown.
 pub(super) const UNKNOWN_ID: &str = "sidekicks-unknown";
-
-/// How long the executor keeps a closed process for its late reads, and the relay its ids.
-const CLOSED_PROCESS_RETENTION: Duration = Duration::from_secs(30);
 
 /// The connection a relay id belongs to and the id that connection gave it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,8 +24,20 @@ pub(super) struct IdOwner {
     pub(super) own_id: String,
 }
 
-// Where one relay id stands: minted and not yet answered, answered as begun, or closed and kept
-// for its kind's retention.
+/// What a mint under a connection's own id comes to.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum IdMint {
+    /// A relay id minted now, which only the mint's refusal forgets.
+    New(String),
+    /// The relay id of the live id the connection still has open, so the executor refuses the
+    /// second use as it would on a connection of its own.
+    Live(String),
+    /// None: the connection's earlier mint under the same own id is still unanswered.
+    Pending,
+}
+
+// Where one relay id stands: minted and not yet answered, answered as begun, or a process closed
+// and kept for its late reads.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum IdState {
     Pending,
@@ -67,22 +76,20 @@ impl ConnectionIds {
         }
     }
 
-    /// The relay id `connection`'s own `own_id` is sent under, and whether it was minted now: an
-    /// id the connection still has open keeps its relay id, so the executor refuses the second
-    /// use as it would on a connection of its own.
-    pub(super) fn mint(&mut self, connection: RelayConnectionId, own_id: &str) -> (String, bool) {
+    /// The relay id `connection`'s own `own_id` is sent under: minted now, or the one of the
+    /// id it still has open; none while its earlier mint under `own_id` is unanswered, since two
+    /// mints sharing one relay id could not tell which the executor took.
+    pub(super) fn mint(&mut self, connection: RelayConnectionId, own_id: &str) -> IdMint {
         self.forget_closed();
         let kept = self
             .relay_ids
             .get(&connection)
             .and_then(|ids| ids.get(own_id))
-            .filter(|relay_id| {
-                self.owned
-                    .get(*relay_id)
-                    .is_some_and(|owned| owned.state != IdState::Closed)
-            });
-        if let Some(relay_id) = kept {
-            return (relay_id.clone(), false);
+            .and_then(|relay_id| Some((relay_id, self.owned.get(relay_id)?.state)));
+        match kept {
+            Some((_relay_id, IdState::Pending)) => return IdMint::Pending,
+            Some((relay_id, IdState::Live)) => return IdMint::Live(relay_id.clone()),
+            Some((_, IdState::Closed)) | None => {}
         }
         self.minted += 1;
         let relay_id = match self.kind {
@@ -106,7 +113,7 @@ impl ConnectionIds {
                 last_seq: 0,
             },
         );
-        (relay_id, true)
+        IdMint::New(relay_id)
     }
 
     /// Marks `relay_id` live, its mint's answer having begun it.
@@ -145,9 +152,10 @@ impl ConnectionIds {
         }
     }
 
-    /// Marks `relay_id` closed: a process's ids last as long as the executor keeps it, and a new
-    /// start under its own id gets a new relay id; a file handle or an http request is forgotten
-    /// at once.
+    /// Marks `relay_id` closed: a process's ids last for [`DETACHED_CONNECTION_HOLD`], as long as
+    /// the executor keeps a closed process for its late reads and as long as a hold that began
+    /// before the close can still read it back, and a new start under its own id gets a new relay
+    /// id; a file handle or an http request is forgotten at once.
     pub(super) fn close(&mut self, relay_id: &str) {
         if self.kind != RelayIdKind::Process {
             self.forget(relay_id);
@@ -159,7 +167,7 @@ impl ConnectionIds {
         if owned.state != IdState::Closed {
             owned.state = IdState::Closed;
             self.closing.push_back((
-                Instant::now() + CLOSED_PROCESS_RETENTION,
+                Instant::now() + DETACHED_CONNECTION_HOLD,
                 relay_id.to_owned(),
             ));
         }
@@ -167,7 +175,7 @@ impl ConnectionIds {
     }
 
     /// Forgets every id of `connection`, which went away, and answers the relay ids of those its
-    /// mint's answer had made live; one still pending is left to that answer.
+    /// mint's answer had made live; a mint's answer that comes later finds its id owned by no one.
     pub(super) fn forget_connection(&mut self, connection: RelayConnectionId) -> Vec<String> {
         let Some(ids) = self.relay_ids.remove(&connection) else {
             return Vec::new();
@@ -179,6 +187,19 @@ impl ConnectionIds {
                     .is_some_and(|owned| owned.state == IdState::Live)
             })
             .collect()
+    }
+
+    /// Hands every id of `from`, whose dropped connection's session `to` resumed, to `to`.
+    pub(super) fn move_connection(&mut self, from: RelayConnectionId, to: RelayConnectionId) {
+        let Some(ids) = self.relay_ids.remove(&from) else {
+            return;
+        };
+        for relay_id in ids.values() {
+            if let Some(owned) = self.owned.get_mut(relay_id) {
+                owned.owner.connection = to;
+            }
+        }
+        self.relay_ids.insert(to, ids);
     }
 
     /// Notes `seq` as the number of the last event the executor reported under `relay_id`.

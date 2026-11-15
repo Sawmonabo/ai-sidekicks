@@ -46,10 +46,14 @@ fn a_reader_taking_an_item_at_its_send_reads_it_counted() {
         "the reader waits on an empty queue"
     );
 
-    assert!(sender.push(CodexSessionInbound::HeldThread {
-        thread_id: "thread".to_owned(),
-        is_held: true,
-    }));
+    assert!(
+        sender
+            .push(CodexSessionInbound::HeldThread {
+                thread_id: "thread".to_owned(),
+                is_held: true,
+            })
+            .is_ok()
+    );
 
     assert_eq!(*lock(&reader.depth_at_take), Some(1));
 }

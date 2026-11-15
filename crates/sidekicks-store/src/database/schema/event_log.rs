@@ -5,14 +5,13 @@
 
 use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 use sidekicks_contracts::transcript::turn_attribution::{
     TURN_END_EVENT_TYPES, TURN_STARTED_EVENT_TYPE,
 };
-use strum::VariantArray as _;
 
 use crate::database::schema::{
-    SESSION_EVENTS_RUN_INDEX, SESSION_EVENTS_TABLE, SESSION_EVENTS_TYPE_INDEX,
+    RUN_TERMINAL_EVENT_TYPES_SQL, SESSION_EVENTS_RUN_INDEX, SESSION_EVENTS_TABLE,
+    SESSION_EVENTS_TYPE_INDEX,
 };
 use crate::database::sql_list::sql_list_of;
 use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
@@ -22,13 +21,7 @@ pub(super) fn event_log_schema_sql() -> String {
     let run_lifecycle = EventCategory::RunLifecycle.as_str();
     let skipped_type = DAMAGED_EVENTS_SKIPPED_TYPE.as_str();
     let backgrounded_type = SessionEventType::AgentToolCallBackgrounded.as_str();
-    // The event types that enter a terminal run state, the same rule the run engine reads.
-    let terminal_types = sql_list_of(
-        RunStateEventType::VARIANTS
-            .iter()
-            .filter(|event_type| event_type.state().is_terminal())
-            .map(|event_type| event_type.session_event_type().as_str()),
-    );
+    let terminal_types = RUN_TERMINAL_EVENT_TYPES_SQL.as_str();
     let turn_end_types = sql_list_of(TURN_END_EVENT_TYPES);
     format!(
         "
@@ -105,7 +98,8 @@ CREATE INDEX idx_session_events_backgrounded ON {SESSION_EVENTS_TABLE}(session_i
 -- a live run's agent and newest touch. The read of where a run stands names it, since across its
 -- two types, turn starts and steers, the planner would leave it for an index that walks every
 -- row in range.
-CREATE INDEX {SESSION_EVENTS_RUN_INDEX} ON {SESSION_EVENTS_TABLE}(session_id, type, run_id, sequence)
+CREATE INDEX {SESSION_EVENTS_RUN_INDEX}
+  ON {SESSION_EVENTS_TABLE}(session_id, type, run_id, sequence)
   WHERE run_id IS NOT NULL;
 -- One run's events in log order, read beside the events filed under it.
 CREATE INDEX idx_session_events_run_sequence ON {SESSION_EVENTS_TABLE}(session_id, run_id, sequence)

@@ -44,7 +44,7 @@ use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::session::recovery::CodexDroppedTurns;
 use crate::driver::codex::session::recovery::in_place_resume::CodexInPlaceResumeCall;
 use crate::driver::codex::session::rewind::CodexMessageTurn;
-use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
+use crate::driver::codex::telemetry::exported_response::CodexExportedResponse;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::account::FirstRequestAfterMove;
 use crate::driver::contract::error::DriverError;
@@ -100,8 +100,9 @@ pub(crate) enum CodexSessionInbound {
     /// The session moved onto another account where the switching service acknowledged it among
     /// the frames, so the spend metered before it stays on the account it left.
     AccountMoved(CodexAccountMove),
-    /// A completed response Codex's log export stated on one of the session's threads.
-    ExportedResponse(CodexExportedResponse),
+    /// The completed responses one hand-over stated on the session's threads: an export's, or a
+    /// rollout file's one read, priced together.
+    ExportedResponses(Vec<CodexExportedResponse>),
 }
 
 /// A session's move onto another account, queued at the place among its frames where the service
@@ -283,12 +284,24 @@ pub(crate) enum CodexSessionCall {
         /// recorded none for the message.
         reply: oneshot::Sender<CodexMessageTurn>,
     },
-    /// Records the turns of the person's messages a conversation's history listed.
-    RecordMessageTurns {
+    /// Records the turn of one of the person's messages a conversation's history listed.
+    RecordMessageTurn {
         /// The conversation the history was read on.
         thread_id: String,
-        /// Each message's turn, by the message's id.
-        turn_id_by_client_message_id: HashMap<String, String>,
+        /// The message's id.
+        message_id: String,
+        /// The turn Codex listed holding it.
+        turn_id: String,
+    },
+    /// Brings the record to a cut before one of the person's messages that Codex already made,
+    /// as a landed `RevertBefore` leaves it.
+    AdoptCut {
+        /// The conversation the turns were listed on.
+        thread_id: String,
+        /// Every turn Codex lists, oldest first.
+        listed_turn_ids: Vec<String>,
+        /// The message the cut took.
+        message_id: String,
     },
     /// Forks the conversation to just before a retried turn on the faster model, once the caller
     /// claimed the slot.
@@ -351,13 +364,13 @@ impl CodexSessionInboundSender {
         self.session_id
     }
 
-    /// Queues `item`; `false` when the session's task has ended, so nothing reads it.
-    pub(crate) fn push(&self, item: CodexSessionInbound) -> bool {
+    /// Queues `item`; hands it back when the session's task has ended, so nothing reads it.
+    pub(crate) fn push(&self, item: CodexSessionInbound) -> Result<(), Box<CodexSessionInbound>> {
         // Counted before the send, so the task's count of the item taken never comes first.
         let depth = self.depth.items.fetch_add(1, Ordering::Relaxed) + 1;
-        if self.sender.send(item).is_err() {
+        if let Err(refused) = self.sender.send(item) {
             self.depth.items.fetch_sub(1, Ordering::Relaxed);
-            return false;
+            return Err(Box::new(refused.0));
         }
         let mark = self.depth.next_mark.load(Ordering::Relaxed);
         if depth >= mark
@@ -378,7 +391,7 @@ impl CodexSessionInboundSender {
                 "a Codex session's inbound queue is deep; its task is behind the service"
             );
         }
-        true
+        Ok(())
     }
 }
 
@@ -413,9 +426,10 @@ pub(crate) trait CodexSessionInboundHandler: Send {
     /// Moves the session onto another account at its place among the frames.
     fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()>;
 
-    /// Takes a completed response the export stated: passed over where the stream stated it,
-    /// else held until it can be told apart, then priced.
-    fn exported_response(&mut self, response: CodexExportedResponse) -> BoxFuture<'_, ()>;
+    /// Takes the completed responses one hand-over stated, each passed over where another source
+    /// priced its request first, and prices the rest together; what the session cannot file is
+    /// charged as its account's spend outside any session.
+    fn exported_responses(&mut self, responses: Vec<CodexExportedResponse>) -> BoxFuture<'_, ()>;
 
     /// When timed work next comes due, `None` when none waits.
     fn next_deadline(&self) -> Option<Instant>;
@@ -464,8 +478,8 @@ pub(crate) async fn drain_codex_session_inbound(
             CodexSessionInbound::AccountMoved(account_move) => {
                 handler.account_moved(account_move).await;
             }
-            CodexSessionInbound::ExportedResponse(response) => {
-                handler.exported_response(response).await;
+            CodexSessionInbound::ExportedResponses(responses) => {
+                handler.exported_responses(responses).await;
             }
         }
     }

@@ -179,6 +179,16 @@ pub enum ProviderSessionError {
         #[source]
         closed: DriverError,
     },
+    /// A fork an undo's cut moved the session onto, which the daemon did not record, still runs
+    /// because its close failed, so no process opens for the session and nothing is handed to it.
+    #[error("the unrecorded fork of session {session_id}'s undo could not be closed")]
+    UnclosedFork {
+        /// The session.
+        session_id: SessionId,
+        /// Why the close failed.
+        #[source]
+        closed: DriverError,
+    },
     /// A start failed because the session's provider is missing, and the notice that says so could
     /// not be posted.
     #[error(
@@ -317,6 +327,7 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::AfterCarriedContinue { .. }
             | ProviderSessionError::Port(_)
             | ProviderSessionError::UnrecordedNotClosed { .. }
+            | ProviderSessionError::UnclosedFork { .. }
             | ProviderSessionError::ProviderMissingNotPosted { .. }
             | ProviderSessionError::Store(_)
             | ProviderSessionError::LevelNotStored {

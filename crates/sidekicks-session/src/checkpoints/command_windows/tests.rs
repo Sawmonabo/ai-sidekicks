@@ -5,7 +5,6 @@ use std::time::{Duration, SystemTime};
 use rstest::rstest;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::{create_new_file, file_mode};
 use sidekicks_provider::port::command_capture::{
     CommandCapture as _, CommandWindowEnd, CommandWindowId as PortWindowId, CommandWindowStart,
@@ -25,7 +24,6 @@ use crate::checkpoints::store::shadows::{
 };
 use crate::checkpoints::store::{
     CheckpointVersion, CommandWindowId, insert_version_statement, open_command_window_statement,
-    uncovered_commands,
 };
 
 /// The size a large file takes in these tests, past the 10 MiB bound.
@@ -478,12 +476,7 @@ async fn a_command_no_window_covered_is_recorded_uncovered(#[case] has_checkpoin
         })
         .expect("the windows count");
     assert_eq!(rows, i64::from(has_checkpoint));
-    let uncovered = uncovered_commands(
-        &fixture.database.reader(),
-        fixture.session_id,
-        SafeInt::ZERO,
-    )
-    .expect("the uncovered commands read");
+    let uncovered = fixture.uncovered();
     let named: Vec<_> = uncovered
         .iter()
         .map(|command| (command.command.as_str(), command.tool_call_id.as_ref()))

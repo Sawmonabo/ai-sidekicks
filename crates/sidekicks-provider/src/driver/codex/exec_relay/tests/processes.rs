@@ -12,7 +12,7 @@ use super::{
 use crate::driver::test_registry::new_session_id;
 
 // The id Codex gives its first tool server's process, the same on every connection.
-const OWN_PROCESS: &str = "mcp-stdio-1";
+pub(super) const OWN_PROCESS: &str = "mcp-stdio-1";
 
 // Two connections each start `mcp-stdio-1`; the executor reads two starts under two relay ids, and
 // each connection reads its start's answer, its process's output and its exit under its own id,
@@ -231,7 +231,7 @@ fn denied(id: u64) -> Value {
 
 // Starts `OWN_PROCESS` on `socket`, answers the start as the executor does, and returns the relay
 // id the executor read it under.
-async fn start_own_process(socket: &mut ClientSocket, fake: &mut FakeExecutor) -> Value {
+pub(super) async fn start_own_process(socket: &mut ClientSocket, fake: &mut FakeExecutor) -> Value {
     let start = json!({ "id": 2, "method": "process/start", "params": {
         "processId": OWN_PROCESS,
         "argv": ["/usr/bin/codex-mcp"],
@@ -256,12 +256,12 @@ async fn start_own_process(socket: &mut ClientSocket, fake: &mut FakeExecutor) -
 }
 
 // A `process/read` of `process` under `id`.
-fn read(id: u64, process: &str) -> Value {
+pub(super) fn read(id: u64, process: &str) -> Value {
     json!({ "id": id, "method": "process/read", "params": { "processId": process, "afterSeq": 0 } })
 }
 
 // A `process/output` of `process` carrying `chunk`.
-fn output(process: &Value, chunk: &str) -> Value {
+pub(super) fn output(process: &Value, chunk: &str) -> Value {
     json!({
         "method": "process/output",
         "params": { "processId": process, "seq": 1, "stream": "stdout", "chunk": chunk },

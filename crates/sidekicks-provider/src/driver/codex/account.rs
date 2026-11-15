@@ -385,6 +385,7 @@ fn compose_short_lived_dependencies(
         provider_accounts: Arc::clone(&shared.provider_accounts),
         telemetry_target: Arc::clone(&shared.telemetry_target),
         exports: Arc::clone(&shared.exports),
+        request_held: Arc::clone(&shared.request_held),
         raw_messages: Arc::clone(&shared.raw_messages),
     })
 }

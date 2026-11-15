@@ -20,7 +20,9 @@ use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::establishment::continuation::CodexHeldLeadContinue;
-use crate::driver::codex::session::history::read_codex_turn_id_by_client_message_id;
+use crate::driver::codex::session::history::{
+    CodexSoughtMessage, CodexTurnListing, find_codex_turn,
+};
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
 use crate::driver::codex::session::lifecycle_call::{
     CodexLifecycleCall, call_codex_lifecycle, let_go_codex_session_record,
@@ -31,7 +33,9 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::prior_usage::read_prior_emitted;
-use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::rewind::{
+    RewindConversationParams, RewindConversationResult, RewindTargetPresence,
+};
 use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, MoveSessionToForkParams,
@@ -185,6 +189,14 @@ impl CodexDriver {
         Ok(self.parts()?.rewind.rewind(&params).await?)
     }
 
+    /// Reads whether the live conversation still holds the person's message; see the rewind.
+    pub(crate) async fn read_rewind_target(
+        &self,
+        params: RewindConversationParams,
+    ) -> Result<RewindTargetPresence, DriverError> {
+        Ok(self.parts()?.rewind.read_target(&params).await?)
+    }
+
     /// Moves every session on the driver's services onto the build that replaced the running one;
     /// none is live before the session pieces are composed.
     pub(crate) fn move_to_provider_build(&self, change: &ProviderBuildChange) {
@@ -317,9 +329,11 @@ impl CodexDriver {
         if timeout_at(deadline, records_let_go).await.is_err() {
             cut_step = cut_step.or(Some("letting each live record go"));
         }
+        // The sessions' tasks first: a session still draining its queue charges what it cannot
+        // file on the export tasks, so each such write is spawned before their wait begins.
         let tasks_ended = async {
-            self.export_tasks.wait().await;
             self.tasks.wait().await;
+            self.export_tasks.wait().await;
         };
         if timeout_at(deadline, tasks_ended).await.is_err() {
             cut_step = cut_step.or(Some("waiting for the driver's tasks"));
@@ -421,8 +435,9 @@ impl CodexDriver {
     }
 
     /// The messages of a continue Codex holds in the session's conversation. A continue sends its
-    /// messages in one turn under the first one's id, so that id found means every message was
-    /// taken. Fails with `CodexError::Transport` with no live record, and as the read fails.
+    /// messages in one turn under the first one's id, so that id found on a listed turn means
+    /// every message was taken; a conversation Codex lists no turn of took none. Fails with
+    /// `CodexError::Transport` with no live record, and as the read fails.
     pub(crate) async fn find_taken_messages(
         &self,
         params: FindTakenMessagesParams,
@@ -436,15 +451,23 @@ impl CodexDriver {
             reply,
         })
         .await?;
-        let connection = reading.connection?;
-        let turn_id_by_client_message_id =
-            read_codex_turn_id_by_client_message_id(&connection, &reading.thread_id).await?;
-        let taken: Vec<QueueItemId> =
-            if turn_id_by_client_message_id.contains_key(&first.to_string()) {
-                params.message_ids
-            } else {
-                Vec::new()
-            };
+        let first = first.to_string();
+        let listing = find_codex_turn(
+            &*reading.connection?,
+            &reading.thread_id,
+            CodexSoughtMessage {
+                message_id: &first,
+                opener_id: None,
+                turn_id: None,
+            },
+        )
+        .await?;
+        let taken: Vec<QueueItemId> = match listing {
+            CodexTurnListing::Listed { .. } => params.message_ids,
+            CodexTurnListing::Unlisted
+            | CodexTurnListing::Empty
+            | CodexTurnListing::Indeterminate => Vec::new(),
+        };
         Ok(TakenMessages { taken })
     }
 }

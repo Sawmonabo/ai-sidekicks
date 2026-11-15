@@ -52,7 +52,9 @@ use crate::driver::mcp_server::write::{
     McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
 };
 use crate::driver::message_handing::MessageHanding;
-use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::rewind::{
+    RewindConversationParams, RewindConversationResult, RewindTargetAsk, RewindTargetPresence,
+};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
@@ -146,10 +148,44 @@ pub trait ProviderDriver: Send + Sync {
         params: RewindConversationParams,
     ) -> BoxFuture<'_, Result<RewindConversationResult, DriverError>>;
 
-    /// Whether the provider's conversation cut can land before a message the person sent into a
-    /// running turn; where it cannot, it lands only before a turn's opening message. A fixed fact
-    /// of the driver, which the queue reads instead of naming the provider.
-    fn can_cut_inside_turn(&self) -> bool;
+    /// Reads from the provider's own record whether the bound conversation still holds the
+    /// person's message `params.target_message_id` or already ends before it, so a retried undo
+    /// never cuts twice (gated on `rollback`). Answers `CutAway` only where the record shows the
+    /// message once held and no longer in the conversation, `UnconfirmedCut` where only the
+    /// provider's own cut can confirm it gone, and `Held` wherever it cannot tell; fails as the
+    /// read fails. With its own record empty, as after a restart, a driver reads the provider's
+    /// stored history: Claude Code its transcript, `CutAway` only where a cut's own row, written
+    /// after the last turn and never taken back, names the entry holding the message, and `Held`
+    /// otherwise; Codex the conversation's turns. The Codex driver answers `CutAway` only from its
+    /// own record of a cut Codex applied or of a refused cut that showed the cut made, both sent
+    /// with Codex's listing first brought up to its own record. Where Codex lists turns and none
+    /// listed since the message's send, or running at it, is the turn its record or
+    /// `params.target_turn_id` names or holds the message's id or `params.target_turn_opener_id`,
+    /// which a fork's copy keeps, the listing can lag that record, so the Codex driver answers
+    /// `UnconfirmedCut` when it knows a turn of the message and `Held` when it knows none, as it
+    /// does where Codex lists no turn or, on a legacy thread, shows only each turn's first
+    /// message. Asked when [`rewind_target_ask`](Self::rewind_target_ask) says: on Codex before its
+    /// cut, on Claude Code after a refusal.
+    fn read_rewind_target(
+        &self,
+        params: RewindConversationParams,
+    ) -> BoxFuture<'_, Result<RewindTargetPresence, DriverError>>;
+
+    /// When an undo asks [`read_rewind_target`](Self::read_rewind_target): before its cut, or once
+    /// the cut came back refused for a message the provider does not hold. A fixed fact of the
+    /// driver, like [`message_handing`](Self::message_handing).
+    fn rewind_target_ask(&self) -> RewindTargetAsk;
+
+    /// Brings the driver's own record of the bound conversation to a cut before the person's
+    /// message `params.target_message_id` that the provider already made, as a landed
+    /// `rewind_conversation` leaves it, asking the provider for no cut (gated on `rollback`);
+    /// called once `read_rewind_target` answered `CutAway`, so the next act reads the conversation
+    /// as it is. A driver whose record already holds the cut, as Codex's does, does nothing. Fails
+    /// as a read of the provider's record fails.
+    fn adopt_conversation_rewind(
+        &self,
+        params: RewindConversationParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Answers one interactive request the driver raised on a run.
     fn respond_to_request(

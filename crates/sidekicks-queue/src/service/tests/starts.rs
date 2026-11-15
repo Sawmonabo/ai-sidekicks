@@ -146,7 +146,7 @@ async fn a_run_admitted_during_a_relaunch_is_bound_on_the_relaunched_leg() {
         Arc::clone(&fixture.log.writer),
     );
     bindings
-        .record_relaunch(RuntimeBindingRelaunch {
+        .record_relaunch(&RuntimeBindingRelaunch {
             predecessor_id: fixture.run_binding_id(first_run_id),
             binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
                 .expect("a UUID is a binding id"),

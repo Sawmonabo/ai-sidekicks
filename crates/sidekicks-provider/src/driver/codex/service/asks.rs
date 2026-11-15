@@ -51,7 +51,8 @@ impl CodexServiceAsks {
         for (session_id, dropped) in by_session {
             // A session whose queue is gone has no cards left to withdraw.
             let _unheard = service
-                .push_session_item(&session_id, CodexSessionInbound::AsksWithdrawn { dropped });
+                .push_session_item(&session_id, CodexSessionInbound::AsksWithdrawn { dropped })
+                .is_ok();
         }
     }
 }
@@ -80,7 +81,10 @@ impl CodexServerRequestResponder for CodexServiceAsks {
             return refuse(no_session_reason(method));
         };
         let (decision, decided) = oneshot::channel();
-        if !service.push_session_item(&session_id, CodexSessionInbound::Ask { request, decision }) {
+        if service
+            .push_session_item(&session_id, CodexSessionInbound::Ask { request, decision })
+            .is_err()
+        {
             CodexTransportDiagnostic::UnroutedServerRequestRefused {
                 method: method.to_owned(),
             }

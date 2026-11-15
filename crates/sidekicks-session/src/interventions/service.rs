@@ -60,7 +60,8 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
-use self::errors::{DispatchError, InterventionError, failure_text_of};
+pub use self::errors::InterventionError;
+use self::errors::{DispatchError, failure_text_of};
 use self::reached_state::{ReachedState, draft};
 use self::request::{
     interrupt_choice_of, interrupt_keys, interrupt_reason, intervention_type_of, request_guards,

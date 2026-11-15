@@ -16,6 +16,7 @@ use sidekicks_contracts::run::children::ChildStopOutcome;
 use sidekicks_contracts::run::events::{DaemonInterventionActor, InterventionActor};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::restore::SessionRestoreStops;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::command::channel::PartyId;
@@ -60,6 +61,40 @@ pub struct UndoStopSet {
     pub agents: Vec<Descendant>,
 }
 
+impl UndoStopSet {
+    /// What the person is asked to agree to stop: the commands, a wrapper whose command the
+    /// provider has not named counted as a command by its process id, and the agents; the lead's
+    /// own turn is the caller's to add.
+    pub fn named_stops(&self) -> SessionRestoreStops {
+        SessionRestoreStops {
+            command_ids: self.commands.clone(),
+            unnamed_command_wrappers: self.unpaired_wrappers.clone(),
+            agents: self
+                .agents
+                .iter()
+                .map(|agent| agent.member.clone())
+                .collect(),
+            lead_run_id: None,
+        }
+    }
+
+    /// Whether the set names a command, an unnamed command's wrapper or an agent `consented` does
+    /// not, compared by id.
+    pub fn has_grown_past(&self, consented: &SessionRestoreStops) -> bool {
+        self.commands
+            .iter()
+            .any(|command_id| !consented.command_ids.contains(command_id))
+            || self
+                .unpaired_wrappers
+                .iter()
+                .any(|party| !consented.unnamed_command_wrappers.contains(party))
+            || self
+                .agents
+                .iter()
+                .any(|agent| !consented.agents.contains(&agent.member))
+    }
+}
+
 /// A wrapper an undo waits on: a running command's, or one whose command the provider has not
 /// named.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -94,6 +129,15 @@ pub enum UndoStopError {
     /// The session or its provider was refused.
     #[error(transparent)]
     Refused(#[from] DomainError),
+    /// More started after the point than the person agreed to stop; nothing was stopped.
+    #[error("more started after the undo's point than the person agreed to stop")]
+    Grew {
+        /// What the undo would stop now.
+        stops: SessionRestoreStops,
+    },
+    /// A read failed once every stop was sent, so something may already have stopped.
+    #[error("an undo's read failed once its stops were sent")]
+    AfterStops(#[source] Box<UndoStopError>),
     /// The point's sequence holds no event the session's log reads.
     #[error("the undo's point, sequence {sequence}, is not in the session's log")]
     PointNotFound {
@@ -176,6 +220,26 @@ struct LoggedEnds {
     running_runs: Vec<RunId>,
 }
 
+impl UndoStopError {
+    // The error as the wait after the stops met it: a failed read is marked as one after them.
+    fn after_stops(self) -> Self {
+        match self {
+            Self::Pool(_)
+            | Self::Database(_)
+            | Self::Log(_)
+            | Self::ToolCalls(_)
+            | Self::Agents(_)
+            | Self::PointNotFound { .. } => Self::AfterStops(Box::new(self)),
+            Self::Sweep(_)
+            | Self::Refused(_)
+            | Self::Grew { .. }
+            | Self::AfterStops(_)
+            | Self::NotStopped { .. }
+            | Self::StillRunning { .. } => self,
+        }
+    }
+}
+
 impl UndoStops {
     /// The step over `deps`.
     pub fn new(deps: UndoStopsDeps) -> Self {
@@ -212,13 +276,16 @@ impl UndoStops {
     /// provider's verb and its wrapper's `Stop` with no run told, each unpaired wrapper by its
     /// `Stop`, each agent by the sweep. Answers the set once every command's ending is in the log,
     /// every stopped party's process has ended and every stopped agent reads a terminal state.
-    /// Fails [`UndoStopError::NotStopped`] once every stop answered and one did not stop, and
-    /// [`UndoStopError::StillRunning`] when [`UNDO_STOP_END_BOUND`] passes first; a stop under
-    /// way at the bound carries on unwatched.
+    /// With `consented`, stops nothing and fails [`UndoStopError::Grew`] when the set names a
+    /// command, an unnamed command's wrapper or an agent the person did not agree to stop. Fails
+    /// [`UndoStopError::NotStopped`] once every stop answered and one did not stop, and
+    /// [`UndoStopError::StillRunning`] when [`UNDO_STOP_END_BOUND`] passes first; a stop under way
+    /// at the bound carries on unwatched.
     pub async fn stop_started_after(
         &self,
         session_id: SessionId,
         after_sequence: i64,
+        consented: Option<&SessionRestoreStops>,
     ) -> Result<UndoStopSet, UndoStopError> {
         let deadline = Instant::now() + UNDO_STOP_END_BOUND;
         // Counted before the head is read, so no ending appended after it goes unseen.
@@ -228,6 +295,11 @@ impl UndoStops {
         let set = self
             .read_set(session_id, after_sequence, read_bound)
             .await?;
+        if consented.is_some_and(|consented| set.has_grown_past(consented)) {
+            return Err(UndoStopError::Grew {
+                stops: set.named_stops(),
+            });
+        }
         let mut stops = JoinSet::new();
         // The driver is read only for commands to stop, so a set without one needs no provider.
         if !set.commands.is_empty() {
@@ -335,7 +407,7 @@ impl UndoStops {
         // carries on past its dropped handle.
         stops.detach_all();
         party_ends.detach_all();
-        waited.map(|()| set)
+        waited.map(|()| set).map_err(UndoStopError::after_stops)
     }
 
     // The session's head now.
