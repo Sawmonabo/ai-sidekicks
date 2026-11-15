@@ -15,6 +15,11 @@ export interface WindowTriggeredReadHold<TValue> {
   readonly state: PushDrivenReadState<TValue>;
 }
 
+/** A held read whose `open` always builds one, so `read` is always there. */
+export interface AlwaysOpenWindowTriggeredReadHold<TValue> extends WindowTriggeredReadHold<TValue> {
+  readonly read: PushDrivenRead<TValue>;
+}
+
 /**
  * Hold one read that no session event bears on for as long as `subject` and `key` name it:
  * `open` builds it, the window's triggers start it on mount and read it again when the window
@@ -22,6 +27,19 @@ export interface WindowTriggeredReadHold<TValue> {
  * or `key` moves, and built again on a re-mount of the same view. An `open` answering
  * `undefined`, while nothing on screen draws the read, asks nothing and leaves it `not-loaded`.
  */
+export function useWindowTriggeredRead<TValue>(
+  transportReconnect: TransportReconnectObservable,
+  subject: object,
+  key: SubjectKey,
+  open: () => PushDrivenRead<TValue>,
+): AlwaysOpenWindowTriggeredReadHold<TValue>;
+/** The same hold where `open` may answer `undefined`, and `read` is then absent. */
+export function useWindowTriggeredRead<TValue>(
+  transportReconnect: TransportReconnectObservable,
+  subject: object,
+  key: SubjectKey,
+  open: () => PushDrivenRead<TValue> | undefined,
+): WindowTriggeredReadHold<TValue>;
 export function useWindowTriggeredRead<TValue>(
   transportReconnect: TransportReconnectObservable,
   subject: object,

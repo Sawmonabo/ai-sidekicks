@@ -20,7 +20,7 @@ import { RUN_INITIAL_STATE, type RunState } from "@ai-sidekicks/contracts/run/st
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import type { ScenarioBeat } from "../scenario.js";
-import { WORK_ACCOUNT } from "./settings-replies.js";
+import { WORK_ACCOUNT } from "./settings/providers.js";
 
 /** One scripted moment, before the builder gives it a position and an instant. */
 export interface ScriptEntry {

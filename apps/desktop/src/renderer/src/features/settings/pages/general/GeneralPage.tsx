@@ -6,9 +6,10 @@
 // reading of the updater, which the window binds, and this page's machine-settings binding. Every
 // row kept in the settings file stands from the first frame with its label, reading `Loading…` or
 // the failed read with `Try again` in its control's place until the file is read, so none shows a
-// value the file does not hold and the page does not move when the read lands. A refused write
-// leaves its control where it was and draws the refusal in the strip under it, with `Try again`
-// sending the same change again.
+// value the file does not hold and the page does not move when the read lands; the rows read the
+// page's one loading delay, so the page arms one timer for them. A refused write leaves its
+// control where it was and draws the refusal in the strip under it, with `Try again` sending the
+// same change again.
 
 import type { ReactNode } from "react";
 
@@ -27,6 +28,7 @@ import {
 } from "../../components/PreferenceChoiceRow.js";
 import { SettingsFact } from "../../components/SettingsFact.js";
 import { useMachineSettings } from "../../machine/hooks/useMachineSettings.js";
+import { useSettingsFileLoadingDelay } from "../../machine/hooks/useSettingsFileLoadingDelay.js";
 import type { SettingsControl, SettingsPageContext } from "../../types.js";
 import { GENERAL_CONTROLS, keepAwakeControlOn } from "./controls.js";
 import { EditorChoiceRow } from "./editor/EditorChoiceRow.js";
@@ -41,6 +43,7 @@ export function GeneralPage(props: { readonly context: SettingsPageContext }): R
   const { app } = bridge;
   const preferences = useMachineSettings(bridge);
   const clock = useClock();
+  const isPastLoadingDelay = useSettingsFileLoadingDelay(preferences.snapshot, clock);
   const { settings } = preferences;
   const keepAwakeControl = keepAwakeControlOn(app.platform);
   return (
@@ -65,6 +68,7 @@ export function GeneralPage(props: { readonly context: SettingsPageContext }): R
         runningVersion={app.version}
         updater={bridge.update}
         preferences={preferences}
+        isPastLoadingDelay={isPastLoadingDelay}
       />
       <section className="meridian-settings-page__block">
         <MachineSettingSwitchRow
@@ -72,7 +76,7 @@ export function GeneralPage(props: { readonly context: SettingsPageContext }): R
           member="keepCrashReports"
           control={GENERAL_CONTROLS.keepCrashReports}
           descriptionLines={descriptionLinesOf(GENERAL_CONTROLS.keepCrashReports)}
-          clock={clock}
+          isPastLoadingDelay={isPastLoadingDelay}
         />
       </section>
       <section className="meridian-settings-page__block">
@@ -84,22 +88,27 @@ export function GeneralPage(props: { readonly context: SettingsPageContext }): R
             ...descriptionLinesOf(GENERAL_CONTROLS.startOnLastModel),
             ...lastUsedLines(settings.lastLeadModel),
           ]}
-          clock={clock}
+          isPastLoadingDelay={isPastLoadingDelay}
         />
         <MachineSettingSwitchRow
           preferences={preferences}
           member="keepAwakeWhileAgentWorks"
           control={keepAwakeControl}
           descriptionLines={descriptionLinesOf(keepAwakeControl)}
-          clock={clock}
+          isPastLoadingDelay={isPastLoadingDelay}
         />
-        <EditorChoiceRow bridge={bridge} preferences={preferences} clock={clock} />
+        <EditorChoiceRow
+          bridge={bridge}
+          preferences={preferences}
+          clock={clock}
+          isPastLoadingDelay={isPastLoadingDelay}
+        />
         <MachineSettingRow
           preferences={preferences}
           member="defaultCheckout"
           control={GENERAL_CONTROLS.defaultCheckout}
           descriptionLines={descriptionLinesOf(GENERAL_CONTROLS.defaultCheckout)}
-          clock={clock}
+          isPastLoadingDelay={isPastLoadingDelay}
           renderControlRow={() => (
             <PreferenceChoiceRow
               control={GENERAL_CONTROLS.defaultCheckout}

@@ -16,12 +16,15 @@ import type { ProjectListReading } from "./ProjectListStatus.js";
 /**
  * `Add a server` and `Browse servers` under the page's one line about them, and whichever of the
  * two is open: the registry search, or the add form, empty or filled in from the registry result
- * picked. Each opening of the form has its own outcome, so an answer settles only the form that
- * sent it. A server the service took closes its form, and its settle lines stand under the line
- * until the next `Add a server` or `Browse servers`; a send still on its way when its form closed
- * stands there too, and no form sends again until it settles.
+ * picked. Each opening of the form has its own number, never one an earlier opening had, and its
+ * own outcome, so an answer settles only the form that sent it. A server the service took closes
+ * its form, and its settle lines stand under the line until the next `Add a server` or `Browse
+ * servers`; a send still on its way when its form closed stands there too, and no form sends again
+ * until it settles.
  */
 export function ServerAdding(props: {
+  /** Hands out the number of a new opening of the form, never one handed out before. */
+  readonly mintOpening: () => number;
   /** The outcome of the send made from one opening of the form. */
   readonly outcomeFor: (opening: number) => McpMutationOutcome;
   readonly onAdd: (
@@ -36,8 +39,8 @@ export function ServerAdding(props: {
   readonly sessionDirectory: SessionDirectoryState;
   readonly clock: Clock;
 }): ReactNode {
-  const { outcomeFor, onAdd, onDropOutcome, searchRegistry, projects, sessionDirectory, clock } =
-    props;
+  const { mintOpening, outcomeFor, onAdd, onDropOutcome } = props;
+  const { searchRegistry, projects, sessionDirectory, clock } = props;
   const [adding, setAdding] = useState<ServerAddingState>(CLOSED_ADDING);
   const { opened, formOpening, standingOpening } = adding;
   // The outcomes held are the latest opening's and, while its send is on its way or until the
@@ -59,7 +62,7 @@ export function ServerAdding(props: {
   const openForm = (draft: ServerDraft): void => {
     const standing = retire();
     // A new opening remounts the form, so nothing an earlier form held is carried over.
-    const opening = (formOpening ?? 0) + 1;
+    const opening = mintOpening();
     setAdding({ opened: { kind: "form", draft }, formOpening: opening, standingOpening: standing });
   };
   const show = (shown: OpenedAdding): void => {

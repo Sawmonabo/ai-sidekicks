@@ -9,7 +9,8 @@
 // updater reports offers `Try again`, which does the failed step again. A control whose call
 // fails draws a fixed sentence for that control under the controls, which stay drawn. Under the
 // read-out sits the switch for the machine setting `updatesAutomatic`, whose row stands with its
-// label from the first frame and shows the switch only once the settings file has been read.
+// label from the first frame and shows the switch only once the settings file has been read; its
+// `Loading…` reads the page's one loading delay.
 
 import { useState, type ReactNode } from "react";
 import type { UpdateFailedStep } from "#shared/preload-api.js";
@@ -49,6 +50,8 @@ export interface UpdatesBlockProps {
     MachineSettingsBinding,
     "snapshot" | "settings" | "isPending" | "refusalFor" | "choose" | "retry" | "readAgain"
   >;
+  /** Whether the page's one loading delay has run out while the settings file is unread. */
+  readonly isPastLoadingDelay: boolean;
 }
 
 /** The updater's state, the controls that ask it to move, and the automatic-check switch. */
@@ -137,7 +140,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
         preferences={preferences}
         member="updatesAutomatic"
         control={GENERAL_CONTROLS.checkForUpdatesAutomatically}
-        clock={clock}
+        isPastLoadingDelay={props.isPastLoadingDelay}
       />
     </section>
   );

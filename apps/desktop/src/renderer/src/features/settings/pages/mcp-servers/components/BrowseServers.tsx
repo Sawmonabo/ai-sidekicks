@@ -10,8 +10,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { useSubjectRead } from "#renderer/hooks/useSubjectRead.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import { refusalWords } from "#renderer/lib/code-words.js";
-import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import type { DaemonReply } from "#renderer/services/daemon/reply.js";
 import { useTypingPause } from "../hooks/useTypingPause.js";
 import type { SearchMcpRegistry } from "../mutation.js";
@@ -30,9 +29,8 @@ const REGISTRY_SEARCH_LINE =
 
 /**
  * `Browse servers`: a search over the public MCP Registry, sent through the service only once the
- * person has typed, a newer search replacing the answer an older one would give: `Searching…` while
- * it waits, and `Search failed` with its cause and `Try again` when it failed: the words of a code
- * the service registered, or the sentence of a refusal the app wrote. Each result
+ * person has typed, a newer search replacing the answer an older one would give: `Searching…`
+ * while it waits, and `Search failed` with its cause and `Try again` when it failed. Each result
  * reads its title or name, its description, its version and how it runs, and a press on one hands
  * it to `onPick`; `Cancel` hands over to `onCancel`. Only the first page of results is drawn.
  */
@@ -57,7 +55,11 @@ export function BrowseServers(props: {
       settled: (reply) =>
         reply.status === "served"
           ? { kind: "served", servers: reply.value.servers }
-          : { kind: "failed", refusal: reply.refusal },
+          : {
+              kind: "failed",
+              code: reply.refusal.code,
+              cause: refusalCause(reply.refusal.code, reply.refusal.reason, reply.refusal.detail),
+            },
     },
     readRevision,
   );
@@ -87,8 +89,8 @@ export function BrowseServers(props: {
       ) : null}
       {search.kind === "failed" ? (
         <InlineRefusal
-          code={search.refusal.code}
-          detail={`Search failed · ${refusalWords(search.refusal.code) ?? search.refusal.detail}`}
+          code={search.code}
+          detail={`Search failed · ${search.cause}`}
           onTryAgain={() => {
             setReadRevision((revision) => revision + 1);
           }}
@@ -136,9 +138,13 @@ export function BrowseServers(props: {
   );
 }
 
-/** Where the registry search stands: nothing typed, a search on its way, its page, or refused. */
+/**
+ * Where the registry search stands: nothing typed, a search on its way, its page, or refused with
+ * its code and the cause its line reads: the code's words where the service registered the code,
+ * the app's own sentence otherwise.
+ */
 type RegistrySearch =
   | { readonly kind: "idle" }
   | { readonly kind: "searching" }
   | { readonly kind: "served"; readonly servers: readonly McpRegistryServer[] }
-  | { readonly kind: "failed"; readonly refusal: Refusal };
+  | { readonly kind: "failed"; readonly code: string; readonly cause: string };

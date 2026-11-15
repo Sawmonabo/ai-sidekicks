@@ -11,16 +11,19 @@
 // identity, its switch in one project by that identity and the project's root and distribution,
 // its sign-in, reconnect and removal by that identity and the act's word, each tool's facet by that
 // identity, the tool's name and the facet, and each opening of the add form's send by a key no
-// binding's can be, so an answer settles only the form that sent it; the form drops an opening's
-// entry once it has settled and a later opening starts. A removal's entry outlives its row, so the pane the removed server stood in still says how the
-// removal settled. It belongs to the bridge it was produced through: the provider replaces the
+// binding's can be. The page numbers each opening and never hands out a number twice, so an answer
+// settles only the form that sent it; the form drops an opening's entry once it has settled and a
+// later opening starts. `Add a server` is drawn at one place in the tree whatever the list holds,
+// so a list that fills, empties or fails to read never mounts the section again. A removal's
+// entry outlives its row, so the pane the removed server stood in still says how the removal
+// settled. The map belongs to the bridge it was produced through: the provider replaces the
 // bridge under a live mount in place, so the map rides the subject-scoped holder with the bridge
 // as subject. It re-seeds during the render that first sees a new bridge, and a publisher
 // captured under the retired bridge writes nothing.
 
 import "./McpServersPage.css";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type {
   McpProviderReadFailure,
@@ -131,6 +134,9 @@ export function McpServersPage(props: {
   const { value: outcomes, publish: publishOutcomes } = useSubjectScopedState<
     ReadonlyMap<string, McpMutationOutcome>
   >(bridge, undefined, () => new Map());
+  // The last number handed to an opening of the add form, kept for the page's whole life; a ref,
+  // since handing out a number draws nothing.
+  const lastOpening = useRef(0);
   // The bridge is a dependency although the read takes none: the clock forwards to the current
   // bridge, so a read armed under a retired bridge would wait on a clock nothing advances.
   const inventoryRead = useMemo(
@@ -325,38 +331,11 @@ export function McpServersPage(props: {
   const failedProviders = state.kind === "loaded" ? state.value.failedProviders : NO_FAILURES;
   const observedStamps = observedStampsOf(servers);
   const nowMilliseconds = useRelativeTimesNow(clock, observedStamps);
-  const serverAdding = (
-    <ServerAdding
-      outcomeFor={(opening) => outcomes.get(addServerOutcomeKeyOf(opening)) ?? IDLE_MCP_MUTATION}
-      onAdd={addServer}
-      onDropOutcome={(opening) => {
-        dropOutcome(addServerOutcomeKeyOf(opening));
-      }}
-      searchRegistry={operations.searchRegistry}
-      projects={projects}
-      sessionDirectory={sessionDirectory}
-      clock={clock}
-    />
-  );
   // How the removal of the server last selected settled, which stands where that server stood.
   const removalOutcome =
     selectedKey === undefined
       ? IDLE_MCP_MUTATION
       : (outcomes.get(removalOutcomeKeyOf(selectedKey)) ?? IDLE_MCP_MUTATION);
-  if (state.kind === "not-loaded") {
-    return <LoadingNotice clock={clock} placement="block" title="Loading…" />;
-  }
-  if (state.kind === "failed") {
-    return (
-      <InlineRefusal
-        code={state.refusal.code}
-        detail="Couldn't load MCP servers"
-        onTryAgain={() => {
-          setOpeningOrdinal((held) => held + 1);
-        }}
-      />
-    );
-  }
   // A provider whose list the service could not read is a row of the list, and its `Try again` asks
   // for the whole list again. A provider with no tool servers set up says so in words, never as an
   // empty list, in place of the list when no server was read and at its foot otherwise.
@@ -374,107 +353,130 @@ export function McpServersPage(props: {
       !servers.some((entry) => entry.provider === section.provider) &&
       !failedProviders.some((failure) => failure.provider === section.provider),
   );
-  if (servers.length === 0) {
-    return (
-      <>
-        <MutationOutcomeLine
-          outcome={removalOutcome}
-          sessionDirectory={sessionDirectory}
-          clock={clock}
-        />
-        {failedRows.length === 0 ? null : (
-          <ul className="meridian-mcp__entries" aria-label="Tool servers">
-            {failedRows}
-          </ul>
-        )}
-        {providersWithNone.map((section) => (
-          <Nothing
-            key={section.provider}
-            kind="empty"
-            placement="block"
-            title={noServersLineFor(section)}
-          />
-        ))}
-        {serverAdding}
-      </>
-    );
-  }
   const firstServer = servers[0];
   if (selectedKey === undefined && firstServer !== undefined) {
     // Set during render, so the first draw already shows the first server's pane.
     setSelectedKey(mcpBindingKeyOf(firstServer));
   }
   const selected = servers.find((entry) => mcpBindingKeyOf(entry) === selectedKey);
+  // The list's place, then `Add a server` as the second child in every state of the read.
   return (
     <>
-      <div className="meridian-mcp">
-        <div className="meridian-mcp__list">
-          <ul className="meridian-mcp__entries" aria-label="Tool servers">
-            {servers.map((entry) => {
-              const key = mcpBindingKeyOf(entry);
-              return (
-                <ServerListEntry
-                  key={key}
-                  entry={entry}
-                  isSelected={entry === selected}
-                  onSelect={() => {
-                    setSelectedKey(key);
-                  }}
-                  nowMilliseconds={nowMilliseconds}
-                />
-              );
-            })}
-            {failedRows}
-          </ul>
-          {providersWithNone.map((section) => (
-            <p key={section.provider} className="meridian-settings-page__aside">
-              {noServersLineFor(section)}
-            </p>
-          ))}
-        </div>
-        {/* Keyed by the server, so nothing one server's pane holds is carried to the next. */}
-        <ServerDetail
-          key={selected === undefined ? undefined : mcpBindingKeyOf(selected)}
-          entry={selected}
-          outcome={
-            selected === undefined
-              ? IDLE_MCP_MUTATION
-              : (outcomes.get(mcpBindingKeyOf(selected)) ?? IDLE_MCP_MUTATION)
-          }
-          toolOutcomeFor={(toolName, facet) =>
-            selected === undefined
-              ? IDLE_MCP_MUTATION
-              : (outcomes.get(toolOutcomeKeyOf(selected, toolName, facet)) ?? IDLE_MCP_MUTATION)
-          }
-          onSetEnabled={setEnabled}
-          projects={projects}
-          projectSwitchOutcomeFor={(project) =>
-            selected === undefined
-              ? IDLE_MCP_MUTATION
-              : (outcomes.get(projectSwitchOutcomeKeyOf(selected, project)) ?? IDLE_MCP_MUTATION)
-          }
-          onSetEnabledIn={setEnabledIn}
-          signInOutcome={
-            selected === undefined
-              ? IDLE_MCP_MUTATION
-              : (outcomes.get(signInOutcomeKeyOf(selected)) ?? IDLE_MCP_MUTATION)
-          }
-          onSignIn={signIn}
-          reconnectOutcome={
-            selected === undefined
-              ? IDLE_MCP_MUTATION
-              : (outcomes.get(reconnectOutcomeKeyOf(selected)) ?? IDLE_MCP_MUTATION)
-          }
-          onReconnect={reconnect}
-          removalOutcome={removalOutcome}
-          onRemove={removeServer}
-          onChangeTool={changeTool}
-          sessionDirectory={sessionDirectory}
-          clock={clock}
-          nowMilliseconds={nowMilliseconds}
+      {state.kind === "not-loaded" ? (
+        <LoadingNotice clock={clock} placement="block" title="Loading…" />
+      ) : state.kind === "failed" ? (
+        <InlineRefusal
+          code={state.refusal.code}
+          detail="Couldn't load MCP servers"
+          onTryAgain={() => {
+            setOpeningOrdinal((held) => held + 1);
+          }}
         />
-      </div>
-      {serverAdding}
+      ) : servers.length === 0 ? (
+        <>
+          <MutationOutcomeLine
+            outcome={removalOutcome}
+            sessionDirectory={sessionDirectory}
+            clock={clock}
+          />
+          {failedRows.length === 0 ? null : (
+            <ul className="meridian-mcp__entries" aria-label="Tool servers">
+              {failedRows}
+            </ul>
+          )}
+          {providersWithNone.map((section) => (
+            <Nothing
+              key={section.provider}
+              kind="empty"
+              placement="block"
+              title={noServersLineFor(section)}
+            />
+          ))}
+        </>
+      ) : (
+        <div className="meridian-mcp">
+          <div className="meridian-mcp__list">
+            <ul className="meridian-mcp__entries" aria-label="Tool servers">
+              {servers.map((entry) => {
+                const key = mcpBindingKeyOf(entry);
+                return (
+                  <ServerListEntry
+                    key={key}
+                    entry={entry}
+                    isSelected={entry === selected}
+                    onSelect={() => {
+                      setSelectedKey(key);
+                    }}
+                    nowMilliseconds={nowMilliseconds}
+                  />
+                );
+              })}
+              {failedRows}
+            </ul>
+            {providersWithNone.map((section) => (
+              <p key={section.provider} className="meridian-settings-page__aside">
+                {noServersLineFor(section)}
+              </p>
+            ))}
+          </div>
+          {/* Keyed by the server, so nothing one server's pane holds is carried to the next. */}
+          <ServerDetail
+            key={selected === undefined ? undefined : mcpBindingKeyOf(selected)}
+            entry={selected}
+            outcome={
+              selected === undefined
+                ? IDLE_MCP_MUTATION
+                : (outcomes.get(mcpBindingKeyOf(selected)) ?? IDLE_MCP_MUTATION)
+            }
+            toolOutcomeFor={(toolName, facet) =>
+              selected === undefined
+                ? IDLE_MCP_MUTATION
+                : (outcomes.get(toolOutcomeKeyOf(selected, toolName, facet)) ?? IDLE_MCP_MUTATION)
+            }
+            onSetEnabled={setEnabled}
+            projects={projects}
+            projectSwitchOutcomeFor={(project) =>
+              selected === undefined
+                ? IDLE_MCP_MUTATION
+                : (outcomes.get(projectSwitchOutcomeKeyOf(selected, project)) ?? IDLE_MCP_MUTATION)
+            }
+            onSetEnabledIn={setEnabledIn}
+            signInOutcome={
+              selected === undefined
+                ? IDLE_MCP_MUTATION
+                : (outcomes.get(signInOutcomeKeyOf(selected)) ?? IDLE_MCP_MUTATION)
+            }
+            onSignIn={signIn}
+            reconnectOutcome={
+              selected === undefined
+                ? IDLE_MCP_MUTATION
+                : (outcomes.get(reconnectOutcomeKeyOf(selected)) ?? IDLE_MCP_MUTATION)
+            }
+            onReconnect={reconnect}
+            removalOutcome={removalOutcome}
+            onRemove={removeServer}
+            onChangeTool={changeTool}
+            sessionDirectory={sessionDirectory}
+            clock={clock}
+            nowMilliseconds={nowMilliseconds}
+          />
+        </div>
+      )}
+      <ServerAdding
+        mintOpening={() => {
+          lastOpening.current += 1;
+          return lastOpening.current;
+        }}
+        outcomeFor={(opening) => outcomes.get(addServerOutcomeKeyOf(opening)) ?? IDLE_MCP_MUTATION}
+        onAdd={addServer}
+        onDropOutcome={(opening) => {
+          dropOutcome(addServerOutcomeKeyOf(opening));
+        }}
+        searchRegistry={operations.searchRegistry}
+        projects={projects}
+        sessionDirectory={sessionDirectory}
+        clock={clock}
+      />
     </>
   );
 }

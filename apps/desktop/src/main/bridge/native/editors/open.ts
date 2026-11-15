@@ -7,7 +7,7 @@ import * as z from "zod/mini";
 
 import type { MainDaemonClient } from "../../../services/daemon/client/process.js";
 
-import { findEditor } from "./catalog.js";
+import { findEditor } from "#shared/editor-catalog.js";
 import type { InstalledEditors } from "./installed.js";
 import type { ProgramRunner } from "./program-runner.js";
 

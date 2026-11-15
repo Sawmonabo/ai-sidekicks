@@ -121,7 +121,7 @@ export function useRunPage(options: {
     runState,
     isRunMissing: isMissing,
     readRunAgain: () => {
-      runRead?.refresh("user-request");
+      runRead.refresh("user-request");
     },
     document,
     selectedNodeId: (picked ?? opened ?? { nodeId: openingNode(run) }).nodeId,

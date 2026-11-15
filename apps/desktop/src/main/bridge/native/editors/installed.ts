@@ -5,7 +5,7 @@
 // path of the person's to search.
 
 import type { EditorEntry } from "#shared/preload-api.js";
-import { EDITOR_CATALOG, type EditorDefinition } from "./catalog.js";
+import { EDITOR_CATALOG, editorEntriesOf, type EditorDefinition } from "#shared/editor-catalog.js";
 
 /** Where each installed editor lives, by editor id; an editor this machine lacks is absent. */
 export type InstalledEditorLocations = ReadonlyMap<string, string>;
@@ -32,9 +32,5 @@ export interface InstalledEditors {
 /** Every catalog editor in list order, each saying whether this machine has it. */
 export async function listEditors(installedEditors: InstalledEditors): Promise<EditorEntry[]> {
   const locations = await installedEditors.locate(EDITOR_CATALOG);
-  return EDITOR_CATALOG.map((editor) => ({
-    id: editor.id,
-    label: editor.label,
-    installed: locations.has(editor.id),
-  }));
+  return editorEntriesOf((editorId) => locations.has(editorId));
 }

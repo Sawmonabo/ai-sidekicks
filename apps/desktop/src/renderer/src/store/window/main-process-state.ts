@@ -83,7 +83,7 @@ export function serviceBootStageOf(connection: DaemonConnection): ServiceBootSta
   }
 }
 
-/** What a window with no report says about the service, spelled once for every line that says it. */
+/** What a window with no report says about the service, spelled once for each line that says it. */
 export const UNREPORTED_DAEMON_NOTICE: { readonly title: string } = {
   title: "Loading background service…",
 };

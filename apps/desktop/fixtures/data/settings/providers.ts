@@ -1,7 +1,6 @@
-// What the MCP servers and Providers settings pages are answered with: the MCP page's replies
-// (`mcp-server-replies.ts`) and the machine's provider-account registry, with the calls the
-// Providers page's controls send. Both are the machine's, not a session's, so a scenario that plays
-// a session spreads these into its own replies.
+// What the Providers settings page is answered with: the machine's provider-account registry, the
+// calls the page's controls send and the service's status the page reads. They are the machine's,
+// not a session's, so a scenario that plays a session spreads them into its own replies.
 //
 // The registry holds a Claude account the daemon observed signed in, with two limits on one window
 // length; a pasted-token Claude account whose token stopped working, marked the default, so its
@@ -45,8 +44,7 @@ import type {
   ScenarioRefusalEnvelope,
   ScenarioReply,
 } from "#renderer/services/daemon/scenario/reply.fixture.js";
-import { MCP_SERVER_REPLIES } from "./mcp-server-replies.js";
-import { readMember } from "./requests.js";
+import { readMember } from "../requests.js";
 
 const OBSERVED_AT = "2026-01-01T08:55:00.000Z";
 const WORK_ACCOUNT_ID = "pa-0001" as ProviderAccountId;
@@ -182,9 +180,8 @@ const DAEMON_STATUS: DaemonStatusReadResponse = {
   recovery: { overall: "healthy", sessions: [] },
 };
 
-/** Every call the two machine-level settings pages make, and what each is answered with. */
-export const SETTINGS_REPLIES: readonly ScenarioReply[] = [
-  ...MCP_SERVER_REPLIES,
+/** Every call the Providers page makes, and what each is answered with. */
+export const PROVIDERS_PAGE_REPLIES: readonly ScenarioReply[] = [
   // Computed, so a moved default and a re-supplied token read back applied.
   { call: "provider.account.list", resultFor: answerAccountList },
   { call: "daemon.status.read", result: DAEMON_STATUS },

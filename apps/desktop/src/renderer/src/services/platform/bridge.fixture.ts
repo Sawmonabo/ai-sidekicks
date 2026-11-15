@@ -11,6 +11,7 @@
 import type { AppFacts } from "#shared/app-facts.js";
 import { ClipboardPieces } from "#shared/clipboard-pieces.js";
 import { DEFAULT_APPEARANCE_RECORD, type AppearanceRecord } from "#shared/appearance.js";
+import { editorEntriesOf } from "#shared/editor-catalog.js";
 import { consoleWindowId } from "#shared/window/frame-name.js";
 import type {
   KeyboardMap,
@@ -28,7 +29,7 @@ import {
 import { TransportReconnectSignal } from "#renderer/services/transport/reconnect.js";
 import { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
 import { createFixtureDaemon } from "#renderer/services/daemon/scenario/wire.fixture.js";
-import { EDITOR_LIST } from "#fixtures/data/editor-list.js";
+import { INSTALLED_EDITOR_IDS } from "#fixtures/data/installed-editors.js";
 import type { Scenario } from "#fixtures/scenario.js";
 
 /** Fixed `app` meta, so a rendered view does not move with the machine. */
@@ -99,7 +100,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
         // live, where the page keeps the address beside the control either way.
       },
       openInEditor: () => refuseAbsentCapability("native.openInEditor"),
-      listEditors: () => Promise.resolve([...EDITOR_LIST]),
+      listEditors: () =>
+        Promise.resolve(editorEntriesOf((editorId) => INSTALLED_EDITOR_IDS.includes(editorId))),
       getNotificationPermission: () => refuseAbsentCapability("native.getNotificationPermission"),
       copyToClipboard: async (_content, clipboard) => {
         // Nothing reads the result back, and a refusal would make every "copy id" affordance

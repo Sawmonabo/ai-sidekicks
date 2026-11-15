@@ -1,6 +1,9 @@
 // Every editor `Editor that opens files` lists, in the order it lists them, with what main needs
 // to find each one on macOS and to open a file there at a line. Each bundle identifier, app name
-// and bundled command is the one the editor's own Homebrew cask records.
+// and bundled command is the one the editor's own Homebrew cask records. Main lists it for the
+// window, and a fixture window lists the same editors.
+
+import type { EditorEntry } from "./preload-api.js";
 
 /**
  * How an editor opens a file at a line on macOS. `bundledCommand` runs the command the app bundle
@@ -165,6 +168,15 @@ export const EDITOR_CATALOG: readonly EditorDefinition[] = [
   // A Windows editor: listed everywhere, and never found on macOS.
   { id: "notepad-plus-plus", label: "Notepad++", macBundleIds: [] },
 ];
+
+/** Every catalog editor in list order, each saying whether `isInstalled` finds it. */
+export function editorEntriesOf(isInstalled: (editorId: string) => boolean): EditorEntry[] {
+  return EDITOR_CATALOG.map((editor) => ({
+    id: editor.id,
+    label: editor.label,
+    installed: isInstalled(editor.id),
+  }));
+}
 
 /** The catalog entry an `editorId` names, or `undefined` for an id the catalog does not hold. */
 export function findEditor(editorId: string): EditorDefinition | undefined {

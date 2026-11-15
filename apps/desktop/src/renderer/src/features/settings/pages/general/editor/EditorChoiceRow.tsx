@@ -32,8 +32,10 @@ export interface EditorChoiceRowProps {
     MachineSettingsBinding,
     "snapshot" | "settings" | "isPending" | "refusalFor" | "choose" | "retry" | "readAgain"
   >;
-  /** The window's clock, which the list's reads and the reading line's delay run on. */
+  /** The window's clock, which the list's reads and its own reading line's delay run on. */
   readonly clock: Clock;
+  /** Whether the page's one loading delay has run out while the settings file is unread. */
+  readonly isPastLoadingDelay: boolean;
 }
 
 /**
@@ -47,7 +49,7 @@ export function EditorChoiceRow(props: EditorChoiceRowProps): ReactNode {
       member="editorId"
       control={GENERAL_CONTROLS.editor}
       descriptionLines={[]}
-      clock={props.clock}
+      isPastLoadingDelay={props.isPastLoadingDelay}
       renderControlRow={() => <EditorChoice {...props} />}
     />
   );

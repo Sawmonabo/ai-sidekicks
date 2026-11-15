@@ -86,9 +86,13 @@ export function registryRunWords(server: McpRegistryServer): string {
   ].join(" · ");
 }
 
-// The words one registry argument adds to the command line: a named one's name and value, a
-// positional one's value. A value the registry leaves out, a secret's among them, is the person's
-// to type, so a positional argument without one adds nothing.
+// The lines one registry argument adds to `Arguments`, each one word of the command: a named one as
+// `<flag>=<value>`, the form the registry gives it, and a positional one as its value, either value
+// written as the registry writes it, `{name}` placeholders and all, as an address is. A positional
+// one the server needs whose value the registry leaves to the person stands in its place as
+// `{<valueHint>}`, the registry's own name for that value, for the person to type over. A secret's
+// value and a named one's missing value have no field here that can take them: a named one the
+// server needs keeps its bare flag in its place, and any other argument with no value adds nothing.
 function argumentWordsOf(argument: Readonly<Record<string, unknown>>): readonly string[] {
   const value =
     typeof argument["value"] === "string"
@@ -96,8 +100,18 @@ function argumentWordsOf(argument: Readonly<Record<string, unknown>>): readonly 
       : typeof argument["default"] === "string"
         ? argument["default"]
         : undefined;
+  const isRequired = argument["isRequired"] === true;
   if (argument["type"] === "named" && typeof argument["name"] === "string") {
-    return value === undefined ? [argument["name"]] : [argument["name"], value];
+    if (value !== undefined) {
+      return [`${argument["name"]}=${value}`];
+    }
+    return isRequired ? [argument["name"]] : [];
   }
-  return value === undefined ? [] : [value];
+  if (value !== undefined) {
+    return [value];
+  }
+  const valueHint = argument["valueHint"];
+  return isRequired && argument["isSecret"] !== true && typeof valueHint === "string"
+    ? [`{${valueHint}}`]
+    : [];
 }

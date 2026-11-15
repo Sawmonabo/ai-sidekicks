@@ -8,7 +8,6 @@ import {
   MACHINE_SETTINGS_DEFAULTS,
   type MachineSettings,
 } from "@ai-sidekicks/contracts/machine/settings";
-import type { Clock } from "#renderer/lib/clock.js";
 import type { MachineSettingsBinding } from "../machine/hooks/useMachineSettings.js";
 import type { MachineSettingsMember } from "../machine/snapshot.js";
 import type { SettingsControl } from "../types.js";
@@ -27,13 +26,14 @@ export interface MachineSettingSwitchRowProps {
     MachineSettingsBinding,
     "snapshot" | "settings" | "isPending" | "refusalFor" | "choose" | "retry" | "readAgain"
   >;
+  /** The settings-file member the switch reads and writes. */
   readonly member: MachineSettingsSwitchMember;
   /** The findable control the row draws, whose label it shows. */
   readonly control: SettingsControl;
   /** The lines under the label, each its own paragraph. */
   readonly descriptionLines?: readonly ReactNode[] | undefined;
-  /** The window's clock, which the loading line's delay runs on. */
-  readonly clock: Clock;
+  /** Whether the page's one loading delay has run out, so the unread row reads `Loading…`. */
+  readonly isPastLoadingDelay: boolean;
 }
 
 /** A switch over one settings-file member, standing with its label while the file is read. */
@@ -46,7 +46,7 @@ export function MachineSettingSwitchRow(props: MachineSettingSwitchRowProps): Re
       member={member}
       control={props.control}
       descriptionLines={descriptionLines}
-      clock={props.clock}
+      isPastLoadingDelay={props.isPastLoadingDelay}
       renderControlRow={() => (
         <PreferenceToggleRow
           control={props.control}

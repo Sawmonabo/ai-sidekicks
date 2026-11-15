@@ -33,7 +33,7 @@ export function useEditorList(bridge: PlatformBridge, clock: Clock): EditorListB
   return {
     state,
     readAgain: () => {
-      read?.refresh("user-request");
+      read.refresh("user-request");
     },
   };
 }

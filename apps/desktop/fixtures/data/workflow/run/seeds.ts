@@ -46,7 +46,7 @@ import type {
   WorkflowRunReadResponse,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { WORK_ACCOUNT } from "../../settings-replies.js";
+import { WORK_ACCOUNT } from "../../settings/providers.js";
 import { minutesAgo } from "../clock.js";
 import { SAVED_WORKFLOWS, workflowVersionIdOf } from "../definitions.js";
 

@@ -14,6 +14,7 @@ import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { useMachineSettings } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
+import { useSettingsFileLoadingDelay } from "#renderer/features/settings/machine/hooks/useSettingsFileLoadingDelay.js";
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine/settings";
 import { useUpdateReading } from "#renderer/store/update/hooks/useUpdateReading.js";
 import type { UpdaterCalls } from "#renderer/store/update/reading.js";
@@ -177,12 +178,17 @@ function UpdatesBlockOnMachineSettings(props: {
   return <UpdatesBlockOnReading updater={props.updater} preferences={preferences} />;
 }
 
-/** The block handed the reading bound over `updater`, as the window binds it once. */
+/**
+ * The block handed the reading bound over `updater`, as the window binds it once, and the loading
+ * delay its page arms.
+ */
 function UpdatesBlockOnReading(props: {
   readonly updater: UpdaterCalls;
   readonly preferences: UpdatesBlockProps["preferences"];
 }): React.JSX.Element {
-  const { reading, readAgain } = useUpdateReading(props.updater, useClock());
+  const clock = useClock();
+  const { reading, readAgain } = useUpdateReading(props.updater, clock);
+  const isPastLoadingDelay = useSettingsFileLoadingDelay(props.preferences.snapshot, clock);
   return (
     <UpdatesBlock
       reading={reading}
@@ -190,6 +196,7 @@ function UpdatesBlockOnReading(props: {
       runningVersion="1.3.0"
       updater={props.updater}
       preferences={props.preferences}
+      isPastLoadingDelay={isPastLoadingDelay}
     />
   );
 }

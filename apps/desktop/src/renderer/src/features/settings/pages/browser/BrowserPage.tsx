@@ -2,9 +2,9 @@
 // settings file as it changes.
 //
 // Each switch's row stands with its label from the first frame and shows the switch only once the
-// settings file has been read, so none shows a value the file does not hold. A refused write
-// leaves its switch where it was and draws the refusal in the strip under it, with `Try again`
-// sending the same change again.
+// settings file has been read, so none shows a value the file does not hold; the rows read the
+// page's one loading delay. A refused write leaves its switch where it was and draws the refusal in
+// the strip under it, with `Try again` sending the same change again.
 
 import type { Clock } from "#renderer/lib/clock.js";
 import {
@@ -12,6 +12,7 @@ import {
   type MachineSettingSwitchRowProps,
   type MachineSettingsSwitchMember,
 } from "#renderer/features/settings/components/MachineSettingSwitchRow.js";
+import { useSettingsFileLoadingDelay } from "../../machine/hooks/useSettingsFileLoadingDelay.js";
 import type { SettingsControl } from "../../types.js";
 import { BROWSER_CONTROLS } from "./controls.js";
 
@@ -57,13 +58,14 @@ const BROWSER_SWITCH_ROWS: readonly BrowserSwitchRow[] = [
 export interface BrowserPageProps {
   /** The machine settings the switches read and write. */
   readonly preferences: MachineSettingSwitchRowProps["preferences"];
-  /** The window's clock, which the reading line's delay runs on. */
+  /** The window's clock, which the page's one loading delay runs on. */
   readonly clock: Clock;
 }
 
-/** The Browser settings page: the machine's browser switches, each standing from the first frame. */
+/** The Browser settings page: the machine's switches, each standing from the first frame. */
 export function BrowserPage(props: BrowserPageProps): React.JSX.Element {
   const { preferences, clock } = props;
+  const isPastLoadingDelay = useSettingsFileLoadingDelay(preferences.snapshot, clock);
   return (
     <div className="meridian-settings-page">
       <section className="meridian-settings-page__block" aria-label="Browser">
@@ -74,7 +76,7 @@ export function BrowserPage(props: BrowserPageProps): React.JSX.Element {
             member={row.member}
             control={row.control}
             descriptionLines={row.descriptionLines}
-            clock={clock}
+            isPastLoadingDelay={isPastLoadingDelay}
           />
         ))}
       </section>

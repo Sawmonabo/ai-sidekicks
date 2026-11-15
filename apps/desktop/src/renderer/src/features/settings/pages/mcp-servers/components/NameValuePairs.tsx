@@ -31,7 +31,8 @@ const PAIR_WORDS: Readonly<
  * for a name of the person's own. Each row's `Add` hands its value to `heldValues`, clears the
  * masked value field in the same step and settles in place; a row typed whole and never added is
  * read by `heldValues` when the form is sent. A row with only its name or only its value typed
- * holds the form's submit, as any other field the form needs does.
+ * holds the form's submit, as any other field the form needs does, and so does an asked name the
+ * server needs whose value is empty; a name of spaces alone is no name.
  */
 export function NameValuePairs(props: {
   readonly kind: McpPairKind;
@@ -126,7 +127,9 @@ function PairRow(props: {
           spellCheck={false}
           value={ownName}
           onChange={(event) => {
-            setOwnName(event.currentTarget.value);
+            // Spaces alone are held as no name, so the field reads empty to the form's check.
+            const typed = event.currentTarget.value;
+            setOwnName(typed.trim() === "" ? "" : typed);
           }}
         />
       ) : (
@@ -145,7 +148,7 @@ function PairRow(props: {
             ? undefined
             : [askedNameId, ...(about === "" ? [] : [aboutId])].join(" ")
         }
-        required={asked === undefined && name !== ""}
+        required={asked === undefined ? name !== "" : asked.isRequired}
         autoComplete="off"
         spellCheck={false}
         onChange={(event) => {

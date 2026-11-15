@@ -40,23 +40,15 @@ import {
 } from "@ai-sidekicks/contracts/mcp/server";
 import type { RuntimeBindingId } from "@ai-sidekicks/contracts/provider/driver/runtime-binding";
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
-import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import type {
-  SessionListEntry,
-  SessionSubscribeResponse,
-} from "@ai-sidekicks/contracts/session/directory";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   AnsweredRequests,
   ScenarioNotice,
-  ScenarioOpeningNotice,
   ScenarioReply,
 } from "#renderer/services/daemon/scenario/reply.fixture.js";
-import { readMember, readString } from "./requests.js";
+import { readMember, readString } from "../requests.js";
+import { FIX_LOGIN_SESSION_ID, TOKEN_EXPIRY_SESSION_ID } from "../session-list.js";
 
 const OBSERVED_AT = "2026-01-01T08:55:00.000Z";
-const SESSION_A = "019b79ee-0280-75e5-8510-ada11a5a21a5" as SessionId;
-const SESSION_B = "019b79ee-0280-75e5-8510-ada11a5a22a5" as SessionId;
 const CLAUDE = "claude" as ProviderId;
 const CODEX = "codex" as ProviderId;
 
@@ -114,12 +106,16 @@ const MCP_INVENTORY: readonly McpServerInventoryEntry[] = [
     observedAt: OBSERVED_AT,
     legs: [
       {
-        sessionId: SESSION_A,
+        sessionId: FIX_LOGIN_SESSION_ID,
         bindingId: "leg-a" as RuntimeBindingId,
         status: "needsAuth",
         observedAt: OBSERVED_AT,
       },
-      { sessionId: SESSION_B, bindingId: "leg-b" as RuntimeBindingId, status: "connected" },
+      {
+        sessionId: TOKEN_EXPIRY_SESSION_ID,
+        bindingId: "leg-b" as RuntimeBindingId,
+        status: "connected",
+      },
     ],
     enabled: true,
     tools: [
@@ -250,38 +246,6 @@ export const MCP_SERVER_REPLIES: readonly ScenarioReply[] = [
   // Computed, so the servers answered are the ones the query names.
   { call: "mcp.registry.search", afterMs: 200, resultFor: answerRegistrySearch },
 ];
-
-/**
- * The frame `session.subscribe` opens with: the list as it stands, naming the two running sessions
- * the inventory's legs belong to, both chats, so the daemon counts two.
- */
-export const SESSION_LIST_OPENING_NOTICES: readonly ScenarioOpeningNotice[] = [
-  {
-    stream: "session.subscribe",
-    payloadAtOpen: (): SessionSubscribeResponse => ({
-      subscriptionId: "019b79ee-0280-7d11-8510-ada11a5a2300" as SubscriptionId,
-      sessions: [
-        runningChat(SESSION_A, "Fix login"),
-        runningChat(SESSION_B, "Refresh-token expiry"),
-      ],
-      chatCount: 2,
-      isComplete: true,
-    }),
-  },
-];
-
-function runningChat(sessionId: SessionId, name: string): SessionListEntry {
-  return {
-    sessionId,
-    name,
-    shape: "chat",
-    state: "active",
-    activity: "running",
-    activityRenewedAt: OBSERVED_AT,
-    muted: false,
-    lastActivityAt: OBSERVED_AT,
-  };
-}
 
 /**
  * The inventory, with each answered add, change and removal applied in the order they landed,

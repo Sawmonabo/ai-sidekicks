@@ -161,7 +161,7 @@ export function useWorkflowsScreen(
       return;
     }
     listAskRef.current = listAsk;
-    listRead?.refresh("user-request");
+    listRead.refresh("user-request");
   }, [listAsk, listRead]);
   // The count of every run, apart from the filtered list, so the tab's count never moves under
   // the filters.
@@ -324,7 +324,7 @@ export function useWorkflowsScreen(
     listState,
     runCountState,
     readListAgain: () => {
-      listRead?.refresh("user-request");
+      listRead.refresh("user-request");
     },
     loadEarlierRuns: () => {
       setPagesAsked({ filters: filters.filters, pageCount: pageCount + 1 });
