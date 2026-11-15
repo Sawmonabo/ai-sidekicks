@@ -441,6 +441,7 @@ pub(crate) async fn register_method_inputs(
         attachments: Arc::clone(&artifacts.attachments),
         spool_folder: artifacts.spool_folder.clone(),
         workspaces_folder: managed_workspaces_folder(home_folder),
+        occupancy: repo.occupancy.clone(),
         workspace_writes: repo
             .workspace_writes
             .take()

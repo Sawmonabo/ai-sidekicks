@@ -17,6 +17,7 @@ use sidekicks_provider::port::file_tool_write::{
     FileToolWriteSettled,
 };
 use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
 use sidekicks_workspace::managed::write_watcher::{
     ManagedWorkspaceReport, ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
     ManagedWritesWatermark,
@@ -111,6 +112,7 @@ async fn fixture() -> Fixture {
     let versions = ChatFileVersions::new(
         Arc::clone(&store.appender),
         Arc::clone(&store.reads),
+        MountOccupancyReader::new(Arc::clone(&store.reads)),
         Arc::clone(&store.payloads),
         store.spool_folder().to_path_buf(),
         workspaces.path().to_path_buf(),

@@ -174,9 +174,10 @@ pub enum RepoMountReattachError {
     /// The mount's health probe and its row did not belong together.
     #[error(transparent)]
     HealthProjection(#[from] HealthProjectionError),
-    /// A folder could not be resolved: a tree's, to compare it with the ones git lists, or a moved
-    /// repository's old or new common folder, to name its captures.
-    #[error("a worktree's or a moved repository's folder could not be resolved")]
+    /// A folder could not be resolved: the new root, to hold it against the cleanup, a tree's, to
+    /// compare it with the ones git lists, or a moved repository's old or new common folder, to
+    /// name its captures.
+    #[error("the new root, a worktree's or a moved repository's folder could not be resolved")]
     Folder(#[source] io::Error),
     /// The run that holds the folder could not be read.
     #[error(transparent)]
@@ -411,6 +412,17 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         target: ReattachTarget,
     ) -> Result<RepoMountReattachResponse, RepoMountReattachError> {
         let repo_mount_id = mount.id;
+        // The new root stands for the mount the write attaches there and for every folder inside
+        // it the write moves a workspace into, so its one hold, kept until the write commits,
+        // keeps the cleanup from deleting any of them. Taken before every check below, so a
+        // folder the cleanup deleted while the hold waited is decided by those checks and by
+        // each moved workspace's admission after the commit.
+        let _written = self
+            .workspaces
+            .occupancy()
+            .hold_root_for_write(&target.canonical_root)
+            .await
+            .map_err(RepoMountReattachError::Folder)?;
         let canonical_root = target.canonical_root.to_string_lossy().into_owned();
         let common_dir = target.common_folder.to_string_lossy().into_owned();
         self.refuse_running_run(repo_mount_id).await?;
@@ -440,18 +452,6 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 .await?,
             rebased_workspaces: target.rebased_workspaces,
             now: WireInstant::now(),
-        };
-        // Every rebased path lies inside the new root, so its one hold, kept until the write
-        // commits, keeps the cleanup from deleting a folder the write moves a workspace into.
-        let _landing = if bindings.rebased_workspaces.is_empty() {
-            None
-        } else {
-            Some(
-                self.workspaces
-                    .occupancy()
-                    .hold_landing(&target.canonical_root)
-                    .await?,
-            )
         };
         // Pending from before the write, so a capture folder of any name the move carries waits
         // for the write and opens only once it is carried, whatever runs between the write and

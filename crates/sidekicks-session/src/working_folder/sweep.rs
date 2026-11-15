@@ -1,6 +1,6 @@
 //! The sweep out of a removed tree: every session standing in it, on any mount of its repository,
 //! moved to its own mount's checkout and every pending move into it cleared, one
-//! `session.sweptToCheckout` per session either touched. A session whose own workspace has a run
+//! `session.sweptToCheckout` per session either touched, naming the mount the session works on. A session whose own workspace has a run
 //! still bound in the tree, by the one test the tree's removal refuses on, is passed over until
 //! that run's end, which sweeps it.
 //!
@@ -9,7 +9,7 @@
 //! - A move that completes sweeps its session again, so a session that moved into a tree removed
 //!   meanwhile is swept at once.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -44,8 +44,13 @@ use super::{
     SessionSweepFailure, SessionWorkingFolderError, SessionWorkingFolders, canonical, held_for,
 };
 
+// Every pending move, with the mount of the session's own workspace it moves, whose row goes only
+// with its session or its managed mount's last holder.
 const SELECT_EVERY_PENDING_SQL: &str =
-    "SELECT id, pending_working_folder FROM sessions WHERE pending_working_folder IS NOT NULL";
+    "SELECT session.id, session.pending_working_folder, workspace.repo_mount_id
+   FROM sessions AS session
+   JOIN workspaces AS workspace ON workspace.id = session.pending_working_folder_workspace_id
+  WHERE session.pending_working_folder IS NOT NULL";
 
 // The removed tree the session's own live workspace stands in, if any: a retired tree of its own
 // mount, or one not yet cleaned of another mount of its repository, which a detached project
@@ -85,10 +90,10 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
         held: Option<&WorkspacePreparationHold<'_>>,
     ) -> Result<(), SessionWorkingFolderError> {
         let folder = canonical(Path::new(sweep.folder.as_str())).await?;
-        let mut pending_sessions = BTreeSet::new();
-        for (session_id, pending) in self.read_every_pending().await? {
+        let mut pending_sessions = BTreeMap::new();
+        for (session_id, pending, repo_mount_id) in self.read_every_pending().await? {
             if canonical(&pending).await? == folder {
-                pending_sessions.insert(session_id);
+                pending_sessions.insert(session_id, repo_mount_id);
             }
         }
         let mut standing = Vec::new();
@@ -112,13 +117,16 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
                 pending_sessions.remove(&workspace.session_id);
                 continue;
             }
-            let is_pending_cleared = pending_sessions.remove(&workspace.session_id);
+            let is_pending_cleared = pending_sessions.remove(&workspace.session_id).is_some();
             let session_id = workspace.session_id;
             let swept = self
                 .sweep_session(
                     sweep,
                     &folder,
-                    session_id,
+                    SweptOn {
+                        session_id,
+                        repo_mount_id: workspace.repo_mount_id,
+                    },
                     Some(SweptMove {
                         workspace_id: workspace.workspace_id,
                         checkout: &workspace.repository_root,
@@ -130,12 +138,15 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
                 .await;
             outcomes.push(swept.map_err(|failure| sweep_failure(session_id, failure)));
         }
-        for session_id in pending_sessions {
+        for (session_id, repo_mount_id) in pending_sessions {
             let swept = self
                 .sweep_session(
                     sweep,
                     &folder,
-                    session_id,
+                    SweptOn {
+                        session_id,
+                        repo_mount_id,
+                    },
                     None,
                     true,
                     held_for(append_hold, session_id),
@@ -185,15 +196,16 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
             .await
     }
 
-    // Moves `session_id`'s workspace to the checkout `moved` names, when it still stands in the
-    // tree whose key is `folder` under its hold, then records its sweep, clearing its pending move
-    // into the tree when `is_pending_cleared` and the move still waits there; a move a request
-    // replaced since the sweep read it is left to that request, and so is a session that moved out.
+    // Moves the session's workspace to the checkout `moved` names, when it still stands in the
+    // tree whose key is `folder` under its hold, then records its sweep as `swept_on` names it,
+    // clearing its pending move into the tree when `is_pending_cleared` and the move still waits
+    // there; a move a request replaced since the sweep read it is left to that request, and so is a
+    // session that moved out.
     async fn sweep_session(
         &self,
         sweep: &WorktreeSweep,
         folder: &Path,
-        session_id: SessionId,
+        swept_on: SweptOn,
         moved: Option<SweptMove<'_, '_>>,
         is_pending_cleared: bool,
         append_hold: Option<&SessionAppendHold>,
@@ -217,23 +229,20 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
         let mut clear = None;
         if is_pending_cleared {
             // The clear names the stored spelling, which the sweep matched by its resolved form.
-            if let Some(Some(pending)) = self.read_pending(session_id).await?
+            if let Some(Some(pending)) = self.read_pending(swept_on.session_id).await?
                 && canonical(Path::new(&pending.path)).await?.as_path() == folder
             {
-                clear = Some(PendingClear::of(session_id, &pending)?);
+                clear = Some(PendingClear::of(swept_on.session_id, &pending)?);
             }
         }
         if !is_moved && clear.is_none() {
             return Ok(());
         }
         let is_clearing = clear.is_some();
-        match self
-            .record_sweep(sweep, session_id, clear, append_hold)
-            .await
-        {
+        match self.record_sweep(sweep, swept_on, clear, append_hold).await {
             Err(error) if is_clearing && error.refused_statement_index() == Some(CLEAR_INDEX) => {
                 if is_moved {
-                    self.record_sweep(sweep, session_id, None, append_hold)
+                    self.record_sweep(sweep, swept_on, None, append_hold)
                         .await?;
                 }
                 Ok(())
@@ -242,18 +251,18 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
         }
     }
 
-    // Appends the session's `session.sweptToCheckout`, after `clear` and the event saying no move
-    // waits in the same write when given.
+    // Appends the session's `session.sweptToCheckout` naming the mount it works on, after `clear`
+    // and the event saying no move waits in the same write when given.
     async fn record_sweep(
         &self,
         sweep: &WorktreeSweep,
-        session_id: SessionId,
+        swept_on: SweptOn,
         clear: Option<PendingClear>,
         append_hold: Option<&SessionAppendHold>,
     ) -> Result<(), SessionEventEmitError> {
         let payload = SessionSweptToCheckoutPayload {
-            session_id,
-            repo_mount_id: sweep.repo_mount_id,
+            session_id: swept_on.session_id,
+            repo_mount_id: swept_on.repo_mount_id,
             worktree_id: sweep.worktree_id,
             pending_move_cleared: clear.is_some().then(True::default),
         };
@@ -305,7 +314,7 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
 
     async fn read_every_pending(
         &self,
-    ) -> Result<Vec<(SessionId, PathBuf)>, SessionWorkingFolderError> {
+    ) -> Result<Vec<(SessionId, PathBuf, RepoMountId)>, SessionWorkingFolderError> {
         self.reads
             .read(ReadLength::Short, move |connection| {
                 Ok(connection
@@ -314,6 +323,7 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
                         Ok((
                             text_column(row, 0, |text| SessionId::new(&text))?,
                             PathBuf::from(row.get::<_, String>(1)?),
+                            text_column(row, 2, |text| RepoMountId::new(&text))?,
                         ))
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?)
@@ -364,6 +374,13 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
             .await?;
         Ok(true)
     }
+}
+
+/// The session a sweep records and the mount it works on.
+#[derive(Clone, Copy)]
+struct SweptOn {
+    session_id: SessionId,
+    repo_mount_id: RepoMountId,
 }
 
 /// A sweep's move of one workspace to its mount's checkout, under `held` when the caller holds the

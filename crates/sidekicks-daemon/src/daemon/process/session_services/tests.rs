@@ -175,6 +175,7 @@ async fn fixture() -> Fixture {
         snapshots,
         command_captures,
         packing,
+        occupancy,
         ..
     } = repo;
     let (writes, workspace_writes) = mpsc::channel(8);
@@ -258,6 +259,7 @@ async fn fixture() -> Fixture {
         snapshots,
         command_captures,
         packing,
+        occupancy,
         list_feed,
         plan_holds,
         payloads,

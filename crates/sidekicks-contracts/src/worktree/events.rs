@@ -48,7 +48,8 @@ lifecycle_payload! {
 pub struct SessionSweptToCheckoutPayload {
     /// The session moved.
     pub session_id: SessionId,
-    /// The mount.
+    /// The mount whose root the session now works in: its own workspace's mount, which for a
+    /// session of another mount of the repository is not the removed tree's.
     pub repo_mount_id: RepoMountId,
     /// The removed tree.
     pub worktree_id: WorktreeId,

@@ -185,12 +185,14 @@ pub(crate) fn build_repo_services(
         missed_since,
     } = start;
     let workspace_events = Arc::new(WorkspaceEventEmitter::new(Arc::clone(&event_log)));
+    let occupancy = MountOccupancyReader::new(Arc::clone(&reads));
     let mounts = Arc::new(RepoMountService::new(
         Arc::clone(&writer),
         Arc::clone(&reads),
         Arc::clone(&workspace_events),
         RepoRootResolver::new(git.clone()),
         machine_id,
+        occupancy.clone(),
     ));
     let (writes, workspace_writes) = mpsc::channel(MANAGED_WORKSPACE_WRITE_CAPACITY);
     let workspaces = Arc::new(ManagedWorkspaceService::new(
@@ -207,7 +209,6 @@ pub(crate) fn build_repo_services(
         AskpassBroker::start(&run_folder, git_askpass_program_path(&program_link_folder)),
         &run_folder,
     )?;
-    let occupancy = MountOccupancyReader::new(Arc::clone(&reads));
     let worktree_events = Arc::new(WorktreeEventEmitter::new(event_log));
     let folder_watch = Arc::new(WorkingFolderWatcher::new(WorkingFolderWatcherDeps {
         git: git.clone(),

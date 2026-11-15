@@ -84,6 +84,7 @@ use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::git::turn_snapshot::command_capture::CommandCaptureService;
 use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::git::turn_snapshot::service::TurnSnapshotService;
+use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
 use sidekicks_workspace::managed::write_watcher::{ManagedWorkspaceReport, ManagedWritesWatermark};
@@ -165,6 +166,8 @@ pub(crate) struct SessionServiceStart {
     pub(crate) spool_folder: PathBuf,
     /// The folder of the chats' managed workspaces.
     pub(crate) workspaces_folder: PathBuf,
+    /// The daemon's one occupancy reader, which reads who holds a chat's folder.
+    pub(crate) occupancy: MountOccupancyReader,
     /// The chats' writes the managed workspaces' watch reports.
     pub(crate) workspace_writes: mpsc::Receiver<ManagedWorkspaceReport>,
     /// Where the recording of those writes keeps each instant the watch's walk caught up to, once
@@ -337,6 +340,7 @@ pub(crate) fn build_session_services(
         attachments,
         spool_folder,
         workspaces_folder,
+        occupancy,
         workspace_writes,
         managed_writes_watermark,
         clock,
@@ -557,6 +561,7 @@ pub(crate) fn build_session_services(
     let chat_versions = Arc::new(ChatFileVersions::new(
         Arc::clone(&appender),
         Arc::clone(&reads),
+        occupancy,
         payloads,
         spool_folder,
         workspaces_folder,

@@ -24,6 +24,7 @@ use tempfile::TempDir;
 use super::{ProjectService, ProjectServiceDeps, ProjectServiceError};
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::git::process::{GitCall, test_git_runner};
+use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::schema::schema_parts;
 use crate::project::list_feed::ProjectListFeed;
 use crate::project::records::{PROJECT_RECORDS_STATEMENT_CAPACITY, ProjectRecords};
@@ -58,6 +59,7 @@ impl Writer {
             Arc::new(WorkspaceEventEmitter::new(Arc::clone(&log.service))),
             RepoRootResolver::new(git.clone()),
             MachineId::new("machine".to_owned()).expect("the id is short"),
+            MountOccupancyReader::new(Arc::clone(&reads)),
         ));
         let records = Arc::new(ProjectRecords::new(reads, Arc::new(NoSessions)));
         let worktrees = tempfile::tempdir().expect("the worktrees folder is made");

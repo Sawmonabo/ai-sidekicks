@@ -1,12 +1,14 @@
 //! Paths held in use, each counted once per hold standing on it, so dropping one of two holds of a
 //! path keeps the other: the names the folder moves are using, the folders a removal is closing,
-//! and the folders the cleanup is deleting and workspaces are being written into.
+//! the folders the cleanup is deleting and the folders workspaces are being written into. A waiter
+//! is woken each time a path's last hold goes.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::Notify;
 
 use crate::trust_envelope::is_contained_within;
 
@@ -15,6 +17,8 @@ use crate::trust_envelope::is_contained_within;
 #[derive(Debug, Default)]
 pub struct PathHolds {
     holds: Mutex<HashMap<PathBuf, usize>>,
+    // Told each time a path's last hold goes; it wakes only a waiter already registered.
+    released: Notify,
 }
 
 /// One hold of a path; dropping it lets go of this hold alone, so a canceled task frees its own
@@ -52,6 +56,21 @@ impl PathHolds {
             .keys()
             .any(|held| is_contained_within(path, held) || is_contained_within(held, path))
     }
+
+    /// Waits until `is_held` reads `false`, reading it again each time a path is let go, and
+    /// answers whether it waited at all.
+    pub(crate) async fn wait_until_free(&self, is_held: impl Fn(&Self) -> bool) -> bool {
+        let mut has_waited = false;
+        loop {
+            // Registered before the read, so a hold let go between the read and the wait wakes it.
+            let released = self.released.notified();
+            if !is_held(self) {
+                return has_waited;
+            }
+            released.await;
+            has_waited = true;
+        }
+    }
 }
 
 impl Drop for PathHold {
@@ -61,6 +80,8 @@ impl Drop for PathHold {
             *count -= 1;
             if *count == 0 {
                 holds.remove(&self.path);
+                drop(holds);
+                self.holds.released.notify_waiters();
             }
         }
     }

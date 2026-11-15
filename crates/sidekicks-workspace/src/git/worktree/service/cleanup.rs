@@ -5,9 +5,11 @@
 //! - A retired tree holding what the person could lose is never deleted: it is kept aside whole
 //!   and listed with the removed worktrees, or, on a mount no longer attached, left where it is.
 //! - A tree a run works in, or any live workspace of any mount stands at or inside, a session's or
-//!   a workflow run's, is left for a later pass. The folder is held closing from before that read
-//!   until it is deleted or kept aside, and a workspace written into it meanwhile is refused, so
-//!   none arrives between the read and the delete.
+//!   a workflow run's, or any attached mount's root lies inside, is left for a later pass. The
+//!   folder is held as one being deleted from before that read until it is deleted or kept aside,
+//!   and a write of a workspace or a mount into it meanwhile waits for that to end, so none
+//!   arrives between the read and the delete. A folder the daemon cannot resolve holds back only
+//!   the trees its path lies in, and the pass resolves each folder once for all its trees.
 //! - Before a folder goes, the processes the daemon started in it are ended through their owners,
 //!   and git's built-in file-watch daemon for the tree is stopped, since nothing else would end it
 //!   once its folder is gone.
@@ -15,7 +17,7 @@
 use std::borrow::Cow;
 use std::error::Error;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
@@ -25,7 +27,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::mount::RepoMountState;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
-use sidekicks_std::file::remove_tree_awaited;
+use sidekicks_std::file::run_on_blocking_thread;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
@@ -40,7 +42,7 @@ use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::branch_name_pattern::last_fatal_line;
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
 use crate::git::worktree::naming::is_named_worktree_folder;
-use crate::git::worktree::occupancy::OccupancyReadError;
+use crate::git::worktree::occupancy::{FolderKeys, OccupancyReadError};
 use crate::git::worktree::reads::{LinkedTreeRecordError, read_linked_tree_record};
 use crate::git::worktree::removal::{
     FolderProcessHold, FolderProcessOwner, FolderProcessesEndError, end_processes_in_folder,
@@ -117,8 +119,9 @@ const MARK_CLEANUP_STARTED_SQL: &str = "UPDATE worktrees
 pub trait RetiredWorktreeKeeper: Send + Sync {
     /// Moves the retired tree aside whole as a kept copy the removed list shows, its row stamped
     /// cleaned in the write that lists the copy, keeping `process_holds`, the holds of the owners
-    /// whose processes in the folder were ended, until the move lands, even after its caller stops
-    /// waiting. Fails with the move's or the write's failure.
+    /// whose processes in the folder were ended and the cleanup's own hold on the folder, until
+    /// the move lands, even after its caller stops waiting. Fails with the move's or the write's
+    /// failure.
     fn keep_retired_aside<'a>(
         &'a self,
         row: &'a WorktreeRow,
@@ -270,11 +273,16 @@ impl WorktreeService {
             .await
         {
             Ok(retired) => {
+                // Shared by the pass's trees, so each folder is resolved once.
+                let mut keys = FolderKeys::default();
                 for retired in retired {
                     if cancel.is_cancelled() {
                         break;
                     }
-                    match self.clean_retired_folder(&retired, keeper, owners).await {
+                    match self
+                        .clean_retired_folder(&retired, keeper, owners, &mut keys)
+                        .await
+                    {
                         Ok(RetiredFolderOutcome::Cleaned { index_entries }) => {
                             report.cleaned.push(retired.row.id);
                             report.cleaned_index_entries += index_entries;
@@ -303,6 +311,7 @@ impl WorktreeService {
         retired: &RetiredFolderRow,
         keeper: &dyn RetiredWorktreeKeeper,
         owners: &[Arc<dyn FolderProcessOwner>],
+        keys: &mut FolderKeys,
     ) -> Result<RetiredFolderOutcome, WorktreeCleanupError> {
         let row = &retired.row;
         let folder = Path::new(row.fs_root.as_str());
@@ -312,13 +321,13 @@ impl WorktreeService {
         let folder_key = canonical_folder_path(folder)
             .await
             .map_err(WorktreeServiceError::Folder)?;
-        // Held until the folder is deleted or kept aside; none while a workspace is being written
-        // there, which the next pass reads.
-        let Some(_closing) = self.deps.occupancy.hold_closing(&folder_key) else {
+        // Handed to the delete or the keep-aside, so it lasts as long as they do; none while a
+        // workspace or a mount is being written there, which the next pass reads.
+        let Some(deletion) = self.deps.occupancy.hold_for_deletion(&folder_key) else {
             return Ok(RetiredFolderOutcome::Deferred);
         };
         // Decided per row, right before removal: earlier removals are waits a run can start in.
-        if self.is_folder_in_use(row, &folder_key).await? {
+        if self.is_folder_in_use(row, &folder_key, keys).await? {
             return Ok(RetiredFolderOutcome::Deferred);
         }
         // Read while git still knows the tree, which names the record only from inside it. A pass
@@ -337,7 +346,8 @@ impl WorktreeService {
         if !retired.is_cleanup_started || record_folder.is_some() {
             if is_folder_present && self.holds_something_new(retired).await? {
                 if retired.is_mount_attached {
-                    let process_holds = end_processes_in_folder(owners, folder).await?;
+                    let mut process_holds = end_processes_in_folder(owners, folder).await?;
+                    process_holds.push(Box::new(deletion));
                     keeper
                         .keep_retired_aside(row, process_holds)
                         .await
@@ -351,12 +361,12 @@ impl WorktreeService {
                 self.mark_cleanup_started(&row.id).await?;
             }
         }
-        // Held until the folder is deleted.
-        let _process_holds = if is_folder_present {
+        let mut holds = if is_folder_present {
             end_processes_in_folder(owners, folder).await?
         } else {
             Vec::new()
         };
+        holds.push(Box::new(deletion));
         let index_entries = match &record_folder {
             Some(record_folder) => {
                 stop_file_watch(&self.deps.git, place, folder)
@@ -366,10 +376,7 @@ impl WorktreeService {
             }
             None => 0,
         };
-        self.remove_worktree_record(record_folder.as_deref())
-            .await
-            .map_err(WorktreeCleanupError::Removal)?;
-        remove_tree_awaited(folder)
+        remove_record_and_folder(record_folder, folder, holds)
             .await
             .map_err(WorktreeCleanupError::Removal)?;
         self.stamp_cleaned(&row.id).await?;
@@ -377,16 +384,21 @@ impl WorktreeService {
     }
 
     // A run works in the tree, by the test its removal refuses on, or any live workspace of any
-    // mount stands at or inside its folder, whose key is `folder_key`.
+    // mount or any attached mount's root lies at or inside its folder, whose key is `folder_key`.
     async fn is_folder_in_use(
         &self,
         row: &WorktreeRow,
         folder_key: &Path,
+        keys: &mut FolderKeys,
     ) -> Result<bool, WorktreeCleanupError> {
         if self.running_session_in(row).await?.is_some() {
             return Ok(true);
         }
-        Ok(self.deps.occupancy.is_stood_in(folder_key).await?)
+        Ok(self
+            .deps
+            .occupancy
+            .is_stood_in(Path::new(row.fs_root.as_str()), folder_key, keys)
+            .await?)
     }
 
     // Git shows something in the tree to lose beyond what its retirement recorded: anything at all
@@ -470,6 +482,24 @@ fn is_nothing_to_stop(stderr: &str) -> bool {
                     .is_some_and(|folder| !folder.is_empty())
             })
     })
+}
+
+// Removes the tree's record, where git still has one, then its folder, on a blocking thread that
+// keeps `holds` until both are gone, even once its caller stops waiting.
+async fn remove_record_and_folder(
+    record_folder: Option<PathBuf>,
+    folder: &Path,
+    holds: Vec<FolderProcessHold>,
+) -> io::Result<()> {
+    let folder = folder.to_path_buf();
+    run_on_blocking_thread(move || {
+        let _holds = holds;
+        if let Some(record_folder) = &record_folder {
+            sidekicks_platforms::remove_tree(record_folder)?;
+        }
+        sidekicks_platforms::remove_tree(&folder)
+    })
+    .await
 }
 
 // The entries the tree's index in `record_folder` lists, for the pass's budget; an index that

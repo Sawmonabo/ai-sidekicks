@@ -18,7 +18,8 @@
 //! covers the chain. A stop after the move's write, or a carry's write that failed, keeps the
 //! record, and the next start's carry finishes the move, on a mount detached since too: a folder
 //! that was already renamed is skipped, and the rows are rewritten. A detached mount's carry that
-//! cannot be made holds nothing, and its record waits for a later start.
+//! cannot be made holds nothing, and its record waits for a later start, unless the record itself
+//! does not read: no old folder is ever found through it, so it is cleared.
 
 use std::error::Error;
 use std::io;
@@ -176,7 +177,8 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
     /// folder that does not read, or a folder that does not resolve, is logged and holds only its
     /// own mount, which its health tells, and whose capture folders each opener is refused until an
     /// opener's ask makes its carry; on a mount detached since it holds nothing, and its record
-    /// waits for a later start. Fails only as the read of the records fails.
+    /// waits for a later start, or is cleared, with one warning naming the mount, where the record
+    /// itself does not read. Fails only as the read of the records fails.
     pub async fn expect_moved_captures(&self) -> Result<UncarriedCaptures, CaptureCarryError> {
         let uncarried = self
             .reads
@@ -186,6 +188,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         for mount in uncarried {
             let repo_mount_id = mount.repo_mount_id;
             let moved_from = serde_json::from_str::<Vec<PathBuf>>(&mount.moved_from);
+            let is_record_read = moved_from.is_ok();
             let moved_to = serde_json::from_str::<PathBuf>(&mount.moved_to);
             if let Err(unread) = &moved_to {
                 tracing::warn!(
@@ -211,12 +214,17 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 Err(unmade) => {
                     // No one works on a detached project, so its carry holds no opener.
                     self.packing.carries().let_go_unmade(repo_mount_id);
-                    tracing::warn!(
-                        %repo_mount_id,
-                        error = &unmade as &(dyn Error + 'static),
-                        "a detached project's captures cannot be carried yet; a later start tries \
-                         again"
-                    );
+                    if is_record_read {
+                        tracing::warn!(
+                            %repo_mount_id,
+                            error = &unmade as &(dyn Error + 'static),
+                            "a detached project's captures cannot be carried yet; a later start \
+                             tries again"
+                        );
+                    } else {
+                        self.clear_unread_record(repo_mount_id, &mount.moved_from, &unmade)
+                            .await;
+                    }
                 }
             }
         }
@@ -361,14 +369,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         }
 
         let moved_to = carry.moved_to().to_string_lossy();
-        let mut statements = vec![WriteStatement {
-            sql: CLEAR_CARRY_SQL.as_str().into(),
-            bindings: StatementBindings::Named(vec![
-                text_binding("@repo_mount_id", repo_mount_id.text().as_str()),
-                text_binding("@record", &record),
-            ]),
-            expected_row_count: Some(1),
-        }];
+        let mut statements = vec![clear_carry_statement(repo_mount_id, &record)];
         for (column, spellings) in stored {
             let mut moved = Vec::new();
             for spelling in spellings {
@@ -392,6 +393,50 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             }
             Err(failed) => Err(failed.into()),
         }
+    }
+}
+
+impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
+    // Clears the detached mount's record `record` that does not read, as its carry left `unmade`,
+    // since no old folder is ever found through it; one warning names the mount either way, and
+    // a clear that fails leaves the record for the next start.
+    async fn clear_unread_record(
+        &self,
+        repo_mount_id: RepoMountId,
+        record: &str,
+        unmade: &(dyn Error + 'static),
+    ) {
+        match self
+            .writer
+            .write(vec![clear_carry_statement(repo_mount_id, record)])
+            .await
+        {
+            Ok(_cleared) => tracing::warn!(
+                %repo_mount_id,
+                error = unmade,
+                "a detached project's record of its moved captures does not read, so no old \
+                 folder is found through it; the record is cleared"
+            ),
+            Err(failed) => tracing::warn!(
+                %repo_mount_id,
+                error = &failed as &(dyn Error + 'static),
+                "a detached project's record of its moved captures does not read and could not \
+                 be cleared; the next start tries again"
+            ),
+        }
+    }
+}
+
+// The clear of the mount's record of its carry, which holds only while it is still `record`, as
+// read.
+fn clear_carry_statement(repo_mount_id: RepoMountId, record: &str) -> WriteStatement {
+    WriteStatement {
+        sql: CLEAR_CARRY_SQL.as_str().into(),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@repo_mount_id", repo_mount_id.text().as_str()),
+            text_binding("@record", record),
+        ]),
+        expected_row_count: Some(1),
     }
 }
 

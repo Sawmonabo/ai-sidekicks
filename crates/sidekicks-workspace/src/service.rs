@@ -13,8 +13,9 @@
 //!   another tree) and that folder's checkout (`checkoutRoot`, rewritten by every completed
 //!   preparation).
 //! - No workspace is held for a run: two sessions' runs may work in one folder at once.
-//! - A bind and a completed preparation each hold the checkout they write landing until the write
-//!   commits, and are refused while the retired-tree cleanup deletes a folder holding it.
+//! - A bind and a completed preparation each hold the checkout they write until the write
+//!   commits; while the retired-tree cleanup deletes a folder holding it, each waits for that to
+//!   end and is admitted again.
 //!
 //! - A workflow run started on a named project works in a workspace of its own on that project's
 //!   mount, which the session's reads leave out.
@@ -149,8 +150,9 @@ static SELECT_ATTACHED_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
 const SELECT_MANAGED_FOLDER_HOLD_SQL: &str = "SELECT EXISTS (SELECT 1 FROM managed_folder_holds
   WHERE repo_mount_id = @repo_mount_id AND session_id = @session_id)";
 
-// The trust envelope's attached roots: the canonical root of every attached mount.
-static SELECT_ATTACHED_MOUNT_ROOTS_SQL: LazyLock<String> = LazyLock::new(|| {
+/// The canonical root of every attached mount: the trust envelope's attached roots, and the roots
+/// the retired-tree cleanup leaves in place.
+pub(crate) static SELECT_ATTACHED_MOUNT_ROOTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT canonical_root FROM repo_mounts WHERE state = '{}' ORDER BY canonical_root",
         <&'static str>::from(RepoMountState::Attached)
@@ -247,8 +249,8 @@ pub struct WorkspaceServiceDeps {
     pub resolver: RepoRootResolver,
     /// The writer a run-owned workspace's rows are written through alone, with no event.
     pub writer: Arc<DatabaseWriter>,
-    /// The daemon's one occupancy reader, whose holds keep a workspace out of a folder the
-    /// retired-tree cleanup is deleting.
+    /// The daemon's one occupancy reader, whose holds keep a workspace's write waiting while the
+    /// retired-tree cleanup deletes its folder.
     pub occupancy: MountOccupancyReader,
 }
 
@@ -329,8 +331,8 @@ impl WorkspaceService {
         }
     }
 
-    /// The daemon's one occupancy reader, whose landing hold every write that puts a workspace in
-    /// a folder takes.
+    /// The daemon's one occupancy reader, whose write hold every write that puts a workspace in a
+    /// folder takes.
     pub(crate) fn occupancy(&self) -> &MountOccupancyReader {
         &self.occupancy
     }
@@ -462,17 +464,32 @@ impl WorkspaceService {
 
         // A bind that names no folder roots at the working tree the person attached, never at the
         // repository's main checkout.
-        let admitted = self
-            .admit_on_healthy_mount(&mount, named_folder.unwrap_or(&mount.local_path), None)
-            .await?;
+        let picked = named_folder.unwrap_or(&mount.local_path);
+        let mut admitted = self.admit_on_healthy_mount(&mount, picked, None).await?;
+        // Held until the insert commits, so the cleanup never deletes the checkout under it; a
+        // bind that waited out a deletion there is admitted again, and holds again where its
+        // checkout now is.
+        let _written = loop {
+            let written = self
+                .occupancy
+                .hold_folder_for_write(&admitted.checkout_root)
+                .await
+                .map_err(WorkspaceServiceError::Folder)?;
+            if !written.has_waited {
+                break written;
+            }
+            let readmitted = self.admit_on_healthy_mount(&mount, picked, None).await?;
+            let is_same_checkout = readmitted.checkout_root == admitted.checkout_root;
+            admitted = readmitted;
+            if is_same_checkout {
+                break written;
+            }
+        };
         let bound_root = if named_folder.is_some() {
             &admitted.execution_root
         } else {
             &admitted.checkout_root
         };
-
-        // Held until the insert commits, so the cleanup never deletes the checkout under it.
-        let _landing = self.occupancy.hold_landing(&admitted.checkout_root).await?;
         let workspace_id = new_workspace_id();
         let workflow_run_text = workflow_run_id.map(|workflow_run_id| workflow_run_id.text());
         let insert = WriteStatement {
@@ -839,7 +856,8 @@ fn read_attached_mount(
 }
 
 // The one path column a read selects, row by row.
-fn read_paths(
+/// The paths in the first column of `sql`'s rows. Fails when the rows cannot be read.
+pub(crate) fn read_paths(
     connection: &Connection,
     sql: &str,
     params: &[(&str, &dyn rusqlite::ToSql)],

@@ -63,6 +63,7 @@ use sidekicks_workspace::event_emitter::WorkspaceEventEmitter;
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::turn_snapshot::capture::GitFloorReports;
 use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
+use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use sidekicks_workspace::project::records::ProjectRecords;
@@ -197,6 +198,7 @@ pub(crate) async fn test_purge(
         Arc::new(WorkspaceEventEmitter::new(Arc::clone(&log.service))),
         RepoRootResolver::new(test_git_runner()),
         machine_id.clone(),
+        MountOccupancyReader::new(Arc::clone(&reads)),
     ));
     let (writes, _unread_writes) = mpsc::channel(64);
     let managed_workspaces = Arc::new(ManagedWorkspaceService::new(

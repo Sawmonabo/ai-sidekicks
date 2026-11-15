@@ -43,6 +43,7 @@ use crate::clone::destination::{make_staged_clone, name_staged_clone};
 use crate::clone::requests::CLONE_REQUESTS_STATEMENT_CAPACITY;
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner_with_environment};
+use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::schema::schema_parts;
 use crate::project::list_feed::ProjectListFeed;
 use crate::project::records::{PROJECT_RECORDS_STATEMENT_CAPACITY, ProjectRecords};
@@ -127,6 +128,7 @@ impl Harness {
             Arc::new(WorkspaceEventEmitter::new(Arc::clone(&self.log.service))),
             RepoRootResolver::new(self.git.clone()),
             MachineId::new("machine".to_owned()).expect("the id is short"),
+            MountOccupancyReader::new(Arc::clone(&self.reads)),
         ));
         let records = Arc::new(ProjectRecords::new(
             Arc::clone(&self.reads),

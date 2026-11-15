@@ -164,12 +164,13 @@ impl Fixture {
 
         let reads = Arc::new(DatabaseReadPool::new(database.path(), 64));
         let events = Arc::new(WorkspaceEventEmitter::new(Arc::clone(&event_log)));
+        let occupancy = MountOccupancyReader::new(Arc::clone(&reads));
         let workspaces = Arc::new(WorkspaceService::new(WorkspaceServiceDeps {
             reads: Arc::clone(&reads),
             events: Arc::clone(&events),
             resolver: RepoRootResolver::new(test_git_runner()),
             writer: Arc::clone(&writer),
-            occupancy: MountOccupancyReader::new(Arc::clone(&reads)),
+            occupancy: occupancy.clone(),
         }));
         let mounts = Arc::new(RepoMountService::new(
             Arc::clone(&writer),
@@ -177,6 +178,7 @@ impl Fixture {
             events,
             RepoRootResolver::new(test_git_runner()),
             MachineId::new("machine".to_owned()).expect("the id is short"),
+            occupancy,
         ));
         let (writes_sender, writes) = mpsc::channel(64);
         let managed_workspaces = Arc::new(ManagedWorkspaceService::new(

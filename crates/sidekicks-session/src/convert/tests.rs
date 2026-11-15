@@ -29,6 +29,7 @@ use sidekicks_workspace::execution_root::test_fixture::{
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
 use sidekicks_workspace::git::process::write_link;
+use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use sidekicks_workspace::project::records::ProjectRecords;
 use sidekicks_workspace::project::service::{ProjectService, ProjectServiceDeps};
@@ -106,6 +107,7 @@ impl Fixture {
             Arc::new(WorkspaceEventEmitter::new(Arc::clone(&roots.log.service))),
             RepoRootResolver::new(git.clone()),
             MachineId::new("machine".to_owned()).expect("the id is short"),
+            MountOccupancyReader::new(Arc::clone(&roots.reads)),
         ));
         let changes = Arc::new(SessionChanges::new(
             Arc::clone(&roots.reads),

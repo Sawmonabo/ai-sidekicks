@@ -168,12 +168,17 @@ pub struct ChatFileVersions {
 
 impl ChatFileVersions {
     /// Versions of the writes in the chat folders under `workspaces_folder`, appended through
-    /// `appender`, read through `reads` (a folder's holders among them), stored into `payloads`
-    /// and spooled in `spool_folder`, which must be on the store's volume; each caught-up instant
-    /// is stored through `watermark`.
+    /// `appender`, read through `reads`, a folder's holders read through the daemon's
+    /// `occupancy` reader, stored into `payloads` and spooled in `spool_folder`, which must be on
+    /// the store's volume; each caught-up instant is stored through `watermark`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each argument is a separate daemon service"
+    )]
     pub fn new(
         appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,
+        occupancy: MountOccupancyReader,
         payloads: Arc<PayloadStore>,
         spool_folder: PathBuf,
         workspaces_folder: PathBuf,
@@ -182,10 +187,7 @@ impl ChatFileVersions {
     ) -> Self {
         Self {
             appender,
-            folder_usage: RepoFolderUsage::new(
-                Arc::clone(&reads),
-                MountOccupancyReader::new(Arc::clone(&reads)),
-            ),
+            folder_usage: RepoFolderUsage::new(Arc::clone(&reads), occupancy),
             reads,
             payloads,
             spool_folder,

@@ -5,20 +5,22 @@
 //!
 //! - One read says who stands where, in three scopes: one mount's sessions, which every list and
 //!   count reads; every mount of one repository, which the sweep out of a removed tree reads; and
-//!   every live workspace of every mount, a session's and a workflow run's alike, which the
-//!   retired-tree cleanup reads before it deletes a folder.
-//! - The cleanup's read and its delete are held together: the cleanup holds the folder closing
-//!   before it reads, and every write that puts a workspace in a folder holds that folder landing
-//!   before it checks the closings, so a workspace either is read or is refused.
+//!   every live workspace of every mount, a session's and a workflow run's alike, with every
+//!   attached mount's root, which the retired-tree cleanup reads before it deletes a folder.
+//! - The cleanup's read and its delete are held together: the cleanup holds the folder as one it
+//!   deletes before it reads, and every write that puts a workspace or a mount in a folder holds
+//!   that folder as one written into before it reads the deletions, then waits for any deletion of
+//!   it to end, so a workspace either is read or is written once the folder is gone, decided by
+//!   its own admission.
 
 use std::collections::HashMap;
+use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 use rusqlite::{Connection, OptionalExtension, named_params};
 use sidekicks_contracts::git::shared::GitRefName;
-use sidekicks_contracts::repo::folders::RepoMountOutsideTrustEnvelopeReason;
 use sidekicks_contracts::repo::mount::{RepoMountId, WorkspaceId, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
@@ -30,14 +32,14 @@ use sidekicks_store::database::stored_column::{optional_text_column, text_column
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::worktree::path_holds::{PathHold, PathHolds};
 use crate::git::worktree::rows::live_worktree_state_predicate;
-use crate::repo::errors::RepoRefusal;
 use crate::row_guards::{CHECKOUT_ROOT_METADATA_PATH, COMMON_DIR_METADATA_PATH};
-use crate::service::WorkspaceServiceError;
+use crate::service::{SELECT_ATTACHED_MOUNT_ROOTS_SQL, read_paths};
 use crate::trust_envelope::is_contained_within;
 
 /// The statements the occupancy reader prepares on a pooled connection: one mount's standing
-/// sessions and running sessions, and every mount's standing workspaces.
-pub const MOUNT_OCCUPANCY_STATEMENT_CAPACITY: usize = 3;
+/// sessions and running sessions, every mount's standing workspaces and every attached mount's
+/// root.
+pub const MOUNT_OCCUPANCY_STATEMENT_CAPACITY: usize = 4;
 
 /// The statements [`read_standing_in_repository`] and [`read_standing_folder_of`] prepare on a
 /// pooled connection, which the occupancy reader never prepares.
@@ -98,7 +100,7 @@ pub fn repository_mounts_of(mount: &str) -> String {
 }
 
 // Every live workspace with a folder among those `scope` keeps, oldest first, with its session's
-// recorded branch, the live tree the daemon made at its folder and its mount's root.
+// recorded branch, the live tree the daemon made at its folder, its mount's root and its mount.
 fn standing_workspaces_sql(scope: &str) -> String {
     format!(
         "SELECT standing.id, standing.session_id, standing.folder, s.branch,
@@ -107,7 +109,7 @@ fn standing_workspaces_sql(scope: &str) -> String {
            AND wt.fs_root = standing.folder
            AND {live_worktree}
          LIMIT 1),
-       standing.is_run_owned, mount.canonical_root
+       standing.is_run_owned, mount.canonical_root, standing.repo_mount_id
   FROM (SELECT w.id, w.session_id, w.repo_mount_id, w.created_at,
                w.workflow_run_id IS NOT NULL AS is_run_owned, {folder} AS folder
           FROM workspaces AS w
@@ -129,6 +131,8 @@ pub struct StandingWorkspace {
     pub workspace_id: WorkspaceId,
     /// Its session.
     pub session_id: SessionId,
+    /// Its mount.
+    pub repo_mount_id: RepoMountId,
     /// The folder it stands in, as stored.
     pub folder: PathBuf,
     /// Whether a workflow run owns it rather than its session.
@@ -177,14 +181,21 @@ pub enum OccupancyReadError {
 }
 
 /// Reads who stands in, and who runs in, each folder, and holds the cleanup's read and delete of
-/// a folder together against the writes that put a workspace in one. Its clones share the holds.
+/// a folder together against the writes that put a workspace or a mount in one. Its clones share
+/// the holds, so the daemon builds one and hands clones of it to every owner.
 #[derive(Clone)]
 pub struct MountOccupancyReader {
     reads: Arc<DatabaseReadPool>,
-    // The folders the cleanup is deleting.
-    closing_folders: Arc<PathHolds>,
-    // The folders workspaces are being written into.
-    landing_folders: Arc<PathHolds>,
+    folders_being_deleted: Arc<PathHolds>,
+    folders_being_written_into: Arc<PathHolds>,
+}
+
+/// A write's hold on the folder it puts a workspace or a mount in, kept until the write commits.
+pub(crate) struct FolderWriteHold {
+    _hold: PathHold,
+    /// Whether the write waited for the cleanup to delete a folder at or around its own, so what
+    /// it admitted before is admitted again.
+    pub(crate) has_waited: bool,
 }
 
 // The rows as stored, before their folders are keyed.
@@ -198,8 +209,8 @@ impl MountOccupancyReader {
     pub fn new(reads: Arc<DatabaseReadPool>) -> Self {
         Self {
             reads,
-            closing_folders: Arc::default(),
-            landing_folders: Arc::default(),
+            folders_being_deleted: Arc::default(),
+            folders_being_written_into: Arc::default(),
         }
     }
 
@@ -258,57 +269,79 @@ impl MountOccupancyReader {
     }
 
     /// Whether any live workspace of any mount, a session's or a workflow run's, stands at or
-    /// inside the folder whose key is `folder_key`. Fails as [`MountOccupancyReader::read`] does.
-    pub(crate) async fn is_stood_in(&self, folder_key: &Path) -> Result<bool, OccupancyReadError> {
-        let standing = self
+    /// inside the retired tree stored at `tree_folder` and keyed `tree_key`, or any attached
+    /// mount's root lies there. `keys` holds the folders the pass has resolved so far; a folder
+    /// that cannot be resolved is compared as [`FolderKeys::is_within_tree`] says. Fails with the
+    /// pool's or SQLite's failure.
+    pub(crate) async fn is_stood_in(
+        &self,
+        tree_folder: &Path,
+        tree_key: &Path,
+        keys: &mut FolderKeys,
+    ) -> Result<bool, OccupancyReadError> {
+        let (standing, mount_roots) = self
             .reads
             .read(ReadLength::Short, |connection| {
-                Ok::<_, OccupancyReadError>(read_standing(
-                    connection,
-                    STANDING_EVERYWHERE_SQL.as_str(),
-                    [],
-                )?)
+                Ok::<_, OccupancyReadError>((
+                    read_standing(connection, STANDING_EVERYWHERE_SQL.as_str(), [])?,
+                    read_paths(connection, &SELECT_ATTACHED_MOUNT_ROOTS_SQL, &[])?,
+                ))
             })
             .await?;
-        let mut keys = FolderKeys::default();
-        for workspace in standing {
-            if is_contained_within(&keys.key_of(workspace.folder).await?, folder_key) {
+        let folders = standing
+            .into_iter()
+            .map(|workspace| workspace.folder)
+            .chain(mount_roots);
+        for folder in folders {
+            if keys.is_within_tree(folder, tree_folder, tree_key).await {
                 return Ok(true);
             }
         }
         Ok(false)
     }
 
-    /// Holds the folder whose key is `folder_key` closing until the answer drops, so no workspace
-    /// is written into it or inside it meanwhile; `None`, holding nothing, while one is being
-    /// written there. Taken before the read of who stands there, and dropped once the folder is
-    /// deleted or kept aside.
-    pub(crate) fn hold_closing(&self, folder_key: &Path) -> Option<PathHold> {
-        let closing = self.closing_folders.hold(folder_key);
-        // Held before the landings are read, as a landing is held before it reads the closings,
-        // so of a closing and a landing that cross, at least one sees the other.
-        (!self.landing_folders.is_held_across(folder_key)).then_some(closing)
+    /// Holds the folder whose key is `folder_key` as one the cleanup deletes until the answer
+    /// drops, so a write into it or inside it waits meanwhile; `None`, holding nothing, while a
+    /// workspace or a mount is being written at, around or inside it. Taken before the read of who
+    /// stands there, and handed to the delete or the keep-aside, so it lasts as long as they do.
+    pub(crate) fn hold_for_deletion(&self, folder_key: &Path) -> Option<PathHold> {
+        let deletion = self.folders_being_deleted.hold(folder_key);
+        // Held before the writes are read, as a write is held before it reads the deletions, so
+        // of a deletion and a write that cross, at least one sees the other.
+        (!self.folders_being_written_into.is_held_across(folder_key)).then_some(deletion)
     }
 
-    /// Holds `folder` landing until the answer drops, which the caller keeps until its write of a
-    /// workspace standing there or below it commits. Refuses `repoMount.outsideTrustEnvelope`
-    /// (`worktreeRemoved`) while the cleanup deletes a folder that holds `folder` or lies inside
-    /// it, and fails with `Folder` when `folder` cannot be resolved.
-    pub(crate) async fn hold_landing(
+    /// Holds `folder` as one a workspace or a mount is written into until the answer drops, which
+    /// the caller keeps until its write commits; while the cleanup deletes a folder at or around
+    /// it, waits for that deletion to end, the hold standing. Fails when `folder` cannot be
+    /// resolved.
+    pub(crate) async fn hold_folder_for_write(&self, folder: &Path) -> io::Result<FolderWriteHold> {
+        self.hold_for_write(folder, PathHolds::is_held_within).await
+    }
+
+    /// [`Self::hold_folder_for_write`] for a root that stands for every folder its write moves a
+    /// workspace into inside it, so it also waits out a deletion of a folder inside it.
+    pub(crate) async fn hold_root_for_write(&self, root: &Path) -> io::Result<FolderWriteHold> {
+        self.hold_for_write(root, PathHolds::is_held_across).await
+    }
+
+    async fn hold_for_write(
         &self,
         folder: &Path,
-    ) -> Result<PathHold, WorkspaceServiceError> {
-        let folder_key = canonical_folder_path(folder)
-            .await
-            .map_err(WorkspaceServiceError::Folder)?;
-        let landing = self.landing_folders.hold(&folder_key);
-        if self.closing_folders.is_held_across(&folder_key) {
-            return Err(RepoRefusal::OutsideTrustEnvelope {
-                reason: RepoMountOutsideTrustEnvelopeReason::WorktreeRemoved,
-            }
-            .into());
-        }
-        Ok(landing)
+        is_deleted: fn(&PathHolds, &Path) -> bool,
+    ) -> io::Result<FolderWriteHold> {
+        let folder_key = canonical_folder_path(folder).await?;
+        // Kept through the wait, so a later cleanup of the folder defers rather than deleting it
+        // between the wait's end and the write.
+        let hold = self.folders_being_written_into.hold(&folder_key);
+        let has_waited = self
+            .folders_being_deleted
+            .wait_until_free(|deleted| is_deleted(deleted, &folder_key))
+            .await;
+        Ok(FolderWriteHold {
+            _hold: hold,
+            has_waited,
+        })
     }
 }
 
@@ -353,6 +386,7 @@ fn read_standing(
             Ok(StandingWorkspace {
                 workspace_id: text_column(row, 0, |text| WorkspaceId::new(&text))?,
                 session_id: text_column(row, 1, |text| SessionId::new(&text))?,
+                repo_mount_id: text_column(row, 7, |text| RepoMountId::new(&text))?,
                 folder: PathBuf::from(row.get::<_, String>(2)?),
                 recorded_branch: optional_text_column(row, 3, GitRefName::new)?,
                 worktree_id: optional_text_column(row, 4, |text| WorktreeId::new(&text))?,
@@ -363,21 +397,84 @@ fn read_standing(
         .collect()
 }
 
-// Each stored folder's key, resolved once however many rows name it.
+/// Each stored folder's key, resolved once however many rows name it; the cleanup keeps one set
+/// for a whole pass, so each folder is resolved once across the pass's trees.
 #[derive(Default)]
-struct FolderKeys {
-    by_stored: HashMap<PathBuf, PathBuf>,
+pub(crate) struct FolderKeys {
+    by_stored: HashMap<PathBuf, FolderKey>,
+}
+
+// A stored folder's key, or for one whose resolve failed, the deepest folder of its path that
+// resolves joined with the rest of the path as stored.
+#[derive(Clone)]
+enum FolderKey {
+    Resolved(PathBuf),
+    Unresolved(PathBuf),
 }
 
 impl FolderKeys {
+    // `stored`'s key; fails when it cannot be resolved.
     async fn key_of(&mut self, stored: PathBuf) -> Result<PathBuf, OccupancyReadError> {
-        if let Some(key) = self.by_stored.get(&stored) {
+        if let Some(FolderKey::Resolved(key)) = self.by_stored.get(&stored) {
             return Ok(key.clone());
         }
         let key = canonical_folder_path(&stored)
             .await
             .map_err(OccupancyReadError::Folder)?;
-        self.by_stored.insert(stored, key.clone());
+        self.by_stored
+            .insert(stored, FolderKey::Resolved(key.clone()));
         Ok(key)
     }
+
+    /// Whether the folder stored as `stored` lies at or inside the tree stored at `tree_folder`
+    /// and keyed `tree_key`. One whose resolve fails (a parent the daemon may no longer enter) is
+    /// compared by its stored path and by its nearest key against both, and warned of once.
+    pub(crate) async fn is_within_tree(
+        &mut self,
+        stored: PathBuf,
+        tree_folder: &Path,
+        tree_key: &Path,
+    ) -> bool {
+        let key = if let Some(key) = self.by_stored.get(&stored) {
+            key.clone()
+        } else {
+            let key = lenient_key_of(&stored).await;
+            self.by_stored.insert(stored.clone(), key.clone());
+            key
+        };
+        match key {
+            FolderKey::Resolved(key) => is_contained_within(&key, tree_key),
+            FolderKey::Unresolved(nearest) => {
+                [stored.as_path(), nearest.as_path()].iter().any(|folder| {
+                    is_contained_within(folder, tree_folder)
+                        || is_contained_within(folder, tree_key)
+                })
+            }
+        }
+    }
+}
+
+// `stored`'s key, or where its resolve fails, the key of the deepest folder of its path that
+// resolves joined with the rest, `stored` itself when none does.
+async fn lenient_key_of(stored: &Path) -> FolderKey {
+    let failure = match canonical_folder_path(stored).await {
+        Ok(key) => return FolderKey::Resolved(key),
+        Err(failure) => failure,
+    };
+    tracing::warn!(
+        error = &failure as &(dyn Error + 'static),
+        folder = %stored.display(),
+        "a folder a live workspace or an attached mount stands in could not be resolved; the \
+         cleanup compares it by its path"
+    );
+    for parent in stored.ancestors().skip(1) {
+        // A parent that fails too is passed over for the next one up.
+        if let Ok(key) = canonical_folder_path(parent).await {
+            let rest = stored
+                .strip_prefix(parent)
+                .expect("a path's ancestor is a prefix of it");
+            return FolderKey::Unresolved(key.join(rest));
+        }
+    }
+    FolderKey::Unresolved(stored.to_path_buf())
 }

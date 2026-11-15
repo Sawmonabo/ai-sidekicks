@@ -14,6 +14,7 @@
 //!   missing. A managed mount is never detached.
 
 use std::borrow::Cow;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
@@ -46,6 +47,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError, sqlite_error
 use sidekicks_store::events::session::appender::SessionEventEmitError;
 
 use crate::event_emitter::WorkspaceEventEmitter;
+use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::projector::{HealthProjectionError, RepoMountHealthRow};
 use crate::repo::errors::{RepoRefusal, refuse_distribution};
 use crate::repo::mount::attach_notice::ProjectAttachNotice;
@@ -53,6 +55,7 @@ use crate::repo::mount::health::{MountHealthProbeError, probe_repo_mount_health}
 use crate::repo::root_resolver::RepoRootResolver;
 use crate::row_guards::{COMMON_DIR_METADATA_PATH, ROOT_COMMIT_METADATA_PATH};
 use crate::schema::MountOrigin;
+use crate::service::root_mismatch;
 
 /// The statements the service's reads keep prepared on each read connection.
 pub const REPO_MOUNT_SERVICE_STATEMENT_CAPACITY: usize = 6;
@@ -198,6 +201,9 @@ pub enum RepoMountServiceError {
     /// The health probe and the mount row did not belong together.
     #[error(transparent)]
     HealthProjection(#[from] HealthProjectionError),
+    /// The root an attach holds against the retired-tree cleanup could not be resolved.
+    #[error("the attached root could not be resolved")]
+    Folder(#[source] io::Error),
     /// The detach committed, but appending a `workspace.archived` failed, so the log under-reports
     /// the archived rows; the rows are the truth and a rerun is a no-op.
     #[error(
@@ -308,6 +314,7 @@ pub struct RepoMountService {
     events: Arc<WorkspaceEventEmitter>,
     resolver: RepoRootResolver,
     machine_id: MachineId,
+    occupancy: MountOccupancyReader,
     // Raised once a project's mount is attached, and shared with the re-attach, which raises it
     // too.
     attach_notice: Arc<ProjectAttachNotice>,
@@ -321,13 +328,15 @@ pub struct RepoMountService {
 
 impl RepoMountService {
     /// The mounts of `machine_id`'s daemon, written through `writer`, read through `reads`, roots
-    /// resolved by `resolver` and a detach's archivals appended through `events`.
+    /// resolved by `resolver`, a detach's archivals appended through `events` and each attach held
+    /// against the retired-tree cleanup through the daemon's `occupancy` reader.
     pub fn new(
         writer: Arc<DatabaseWriter>,
         reads: Arc<DatabaseReadPool>,
         events: Arc<WorkspaceEventEmitter>,
         resolver: RepoRootResolver,
         machine_id: MachineId,
+        occupancy: MountOccupancyReader,
     ) -> Self {
         Self {
             writer,
@@ -335,6 +344,7 @@ impl RepoMountService {
             events,
             resolver,
             machine_id,
+            occupancy,
             attach_notice: Arc::default(),
             #[cfg(test)]
             detach_pause: PausePoint::default(),
@@ -374,10 +384,11 @@ impl RepoMountService {
         }));
         Arc::new(Self::new(
             writer,
-            reads,
+            Arc::clone(&reads),
             Arc::new(WorkspaceEventEmitter::new(event_log)),
             resolver,
             MachineId::new("machine".to_owned()).expect("the id is short"),
+            MountOccupancyReader::new(reads),
         ))
     }
 
@@ -424,14 +435,35 @@ impl RepoMountService {
     /// Keeps a resolved target as the mount of `project_id`, in one write after
     /// `project_statements` (the project row a new project needs, written with its mount or not
     /// at all), then raises [`Self::attach_notice`]. Refuses `repoMount.alreadyAttached`
-    /// when the repository was attached since it was resolved; fails with the write's failure
-    /// otherwise.
+    /// when the repository was attached since it was resolved, and, once it waited for the
+    /// retired-tree cleanup to delete a folder holding the root, as the resolver refuses the root
+    /// or `repoMount.rootResolutionFailed` (`rootMismatch`) when it no longer resolves to the
+    /// target; fails with `Folder` when the root cannot be resolved for its hold, and with the
+    /// write's failure otherwise.
     pub(crate) async fn insert_attached_mount(
         &self,
         target: &RepoAttachTarget,
         project_id: ProjectId,
         project_statements: Vec<WriteStatement>,
     ) -> Result<RepoMountAttachResponse, RepoMountServiceError> {
+        // Held until the write commits, so the cleanup never deletes the root under the mount.
+        let written = self
+            .occupancy
+            .hold_folder_for_write(Path::new(target.canonical_root.as_str()))
+            .await
+            .map_err(RepoMountServiceError::Folder)?;
+        // A root the cleanup deleted meanwhile is resolved again, as the attach first resolved it.
+        if written.has_waited {
+            let resolution = self
+                .resolver
+                .resolve_canonical_root(Path::new(target.local_path.as_str()))
+                .await?;
+            if resolution.canonical_root != Path::new(target.canonical_root.as_str())
+                || resolution.common_folder != target.common_folder
+            {
+                return Err(root_mismatch().into());
+            }
+        }
         let repo_mount_id = new_repo_mount_id();
         let insert_index = project_statements.len();
         let mut statements = project_statements;

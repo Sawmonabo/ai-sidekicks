@@ -1,13 +1,22 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::{Connection, params};
-use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountState, WorkspaceState};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::repo::mount::{
+    ExecutionMode, RepoMountId, RepoMountState, WorkspaceState,
+};
+use sidekicks_contracts::repo::workspace::WorkspaceBindRequest;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
+use sidekicks_platforms::{
+    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, is_superuser, make_unreadable, real_path,
+};
 use sidekicks_std::settle_all::SettleFailures;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -20,6 +29,8 @@ use super::{
     RetiredWorktreeKeeper, WorktreeCleanupError, WorktreeCleanupFailure, is_nothing_to_stop,
     stop_file_watch,
 };
+use crate::event_emitter::WorkspaceEventEmitter;
+use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::environment::find_git_executable;
 use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::process::{
@@ -34,6 +45,8 @@ use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
 use crate::git::worktree::test_rows::store_run_inside;
+use crate::repo::root_resolver::RepoRootResolver;
+use crate::service::{WorkspaceService, WorkspaceServiceDeps, WorkspaceServiceError};
 use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 const READ_STATEMENT_CAPACITY: usize = 16;
@@ -105,12 +118,13 @@ fn cleaned_at(connection: &Connection, worktree_id: &WorktreeId) -> Option<Strin
 // unpushed work, its mount, and the service over them, cleaning trees under `worktrees`.
 struct CleanupFixture {
     database: TestDatabase,
-    _log: TestLog,
+    log: TestLog,
     scratch: TempDir,
     git: GitRunner,
     repository: PathBuf,
     worktrees_folder: PathBuf,
     mount: String,
+    occupancy: MountOccupancyReader,
     service: WorktreeService,
 }
 
@@ -144,22 +158,24 @@ impl CleanupFixture {
             database.path(),
             READ_STATEMENT_CAPACITY,
         ));
+        let occupancy = MountOccupancyReader::new(Arc::clone(&reads));
         let service = WorktreeService::new(WorktreeServiceDeps {
             git: git.clone(),
-            reads: Arc::clone(&reads),
+            reads,
             writer: Arc::clone(&log.writer),
             events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service))),
-            occupancy: MountOccupancyReader::new(reads),
+            occupancy: occupancy.clone(),
             worktrees_folder: worktrees_folder.clone(),
         });
         Self {
             database,
-            _log: log,
+            log,
             scratch,
             git,
             repository,
             worktrees_folder,
             mount,
+            occupancy,
             service,
         }
     }
@@ -411,6 +427,122 @@ async fn a_detached_project_s_tree_is_kept_while_a_workspace_of_another_mount_st
         "the tree goes once no workspace stands in it"
     );
     assert!(cleaned_at(&connection, &left).is_some());
+}
+
+// Kills one folder the daemon cannot resolve failing every tree of the pass, and such a folder
+// holding back nothing: a workspace whose stored path lies inside a tree, below a folder the
+// daemon may not enter, defers that tree by its path, and a tree no one stands in is cleaned.
+#[tokio::test]
+async fn a_folder_that_cannot_be_resolved_holds_back_only_the_tree_its_path_lies_in() {
+    // A folder the daemon may not enter cannot be made here.
+    if is_superuser() || CAN_OPEN_INSIDE_UNREADABLE_FOLDER {
+        return;
+    }
+    let fixture = CleanupFixture::new(test_git_runner()).await;
+    let free = fixture.add_tree("free").await;
+    let covered = fixture.add_tree("covered").await;
+    let locked = covered.join("locked");
+    std::fs::create_dir_all(locked.join("inner")).expect("the workspace's folder is made");
+    let connection = fixture.database.reader();
+    let free_id = store_retired_tree(&connection, &fixture.mount, &free);
+    let covered_id = store_retired_tree(&connection, &fixture.mount, &covered);
+    stand_below(&connection, &fixture.mount, &locked.join("inner"));
+    let _unreadable = make_unreadable(&locked).expect("the folder is made unreadable");
+
+    let report = fixture
+        .service
+        .cleanup_pass(&RecordingKeeper::default(), &[], &CancellationToken::new())
+        .await
+        .expect("the folder that does not resolve fails no tree");
+
+    assert_eq!(report.cleaned, [free_id]);
+    assert_eq!(report.deferred, [covered_id]);
+    assert!(!free.exists(), "the tree no one stands in is removed");
+    assert!(
+        covered.exists(),
+        "the tree the workspace's path lies in keeps its folder"
+    );
+}
+
+// Kills a write that meets the cleanup's hold refused with the hold's own `worktreeRemoved`, and
+// one that goes on while the hold stands: a bind on a mount at a tree the cleanup is deleting
+// waits, its own hold standing, until the delete ends, then its admission answers that the folder
+// is gone.
+#[tokio::test]
+async fn a_bind_waits_out_the_cleanup_s_delete_and_is_answered_by_its_admission() {
+    let fixture = CleanupFixture::new(test_git_runner()).await;
+    let tree = real_path(&fixture.add_tree("bound").await).expect("the tree resolves");
+    let tree_key = canonical_folder_path(&tree)
+        .await
+        .expect("the tree's key resolves");
+    let connection = fixture.database.reader();
+    let mount = new_id();
+    for row in project_and_mount_rows(&mount, None) {
+        connection
+            .execute_batch(&row)
+            .expect("the tree's project and mount are stored");
+    }
+    connection
+        .execute(
+            "UPDATE repo_mounts SET canonical_root = ?1, local_path = ?1 WHERE id = ?2",
+            params![tree.to_string_lossy(), mount],
+        )
+        .expect("the mount is attached at the tree");
+    let session_id = new_id();
+    insert_session_row(&connection, &session_id, None, None);
+    let workspaces = WorkspaceService::new(WorkspaceServiceDeps {
+        reads: Arc::new(DatabaseReadPool::new(
+            fixture.database.path(),
+            READ_STATEMENT_CAPACITY,
+        )),
+        events: Arc::new(WorkspaceEventEmitter::new(Arc::clone(&fixture.log.service))),
+        resolver: RepoRootResolver::new(fixture.git.clone()),
+        writer: Arc::clone(&fixture.log.writer),
+        occupancy: fixture.occupancy.clone(),
+    });
+    let deletion = fixture
+        .occupancy
+        .hold_for_deletion(&tree_key)
+        .expect("no workspace is being written into the tree");
+    let request = WorkspaceBindRequest {
+        session_id: SessionId::new(&session_id).expect("a minted id is a session id"),
+        repo_mount_id: RepoMountId::new(&mount).expect("a minted id is a mount id"),
+        execution_mode: ExecutionMode::BoundRoot,
+        directory: None,
+    };
+
+    // Admitted while the tree stands, the bind waits, its own hold on the tree standing.
+    let mut bind = Box::pin(workspaces.bind(&request));
+    loop {
+        tokio::select! {
+            answered = &mut bind => {
+                panic!("the bind waits while the cleanup holds its folder, got {answered:?}")
+            }
+            () = tokio::time::sleep(Duration::from_millis(10)) => {}
+        }
+        if fixture.occupancy.hold_for_deletion(&tree_key).is_none() {
+            break;
+        }
+    }
+    git_in(
+        &fixture.git,
+        &fixture.repository,
+        &["worktree", "remove", "--force", &tree.to_string_lossy()],
+    )
+    .await;
+    drop(deletion);
+
+    let refused = bind
+        .await
+        .expect_err("the bind is refused once its folder is gone");
+    let WorkspaceServiceError::Refused(refusal) = &refused else {
+        panic!("the admission refuses the bind, got {refused:?}");
+    };
+    assert_eq!(refusal.code, RefusalCode::WorkspaceRootUnavailable);
+    let workspaces_stored: i64 = connection
+        .query_row("SELECT count(*) FROM workspaces", [], |row| row.get(0))
+        .expect("the workspaces are counted");
+    assert_eq!(workspaces_stored, 0);
 }
 
 // Kills ending a tree's processes after it is kept aside or deleted, and dropping their hold

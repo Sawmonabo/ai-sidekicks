@@ -112,7 +112,9 @@ interface NewWorktreeSuggestion {
 
 // session.sweptToCheckout payload (Spec-005 §Repo, Workspace, and Worktree Lifecycle). A sweep is
 // not a state transition: it records that this session's working folder is now the repository root
-// because the worktree it was attached to was removed. `worktreeId` names the REMOVED tree, and
+// because the worktree it was attached to was removed. `repoMountId` names the mount whose root the
+// session now works in, its own workspace's mount, which for a session of another mount of the
+// repository is not the removed tree's; `worktreeId` names the REMOVED tree, and
 // `pendingMoveCleared` is present only where the same removal cleared a pending working-folder move
 // that pointed at it — the presence-discriminator idiom, absent rather than `false` — and the same
 // write appends that session's `session.pendingWorkingFolder.changed` with no move waiting. One
