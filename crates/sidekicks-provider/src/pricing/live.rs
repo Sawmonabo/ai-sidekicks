@@ -252,7 +252,9 @@ impl LivePricing {
         }
     }
 
-    async fn read_sign_in_kind(
+    /// The sign-in kind the accounts' reads observed for `account_id`, `None` where none is read
+    /// yet. Fails as no accounts' reads are registered or the read fails.
+    pub(crate) async fn read_sign_in_kind(
         &self,
         account_id: &ProviderAccountId,
     ) -> Result<Option<ProviderAuthMode>, BoxedError> {
@@ -411,7 +413,9 @@ mod tests {
 
     use super::{LivePricing, LiveUsageRow};
     use crate::account::usage_turns::unpriced::{UnpricedRequest, UnpricedUsageKey};
-    use crate::driver::ports::{DriverPorts, HeldRequest, RequestHeldListener};
+    use crate::driver::ports::{
+        DriverPorts, HeldRequest, RequestHeldListener, SessionlessOutcome, SessionlessRequest,
+    };
     use crate::driver::test_registry::fixed_session_id;
     use crate::port::usage_sink::{
         MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
@@ -481,6 +485,7 @@ mod tests {
                         },
                         web_searches: 0,
                         search_context_size: "medium",
+                        published_search_rate: None,
                     }
                 })
                 .collect();
@@ -536,12 +541,35 @@ mod tests {
         ) -> BoxedAnswer<'_, UsageAxisCounts> {
             async { Err("the test keeps no sum".into()) }.boxed()
         }
+
+        fn read_thread_speed_at(
+            &self,
+            _session_id: SessionId,
+            _at: sidekicks_contracts::wire::instant::WireInstant,
+        ) -> BoxedAnswer<'_, Option<String>> {
+            async { Ok(None) }.boxed()
+        }
+
+        fn read_run_at(
+            &self,
+            _session_id: SessionId,
+            _at: sidekicks_contracts::wire::instant::WireInstant,
+        ) -> BoxedAnswer<'_, Option<sidekicks_contracts::run::id::RunId>> {
+            async { Ok(None) }.boxed()
+        }
     }
 
     impl RequestHeldListener for Handed {
         fn request_held(&self, held: HeldRequest) -> BoxedAnswer<'_, ()> {
             lock(&self.held).push(held);
             async { Ok(()) }.boxed()
+        }
+
+        fn sessionless_requests_held(
+            &self,
+            _requests: Vec<SessionlessRequest>,
+        ) -> BoxedAnswer<'_, Vec<SessionlessOutcome>> {
+            unreachable!("the live pricing prices only a session's rows")
         }
     }
 
@@ -597,6 +625,7 @@ mod tests {
                 speed: fact(speed),
                 ..UsageRequestFacts::default()
             },
+            sighting: None,
         };
         let recorded = RecordedUsage {
             event_id: FreeFormText::new(event_id.to_owned()).expect("an event id"),

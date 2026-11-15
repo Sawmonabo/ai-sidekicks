@@ -10,8 +10,9 @@ const POLL_BOUND: Duration = Duration::from_secs(10);
 /// The pause between two readings.
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-/// Reads `read` until `is_reached` holds of its reading and answers that reading. Panics with the
-/// last reading once 10 s pass without it holding.
+/// Reads `read` every 10 ms, which on a paused clock moves it on by that much at each reading,
+/// until `is_reached` holds of its reading, and answers that reading. Panics with the last reading
+/// once 10 s of real time pass without it holding.
 pub(crate) async fn poll_until<Reading: Debug>(
     read: impl Fn() -> Reading,
     is_reached: impl Fn(&Reading) -> bool,

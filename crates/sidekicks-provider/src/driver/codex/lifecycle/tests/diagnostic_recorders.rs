@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use super::{LiveCodexSession, TEST_TURN, wait_until};
+use super::{LiveCodexSession, TEST_TURN};
+use crate::bounded_poll::poll_until;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::session::test_fixture::TEST_THREAD;
 use crate::port::raw_provider_messages::RawProviderMessages;
@@ -55,7 +56,7 @@ async fn codexs_messages_and_a_finished_calls_trace_are_recorded() {
     });
 
     session.scripted.script.send(&frame);
-    wait_until(|| !tool_traces.traces().is_empty()).await;
+    poll_until(|| tool_traces.traces().len(), |traced| *traced > 0).await;
 
     assert!(
         raw_messages

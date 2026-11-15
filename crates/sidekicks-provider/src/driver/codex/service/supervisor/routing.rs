@@ -486,7 +486,7 @@ impl CodexService {
         let routing = self.lock_routing();
         let is_queued = routing
             .session(&session_id)
-            .is_some_and(|session| session.push(item));
+            .is_some_and(|session| session.push(item).is_ok());
         self.register_routed_thread(&routing, thread_id, session_id);
         is_queued
     }
@@ -504,7 +504,7 @@ impl CodexService {
         self.lock_threads().release(thread_id);
         routing
             .session(session_id)
-            .is_some_and(|session| session.push(item))
+            .is_some_and(|session| session.push(item).is_ok())
     }
 
     // A frame of a conversation a session holds, queued under the caller's `routing` lock. One
@@ -549,7 +549,10 @@ fn push_frame(
     let Some(session) = routing.session(session_id) else {
         return;
     };
-    if !session.push(CodexSessionInbound::Frame { method, params }) {
+    if session
+        .push(CodexSessionInbound::Frame { method, params })
+        .is_err()
+    {
         tracing::debug!(
             session_id = %session_id,
             "a Codex frame reached a session whose task has ended"

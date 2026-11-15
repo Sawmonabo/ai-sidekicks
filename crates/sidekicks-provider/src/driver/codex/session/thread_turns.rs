@@ -72,29 +72,16 @@ pub(crate) struct CodexSettledTurn {
     pub(crate) made_request: bool,
 }
 
-/// A live turn a frame ended.
-pub(crate) enum CodexEndedTurn {
-    /// Its `turn/completed` arrived.
-    Settled(CodexSettledTurn),
-    /// A `turn/started` on its thread replaced it before it settled.
-    Replaced {
-        /// The thread it ran on.
-        thread_id: String,
-        /// Its id.
-        turn_id: String,
-    },
-}
-
 impl CodexThreadTurns {
     /// Reads a frame arriving at `now`: a `turn/started` naming a thread and a turn opens that
-    /// thread's live turn, answering the one it replaced that never settled; a `turn/completed`
-    /// naming the thread's live turn answers it settled. Any other frame answers `None`.
+    /// thread's live turn, in place of any that never settled; a `turn/completed` naming the
+    /// thread's live turn answers it settled. Any other frame answers `None`.
     pub(crate) fn observe(
         &mut self,
         method: &str,
         params: &RawValue,
         now: Instant,
-    ) -> Option<CodexEndedTurn> {
+    ) -> Option<CodexSettledTurn> {
         let is_start = match method {
             CODEX_TURN_STARTED_METHOD => true,
             CODEX_TURN_COMPLETED_METHOD => false,
@@ -105,21 +92,15 @@ impl CodexThreadTurns {
         let turn_id = frame.turn?.id.filter(|turn_id| !turn_id.is_empty())?;
         if is_start {
             self.last_settled.remove(&thread_id);
-            let replaced = self.live.insert(
-                thread_id.clone(),
+            self.live.insert(
+                thread_id,
                 CodexLiveTurn {
-                    turn_id: turn_id.clone(),
+                    turn_id,
                     started_at: now,
                     made_request: false,
                 },
             );
-            // A start repeated for the live turn ends nothing.
-            return replaced
-                .filter(|replaced| replaced.turn_id != turn_id)
-                .map(|replaced| CodexEndedTurn::Replaced {
-                    thread_id,
-                    turn_id: replaced.turn_id,
-                });
+            return None;
         }
         if self
             .live
@@ -148,12 +129,12 @@ impl CodexThreadTurns {
                 is_handed_off: false,
             },
         );
-        Some(CodexEndedTurn::Settled(CodexSettledTurn {
+        Some(CodexSettledTurn {
             thread_id,
             turn_id,
             started_at: settled.started_at,
             made_request: settled.made_request,
-        }))
+        })
     }
 
     /// The turn live on `thread_id`, `None` where none is.
@@ -169,11 +150,11 @@ impl CodexThreadTurns {
             .map(|(thread_id, live)| (thread_id, live.turn_id))
     }
 
-    /// Ends `thread_id`'s live turn, whose completion will never come, answering its id, and lets
-    /// go the turn that settled last there, since the thread is let go.
-    pub(crate) fn end_live_turn(&mut self, thread_id: &str) -> Option<String> {
+    /// Ends `thread_id`'s live turn, whose completion will never come, and lets go the turn that
+    /// settled last there, since the thread is let go.
+    pub(crate) fn end_live_turn(&mut self, thread_id: &str) {
         self.last_settled.remove(thread_id);
-        self.live.remove(thread_id).map(|live| live.turn_id)
+        self.live.remove(thread_id);
     }
 
     /// A request was metered on `thread_id`: its live turn made a model request, else the turn
@@ -225,7 +206,7 @@ mod tests {
     use serde_json::value::to_raw_value;
     use tokio::time::Instant;
 
-    use super::{CodexEndedTurn, CodexThreadTurns, SETTLED_TURNS_KEPT};
+    use super::{CodexThreadTurns, SETTLED_TURNS_KEPT};
     use crate::driver::codex::event_normalizer::{
         CODEX_TURN_COMPLETED_METHOD, CODEX_TURN_STARTED_METHOD,
     };
@@ -261,11 +242,9 @@ mod tests {
                 .observe(CODEX_TURN_STARTED_METHOD, &params, now)
                 .is_none()
         );
-        let Some(CodexEndedTurn::Settled(settled)) =
-            turns.observe(CODEX_TURN_COMPLETED_METHOD, &params, now)
-        else {
-            panic!("the live turn settles");
-        };
+        let settled = turns
+            .observe(CODEX_TURN_COMPLETED_METHOD, &params, now)
+            .expect("the live turn settles");
         assert!(!settled.made_request);
         let armed = match release {
             Release::WithTheCompletion => {

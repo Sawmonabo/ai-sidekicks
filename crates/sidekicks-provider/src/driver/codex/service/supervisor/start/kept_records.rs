@@ -10,7 +10,9 @@
 //! record still keeps that none of its live services holds. The erase of the daemon's data, with
 //! no daemon running, ends every service a record names, a draining one too, and answers every
 //! failure rather than logging it. Ending the turns a restart kept only reads where a kept service
-//! listens.
+//! listens. A record that does not read is settled, its service asked to drain and the record
+//! removed, and reads as none to every start; the daemon's stop and the erase answer it as a
+//! failure, the stop leaving it for the next start.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -26,7 +28,7 @@ use crate::driver::codex::service::process::{
 };
 use crate::driver::codex::service::record::{
     KeptLaunchTelemetry, LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
-    one_recorded_file_per_folder,
+    UnreadableServiceRecord, one_recorded_file_per_folder,
 };
 use crate::driver::codex::service::socket_link::{
     clear_socket_link_of, is_listening, restore_socket_link,
@@ -37,14 +39,20 @@ use crate::driver::codex::service::supervisor::own_record::{
     live_record_files, retire_last_process_record, socket_record_file,
 };
 use crate::driver::codex::service::supervisor::runner::{SERVICE_STOP_GRACE, stop_grace_by};
+use crate::driver::codex::service::supervisor::start::unreadable_record::{
+    settle_record_read, settle_unreadable_record,
+};
 use crate::driver::codex::service::supervisor::start::{
     StartFailure, start_failed, take_start_lock,
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::daemon_stop::run_until;
 
-// One record kept for the folder, held under the folder's lock, with what it keeps.
-type KeptRecord = (Arc<LockedServiceRecord>, LastingServiceRecord);
+// One record file kept for the folder, held under the folder's lock, with what its read answered.
+type KeptRead = (
+    Arc<LockedServiceRecord>,
+    io::Result<Option<LastingServiceRecord>>,
+);
 
 /// What a home service's start does once it settled the folder's records.
 pub(super) enum KeptRecordsOutcome {
@@ -104,9 +112,11 @@ pub(in super::super) async fn on_record<Answer: Send + 'static>(
         .map_err(io::Error::other)?
 }
 
-// The lasting service `record` names while it still runs, read from the process table on the
-// blocking pool; `None` once it has ended. Fails when the process table cannot be read.
-async fn repin(record: ProcessRecord) -> Result<Option<LastingCodexService>, StartFailure> {
+/// The lasting service `record` names while it still runs, read from the process table on the
+/// blocking pool; `None` once it has ended. Fails when the process table cannot be read.
+pub(super) async fn repin(
+    record: ProcessRecord,
+) -> Result<Option<LastingCodexService>, StartFailure> {
     tokio::task::spawn_blocking(move || repin_lasting_codex_service(record))
         .await
         .map_err(io::Error::other)
@@ -255,8 +265,8 @@ async fn end_recorded_service(
     }
 }
 
-// Removes the record `locked` holds. Fails as the removal does.
-async fn remove_record(locked: &Arc<LockedServiceRecord>) -> Result<(), StartFailure> {
+/// Removes the record `locked` holds. Fails as the removal does.
+pub(super) async fn remove_record(locked: &Arc<LockedServiceRecord>) -> Result<(), StartFailure> {
     on_record(locked, LockedServiceRecord::remove)
         .await
         .map_err(|error| start_failed("The Codex service's record could not be removed.", error))
@@ -307,7 +317,7 @@ pub(crate) async fn read_running_kept_service(
             start_failed("The Codex service's record could not be named.", error)
         })?;
         let locked = lock_record(record_file).await?;
-        let Some(record) = read_record(&locked).await? else {
+        let Some(record) = read_record_untouched(&locked).await? else {
             return Ok(None);
         };
         let Some(physical_socket) = record.physical_socket else {
@@ -455,7 +465,7 @@ async fn stop_kept_record(
     locked: &Arc<LockedServiceRecord>,
     stop: KeptServicesStop,
 ) -> Vec<CodexError> {
-    let record = match read_record(locked).await {
+    let record = match read_record_untouched(locked).await {
         Ok(Some(record)) => record,
         Ok(None) => return Vec::new(),
         Err(failure) => return vec![failure.error],
@@ -494,37 +504,45 @@ pub(crate) fn report_kept_service_unstopped(error: &(dyn std::error::Error + 'st
     );
 }
 
-// Every record kept for the folder's services under the start's own hold `own`: its own first,
-// then every other, each under the same hold. Fails as a record's read fails.
-async fn read_kept_records(
-    own: &Arc<LockedServiceRecord>,
-) -> Result<Vec<KeptRecord>, StartFailure> {
+// The read of every record file kept for the folder's services under the start's own hold `own`:
+// its own first, then every other, each under the same hold. Fails as the folder's listing fails.
+async fn read_kept_records(own: &Arc<LockedServiceRecord>) -> Result<Vec<KeptRead>, StartFailure> {
     let held = Arc::clone(own);
     tokio::task::spawn_blocking(move || {
-        let mut kept = Vec::new();
-        if let Some(record) = held.read()? {
-            kept.push((Arc::clone(&held), record));
-        }
+        let mut reads = vec![(Arc::clone(&held), held.read())];
         for other in held.others()? {
-            if let Some(record) = other.read()? {
-                kept.push((Arc::new(other), record));
-            }
+            let read = other.read();
+            reads.push((Arc::new(other), read));
         }
-        Ok::<_, io::Error>(kept)
+        Ok::<_, io::Error>(reads)
     })
     .await
     .map_err(io::Error::other)
-    .and_then(|kept| kept)
+    .and_then(|reads| reads)
     .map_err(|error| start_failed("The Codex services' records could not be read.", error))
 }
 
-// The record `locked` holds, `None` when none is kept.
+// The record `locked` holds, `None` when none is kept or it does not read, which is settled.
 async fn read_record(
+    locked: &Arc<LockedServiceRecord>,
+) -> Result<Option<LastingServiceRecord>, StartFailure> {
+    let read = on_record(locked, LockedServiceRecord::read).await;
+    settle_record_read(locked, read).await
+}
+
+// The record `locked` holds, `None` when none is kept, read touching nothing. Fails as the read
+// does, for a record that does not read too.
+async fn read_record_untouched(
     locked: &Arc<LockedServiceRecord>,
 ) -> Result<Option<LastingServiceRecord>, StartFailure> {
     on_record(locked, LockedServiceRecord::read)
         .await
-        .map_err(|error| start_failed("The Codex service's record could not be read.", error))
+        .map_err(record_read_failed)
+}
+
+/// The failure of a record's read that `error` ended.
+pub(super) fn record_read_failed(error: io::Error) -> StartFailure {
+    start_failed("The Codex service's record could not be read.", error)
 }
 
 // The socket a running record must be recorded on to hold the home's link, whose target is
@@ -550,12 +568,13 @@ fn find_link_holder<'record>(
 }
 
 /// The first start of the home's service settles every record its folder keeps, under the start's
-/// own hold `locked`, the home socket's record: one whose service ended is retired; the running
-/// service that holds the home's link is joined, or with none, the link is pointed at a running
-/// one not draining and that one is joined; every other running one drains. With none joined, a
-/// launch past the drains on the home's own socket or on the socket the link reaches is settled
-/// by [`settle_launch_blocking_drains`]. Fails as a record's read, re-pin, retire or drain fails,
-/// as the link's read or move fails, and past `deadline`.
+/// own hold `locked`, the home socket's record: one that does not read is settled, and the service
+/// it still names drains; one whose service ended is retired; the running service that holds the
+/// home's link is joined, or with none, the link is pointed at a running one not draining and that
+/// one is joined; every other running one drains. With none joined, a launch past the drains on
+/// the home's own socket or on the socket the link reaches is settled by
+/// [`settle_launch_blocking_drains`]. Fails as a record's read, re-pin, retire or drain fails, as
+/// the link's read or move fails, and past `deadline`.
 pub(super) async fn reconcile_kept_records(
     service: &CodexService,
     locked: &Arc<LockedServiceRecord>,
@@ -563,7 +582,24 @@ pub(super) async fn reconcile_kept_records(
 ) -> Result<KeptRecordsOutcome, StartFailure> {
     let mut running = Vec::new();
     let mut ended_services = Vec::new();
-    for (kept_locked, record) in read_kept_records(locked).await? {
+    for (kept_locked, read) in read_kept_records(locked).await? {
+        let record = match read {
+            Ok(Some(record)) => record,
+            Ok(None) => continue,
+            Err(error) if UnreadableServiceRecord::is_cause_of(&error) => {
+                let unread =
+                    settle_unreadable_record(&kept_locked, &error, service.socket_path()).await?;
+                if let Some((lasting, record)) = unread {
+                    running.push(RunningRecord {
+                        locked: kept_locked,
+                        record,
+                        lasting,
+                    });
+                }
+                continue;
+            }
+            Err(error) => return Err(record_read_failed(error)),
+        };
         if let Some(lasting) = repin(record.process.clone()).await? {
             running.push(RunningRecord {
                 locked: kept_locked,
@@ -810,57 +846,4 @@ async fn wait_for_drain_end(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::{Path, PathBuf};
-
-    use rstest::rstest;
-    use sidekicks_platforms::ProcessRecord;
-
-    use super::{find_holder_socket, find_link_holder};
-    use crate::driver::codex::service::record::LastingServiceRecord;
-
-    const HOME: &str = "/home/app-server-control/app-server-control.sock";
-    const OWN: &str = "/sockets/own";
-
-    // A record of a running service recorded on `socket`, draining when `is_draining`.
-    fn recorded(socket: &str, is_draining: bool) -> LastingServiceRecord {
-        let process: ProcessRecord =
-            serde_json::from_str(r#"{"id":1,"start":1,"boot":"b"}"#).expect("the record reads");
-        LastingServiceRecord {
-            process,
-            home_socket: PathBuf::from(HOME),
-            physical_socket: Some(PathBuf::from(socket)),
-            is_draining,
-            telemetry: None,
-        }
-    }
-
-    // Fails when the holder is read from the link alone, which on a system with no link, where
-    // the home's path is the socket itself, never finds the running service on it, so a daemon's
-    // restart drains it instead of joining it; or when a draining record holds the link.
-    #[rstest]
-    #[case::the_link_names_the_service(Some(OWN), true, &[(HOME, false), (OWN, false)], Some(1))]
-    #[case::no_link_where_links_are_made(None, true, &[(HOME, false)], None)]
-    #[case::no_link_where_the_path_is_the_socket(None, false, &[(HOME, false)], Some(0))]
-    #[case::the_service_on_the_path_drains(None, false, &[(HOME, true)], None)]
-    #[case::the_service_the_link_names_drains(Some(OWN), true, &[(HOME, false), (OWN, true)], None)]
-    fn the_link_holder_is_the_running_service_the_link_or_the_path_reaches(
-        #[case] link_target: Option<&str>,
-        #[case] can_link_a_socket: bool,
-        #[case] records: &[(&str, bool)],
-        #[case] holder: Option<usize>,
-    ) {
-        let records: Vec<LastingServiceRecord> = records
-            .iter()
-            .map(|(socket, is_draining)| recorded(socket, *is_draining))
-            .collect();
-
-        let holder_socket = find_holder_socket(
-            link_target.map(PathBuf::from),
-            Path::new(HOME),
-            can_link_a_socket,
-        );
-
-        assert_eq!(find_link_holder(&records, holder_socket.as_deref()), holder);
-    }
-}
+mod tests;

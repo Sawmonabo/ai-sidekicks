@@ -5,10 +5,15 @@ use std::sync::Arc;
 
 use tokio::sync::oneshot;
 
-use super::{EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies};
+use super::{
+    EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies, ProjectionError,
+    ProjectionStatements,
+};
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::statement::WriteStatement;
 use crate::database::writer::test_file::TestDatabase;
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WritesHeldError};
+use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::events::session::followers::SessionEventFollowers;
 
 /// A test's event log: the service, the writer it appends through and the followers it publishes
@@ -37,6 +42,34 @@ pub async fn open_log(
 
 /// The event log on `database`, its writer opened with `options`.
 pub async fn open_log_with(database: &TestDatabase, options: DatabaseWriterOptions) -> TestLog {
+    open_log_projecting(database, options, None).await
+}
+
+/// The event log on `database` whose appends each carry `projection_statements`' statements for
+/// the event in its own write, as the daemon's projections do, each committed as it comes.
+pub async fn open_projected_log(
+    database: &TestDatabase,
+    projection_statements: impl Fn(
+        &UnsequencedEventEnvelope,
+    ) -> Result<Vec<WriteStatement>, ProjectionError>
+    + Send
+    + Sync
+    + 'static,
+) -> TestLog {
+    let projection_statements: Box<ProjectionStatements> = Box::new(projection_statements);
+    open_log_projecting(
+        database,
+        DatabaseWriterOptions::default(),
+        Some(projection_statements),
+    )
+    .await
+}
+
+async fn open_log_projecting(
+    database: &TestDatabase,
+    options: DatabaseWriterOptions,
+    projection_statements: Option<Box<ProjectionStatements>>,
+) -> TestLog {
     let writer = Arc::new(
         DatabaseWriter::open(database.opener(), options)
             .await
@@ -50,7 +83,7 @@ pub async fn open_log_with(database: &TestDatabase, options: DatabaseWriterOptio
             EVENT_LOG_STATEMENT_CAPACITY,
         )),
         followers: Arc::clone(&followers),
-        projection_statements: None,
+        projection_statements,
         refuse_session_write: None,
         read_damaged_from_sequence: None,
     }));

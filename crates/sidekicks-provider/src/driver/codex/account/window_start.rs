@@ -1,15 +1,18 @@
 //! Codex's smallest turn on an account: one ephemeral `codex exec` of the account's own home on
 //! Codex's small model at low effort, in an empty folder of its own, every feature, tool and MCP
 //! server off, as the title pass runs its throwaway conversation. It starts the account's closed
-//! usage windows; its token count is the turn's spend.
+//! usage windows; its spend is each request its export to the daemon stated, at that request's
+//! own model and tier, or, where it exported none, its printed token count.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use serde_json::Value;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 
 use crate::driver::ProviderAccountFolders;
 use crate::driver::codex::DESCRIPTOR;
@@ -24,12 +27,12 @@ use crate::driver::codex::lifecycle::naming::{
 };
 use crate::driver::codex::service::command::run_codex_command;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
-use crate::driver::codex::service::registry::home_exec_switches;
 use crate::driver::codex::service::supervisor::start::compose_codex_native_launch;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::account::{ProviderWindowTurnLegs, WindowTurnAnswer};
+use crate::driver::codex::telemetry::exec_export::{CodexExecExport, compose_exec_telemetry};
+use crate::driver::contract::account::{ProviderWindowTurnLegs, WindowTurnAnswer, WindowTurnSpend};
 use crate::driver::contract::error::DriverError;
-use crate::usage_delta_accountant::compose_one_turn_spend;
+use crate::usage_delta_accountant::{UsageAxisCounts, compose_one_turn_spend};
 
 /// The one line the turn sends.
 const CODEX_WINDOW_TURN_LINE: &str = "ok";
@@ -61,8 +64,11 @@ impl ProviderWindowTurnLegs for CodexAccountLegs {
 }
 
 // Runs the turn in `folders`' Codex home and no other, and answers its spend, or the refusal of a
-// turn Codex reported failed. Fails as the program cannot be resolved, the servers cannot be
-// listed, the folder cannot be made, the command fails, or it reports no turn's end.
+// turn Codex reported failed. Any response its export to the daemon stated is its spend whatever
+// its exit; with none stated, its printed end decides, since a clean exit flushed every record
+// that reached the daemon and nothing it prints is counted twice. Fails as the program cannot be
+// resolved, the servers cannot be listed, the folder cannot be made, the token cannot be minted,
+// the command fails having exported nothing, or it reports no turn's end.
 async fn start_codex_window(
     legs: &CodexAccountLegs,
     provider_account_id: ProviderAccountId,
@@ -71,7 +77,7 @@ async fn start_codex_window(
     let dependencies = &legs.dependencies;
     let home = CodexServiceHome {
         codex_home: folders.configuration_folder,
-        kind: CodexHomeKind::Account(provider_account_id),
+        kind: CodexHomeKind::Account(provider_account_id.clone()),
     };
     let executable = dependencies.program.resolve(&home).await?;
     let server_names = list_mcp_server_names(
@@ -88,7 +94,17 @@ async fn start_codex_window(
     ];
     overrides
         .extend(small_model.map(|(key, value)| (key.to_owned(), Value::String(value.to_owned()))));
-    let mut arguments = home_exec_switches(&home.kind);
+    let telemetry = compose_exec_telemetry(
+        &dependencies.exports,
+        &home.kind,
+        dependencies.telemetry_target.port().map(Arc::as_ref),
+        &provider_account_id,
+    )
+    .map_err(|error| CodexError::Transport {
+        detail: "The telemetry token of Codex's window-start turn could not be minted.".to_owned(),
+        cause: Some(Box::new(error)),
+    })?;
+    let mut arguments = telemetry.exec_switches(&home.kind);
     arguments.extend(write_exec_overrides(overrides));
     arguments.extend(CODEX_WINDOW_TURN_ARGUMENTS.map(str::to_owned));
     let folder = tempfile::tempdir().map_err(|error| CodexError::Transport {
@@ -99,19 +115,34 @@ async fn start_codex_window(
         .await?
         .launch;
     launch.working_folder = folder.path().to_owned();
-    let printed = run_codex_command(&dependencies.spawner, launch, CODEX_WINDOW_TURN_DEADLINE)
-        .await
-        .map_err(|error| CodexError::Transport {
-            detail: "Codex's window-start turn did not run.".to_owned(),
-            cause: Some(Box::new(error)),
-        })?;
+    let export = telemetry.launched(&mut launch.environment);
+    let ran = run_codex_command(&dependencies.spawner, launch, CODEX_WINDOW_TURN_DEADLINE).await;
+    let exported = export
+        .as_ref()
+        .map(CodexExecExport::take)
+        .unwrap_or_default();
+    if !exported.is_empty() {
+        return exported
+            .iter()
+            .map(|response| {
+                compose_spend(
+                    Some(response.model_id.clone()),
+                    response.service_tier.clone(),
+                    response.counts,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(WindowTurnAnswer::Spent);
+    }
+    let printed = ran.map_err(|error| CodexError::Transport {
+        detail: "Codex's window-start turn did not run.".to_owned(),
+        cause: Some(Box::new(error)),
+    })?;
     match read_exec_turn(&printed) {
+        // No event states the tier, so the turn is at the standard one.
         Some(ExecTurnEnd::Completed { counts, .. }) => {
             let model_id = FreeFormText::new(CODEX_SMALL_MODEL.to_owned()).ok();
-            let past_range = "Codex's window-start counts are past the wire's range";
-            compose_one_turn_spend(DESCRIPTOR.provider_id(), model_id, counts)
-                .map(WindowTurnAnswer::Spent)
-                .ok_or_else(|| DriverError::Internal(past_range.into()))
+            compose_spend(model_id, None, counts).map(|spend| WindowTurnAnswer::Spent(vec![spend]))
         }
         Some(ExecTurnEnd::Failed) => Ok(WindowTurnAnswer::Refused),
         None => Err(CodexError::Transport {
@@ -120,6 +151,18 @@ async fn start_codex_window(
         }
         .into()),
     }
+}
+
+// One request's spend of `counts` on `model_id` at `speed`. Fails where a count is past the
+// wire's range.
+fn compose_spend(
+    model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    speed: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    counts: UsageAxisCounts,
+) -> Result<WindowTurnSpend, DriverError> {
+    let past_range = "Codex's window-start counts are past the wire's range";
+    compose_one_turn_spend(DESCRIPTOR.provider_id(), model_id, speed, counts)
+        .ok_or_else(|| DriverError::Internal(past_range.into()))
 }
 
 #[cfg(test)]

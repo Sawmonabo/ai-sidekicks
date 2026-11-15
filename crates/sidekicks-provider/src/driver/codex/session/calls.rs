@@ -313,7 +313,7 @@ pub(crate) async fn ask_codex_session<Answer>(
         ),
         cause: None,
     };
-    if !inbound.push(compose(reply)) {
+    if inbound.push(compose(reply)).is_err() {
         return Err(let_go());
     }
     replied.await.map_err(|_dropped| let_go())

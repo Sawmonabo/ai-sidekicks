@@ -10,30 +10,35 @@ use rstest::rstest;
 use serde_json::json;
 use serde_json::value::to_raw_value;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use tokio::sync::watch;
 use tokio::time::Instant;
+use tokio_util::task::TaskTracker;
 
 use super::{CodexExportTag, CodexExports};
 use crate::bounded_poll::poll_until;
 use crate::driver::codex::event_normalizer::{
     CODEX_TURN_COMPLETED_METHOD, CODEX_TURN_STARTED_METHOD,
 };
+use crate::driver::codex::pricing::compose_codex_live_pricing;
 use crate::driver::codex::service::supervisor::CodexServiceId;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_account_service_for, start_scripted_codex_service,
 };
 use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
-use crate::driver::codex::session::thread_turns::{CodexEndedTurn, CodexThreadTurns};
+use crate::driver::codex::session::thread_turns::CodexThreadTurns;
 use crate::driver::codex::telemetry::completed_response::tests::{
     codex_record, completed_response_attributes,
 };
-use crate::driver::codex::telemetry::held_responses::{
+use crate::driver::codex::telemetry::exported_response::{
     CodexExportedResponse, CodexOffStreamPlacement,
 };
 use crate::driver::diagnostics::RecordedEvents;
+use crate::driver::ports::DriverPorts;
+use crate::driver::test_registry::new_session_id;
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader as _};
 use crate::usage_delta_accountant::UsageAxisCounts;
 
@@ -67,18 +72,26 @@ fn settle_turn(
     if makes_request {
         turns.request_made(THREAD);
     }
-    let Some(CodexEndedTurn::Settled(settled)) =
-        turns.observe(CODEX_TURN_COMPLETED_METHOD, &params, Instant::now())
-    else {
-        panic!("the live turn settles");
-    };
-    exports.turn_settled(service_id, settled.made_request, settled.started_at);
+    let settled = turns
+        .observe(CODEX_TURN_COMPLETED_METHOD, &params, Instant::now())
+        .expect("the live turn settles");
+    exports.turn_settled(
+        service_id,
+        new_session_id(),
+        settled.made_request,
+        settled.started_at,
+    );
 }
 
 /// A log export whose one resource carries `tag`, as Codex's SDK reads it from the launch, and
 /// holds `records`.
 pub(crate) fn export_tagged(tag: &CodexExportTag, records: Vec<LogRecord>) -> TelemetryExport {
-    let attributes = tag.resource_attributes();
+    export_carrying(&tag.resource_attributes(), records)
+}
+
+/// A log export whose one resource carries `attributes`, a process's `OTEL_RESOURCE_ATTRIBUTES`
+/// holding one pair, and holds `records`.
+pub(crate) fn export_carrying(attributes: &str, records: Vec<LogRecord>) -> TelemetryExport {
     let (key, value) = attributes.split_once('=').expect("the tag is a pair");
     TelemetryExport::Logs(ExportLogsServiceRequest {
         resource_logs: vec![ResourceLogs {
@@ -114,7 +127,12 @@ async fn a_launch_holds_one_export_check_only_while_request_turns_wait_for_an_ex
         None,
         watch::channel(0).1,
     ));
-    let exports = CodexExports::new(Arc::clone(&scheduler));
+    let exports = CodexExports::new(
+        Arc::clone(&scheduler),
+        Arc::new(PortRegistration::new("request held")),
+        compose_codex_live_pricing(&DriverPorts::new()),
+        TaskTracker::new(),
+    );
     let scripted = start_scripted_codex_service();
     let service_id = scripted.service.id();
     let mut turns = CodexThreadTurns::default();
@@ -191,16 +209,26 @@ impl TwoLaunches {
             None,
             watch::channel(0).1,
         ));
-        let exports = Arc::new(CodexExports::new(Arc::clone(&scheduler)));
+        let exports = Arc::new(CodexExports::new(
+            Arc::clone(&scheduler),
+            Arc::new(PortRegistration::new("request held")),
+            compose_codex_live_pricing(&DriverPorts::new()),
+            TaskTracker::new(),
+        ));
         let drain = exports
             .take_drain()
             .expect("the register's drain is untaken");
-        tokio::spawn(drain.run(tokio_util::task::TaskTracker::new()));
+        tokio::spawn(drain.run(TaskTracker::new()));
         let a = start_scripted_account_service_for(launch_a_account());
         let b_session = TestCodexSession::start_on(start_scripted_codex_service()).await;
         let tag_a = exports.launched(&a.service);
         let tag_b = exports.launched(&b_session.scripted.service);
-        exports.turn_settled(b_session.scripted.service.id(), true, Instant::now());
+        exports.turn_settled(
+            b_session.scripted.service.id(),
+            b_session.task.record.session_id,
+            true,
+            Instant::now(),
+        );
         assert_eq!(export_checks(&scheduler), 1);
         Self {
             scheduler,
@@ -212,14 +240,16 @@ impl TwoLaunches {
         }
     }
 
-    // The next completed response B's session's queue takes, past every other item.
+    // The first completed response of the next hand-over B's session's queue takes, past every
+    // other item.
     async fn next_exported(&mut self) -> CodexExportedResponse {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                if let CodexSessionInbound::ExportedResponse(exported) =
+                if let CodexSessionInbound::ExportedResponses(exported) =
                     self.b_session.task.next_item().await
+                    && let Some(first) = exported.into_iter().next()
                 {
-                    return exported;
+                    return first;
                 }
             }
         })
@@ -236,17 +266,19 @@ enum ForeignRecord {
     OtherLaunchThread,
 }
 
-// Each foreign record is counted once and reaches no session: a response B's own token posts
-// next is the first B's session takes. Killed by the launch found by the resource's tag alone and
-// by a forged tag only logged (the foreign response reaches B's session first), and by a thread
-// of another launch's service joined onto A's own placement (the drain walks A's unanswered
-// service and the count never comes).
+// A foreign record reaches no session: a forged tag is refused and counted once, and a response
+// on a thread B streams that A never streamed is charged to A's account outside any session,
+// refused nowhere; a response B's own token posts next is the first B's session takes, which the
+// drain routes after A's. Killed by the launch found by the resource's tag alone, by a forged tag
+// only logged, and by a thread of another launch's service filed on that launch's session (the
+// foreign response reaches B's session first).
 #[rstest]
-#[case::other_launch_tag(ForeignRecord::OtherLaunchTag)]
-#[case::other_launch_thread(ForeignRecord::OtherLaunchThread)]
+#[case::other_launch_tag(ForeignRecord::OtherLaunchTag, 1)]
+#[case::other_launch_thread(ForeignRecord::OtherLaunchThread, 0)]
 #[tokio::test]
-async fn a_record_under_one_launch_s_token_naming_another_launch_is_dropped_and_counted(
+async fn a_record_under_one_launch_s_token_naming_another_launch_reaches_no_session(
     #[case] foreign: ForeignRecord,
+    #[case] expected_refused: usize,
 ) {
     let recorded = RecordedEvents::default();
     let _recording = recorded.record_until_dropped();
@@ -261,7 +293,7 @@ async fn a_record_under_one_launch_s_token_naming_another_launch_is_dropped_and_
             export_tagged(tag, vec![response_on(TEST_THREAD, 111)]),
         )
         .await;
-    poll_until(|| refused(&recorded), |count| *count >= 1).await;
+    poll_until(|| refused(&recorded), |count| *count >= expected_refused).await;
     assert_eq!(
         export_checks(&two.scheduler),
         1,
@@ -276,7 +308,7 @@ async fn a_record_under_one_launch_s_token_naming_another_launch_is_dropped_and_
         .await;
     let first = two.next_exported().await;
     assert_eq!(first.response.counts.input, Some(222));
-    assert_eq!(refused(&recorded), 1);
+    assert_eq!(refused(&recorded), expected_refused);
 }
 
 // A thread A's service streamed for a session, released there and registered on B for the same

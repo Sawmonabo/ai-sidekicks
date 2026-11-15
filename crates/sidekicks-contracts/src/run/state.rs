@@ -56,6 +56,12 @@ impl RunState {
     pub fn is_terminal(self) -> bool {
         RUN_TERMINAL_STATES.contains(&self)
     }
+
+    /// Whether a run ends here for good: a terminal state no change leaves, unlike `interrupted`,
+    /// which a send continues.
+    pub fn is_final(self) -> bool {
+        self.is_terminal() && self != Self::Interrupted
+    }
 }
 
 ts_constants! {

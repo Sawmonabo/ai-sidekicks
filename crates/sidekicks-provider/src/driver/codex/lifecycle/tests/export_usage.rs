@@ -1,8 +1,11 @@
-//! A session's completed responses from Codex's log export: each counted once on its session, the
-//! stream's twin passed over by its counts, a reviewer fork's joined to its review window or live
-//! turn, and a request turn's settle arming one export check.
+//! A session's completed responses from Codex's log export, on a sink that decides each sighting
+//! by the usage record's own statements: each counted once on its session whichever of the stream,
+//! the export and the rollout line comes first, a reviewer fork's joined to its review window or
+//! live turn, a request turn's settle arming one export check, and the session's rollout file read
+//! for what no export carried while the export is stopped, each pass on from the last and on past
+//! the export's return.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,13 +13,12 @@ use opentelemetry_proto::tonic::logs::v1::LogRecord;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::unix_time::read_unix_time_ms;
 use tokio::sync::watch;
 
 use super::usage::{GatedUsage, answer_region_read, token_usage_frame};
-use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
+use super::{LiveCodexSession, TEST_TURN};
 use crate::bounded_poll::poll_until;
-use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
-use crate::driver::codex::session::lifecycle_call::let_go_codex_session_record;
 use crate::driver::codex::session::side_questions::test_copies::{
     COPY_THREAD, COPY_TURN, resting_question,
 };
@@ -27,44 +29,37 @@ use crate::driver::codex::telemetry::completed_response::tests::{
     codex_record, completed_response_attributes,
 };
 use crate::driver::codex::telemetry::exports::tests::{export_checks, export_tagged, refused};
-use crate::driver::codex::telemetry::exports::{
-    CODEX_EXPORT_INTERVAL, CodexExportTag, CodexExports,
-};
+use crate::driver::codex::telemetry::exports::{CodexExportTag, CodexExports};
 use crate::driver::diagnostics::RecordedEvents;
 use crate::driver::session_control::AskSideQuestionParams;
 use crate::port::usage_sink::MeteredUsageOwner;
 use crate::pricing::receiver::TelemetryExportReader as _;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
-/// More paused time than a held response waits after its arrival.
-const PAST_TWO_INTERVALS: Duration = CODEX_EXPORT_INTERVAL.saturating_mul(3);
-
 /// The order a case's stream and export arrive in.
 enum Arrival {
     /// The stream's reading, then its export twin, then the turn's completion.
     StatedFirst,
-    /// The export twin, then the reading past two intervals, then the completion.
+    /// The export twin, then the reading, then the completion.
     ExportedFirst,
     /// The stream's reading, an export the stream never states, then the completion.
     ExportOnlyOnAStreamedThread,
-    /// The export twin with no reading, then the session let go before its turn completes.
-    HeldWhenTheSessionCloses,
-    /// The export twin and the completion, the twin decided, then the reading released late.
-    StatedAfterItsDecision,
 }
 
-/// A live session on a paused clock, its spend recorded through an open gate, its turn started
-/// and its service's launch registered with the drain running.
-struct ExportingSession {
-    live: LiveCodexSession,
-    usage: Arc<GatedUsage>,
+/// A live session on a paused clock, its run open on its turns, its spend recorded through an
+/// open gate, [`TEST_TURN`] started and its service's launch registered with the drain running.
+pub(super) struct ExportingSession {
+    pub(super) live: LiveCodexSession,
+    pub(super) usage: Arc<GatedUsage>,
     exports: Arc<CodexExports>,
     tag: CodexExportTag,
+    // Whether the launch's one region read was answered.
+    is_launch_region_answered: bool,
 }
 
 impl ExportingSession {
-    async fn start() -> Self {
-        let live = LiveCodexSession::start(&[]).await;
+    pub(super) async fn start(turns: &[&str]) -> Self {
+        let live = LiveCodexSession::on_turns(turns).await;
         tokio::time::pause();
         let usage = Arc::new(GatedUsage::new(watch::channel(true).1));
         assert!(
@@ -87,6 +82,17 @@ impl ExportingSession {
             usage,
             exports,
             tag,
+            is_launch_region_answered: false,
+        }
+    }
+
+    // Answers the launch's region read, which its first export's work, or its first pass reading
+    // its rollout files, makes before anything else; once per launch. The session's recorder reads
+    // the same way, so whichever comes first is answered here and the other by the test.
+    async fn answer_launch_region_read(&mut self) {
+        if !self.is_launch_region_answered {
+            answer_region_read(&mut self.live.scripted).await;
+            self.is_launch_region_answered = true;
         }
     }
 
@@ -100,82 +106,80 @@ impl ExportingSession {
     }
 
     // An export of one completed response of `counts` on the session's thread.
-    async fn export(&self, counts: &UsageAxisCounts) {
+    async fn export(&mut self, counts: &UsageAxisCounts) {
         let record = codex_record(completed_response_attributes(TEST_THREAD, counts));
         self.export_records(vec![record]).await;
     }
 
-    // An export of `records` under the launch's tag.
-    async fn export_records(&self, records: Vec<LogRecord>) {
+    // An export of `records` under the launch's tag, the launch's region read answered.
+    pub(super) async fn export_records(&mut self, records: Vec<LogRecord>) {
         self.exports
             .read_telemetry_export(self.tag.holder(), export_tagged(&self.tag, records))
             .await;
+        self.answer_launch_region_read().await;
     }
 
-    fn complete_turn(&self) {
+    // Relaunches the session's service, its old tag let go, and sweeps the register, which ends
+    // the old launch.
+    pub(super) fn relaunch(&mut self) {
+        let relaunch = self.exports.launched(&self.live.scripted.service);
+        drop(std::mem::replace(&mut self.tag, relaunch));
+        self.is_launch_region_answered = false;
+        self.exports.is_exporting(self.live.scripted.service.id());
+    }
+
+    pub(super) fn complete_turn(&self) {
         self.live
             .scripted
             .script
             .send(&turn_completed(TEST_THREAD, TEST_TURN, "completed"));
     }
 
-    // Lets the session's record go with its turn live, answering what the let-go and the
-    // recorder's region read ask of the service.
-    async fn let_go(&mut self) {
-        let claim = self
-            .live
-            .driver
-            .slots
-            .claim_closing(self.live.session_id)
-            .await;
-        let inbound = claim.live().expect("the session is live");
-        let let_go = let_go_codex_session_record(&inbound, CodexRecordExit::SessionContinues);
-        tokio::pin!(let_go);
-        let mut is_region_answered = false;
-        loop {
-            tokio::select! {
-                () = &mut let_go => break,
-                sent = self.live.scripted.script.next_sent() => {
-                    if sent["method"] == "config/read" {
-                        is_region_answered = true;
-                        self.live
-                            .scripted
-                            .script
-                            .answer(&sent, &json!({ "config": {}, "origins": {} }));
-                    } else {
-                        answer_stopping_request(&self.live.scripted.script, &sent);
-                    }
-                }
-            }
-        }
-        claim.vacate();
-        if !is_region_answered {
-            answer_region_read(&mut self.live.scripted).await;
-        }
+    // Appends `lines` to the rollout file at `path`.
+    fn append_rollout(path: &Path, lines: &[String]) {
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(path)
+            .expect("the rollout file opens");
+        std::io::Write::write_all(&mut file, (lines.join("\n") + "\n").as_bytes())
+            .expect("the lines are written");
     }
 
-    // The input and output of each row recorded, in order, once `rows` are recorded and every
-    // held response's decision time has passed with no more.
-    async fn settled_rows(&self, rows: usize) -> Vec<(Option<u64>, Option<u64>)> {
-        let read = || {
-            lock(&self.usage.metered)
-                .iter()
-                .map(|metered| {
-                    (
-                        metered.delta.axis_deltas.input,
-                        metered.delta.axis_deltas.output,
-                    )
-                })
-                .collect::<Vec<_>>()
-        };
-        poll_until(read, |recorded| recorded.len() >= rows).await;
-        // The paused clock moves only once every task is idle, so each decision due by then ran.
-        tokio::time::sleep(PAST_TWO_INTERVALS).await;
-        read()
+    // Writes `lines` as the rollout file of `thread_id` in today's day folder, by this system's
+    // clock as Codex names its folders, under the service's home; answers its path.
+    pub(super) fn write_rollout(&self, thread_id: &str, lines: &[String]) -> PathBuf {
+        let today = jiff::Timestamp::now()
+            .to_zoned(jiff::tz::TimeZone::system())
+            .date();
+        let folder = self
+            .live
+            .scripted
+            .service
+            .home()
+            .codex_home
+            .join("sessions")
+            .join(format!("{:04}", today.year()))
+            .join(format!("{:02}", today.month()))
+            .join(format!("{:02}", today.day()));
+        std::fs::create_dir_all(&folder).expect("the day folder is made");
+        let path = folder.join(format!("rollout-2026-11-09T10-00-00-{thread_id}.jsonl"));
+        std::fs::write(&path, lines.join("\n") + "\n").expect("the rollout file is written");
+        path
+    }
+
+    // Answers a fallback pass's listing of the recent helpers with none, the launch's region read
+    // answered first.
+    pub(super) async fn answer_helper_listing(&mut self) {
+        self.answer_launch_region_read().await;
+        let listing = self.live.scripted.next_request("thread/list").await;
+        self.live
+            .scripted
+            .script
+            .answer(&listing, &json!({"data": [], "nextCursor": null}));
     }
 }
 
-fn counts(input: u64, output: u64) -> UsageAxisCounts {
+pub(super) fn counts(input: u64, output: u64) -> UsageAxisCounts {
     UsageAxisCounts {
         input: Some(input),
         output: Some(output),
@@ -185,7 +189,7 @@ fn counts(input: u64, output: u64) -> UsageAxisCounts {
 }
 
 // `counts` as a usage reading's breakdown carries them.
-fn wire_counts(counts: &UsageAxisCounts) -> Value {
+pub(super) fn wire_counts(counts: &UsageAxisCounts) -> Value {
     json!({
         "inputTokens": counts.input,
         "outputTokens": counts.output,
@@ -193,22 +197,20 @@ fn wire_counts(counts: &UsageAxisCounts) -> Value {
     })
 }
 
-// Killed: `stated_first` by a ledger the stream's metered delta never enters (two rows);
-// `exported_first` by deciding a held response two intervals after its arrival while its turn is
-// live (a row before the turn completes); `export_only_on_a_streamed_thread` by passing over an export whose thread the
-// stream metered on, whatever its counts (one row); `held_when_the_session_closes` by dropping
-// the held responses with the session's record (no row); `stated_after_its_decision` by a priced
-// response that keeps no claim on its stream's late twin (two rows).
+// The stream's reading and its export twin compose one sighting key, so either order prices one
+// row, and an export of other counts on the streamed thread is a row of its own, filed on the run.
+// Killed: `stated_first` and `exported_first` by a sighting the stream's reading or the export
+// leaves off, or keys the two compose apart (two rows); `export_only_on_a_streamed_thread` by a key
+// that leaves out the counts (one row).
 #[rstest]
 #[case::stated_first(Arrival::StatedFirst)]
 #[case::exported_first(Arrival::ExportedFirst)]
 #[case::export_only_on_a_streamed_thread(Arrival::ExportOnlyOnAStreamedThread)]
-#[case::held_when_the_session_closes(Arrival::HeldWhenTheSessionCloses)]
-#[case::stated_after_its_decision(Arrival::StatedAfterItsDecision)]
 #[tokio::test]
 async fn an_exported_response_is_counted_once_on_its_session(#[case] arrival: Arrival) {
-    let mut session = ExportingSession::start().await;
+    let mut session = ExportingSession::start(&[TEST_TURN]).await;
     let stated = counts(1_000, 500);
+    // The stream's reading and the export are both decided before the rows are read.
     let expected = match arrival {
         Arrival::StatedFirst => {
             session.state(&stated);
@@ -219,13 +221,8 @@ async fn an_exported_response_is_counted_once_on_its_session(#[case] arrival: Ar
         }
         Arrival::ExportedFirst => {
             session.export(&stated).await;
-            tokio::time::sleep(PAST_TWO_INTERVALS).await;
-            assert!(
-                lock(&session.usage.metered).is_empty(),
-                "a response held on a live turn is not decided"
-            );
-            session.state(&stated);
             answer_region_read(&mut session.live.scripted).await;
+            session.state(&stated);
             session.complete_turn();
             vec![(Some(1_000), Some(500))]
         }
@@ -236,24 +233,9 @@ async fn an_exported_response_is_counted_once_on_its_session(#[case] arrival: Ar
             session.complete_turn();
             vec![(Some(1_000), Some(500)), (Some(400), Some(20))]
         }
-        Arrival::HeldWhenTheSessionCloses => {
-            session.export(&stated).await;
-            // The export reaches the session's queue before its let-go does.
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            session.let_go().await;
-            vec![(Some(1_000), Some(500))]
-        }
-        Arrival::StatedAfterItsDecision => {
-            session.export(&stated).await;
-            session.complete_turn();
-            // The region read comes once the twin is decided and priced, two intervals on.
-            answer_region_read(&mut session.live.scripted).await;
-            session.state(&stated);
-            vec![(Some(1_000), Some(500))]
-        }
     };
 
-    assert_eq!(session.settled_rows(expected.len()).await, expected);
+    assert_eq!(session.usage.rows_once_decided(2).await, expected);
     if let Arrival::ExportOnlyOnAStreamedThread = arrival {
         let metered = lock(&session.usage.metered);
         let exported = metered.last().expect("the export's row is recorded");
@@ -275,20 +257,16 @@ enum ReviewCover {
     ListingFails,
 }
 
-// Now in Unix milliseconds, the clock a record's observed time and a review's start read.
-fn unix_time_ms() -> u64 {
-    let since = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("the clock is past 1970");
-    u64::try_from(since.as_millis()).expect("the time fits")
-}
-
-// A completed response on the fork's thread carrying `counts` and the person's identity, observed
-// at `observed_at_ms`.
-fn fork_record(counts: &UsageAxisCounts, observed_at_ms: u64) -> LogRecord {
+// A completed response on `thread_id` carrying `counts` and the person's identity, observed at
+// `observed_at_ms`.
+pub(super) fn stamped_record(
+    thread_id: &str,
+    counts: &UsageAxisCounts,
+    observed_at_ms: u64,
+) -> LogRecord {
     LogRecord {
         observed_time_unix_nano: observed_at_ms * 1_000_000,
-        ..codex_record(completed_response_attributes(FORK_THREAD, counts))
+        ..codex_record(completed_response_attributes(thread_id, counts))
     }
 }
 
@@ -313,8 +291,8 @@ fn review_started(review_id: &str, turn_id: &str, started_at_ms: u64) -> Value {
 // refusing a not-listed bucket without the join (no rows), by the first window in place of the
 // latest (rows on `turn-0`) and by logging a record's attributes (the identity in a log line);
 // `live_turn_only` by refusing a bucket no window covers while a turn is live (no rows);
-// `listing_fails` by an unbounded keep (no refusal, and 1,001 refused with the launch) and by a
-// launch dropped silently (no refusals with it).
+// `listing_fails` by an unbounded keep (nothing charged) and by the oldest past the bound refused
+// or lost (nothing charged).
 #[rstest]
 #[case::latest_window(ReviewCover::LatestWindow)]
 #[case::live_turn_only(ReviewCover::LiveTurnOnly)]
@@ -325,10 +303,10 @@ async fn a_reviewer_fork_s_requests_cost_once_on_the_session_under_its_account(
 ) {
     let recorded = RecordedEvents::default();
     let _recording = recorded.record_until_dropped();
-    let mut session = ExportingSession::start().await;
+    let mut session = ExportingSession::start(&[TEST_TURN]).await;
     // Read once the session's task stamped its turn's start, which the paused clock waits for.
     tokio::time::sleep(Duration::from_millis(10)).await;
-    let now = unix_time_ms();
+    let now = read_unix_time_ms();
     if let ReviewCover::LatestWindow = cover {
         let script = &session.live.scripted.script;
         script.send(&review_started("review-0", "turn-0", now - 20_000));
@@ -337,8 +315,9 @@ async fn a_reviewer_fork_s_requests_cost_once_on_the_session_under_its_account(
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     if let ReviewCover::ListingFails = cover {
+        session.register_repricing();
         let records = (0..=1_000)
-            .map(|_| fork_record(&counts(10, 1), now))
+            .map(|_| stamped_record(FORK_THREAD, &counts(10, 1), now))
             .collect();
         session.export_records(records).await;
         let list = session.live.scripted.next_request("thread/list").await;
@@ -347,26 +326,20 @@ async fn a_reviewer_fork_s_requests_cost_once_on_the_session_under_its_account(
             "id": list["id"],
             "error": { "code": -32603, "message": "the listing failed" },
         }));
-        poll_until(|| refused(&recorded), |count| *count >= 1).await;
+        let charged = || lock(&session.usage.sessionless).len();
+        poll_until(charged, |count| *count >= 1).await;
         tokio::time::sleep(Duration::from_millis(10)).await;
-        assert_eq!(
-            refused(&recorded),
-            1,
-            "only the oldest past the bound is refused"
-        );
-        // A relaunch, the old tag let go, drops the launch with what it keeps, each refused.
-        let relaunch = session.exports.launched(&session.live.scripted.service);
-        drop(std::mem::replace(&mut session.tag, relaunch));
-        session
-            .exports
-            .is_exporting(session.live.scripted.service.id());
-        assert_eq!(refused(&recorded), 1 + 1_000);
+        assert_eq!(charged(), 1, "only the oldest past the bound is charged");
+        assert_eq!(refused(&recorded), 0);
         return;
     }
     let first = counts(300, 20);
     let second = counts(200, 10);
     session
-        .export_records(vec![fork_record(&first, now), fork_record(&second, now)])
+        .export_records(vec![
+            stamped_record(FORK_THREAD, &first, now),
+            stamped_record(FORK_THREAD, &second, now),
+        ])
         .await;
     let unlisted = json!({ "data": [], "nextCursor": null });
     let list = session.live.scripted.next_request("thread/list").await;
@@ -379,7 +352,7 @@ async fn a_reviewer_fork_s_requests_cost_once_on_the_session_under_its_account(
     answer_region_read(&mut session.live.scripted).await;
 
     assert_eq!(
-        session.settled_rows(2).await,
+        session.usage.rows_once_decided(2).await,
         vec![(Some(300), Some(20)), (Some(200), Some(10))]
     );
     for metered in lock(&session.usage.metered).iter() {
@@ -472,4 +445,323 @@ async fn a_request_turn_waits_for_its_export_once(#[case] turn: RequestTurn) {
     poll_until(|| export_checks(exports.scheduler()), |checks| *checks >= 1).await;
     tokio::time::sleep(Duration::from_millis(10)).await;
     assert_eq!(export_checks(exports.scheduler()), 1);
+}
+
+// One rollout line of `kind` holding `payload`, stamped at `at_ms`.
+pub(super) fn rollout_line(at_ms: u64, kind: &str, payload: &Value) -> String {
+    let at = i64::try_from(at_ms)
+        .ok()
+        .and_then(|at_ms| jiff::Timestamp::from_millisecond(at_ms).ok())
+        .expect("the test's stamp is a time");
+    json!({"timestamp": at.to_string(), "type": kind, "payload": payload}).to_string()
+}
+
+// The usage record of `response_id` on the session's thread and `turn_id`, stamped at `at_ms`.
+pub(super) fn rollout_record(
+    at_ms: u64,
+    turn_id: &str,
+    response_id: &str,
+    input: u64,
+    output: u64,
+) -> String {
+    let usage = json!({
+        "input_tokens": input,
+        "cached_input_tokens": 0,
+        "output_tokens": output,
+        "reasoning_output_tokens": 0,
+        "total_tokens": input + output,
+    });
+    let payload = json!({
+        "thread_id": TEST_THREAD,
+        "turn_id": turn_id,
+        "response_id": response_id,
+        "usage": usage,
+    });
+    rollout_line(at_ms, "token_usage_record", &payload)
+}
+
+// The context line of `turn_id`, naming its model, stamped at `at_ms`.
+pub(super) fn turn_context(at_ms: u64, turn_id: &str) -> String {
+    rollout_line(
+        at_ms,
+        "turn_context",
+        &json!({"turn_id": turn_id, "model": "gpt-5"}),
+    )
+}
+
+// The session's thread's rollout file through [`TEST_TURN`]: its thread named, the response the
+// stream states and a warm-up it never states, each stamped at `at_ms`.
+fn first_turn_rollout(at_ms: u64) -> Vec<String> {
+    vec![
+        rollout_line(
+            at_ms,
+            "session_meta",
+            &json!({"id": TEST_THREAD, "source": "cli"}),
+        ),
+        turn_context(at_ms, TEST_TURN),
+        rollout_record(at_ms, TEST_TURN, "response-stated", 1_000, 500),
+        rollout_record(at_ms, TEST_TURN, "response-warm-up", 2, 0),
+    ]
+}
+
+/// The session's second turn, after [`TEST_TURN`] settles.
+pub(super) const SECOND_TURN: &str = "turn-2";
+
+// Once a request turn settles with no export, the session's own rollout file is read: the
+// response its stream stated is passed over by its sighting and the warm-up the stream never
+// stated is counted once. Killed by passing over a streamed thread's file (one row), by a line's
+// key composed apart from the stream's (three rows), and by no read as the status turns stopped
+// (one row).
+#[tokio::test]
+async fn a_streamed_thread_s_rollout_counts_what_no_export_carried_once() {
+    let mut session = ExportingSession::start(&[TEST_TURN]).await;
+    session.write_rollout(TEST_THREAD, &first_turn_rollout(read_unix_time_ms()));
+
+    session.state(&counts(1_000, 500));
+    answer_region_read(&mut session.live.scripted).await;
+    session.complete_turn();
+    // The check finds no export two intervals on; the fallback's pass lists the recent helpers.
+    session.answer_helper_listing().await;
+
+    assert_eq!(
+        session.usage.rows_once_decided(3).await,
+        [(Some(1_000), Some(500)), (Some(2), Some(0))]
+    );
+}
+
+// While the export stays stopped, the pass at each settled request turn reads the session's file
+// on from where the last pass stopped: the second counts only the second turn's warm-up. Killed by
+// no pass at a request turn settled while the status reads stopped (three rows).
+#[tokio::test]
+async fn a_second_turn_s_pass_reads_the_file_on_from_where_the_first_stopped() {
+    let mut session = ExportingSession::start(&[TEST_TURN, SECOND_TURN]).await;
+    let at_ms = read_unix_time_ms();
+    let rollout = session.write_rollout(TEST_THREAD, &first_turn_rollout(at_ms));
+    session.state(&counts(1_000, 500));
+    answer_region_read(&mut session.live.scripted).await;
+    session.complete_turn();
+    session.answer_helper_listing().await;
+    assert_eq!(
+        session.usage.rows_once_decided(3).await,
+        [(Some(1_000), Some(500)), (Some(2), Some(0))]
+    );
+
+    ExportingSession::append_rollout(
+        &rollout,
+        &[
+            turn_context(at_ms, SECOND_TURN),
+            rollout_record(at_ms, SECOND_TURN, "response-second", 3_000, 700),
+            rollout_record(at_ms, SECOND_TURN, "response-second-warm-up", 3, 0),
+        ],
+    );
+    let script = &session.live.scripted.script;
+    script.send(&turn_started(SECOND_TURN));
+    let mut reading = token_usage_frame(
+        TEST_THREAD,
+        &wire_counts(&counts(4_000, 1_200)),
+        &wire_counts(&counts(3_000, 700)),
+    );
+    reading["params"]["turnId"] = json!(SECOND_TURN);
+    script.send(&reading);
+    script.send(&turn_completed(TEST_THREAD, SECOND_TURN, "completed"));
+    session.answer_helper_listing().await;
+
+    assert_eq!(
+        session.usage.rows_once_decided(6).await,
+        [
+            (Some(1_000), Some(500)),
+            (Some(2), Some(0)),
+            (Some(3_000), Some(700)),
+            (Some(3), Some(0)),
+        ]
+    );
+}
+
+// A response whose export comes late, after the pass priced its line, counts once: the late export
+// is passed over by its sighting, and the export's other response counts. Killed by an export's
+// key composed apart from the line's (the late response counted twice, five rows).
+#[tokio::test]
+async fn a_late_export_s_response_read_first_from_the_file_counts_once() {
+    let mut session = ExportingSession::start(&[TEST_TURN]).await;
+    let at_ms = read_unix_time_ms();
+    let mut lines = first_turn_rollout(at_ms);
+    lines.push(rollout_record(at_ms, TEST_TURN, "response-late", 7, 1));
+    session.write_rollout(TEST_THREAD, &lines);
+    session.state(&counts(1_000, 500));
+    answer_region_read(&mut session.live.scripted).await;
+    session.complete_turn();
+    session.answer_helper_listing().await;
+    assert_eq!(
+        session.usage.rows_once_decided(4).await,
+        [
+            (Some(1_000), Some(500)),
+            (Some(2), Some(0)),
+            (Some(7), Some(1))
+        ]
+    );
+
+    // Logged before its line was written; the later record is of a response no line states yet.
+    session
+        .export_records(vec![
+            stamped_record(TEST_THREAD, &counts(7, 1), at_ms - 5),
+            stamped_record(TEST_THREAD, &counts(4, 4), at_ms + 10),
+        ])
+        .await;
+
+    let mut rows = session.usage.rows_once_decided(6).await;
+    rows.sort_unstable();
+    assert_eq!(
+        rows,
+        [
+            (Some(2), Some(0)),
+            (Some(4), Some(4)),
+            (Some(7), Some(1)),
+            (Some(1_000), Some(500)),
+        ]
+    );
+}
+
+// The pass at the stop after an export passes over the line of a response that export carried,
+// though Codex stamped the line well after the export's newest record (Codex sets no bound on how
+// long after): that response counts once, and the warm-ups no export carried are counted. Killed
+// by a line's key composed apart from the export's and the stream's (the exported response
+// counted again, five rows).
+#[tokio::test]
+async fn a_pass_after_an_export_passes_over_the_responses_that_export_carried() {
+    let mut session = ExportingSession::start(&[TEST_TURN, SECOND_TURN]).await;
+    // Well before the file is written, which the pass finds by its change time.
+    let exported_at_ms = read_unix_time_ms() - 10_000;
+    let written_at_ms = exported_at_ms + 1_500;
+    let second_at_ms = exported_at_ms + 3_000;
+    session.write_rollout(
+        TEST_THREAD,
+        &[
+            rollout_line(
+                written_at_ms,
+                "session_meta",
+                &json!({"id": TEST_THREAD, "source": "cli"}),
+            ),
+            turn_context(written_at_ms, TEST_TURN),
+            rollout_record(written_at_ms, TEST_TURN, "response-exported", 1_000, 500),
+            rollout_record(written_at_ms, TEST_TURN, "response-warm-up", 2, 0),
+            turn_context(second_at_ms, SECOND_TURN),
+            rollout_record(second_at_ms, SECOND_TURN, "response-second", 3_000, 700),
+            rollout_record(second_at_ms, SECOND_TURN, "response-second-warm-up", 3, 0),
+        ],
+    );
+    session.state(&counts(1_000, 500));
+    answer_region_read(&mut session.live.scripted).await;
+    session
+        .export_records(vec![stamped_record(
+            TEST_THREAD,
+            &counts(1_000, 500),
+            exported_at_ms,
+        )])
+        .await;
+    session.complete_turn();
+    // The paused clock moves on, so the second turn begins after the export and waits for one.
+    assert_eq!(
+        session.usage.rows_once_decided(2).await,
+        [(Some(1_000), Some(500))]
+    );
+
+    let script = &session.live.scripted.script;
+    script.send(&turn_started(SECOND_TURN));
+    let mut reading = token_usage_frame(
+        TEST_THREAD,
+        &wire_counts(&counts(4_000, 1_200)),
+        &wire_counts(&counts(3_000, 700)),
+    );
+    reading["params"]["turnId"] = json!(SECOND_TURN);
+    script.send(&reading);
+    script.send(&turn_completed(TEST_THREAD, SECOND_TURN, "completed"));
+    // The second turn's check finds no export two intervals on, and the pass begins.
+    session.answer_helper_listing().await;
+
+    let mut rows = session.usage.rows_once_decided(7).await;
+    rows.sort_unstable();
+    assert_eq!(
+        rows,
+        [
+            (Some(2), Some(0)),
+            (Some(3), Some(0)),
+            (Some(1_000), Some(500)),
+            (Some(3_000), Some(700)),
+        ]
+    );
+}
+
+// A turn event of `kind` on `turn_id` in a rollout file, stamped at `at_ms`.
+fn turn_event(at_ms: u64, kind: &str, turn_id: &str) -> String {
+    rollout_line(
+        at_ms,
+        "event_msg",
+        &json!({"type": kind, "turn_id": turn_id}),
+    )
+}
+
+// After the export returns, the session's file is read on at each export until the turn live at
+// the returning export's newest record ends: a response whose export was lost, its line written
+// after the last pass, counts once from the file at the next export, and each exported response
+// counts once. Killed by letting the file go as the export returns (the lost response counted
+// nowhere, four rows) and by the returned export's response priced from the file too (six rows).
+#[tokio::test]
+async fn a_lost_response_written_after_the_export_returns_counts_once_from_the_file() {
+    let mut session = ExportingSession::start(&[TEST_TURN]).await;
+    let at_ms = read_unix_time_ms();
+    let rollout = session.write_rollout(TEST_THREAD, &first_turn_rollout(at_ms));
+    session.state(&counts(1_000, 500));
+    answer_region_read(&mut session.live.scripted).await;
+    session.complete_turn();
+    session.answer_helper_listing().await;
+    assert_eq!(
+        session.usage.rows_once_decided(3).await,
+        [(Some(1_000), Some(500)), (Some(2), Some(0))]
+    );
+
+    let returned_at_ms = at_ms + 1_000;
+    ExportingSession::append_rollout(
+        &rollout,
+        &[
+            turn_context(returned_at_ms, SECOND_TURN),
+            turn_event(returned_at_ms, "task_started", SECOND_TURN),
+            rollout_record(returned_at_ms + 5, SECOND_TURN, "response-returned", 7, 1),
+        ],
+    );
+    session
+        .export_records(vec![stamped_record(
+            TEST_THREAD,
+            &counts(7, 1),
+            returned_at_ms,
+        )])
+        .await;
+    assert_eq!(session.usage.rows_once_decided(5).await.len(), 3);
+
+    ExportingSession::append_rollout(
+        &rollout,
+        &[
+            rollout_record(returned_at_ms + 60, SECOND_TURN, "response-lost", 9, 3),
+            turn_event(returned_at_ms + 70, "task_complete", SECOND_TURN),
+        ],
+    );
+    session
+        .export_records(vec![stamped_record(
+            TEST_THREAD,
+            &counts(4, 4),
+            returned_at_ms + 100,
+        )])
+        .await;
+
+    let mut rows = session.usage.rows_once_decided(7).await;
+    rows.sort_unstable();
+    assert_eq!(
+        rows,
+        [
+            (Some(2), Some(0)),
+            (Some(4), Some(4)),
+            (Some(7), Some(1)),
+            (Some(9), Some(3)),
+            (Some(1_000), Some(500)),
+        ]
+    );
 }

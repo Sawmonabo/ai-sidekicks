@@ -31,6 +31,9 @@ pub(crate) struct RequestUsage<'a> {
     pub(crate) web_searches: u64,
     /// The searches' context size (`low`, `medium`, `high`).
     pub(crate) search_context_size: &'a str,
+    /// The provider's published per-search rate the driver keeps, taken where the row carries
+    /// none at the context size; `None` where the driver keeps none.
+    pub(crate) published_search_rate: Option<ExactDecimal>,
 }
 
 /// One request's token counts by the rate each takes.
@@ -67,7 +70,8 @@ pub(crate) enum QuoteRefusal {
         /// The cache lifetime in hours the rate was looked up at, `None` for the shorter one.
         cache_lifetime_hours: Option<u32>,
     },
-    /// The request ran searches and the row carries no rate at its context size.
+    /// The request ran searches, the row carries no rate at its context size and the driver keeps
+    /// no published one.
     #[error("the price list's row has no per-search rate at the request's context size")]
     SearchRateAbsent,
     /// A step of the arithmetic, or the figure, is past what the integers hold.
@@ -139,6 +143,7 @@ pub(crate) fn quote_request(
     if request.web_searches > 0 {
         let search_rate = row
             .search_rate(request.search_context_size)
+            .or(request.published_search_rate)
             .ok_or(QuoteRefusal::SearchRateAbsent)?;
         let term = ScaledAmount::from(search_rate).times_count(request.web_searches)?;
         total = total.plus(term)?;
@@ -347,6 +352,7 @@ mod tests {
             tokens,
             web_searches: 0,
             search_context_size: "medium",
+            published_search_rate: None,
         }
     }
 

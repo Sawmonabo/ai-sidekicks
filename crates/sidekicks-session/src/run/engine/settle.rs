@@ -31,6 +31,7 @@ use sidekicks_provider::driver::contract::error::bound_failure_detail;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_provider::run::turn_end::TurnOutcome;
 use sidekicks_store::database::connection::read_pool::ReadLength;
+use sidekicks_store::database::schema::RUN_TERMINAL_EVENT_TYPES_SQL;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::SessionEventDraftError;
@@ -51,7 +52,6 @@ use crate::run::restart::{
     read_restart_facts, read_run_stops, settlement_by_stops,
 };
 use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriteError};
-use crate::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
 
 // The position among an interrupt end's companions of its guard that the run has not ended since
 // the interrupt was accepted: the first of the caller's companions, before the verdict's.

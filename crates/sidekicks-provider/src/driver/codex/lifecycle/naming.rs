@@ -421,12 +421,11 @@ async fn draw_title_until_stopped(
     };
     let title_thread_id = meter.thread_id.clone();
     let (service, folder) = (&*request.service, request.working_directory.as_path());
-    // Held until the pass's read ends, so the export's twins of its filed requests pass over.
-    let _copy_read =
-        service
-            .dependencies()
-            .exports
-            .copy_thread(service.id(), &title_thread_id, filing, folder);
+    // Each exported response on the pass's thread is filed where its stream files.
+    service
+        .dependencies()
+        .exports
+        .copy_thread(service.id(), &title_thread_id, filing, folder);
     let turn = CodexTurnStartParams {
         thread_id: title_thread_id.clone(),
         input: vec![compose_codex_text_input(request.prompt.clone())],
