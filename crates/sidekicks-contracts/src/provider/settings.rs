@@ -287,6 +287,8 @@ pub struct ProviderSection {
     pub provider: ProviderId,
     /// The provider's name as a person reads it.
     pub name: ProviderDeclarationText,
+    /// The word a person types to run the provider, such as `codex`.
+    pub command_word: ProviderDeclarationText,
     /// The words its plan ids read as, unique by plan id; may be empty.
     #[garde(dive)]
     pub plan_words: UniqueList<ProviderPlanWord, 0, { usize::MAX }>,

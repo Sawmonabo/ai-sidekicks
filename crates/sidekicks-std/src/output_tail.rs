@@ -1,16 +1,15 @@
-//! The tail of what a child process printed by its exit: the last stretch of its output decoded
-//! across chunks, read as a terminal shows it and cut on a grapheme boundary, read from its pipe
-//! chunk by chunk.
+//! The tail of what a child process printed by its exit: its output decoded across chunks and read
+//! as a terminal shows it as the chunks arrive, its last stretch cut on a grapheme boundary, read
+//! from its pipe chunk by chunk.
 
 use std::error::Error;
 use std::io;
-use std::mem;
 
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 use unicode_segmentation::GraphemeCursor;
 
-use crate::terminal_text::strip_terminal_controls;
+use crate::terminal_text::{ShownText, TerminalTextReader};
 use crate::utf8_stream::Utf8StreamDecoder;
 
 /// The most of a child's output one read of its pipe takes, so the buffer each reader holds stays
@@ -20,13 +19,14 @@ pub const OUTPUT_CHUNK_BYTES: usize = 8 * 1024;
 // What a tail reads when the process printed nothing but whitespace, since the wire refuses blank.
 const NO_OUTPUT: &str = "(no output)";
 
-/// The last `CAP` code points of a child's output, fed chunk by chunk: bytes are held until they
-/// make a whole UTF-8 sequence and each invalid one reads as U+FFFD once, and at most about twice
-/// the cap is kept in memory however much the child prints.
+/// The last `CAP` code points of what a child's output shows on a terminal, fed chunk by chunk:
+/// bytes are held until they make a whole UTF-8 sequence and each invalid one reads as U+FFFD once,
+/// then read as a terminal shows them as they arrive, so the cap counts shown characters and no cut
+/// leaves a piece of a sequence. It holds at most twice the cap's shown code points, the parser's
+/// one open string of at most 16 KiB and three undecoded bytes, however much the child prints.
 pub struct OutputTail<const CAP: usize> {
-    text: String,
-    // Code points in `text`.
-    text_len: usize,
+    shown: ShownTail<CAP>,
+    reader: TerminalTextReader,
     decoder: Utf8StreamDecoder,
 }
 
@@ -40,27 +40,35 @@ impl<const CAP: usize> OutputTail<CAP> {
     /// An empty tail.
     pub fn new() -> Self {
         Self {
-            text: String::new(),
-            text_len: 0,
+            shown: ShownTail::default(),
+            reader: TerminalTextReader::new(),
             decoder: Utf8StreamDecoder::default(),
         }
     }
 
     /// Adds one chunk of output.
     pub fn push(&mut self, chunk: &[u8]) {
-        let mut decoder = mem::take(&mut self.decoder);
-        decoder.push(chunk, |text| self.push_text(text));
-        self.decoder = decoder;
+        let Self {
+            shown,
+            reader,
+            decoder,
+        } = self;
+        decoder.push(chunk, |text| reader.push(text.as_bytes(), shown));
     }
 
-    /// The tail as text: what the kept output shows on a terminal, its printed characters, line
-    /// breaks and tabs with every other control left out, cut to its last `CAP` code points moved
-    /// forward to the next grapheme boundary so no character is split from its marks, and
-    /// `(no output)` for output that shows nothing but whitespace. A sequence the kept output's
-    /// front cut through reads as what is left of it, and one the output ends inside shows nothing.
-    pub fn into_text(mut self) -> String {
-        mem::take(&mut self.decoder).finish(|text| self.push_text(text));
-        let mut shown = strip_terminal_controls(self.text.as_bytes());
+    /// The tail as text: what the output shows on a terminal, its printed characters, line breaks
+    /// and tabs with every other control left out and each line redrawn in place read as its last
+    /// drawing, cut to its last `CAP` code points moved forward to the next grapheme boundary so no
+    /// character is split from its marks, and `(no output)` for output that shows nothing but
+    /// whitespace. A sequence the output ends inside shows nothing.
+    pub fn into_text(self) -> String {
+        let Self {
+            mut shown,
+            mut reader,
+            decoder,
+        } = self;
+        decoder.finish(|text| reader.push(text.as_bytes(), &mut shown));
+        let mut shown = shown.text;
         let cut = CAP.checked_sub(1).map_or(shown.len(), |back| {
             shown
                 .char_indices()
@@ -88,23 +96,55 @@ impl<const CAP: usize> OutputTail<CAP> {
             shown
         }
     }
+}
 
-    fn push_text(&mut self, text: &str) {
-        self.text.push_str(text);
-        self.text_len += text.chars().count();
-        // Trimmed past twice the cap to half again the cap, so trimming is rare and the cut at the
-        // end still sees the characters before it.
-        if self.text_len > CAP.saturating_mul(2) {
-            let kept = CAP + CAP / 2;
-            let dropped = self.text_len - kept;
-            let offset = self
-                .text
-                .char_indices()
-                .nth(dropped)
-                .map_or(self.text.len(), |(offset, _)| offset);
-            self.text.drain(..offset);
-            self.text_len = kept;
+// The shown text a tail keeps, trimmed from the front past twice the cap to half again the cap, so
+// trimming is rare and the cut at the end still sees the characters before it.
+#[derive(Default)]
+struct ShownTail<const CAP: usize> {
+    text: String,
+    // Code points in `text`.
+    text_len: usize,
+    // Where the current line starts in `text`, in bytes and in code points.
+    line_start: usize,
+    line_start_len: usize,
+}
+
+impl<const CAP: usize> ShownTail<CAP> {
+    // Drops the oldest text past twice the cap, the current line's start moved with it.
+    fn trim(&mut self) {
+        if self.text_len <= CAP.saturating_mul(2) {
+            return;
         }
+        let dropped = self.text_len - (CAP + CAP / 2);
+        let offset = (self.text.char_indices())
+            .nth(dropped)
+            .map_or(self.text.len(), |(offset, _)| offset);
+        self.text.drain(..offset);
+        self.text_len -= dropped;
+        self.line_start = self.line_start.saturating_sub(offset);
+        self.line_start_len = self.line_start_len.saturating_sub(dropped);
+    }
+}
+
+impl<const CAP: usize> ShownText for ShownTail<CAP> {
+    fn push_char(&mut self, character: char) {
+        self.text.push(character);
+        self.text_len += 1;
+        self.trim();
+    }
+
+    fn break_line(&mut self) {
+        self.text.push('\n');
+        self.text_len += 1;
+        self.line_start = self.text.len();
+        self.line_start_len = self.text_len;
+        self.trim();
+    }
+
+    fn clear_line(&mut self) {
+        self.text.truncate(self.line_start);
+        self.text_len = self.line_start_len;
     }
 }
 
@@ -156,6 +196,33 @@ mod tests {
     #[case::a_grapheme_boundary(tail_of::<3>(&[b"abe\xCC\x81cd".as_slice()]), "cd")]
     // Long output trimmed while it streams keeps exactly the last code points.
     #[case::the_last_code_points(tail_of::<4>(&[&b"0123456789"[..], &b"abcdef"[..]]), "cdef")]
+    // Colored letters count as the letters, a sequence split across chunks is read whole, and the
+    // cut leaves no piece of a color sequence.
+    #[case::mostly_sequences(
+        tail_of::<4>(&[
+            b"\x1b[31ma\x1b[0m\x1b[31mb\x1b[0m\x1b[3".as_slice(),
+            b"1mc\x1b[0m\x1b[31md\x1b[0m\x1b[31me\x1b[0m",
+        ]),
+        "bcde"
+    )]
+    // A progress line redrawn in place reads as its last drawing.
+    #[case::a_redrawn_line(
+        tail_of::<20>(&[b"step 1\n10%\r50%\r100%".as_slice()]),
+        "step 1\n100%"
+    )]
+    // A return no printed character follows blanks nothing.
+    #[case::returns_before_a_break(
+        tail_of::<20>(&[b"text\r\r\nnext".as_slice()]),
+        "text\nnext"
+    )]
+    #[case::a_return_at_the_end(tail_of::<20>(&[b"100%\r".as_slice()]), "100%")]
+    // A return ending one chunk and a line break opening the next are one line break.
+    #[case::a_break_across_chunks(tail_of::<20>(&[b"a\r".as_slice(), b"\nb"]), "a\nb")]
+    // A title string never closed ends at its line break, so the next line still shows.
+    #[case::an_open_string(
+        tail_of::<20>(&[b"before\x1b]0;title\nafter".as_slice()]),
+        "before\nafter"
+    )]
     #[case::blank_output(tail_of::<10>(&[b" \n\t".as_slice()]), "(no output)")]
     #[case::no_output(tail_of::<10>(&[]), "(no output)")]
     fn keeps_the_tail(#[case] tail: String, #[case] expected: &str) {

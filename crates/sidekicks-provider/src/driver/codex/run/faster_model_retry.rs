@@ -222,7 +222,6 @@ impl CodexFasterModelRetries {
                     binding.binding_id,
                     RETRY_FAILED,
                     &error,
-                    None,
                 )
                 .await;
                 self.dependencies.run_routes.forget_run(params.run_id);

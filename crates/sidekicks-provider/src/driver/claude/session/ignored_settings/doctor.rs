@@ -14,7 +14,6 @@ use futures::future::{BoxFuture, Shared};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::Spawner;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::terminal_text::strip_terminal_controls;
 
 use super::ClaudeDroppedSetting;
 use crate::driver::claude::session::rules::{
@@ -272,13 +271,11 @@ async fn run_claude_doctor(
     }
 }
 
-// The entries of the doctor's `Invalid settings` block in `output`, each line read as a terminal
-// shows it: `- <file> › <key>: <words>` for one key, `- <file>: <words>` for a whole file. A
-// suggestion under an entry is passed over, and the block ends at its first blank line.
+// The entries of the doctor's `Invalid settings` block in `output`, its tail as a terminal shows
+// it: `- <file> › <key>: <words>` for one key, `- <file>: <words>` for a whole file. A suggestion
+// under an entry is passed over, and the block ends at its first blank line.
 fn read_invalid_settings(output: &str) -> Vec<ClaudeDroppedSetting> {
-    let mut lines = output
-        .lines()
-        .map(|line| strip_terminal_controls(line.as_bytes()).trim().to_owned());
+    let mut lines = output.lines().map(str::trim);
     if !lines.any(|line| line == INVALID_SETTINGS_HEADING) {
         return Vec::new();
     }

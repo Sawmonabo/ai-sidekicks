@@ -233,6 +233,7 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_ipc::registry::HandlerError;
+    use sidekicks_provider::account::registry::open_test_registry;
     use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlags};
     use sidekicks_provider::driver::contract::MockProviderDriver;
@@ -277,6 +278,12 @@ mod tests {
             providers: Arc::new(providers),
             read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
             price_list: Arc::new(PortRegistration::new("price list")),
+            // No account is read, so the homes' folder is never made.
+            accounts: Arc::new(
+                open_test_registry(&database, &database.path().with_file_name("data"))
+                    .await
+                    .0,
+            ),
         };
 
         let followed = follow_provider_commands(&sources, session_id).await;

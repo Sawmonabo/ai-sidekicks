@@ -266,14 +266,22 @@ interface ProviderModelListRequest {
 // comes first, read against the session's own bound account, and every other provider against its
 // default account. Without it no provider is put first, and each is read against every account
 // registered for it at once, the reads merged into one catalog: each row once, by its id and
-// window, the default account's rows first; the entry fails only when no account's read listed,
-// with the default account's failure where it has one. A provider whose bare command name no search
-// found is not installed and has no entry. Each entry is its catalog or the failure its read
-// answered, so one provider's outage never hides another's models and a failure never reads as an
-// empty catalog. The models are in the provider's own order, and a model the provider hides is
-// never listed.
+// window, the default account's rows first, and at most one row marked `isDefault`, the default
+// account's own mark, since a generation with no session runs on that account; a row any other
+// account lists carries no mark, and none is marked where the default account's read failed or the
+// provider has no default account. The entry lists whenever one account's read listed, naming in
+// `unreadAccounts` each account whose read failed, with that read's failure, absent where every
+// account was read; it fails only when no account's read listed, with the default account's
+// failure where it has one. A provider whose bare command name no search found is not installed
+// and has no entry. Each entry is its catalog or the failure its read answered, so one provider's
+// outage never hides another's models and a failure never reads as an empty catalog. The models
+// are in the provider's own order, and a model the provider hides is never listed.
 type ProviderModelReport =
-  | { providerName: ProviderId; models: ProviderModel[] }
+  | {
+      providerName: ProviderId;
+      models: ProviderModel[];
+      unreadAccounts?: { providerAccountId: ProviderAccountId; failure: ProviderReadFailure }[];
+    }
   | { providerName: ProviderId; failure: ProviderReadFailure };
 
 interface ProviderModelListResponse {

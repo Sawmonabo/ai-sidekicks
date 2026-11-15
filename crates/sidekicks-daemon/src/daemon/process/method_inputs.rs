@@ -5,6 +5,7 @@
 //! then every method table registered over them; it hands back the parts the start runs next and
 //! the stop ends.
 
+mod data;
 pub(crate) mod error;
 pub(crate) mod mcp;
 mod recovery;
@@ -38,7 +39,6 @@ use sidekicks_platforms::{
 };
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_provider::account::credential_home::{ACCOUNT_SIGN_OUT_BOUND, sign_out_every_home};
 use sidekicks_provider::port::run_pause::ContinuedMessages;
 use sidekicks_provider::port::session_wake::SessionWaker;
 use sidekicks_queue::memory_gate::{
@@ -90,12 +90,12 @@ use crate::daemon::backup::run::Backups;
 use crate::daemon::bun::BunInstall;
 use crate::daemon::config_methods::ConfigMethodsDeps;
 use crate::daemon::configuration::ConfigurationStore;
-use crate::daemon::data_methods::DataMethodsDeps;
 use crate::daemon::machine_settings::file::MachineSettingsFile;
 use crate::daemon::machine_settings::methods::{
     FindBranchPatternRefusal, MachineSettingsMethodsDeps,
 };
 use crate::daemon::process::database::DatabaseFile;
+use crate::daemon::process::method_inputs::data::{DataMethodsStart, build_data_methods};
 use crate::daemon::process::method_inputs::error::MethodInputsError;
 use crate::daemon::process::method_inputs::mcp::{
     McpGovernanceStart, McpSignInStart, build_sign_ins, open_mcp_status,
@@ -129,8 +129,7 @@ use crate::daemon::process::workspace_services::{
 };
 use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
 use crate::daemon::status_methods::StatusMethodsDeps;
-use crate::data_acts::erase::{DataErase, DataEraseDeps, EraseStep};
-use crate::data_acts::export::{DataExportDeps, DataExports};
+use crate::data_acts::erase::EraseStep;
 use crate::ipc::handlers::agent::command::CommandMethodSources;
 use crate::ipc::handlers::approval::ApprovalMethodSources;
 use crate::ipc::handlers::driver::DriverMethodSources;
@@ -654,15 +653,22 @@ pub(crate) async fn register_method_inputs(
         providers: Arc::clone(&registry),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
         price_list: Arc::clone(&providers.ports.price_list),
+        accounts: Arc::clone(&accounts.methods.accounts),
     });
     // The messages waiting for a paused run, which a run's and a child's continue deliver.
     let continued: Arc<dyn ContinuedMessages> = Arc::new(session.queue.delivery());
-    let (erase_reads, erase_data_folder, erase_legs, erase_sign_ins) = (
-        Arc::clone(&reads),
-        data_folder.to_path_buf(),
-        accounts.methods.account_legs.clone(),
-        Arc::clone(&accounts.methods.sign_in),
-    );
+    let data = build_data_methods(DataMethodsStart {
+        reads: &reads,
+        read_damaged_from_sequence: &read_damaged_from_sequence,
+        payloads: &artifacts.payloads,
+        data_folder,
+        providers: &registry,
+        accounts: &accounts.methods,
+        secret_items: Arc::clone(&secret_items),
+        stop_work,
+        close_data_folder,
+        accept_stop,
+    });
     register_method_tables(
         builder,
         MethodTableServices {
@@ -681,7 +687,7 @@ pub(crate) async fn register_method_inputs(
                 data_directory: filesystem_path(data_folder)?,
                 started_at,
                 usage_reader: Arc::new(ProcessTreeUsageReader::new()),
-                secret_items: Arc::clone(&secret_items),
+                secret_items,
                 machine_identity,
                 accounts: Arc::clone(&accounts.methods.accounts),
                 wake_helper: accounts.methods.wake_helper.clone(),
@@ -699,34 +705,7 @@ pub(crate) async fn register_method_inputs(
                 driver_set_names,
                 find_branch_pattern_refusal: machine_pattern_refusal(Arc::clone(&projects)),
             },
-            data: DataMethodsDeps {
-                exports: Arc::new(DataExports::new(DataExportDeps {
-                    reads: Arc::clone(&reads),
-                    read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
-                    payloads: Arc::clone(&artifacts.payloads),
-                    data_folder: data_folder.to_path_buf(),
-                })),
-                erase: Arc::new(DataErase::new(DataEraseDeps {
-                    data_folder: data_folder.to_path_buf(),
-                    secret_items,
-                    providers: Arc::clone(&registry),
-                    stop_work,
-                    sign_out_accounts: Arc::new(move || {
-                        let (pool, legs) = (Arc::clone(&erase_reads), erase_legs.clone());
-                        let folder = erase_data_folder.clone();
-                        async move {
-                            sign_out_every_home(&pool, &folder, &legs, ACCOUNT_SIGN_OUT_BOUND).await
-                        }
-                        .boxed()
-                    }),
-                    end_sign_ins: Arc::new(move || {
-                        let sign_ins = Arc::clone(&erase_sign_ins);
-                        async move { sign_ins.stop(ACCOUNT_SIGN_OUT_BOUND).await }.boxed()
-                    }),
-                    close_data_folder,
-                    end_process: Arc::new(move || accept_stop(DaemonStopReason::Erase)),
-                })),
-            },
+            data,
             data_folder: data_folder.to_path_buf(),
             driver_methods: Arc::clone(&driver_methods),
             approval_methods: Arc::new(ApprovalMethodSources {

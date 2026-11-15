@@ -93,7 +93,7 @@ pub struct ProcessExitWithCode {
     )]
     #[schemars(with = "Never")]
     pub silent_seconds: Option<Never>,
-    /// The last lines it printed.
+    /// The last lines it printed, as a terminal shows them.
     pub output_tail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
 
@@ -120,7 +120,7 @@ pub struct ProcessExitWithSignal {
     )]
     #[schemars(with = "Never")]
     pub silent_seconds: Option<Never>,
-    /// The last lines it printed.
+    /// The last lines it printed, as a terminal shows them.
     pub output_tail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
 
@@ -147,7 +147,7 @@ pub struct ProcessExitAfterSilence {
     )]
     #[schemars(with = "Never")]
     pub signal: Option<Never>,
-    /// The last lines it printed.
+    /// The last lines it printed, as a terminal shows them.
     pub output_tail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
 
@@ -325,8 +325,8 @@ run_state_change_members! {
         pub trigger: Option<StopTrigger>,
     }
 
-    /// A transition into `failed`, with its typed cause and its provider process's own exit with the
-    /// provider whose process it was.
+    /// A transition into `failed`, with its typed cause, the provider whose process ended under it
+    /// and how that process ended.
     pub struct RunFailedStateChangeMembers: failed {
         /// The run's typed failure cause.
         #[serde(
@@ -337,7 +337,8 @@ run_state_change_members! {
         #[schemars(with = "RunFailureCause")]
         #[garde(dive)]
         pub failure_cause: Option<RunFailureCause>,
-        /// How the provider process ended under the turn, where it ended on its own.
+        /// How the provider process ended under the turn, where it ended on its own and how it
+        /// ended was read.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -345,8 +346,8 @@ run_state_change_members! {
         )]
         #[schemars(with = "ProcessExit")]
         pub process_exit: Option<ProcessExit>,
-        /// The provider whose process ended under the turn, present exactly where `processExit`
-        /// is.
+        /// The provider whose process ended under the turn, on every end of a lead by that end,
+        /// with or without `processExit`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",

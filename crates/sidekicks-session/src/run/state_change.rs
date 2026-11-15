@@ -213,12 +213,13 @@ impl RunStateChange {
                 provider_failure_detail,
                 process_exit,
             } => {
-                let (provider, process_exit) = process_exit
-                    .map(|ended| {
+                let (provider, process_exit) = match process_exit {
+                    Some(ended) => {
                         let ProviderProcessExit { provider, exit } = *ended;
-                        (provider, exit)
-                    })
-                    .unzip();
+                        (Some(provider), exit)
+                    }
+                    None => (None, None),
+                };
                 SessionEvent::AgentRunFailed(state_change_payload!(
                     transition,
                     AgentRunFailedPayload,

@@ -222,7 +222,7 @@ impl ClaudeSessionRestarts {
             self.routes.forget_run(run.run_id);
             let process_exit = ProviderProcessExit {
                 provider: DESCRIPTOR.provider_id(),
-                exit: exit.clone(),
+                exit: Some(exit.clone()),
             };
             if let Err(error) = self
                 .engine

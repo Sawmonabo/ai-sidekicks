@@ -139,7 +139,6 @@ impl CodexAnswerSteers {
             steer.binding.binding_id.clone(),
             ANSWERS_UNDELIVERED_FAILURE,
             failed,
-            None,
         )
         .await;
         self.dependencies.run_routes.forget_run(steer.run_id);

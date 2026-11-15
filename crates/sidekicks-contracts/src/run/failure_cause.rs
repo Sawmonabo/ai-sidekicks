@@ -133,7 +133,7 @@ pub enum RunFailureCause {
         origin: ProviderFailureOrigin,
     },
     /// A provider's own helper that ended because the process it ran inside, its lead's, ended on
-    /// its own; the lead's end carries how that process ended.
+    /// its own; the lead's end names the provider, with how the process ended where that was read.
     LeadProcessEnded {
         /// Always `daemon`.
         origin: DaemonFailureOrigin,

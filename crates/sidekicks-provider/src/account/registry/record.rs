@@ -102,7 +102,7 @@ impl RegisteredAccount {
 }
 
 /// Every registered account, or `provider`'s alone, oldest first.
-pub fn query_accounts(
+pub(super) fn query_accounts(
     connection: &Connection,
     provider: Option<&ProviderId>,
 ) -> Result<Vec<RegisteredAccount>, ProviderAccountRegistryError> {

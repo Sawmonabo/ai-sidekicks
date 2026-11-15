@@ -59,8 +59,8 @@ pub enum RunStateEntry {
         failure_cause: Option<RunFailureCause>,
         /// The provider's own words on why it failed the run.
         provider_failure_detail: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
-        /// How the provider process ended under the turn, where it ended on its own; boxed, as
-        /// the largest member of any state's entry.
+        /// The provider process that ended on its own under the turn, and how it ended where that
+        /// was read; boxed, as the largest member of any state's entry.
         process_exit: Option<Box<ProviderProcessExit>>,
     },
 }
@@ -70,8 +70,8 @@ pub enum RunStateEntry {
 pub struct ProviderProcessExit {
     /// The provider whose process ended.
     pub provider: ProviderId,
-    /// How it ended.
-    pub exit: ProcessExit,
+    /// How it ended; `None` where how it ended could not be read.
+    pub exit: Option<ProcessExit>,
 }
 
 impl RunStateEntry {

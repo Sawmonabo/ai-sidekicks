@@ -1,10 +1,10 @@
 //! The driver methods over a test database holding one session and the table's first two
 //! providers, each answered by a stand-in driver: one provider's failed models and modes beside
-//! the other's, the session's own provider listed first, and every binding admitted before any
-//! command list is read.
+//! the other's, the session's own provider listed first, one provider's accounts merged into one
+//! catalog with one marked row, and every binding admitted before any command list is read.
 
 use std::io;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use futures::FutureExt as _;
 use rstest::rstest;
@@ -13,19 +13,22 @@ use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::account::record::{BillingMode, ProviderAccountId};
 use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, ProviderModel};
 use sidekicks_contracts::provider::driver::methods::{
-    ProviderCommandListRequest, ProviderModeReport, ProviderModelReport, ProviderModelsFailed,
-    ProviderModelsListed, ProviderModesFailed, ProviderModesListed, ProviderReadFailure,
+    ProviderAccountReadFailure, ProviderCommandListRequest, ProviderModeReport,
+    ProviderModelReport, ProviderModelsFailed, ProviderModelsListed, ProviderModesFailed,
+    ProviderModesListed, ProviderReadFailure,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::account::registry::{AccountAdmission, open_test_registry};
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::capabilities::{
     DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
@@ -40,6 +43,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use tempfile::TempDir;
 
 use super::{
     DRIVER_METHODS_STATEMENT_CAPACITY, DriverMethodSources, list_models, list_modes,
@@ -50,18 +54,20 @@ use crate::daemon::schema::schema_parts;
 /// The instant the tests' events carry.
 const AT: &str = "2026-10-19T12:00:00.000Z";
 
-/// A session the daemon holds, and the drivers' registry.
+/// A session the daemon holds, the drivers' registry, and the accounts' with their homes' folder.
 struct Fixture {
     database: TestDatabase,
     sources: DriverMethodSources,
     session_id: SessionId,
+    _data_folder: TempDir,
 }
 
-fn fixture(drivers: Vec<MockProviderDriver>) -> Fixture {
+async fn fixture(drivers: Vec<MockProviderDriver>) -> Fixture {
     let database = TestDatabase::new(schema_parts());
-    let schema = database.opener()().expect("the test creates its database");
+    let data_folder = tempfile::tempdir().expect("the test makes a data folder");
+    let (accounts, _writer) = open_test_registry(&database, data_folder.path()).await;
     let session_id = test_session_id();
-    insert_session_row(&schema, session_id.text().as_str(), None, None);
+    insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
     let drivers = drivers
         .into_iter()
         .map(|mut driver| {
@@ -77,11 +83,13 @@ fn fixture(drivers: Vec<MockProviderDriver>) -> Fixture {
         providers: Arc::new(registry_of_first_providers(drivers)),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
         price_list: Arc::new(PortRegistration::new("price list")),
+        accounts: Arc::new(accounts),
     };
     Fixture {
         database,
         sources,
         session_id,
+        _data_folder: data_folder,
     }
 }
 
@@ -95,6 +103,14 @@ fn model(id: &str) -> ProviderModel {
         "isDefault": false,
     }))
     .expect("the test's model reads")
+}
+
+// `model` as the row its catalog marks as the one a new session starts on.
+fn marked(id: &str) -> ProviderModel {
+    ProviderModel {
+        is_default: true,
+        ..model(id)
+    }
 }
 
 /// How the second provider's reads of its models and modes end.
@@ -189,7 +205,7 @@ async fn one_providers_failed_read_never_hides_the_others(#[case] second: Second
         let failed = second.error();
         async move { Err(failed) }.boxed()
     });
-    let fixture = fixture(vec![first, failing]);
+    let fixture = fixture(vec![first, failing]).await;
 
     let models = list_models(&fixture.sources, Some(fixture.session_id))
         .await
@@ -201,6 +217,7 @@ async fn one_providers_failed_read_never_hides_the_others(#[case] second: Second
     let mut expected_models = vec![ProviderModelReport::Listed(ProviderModelsListed {
         provider_name: PROVIDERS[0].provider_id(),
         models: vec![model("model-a")],
+        unread_accounts: None,
         failure: None,
     })];
     let mut expected_modes = vec![ProviderModeReport::Listed(ProviderModesListed {
@@ -261,7 +278,7 @@ async fn the_sessions_own_provider_lists_first_on_its_own_account() {
             driver
         })
         .collect();
-    let fixture = fixture(drivers);
+    let fixture = fixture(drivers).await;
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
     fixture
         .database
@@ -372,6 +389,111 @@ async fn the_sessions_own_provider_lists_first_on_its_own_account() {
     );
 }
 
+// With no session, a provider's two accounts' catalogs merge into one whose only marked row is
+// its default account's, a row only the other account marks listed unmarked, and with the other
+// account's read failed the provider still lists, naming that account and its failure; the
+// default account is the newer one, so its row leads by its mark and not by its age. Killed by
+// pushing a later account's rows whole, by taking the first read's mark, by failing the provider
+// on one account's failure, and by leaving the failed account out of the answer.
+#[rstest]
+#[case::both_list(false)]
+#[case::other_fails(true)]
+#[tokio::test]
+async fn a_merged_catalog_marks_only_the_default_accounts_row(#[case] does_other_fail: bool) {
+    let other_account: Arc<OnceLock<ProviderAccountId>> = Arc::default();
+    let mut first = MockProviderDriver::new();
+    let other = Arc::clone(&other_account);
+    first
+        .expect_list_models()
+        .times(2)
+        .returning(move |params| {
+            let is_other = params.provider_account_id.as_ref() == other.get();
+            async move {
+                match (is_other, does_other_fail) {
+                    (false, _) => Ok(vec![marked("model-a"), model("model-b")]),
+                    (true, false) => Ok(vec![model("model-b"), marked("model-c")]),
+                    (true, true) => Err(SecondRead::Fails.error()),
+                }
+            }
+            .boxed()
+        });
+    let mut second = MockProviderDriver::new();
+    second
+        .expect_list_models()
+        .times(1)
+        .returning(|_| async { Ok(Vec::new()) }.boxed());
+    let fixture = fixture(vec![first, second]).await;
+    let mut admitted = Vec::new();
+    for _ in 0..2 {
+        let minted = fixture
+            .sources
+            .accounts
+            .mint(PROVIDERS[0].provider_id())
+            .expect("the account is minted");
+        let account = fixture
+            .sources
+            .accounts
+            .admit(
+                &minted,
+                &AccountAdmission {
+                    display_label: None,
+                    billing_mode: BillingMode::Subscription,
+                    health: None,
+                    observed_auth_mode: None,
+                },
+            )
+            .await
+            .expect("the account is admitted");
+        admitted.push(account.account_id);
+    }
+    fixture
+        .sources
+        .accounts
+        .make_current(admitted[1].clone())
+        .await
+        .expect("the newer account becomes the default");
+    other_account
+        .set(admitted[0].clone())
+        .expect("the other account is set once");
+
+    let listed = list_models(&fixture.sources, None)
+        .await
+        .expect("the model list answers");
+
+    let (models, unread_accounts) = if does_other_fail {
+        let unread = ProviderAccountReadFailure {
+            provider_account_id: admitted[0].clone(),
+            failure: SecondRead::Fails.failure().expect("the read fails"),
+        };
+        (
+            vec![marked("model-a"), model("model-b")],
+            BoundedVec::new(vec![unread]),
+        )
+    } else {
+        (
+            vec![marked("model-a"), model("model-b"), model("model-c")],
+            None,
+        )
+    };
+    assert_eq!(
+        listed.providers,
+        [
+            ProviderModelReport::Listed(ProviderModelsListed {
+                provider_name: PROVIDERS[0].provider_id(),
+                models,
+                unread_accounts,
+                failure: None,
+            }),
+            ProviderModelReport::Listed(ProviderModelsListed {
+                provider_name: PROVIDERS[1].provider_id(),
+                models: Vec::new(),
+                unread_accounts: None,
+                failure: None,
+            }),
+        ]
+    );
+}
+
 // An agent live on two bindings, the second's driver without the command list, is refused at
 // the gate before any list is read. Killed by reading each binding as it is admitted.
 #[tokio::test]
@@ -380,7 +502,7 @@ async fn every_binding_is_admitted_before_any_command_list_is_read() {
     first.expect_list_provider_commands().times(0);
     let mut second = MockProviderDriver::new();
     second.expect_list_provider_commands().times(0);
-    let fixture = fixture(vec![first, second]);
+    let fixture = fixture(vec![first, second]).await;
     let agent_id = AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
     for index in 0..2 {
         live_run_of_agent(&fixture, &agent_id, index);

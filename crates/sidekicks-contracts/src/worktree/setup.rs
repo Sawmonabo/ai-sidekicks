@@ -15,7 +15,7 @@ use crate::worktree::lifecycle::WorktreeId;
 
 ts_constants! {
     /// The longest captured output a setup step carries; the daemon keeps the tail of a longer
-    /// output, cut to this many code points.
+    /// output, cut to this many code points of the text a terminal shows.
     pub const WORKTREE_SETUP_OUTPUT_MAX_LEN: usize = 32768;
 }
 
@@ -88,7 +88,7 @@ pub struct WorktreeSetupStep {
     )]
     #[schemars(with = "FreeFormText<WORKSPACE_LAST_ERROR_MAX_LEN>")]
     pub error: Option<FreeFormText<WORKSPACE_LAST_ERROR_MAX_LEN>>,
-    /// Its captured output.
+    /// The tail of its captured output, as a terminal shows it.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

@@ -270,6 +270,31 @@ impl ProviderDescriptor {
         self.terminal_resume_command
     }
 
+    /// The word a person types to run the provider, its command's first name; the table's build
+    /// check holds that every provider has one.
+    pub fn command_word(&self) -> &'static str {
+        self.first_command_name()
+            .expect("the table's build check gives every provider a command name")
+    }
+
+    /// The first name the provider's command starts by, on macOS and Linux before Windows; `None`
+    /// where it names none on either.
+    pub(crate) const fn first_command_name(&self) -> Option<&'static str> {
+        if let Some(ProviderCommandLookup {
+            names: [first, ..], ..
+        }) = &self.command.unix
+        {
+            return Some(*first);
+        }
+        if let Some(ProviderCommandLookup {
+            names: [first, ..], ..
+        }) = &self.command.windows
+        {
+            return Some(*first);
+        }
+        None
+    }
+
     /// The variables a Terminal pane's shell is given while `Simplify for a screen reader` is on.
     pub fn screen_reader_environment_names(&self) -> &'static [&'static str] {
         self.screen_reader_environment_names

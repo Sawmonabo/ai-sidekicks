@@ -254,7 +254,8 @@ run_state_change_payloads! {
         )]
         #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
         pub provider_failure_detail: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
-        /// How the provider process ended under the turn, where it ended on its own.
+        /// How the provider process ended under the turn, where it ended on its own and how it
+        /// ended was read.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -262,8 +263,8 @@ run_state_change_payloads! {
         )]
         #[schemars(with = "ProcessExit")]
         pub process_exit: Option<ProcessExit>,
-        /// The provider whose process ended under the turn, present exactly where `processExit`
-        /// is.
+        /// The provider whose process ended under the turn, on every end of a lead by that end,
+        /// with or without `processExit`.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",

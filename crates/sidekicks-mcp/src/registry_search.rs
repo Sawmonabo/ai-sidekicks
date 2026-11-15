@@ -21,7 +21,7 @@ use sidekicks_contracts::mcp::server::requests::{
 use sidekicks_contracts::web_address::WebAddress;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::record::JsonRecord;
-use sidekicks_contracts::wire::text::{NonEmptyText, is_within_length};
+use sidekicks_contracts::wire::text::{NonEmptyText, is_ecmascript_whitespace, is_within_length};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::outbound_http::{CappedBodyError, KeptOutboundClient, read_capped_body};
 
@@ -98,15 +98,19 @@ impl McpRegistryClient {
         }
     }
 
-    /// One page of the registry's servers whose names hold `request`'s query, trimmed. A query
-    /// under [`MCP_REGISTRY_MIN_QUERY_LENGTH`] code points answers no servers and sends nothing.
+    /// One page of the registry's servers whose names hold `request`'s query, trimmed of the
+    /// whitespace JavaScript's `trim()` takes. A query under [`MCP_REGISTRY_MIN_QUERY_LENGTH`] code
+    /// points answers no servers and sends nothing.
     /// Fails [`McpRegistrySearchError::TimedOut`] with no whole reply in time, and
     /// [`McpRegistrySearchError::Unavailable`] on any other failure.
     pub async fn search(
         &self,
         request: &McpRegistrySearchRequest,
     ) -> Result<McpRegistrySearchResponse, McpRegistrySearchError> {
-        let query = request.query.as_str().trim();
+        let query = request
+            .query
+            .as_str()
+            .trim_matches(is_ecmascript_whitespace);
         if !is_within_length(query, MCP_REGISTRY_MIN_QUERY_LENGTH, usize::MAX) {
             return Ok(McpRegistrySearchResponse {
                 servers: Vec::new(),

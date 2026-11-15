@@ -1,14 +1,16 @@
 //! What a session stream keeps between frames so each change says what its transcript row needs:
 //! for every row still taking pieces, its id, where its next piece starts and, for a reply drawn as
 //! markdown, its block cut past its last frozen start, and for every child run the stream met, its
-//! running event count and why it failed. A stream that first meets a row or a child partway seeds it with one
-//! indexed read; a row is let go, with the starts its cut left unsent, at its run's turn end or
-//! rollback, and a child at its end. A large piece's text is loaded only for a row whose cut
-//! reads it. Only a reply's or reasoning's pieces are placed: a tool completion goes out whole.
+//! running event count and why it failed. A stream that first meets a row or a child partway seeds
+//! it with one indexed read; a row is let go, with the starts its cut left unsent, at its run's
+//! turn end or rollback, and a child at its end. A large piece's text is loaded only for a row
+//! whose cut reads it. Only a reply's or reasoning's pieces are placed: a tool completion goes out
+//! whole.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+use rusqlite::types::Type;
 use rusqlite::{Connection, named_params};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::envelope::EventEnvelope;
@@ -30,6 +32,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_store::database::stored_column::StoredJsonFault;
 use sidekicks_store::events::content::codec::{
     StoredBodyColumns, stored_body_columns_sql, stored_body_encoding_sql, stored_body_length_sql,
 };
@@ -255,6 +258,8 @@ struct ChildTally {
     readable: u64,
     /// Whether its events were counted when the stream met it.
     is_counted: bool,
+    /// Whether `failure_cause` was read for the failed state it reads now.
+    is_cause_read: bool,
 }
 
 /// The rows and child runs one session stream is following.
@@ -394,8 +399,9 @@ impl TranscriptStreamState {
     /// The summary `event`, filed under `run_id`, carries when that run is a child: its count
     /// through this event, read on `reader` when the stream first meets the child, and complete
     /// unless some of its events cannot be read, as of `observed_at`, with the cause of its own
-    /// failure, read again at its `agent.run.failed`. Fails when SQLite refuses a read or a stored
-    /// cause does not read as one.
+    /// failure: taken from its `agent.run.failed`, or read once from the log at the first of its
+    /// events framed while it reads failed. Fails when SQLite refuses a read or a stored cause does
+    /// not read as one.
     pub fn child_run_summary(
         &mut self,
         reader: &Connection,
@@ -415,9 +421,15 @@ impl TranscriptStreamState {
                     .map_or(tally.state, |run| run.state);
                 if tally.state != RunState::Failed {
                     tally.failure_cause = None;
+                    tally.is_cause_read = false;
                 } else if event.event_type.0.as_str() == SessionEventType::AgentRunFailed.as_str() {
+                    tally.failure_cause = failure_cause_of(event)?;
+                    tally.is_cause_read = true;
+                } else if !tally.is_cause_read {
+                    // A turn's end framed before the run's failure, in the same write.
                     tally.failure_cause =
                         read_child_failure_cause(reader, &event.session_id, &run_id, read_bound)?;
+                    tally.is_cause_read = true;
                 }
             }
             tally
@@ -516,12 +528,31 @@ fn seed_child_tally(
     )?;
     Ok(counts.remove(&run_key).map(|count| ChildTally {
         parent_run_id,
+        is_cause_read: count.is_counted && count.state == RunState::Failed,
         state: count.state,
         failure_cause: count.failure_cause,
         total: count.total,
         readable: count.readable,
         is_counted: count.is_counted,
     }))
+}
+
+// The cause `event`, an `agent.run.failed`, carries; `None` for one that carries none. Fails when
+// the cause does not read as one.
+fn failure_cause_of(event: &EventEnvelope) -> rusqlite::Result<Option<RunFailureCause>> {
+    event
+        .payload
+        .get("failureCause")
+        .map(|cause| {
+            serde_json::from_value::<RunFailureCause>(cause.clone()).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    Type::Text,
+                    Box::new(StoredJsonFault::from(error)),
+                )
+            })
+        })
+        .transpose()
 }
 
 // The text of the row anchored at `anchor_sequence` before `event`, from its readable pieces.

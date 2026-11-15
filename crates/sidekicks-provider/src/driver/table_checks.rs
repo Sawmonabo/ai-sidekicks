@@ -1,6 +1,6 @@
 //! The provider table's checks, run as the crate compiles: every id matches the provider id
-//! pattern, no two providers share one, and every name and resume command holds as declaration
-//! text.
+//! pattern, no two providers share one, every name, command word and resume command holds as
+//! declaration text, and every resume command starts with its provider's command word.
 
 use sidekicks_contracts::provider::declaration::PROVIDER_DECLARATION_TEXT_MAX_LEN;
 use sidekicks_contracts::provider::id::is_provider_id;
@@ -14,7 +14,11 @@ const _: () = assert!(
 const _: () = assert!(has_unique_ids(PROVIDERS), "two providers share an id");
 const _: () = assert!(
     has_declarable_words(PROVIDERS),
-    "a provider's name or resume command is not declaration text"
+    "a provider's name, command word or resume command is not declaration text"
+);
+const _: () = assert!(
+    has_resume_commands_by_word(PROVIDERS),
+    "a provider's resume command does not start with its command word"
 );
 
 /// Whether every id in `table` matches the provider id pattern.
@@ -29,13 +33,47 @@ const fn has_valid_ids(table: &[&ProviderDescriptor]) -> bool {
     true
 }
 
-/// Whether every name and resume command in `table` holds as declaration text: no NUL, no more
-/// bytes than its cap counts code points, and a visible ASCII character, so it is not blank.
+/// Whether every name, command word and resume command in `table` holds as declaration text: no
+/// NUL, no more bytes than its cap counts code points, and a visible ASCII character, so it is not
+/// blank. A provider with no command name has no command word, which fails.
 const fn has_declarable_words(table: &[&ProviderDescriptor]) -> bool {
     let mut i = 0;
     while i < table.len() {
-        if !is_declarable(table[i].name) || !is_declarable(table[i].terminal_resume_command) {
+        let Some(command_word) = table[i].first_command_name() else {
             return false;
+        };
+        if !is_declarable(table[i].name)
+            || !is_declarable(command_word)
+            || !is_declarable(table[i].terminal_resume_command)
+        {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// Whether every resume command in `table` is its provider's command word, a space, then more, so
+/// the word a person types is declared once.
+const fn has_resume_commands_by_word(table: &[&ProviderDescriptor]) -> bool {
+    let mut i = 0;
+    while i < table.len() {
+        let Some(command_word) = table[i].first_command_name() else {
+            return false;
+        };
+        let (word, command) = (
+            command_word.as_bytes(),
+            table[i].terminal_resume_command.as_bytes(),
+        );
+        if command.len() <= word.len() + 1 || command[word.len()] != b' ' {
+            return false;
+        }
+        let mut j = 0;
+        while j < word.len() {
+            if command[j] != word[j] {
+                return false;
+            }
+            j += 1;
         }
         i += 1;
     }

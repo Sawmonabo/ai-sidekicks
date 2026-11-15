@@ -369,7 +369,8 @@ interface McpLiveApplicationResult {
 // nextCursor?: string} // `Browse servers`: a search of the public MCP Registry (`GET
 // /v0.1/servers?search=<query>&version=latest` on registry.modelcontextprotocol.io), made by the
 // daemon only when the person types and caching nothing past the page. A query holding fewer than
-// MCP_REGISTRY_MIN_QUERY_LENGTH (3) code points once its surrounding whitespace is trimmed is
+// MCP_REGISTRY_MIN_QUERY_LENGTH (3) code points once the whitespace JavaScript's `trim()` takes is
+// trimmed from both ends, the one rule the daemon and a client count by, is
 // sent nowhere and answers `{servers: []}`, never a refusal, since the registry refuses one that
 // short; the contracts export the constant, and a client searches only from that length. Each
 // result carries its title or name, description and version, whether it runs as a package (its

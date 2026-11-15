@@ -1,8 +1,9 @@
 //! Child runs in the transcript. A child's creation row, the `agent.run.queued` that names its
 //! parent, carries the child's summary: its state and why it failed, the events the daemon holds
 //! for it through the read's head, and whether those are all of them, counted for every child of a
-//! page in one statement. `transcript.childRun.expand` reads one child's rows as a window of their own: its
-//! events, the events filed under it, and its own children's creation rows, live or finished alike.
+//! page in one statement. `transcript.childRun.expand` reads one child's rows as a window of their
+//! own: its events, the events filed under it, and its own children's creation rows, live or
+//! finished alike.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -111,14 +112,9 @@ static CHILD_COUNTS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// Each child's state and why it failed alone, read when its events could not be counted.
-static CHILD_STATES_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT runs.run_id, runs.state, {} FROM runs
-          WHERE runs.run_id IN (SELECT value FROM json_each(@run_ids))",
-        *CHILD_FAILURE_CAUSE_SQL,
-    )
-});
+// Each child's state alone, read when its events or causes could not be counted.
+const CHILD_STATES_SQL: &str =
+    "SELECT run_id, state FROM runs WHERE run_id IN (SELECT value FROM json_each(@run_ids))";
 
 // One child's failure cause.
 static CHILD_FAILURE_CAUSE_OF_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -222,9 +218,9 @@ where
 
 /// The state, failure cause and event counts through `head` of each of `run_ids` in `session_id`,
 /// by run id, read on `reader`; `read_bound` is where the session's reads stop. A run the runs
-/// table does not hold is left out. When the count fails, it is logged and each run comes with its
-/// state and cause alone, not counted. Fails when SQLite refuses the states' read too, or a stored
-/// cause does not read as one.
+/// table does not hold is left out. When the count fails, a stored cause that does not read as one
+/// among the reasons, it is logged and each run comes with its state alone, with no cause and not
+/// counted. Fails when SQLite refuses the states' read too.
 pub(crate) fn read_child_counts(
     reader: &Connection,
     session_id: &SessionId,
@@ -238,43 +234,48 @@ pub(crate) fn read_child_counts(
         Err(error) => {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
-                "child runs' events could not be counted; their summaries are marked incomplete"
+                "child runs' summaries are read without their counts and marked incomplete"
             );
             reader
-                .prepare_cached(&CHILD_STATES_SQL)?
-                .query_map(
-                    named_params! {
-                        "@session_id": session_id.text().as_str(),
-                        "@run_ids": run_ids_json,
-                        "@read_bound": read_bound,
-                    },
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            ChildCount {
-                                state: text_column(row, 1, closed_word)?,
-                                failure_cause: failure_cause_column(row, 2)?,
-                                total: 0,
-                                readable: 0,
-                                is_counted: false,
-                            },
-                        ))
-                    },
-                )?
+                .prepare_cached(CHILD_STATES_SQL)?
+                .query_map(named_params! { "@run_ids": run_ids_json }, |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        ChildCount {
+                            state: text_column(row, 1, closed_word)?,
+                            failure_cause: None,
+                            total: 0,
+                            readable: 0,
+                            is_counted: false,
+                        },
+                    ))
+                })?
                 .collect()
         }
     }
 }
 
-// The counts of `read_child_counts`, failing when SQLite refuses them.
+// Why the counts of `read_child_counts` did not answer.
+#[derive(Debug, thiserror::Error)]
+enum ChildCountError {
+    // SQLite refused the count.
+    #[error("child runs' events could not be counted")]
+    Count(#[from] rusqlite::Error),
+    // A child's newest `agent.run.failed` holds a cause that does not read as one.
+    #[error("a child run's stored failure cause does not read as one")]
+    Cause(#[from] serde_json::Error),
+}
+
+// The counts of `read_child_counts`, each stored cause read once the rows are, so a cause that does
+// not read fails with its own words.
 fn count_child_events(
     reader: &Connection,
     session_id: &SessionId,
     run_ids_json: &str,
     head: i64,
     read_bound: i64,
-) -> rusqlite::Result<HashMap<String, ChildCount>> {
-    reader
+) -> Result<HashMap<String, ChildCount>, ChildCountError> {
+    let rows: Vec<(String, RunState, Option<String>, i64, i64)> = reader
         .prepare_cached(&CHILD_COUNTS_SQL)?
         .query_map(
             named_params! {
@@ -284,20 +285,30 @@ fn count_child_events(
                 "@read_bound": read_bound,
             },
             |row| {
-                let total: i64 = row.get(3)?;
-                let readable: i64 = row.get(4)?;
                 Ok((
-                    row.get::<_, String>(0)?,
-                    ChildCount {
-                        state: text_column(row, 1, closed_word)?,
-                        failure_cause: failure_cause_column(row, 2)?,
-                        total: u64::try_from(total).expect("a count is not negative"),
-                        readable: u64::try_from(readable).expect("a count is not negative"),
-                        is_counted: true,
-                    },
+                    row.get(0)?,
+                    text_column(row, 1, closed_word)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
                 ))
             },
         )?
+        .collect::<rusqlite::Result<_>>()?;
+    rows.into_iter()
+        .map(|(run_id, state, cause, total, readable)| {
+            let failure_cause = (cause.as_deref())
+                .map(serde_json::from_str::<RunFailureCause>)
+                .transpose()?;
+            let count = ChildCount {
+                state,
+                failure_cause,
+                total: u64::try_from(total).expect("a count is not negative"),
+                readable: u64::try_from(readable).expect("a count is not negative"),
+                is_counted: true,
+            };
+            Ok((run_id, count))
+        })
         .collect()
 }
 

@@ -21,6 +21,7 @@ use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::status::normalizer::{McpSessionAttribution, open_mcp_leg_status_producer};
 use sidekicks_mcp::status::open_test_tracker;
 use sidekicks_platforms::Spawner;
+use sidekicks_provider::account::registry::open_test_registry;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::mcp_server::resources::McpResourceSource;
@@ -125,6 +126,12 @@ async fn session_reading(
             providers: Arc::new(registry_of_first_provider(Arc::new(driver(bindings)))),
             read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
             price_list: Arc::new(PortRegistration::new("price list")),
+            // No account is read, so the homes' folder is never made.
+            accounts: Arc::new(
+                open_test_registry(&database, &database.path().with_file_name("data"))
+                    .await
+                    .0,
+            ),
         }),
         statuses,
         client: Arc::new(

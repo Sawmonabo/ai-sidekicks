@@ -22,7 +22,6 @@ use serde_json::json;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::run::control::ProcessExit;
-use sidekicks_contracts::run::failure_cause::{DaemonFailureOrigin, RunFailureCause};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
@@ -33,7 +32,6 @@ use tokio_util::task::TaskTracker;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
-use crate::driver::codex::run::control::fail_codex_run;
 use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
@@ -68,11 +66,7 @@ use crate::run::state_entry::ProviderProcessExit;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 
 use self::build_move::ServiceRestart;
-use self::dropped_turns::CodexDroppedTurns;
 use self::in_place_resume::{CodexInPlaceResumeCall, CodexReleasedConversations};
-
-/// The words a run is failed with when its service ended with no exit the daemon could read.
-const CODEX_EXIT_UNREAD_FAILURE: &str = "The Codex service ended";
 
 /// Answers whether the runtime that still wrote a conversation let it go, so a refused resume is
 /// tried again; `false` ends the tries.
@@ -193,13 +187,22 @@ impl CodexServiceRecovery {
     /// then the turns' safety holds, then the held presses of `Allow once` released, and only then
     /// the queue told the process is gone, which settles the messages the process kept. The
     /// conversations stay to be resumed. With no `exit` read, a lasting service a former daemon
-    /// started, each run fails as a provider failure, and each helper's child run as one its lead's
-    /// process ended.
+    /// started, each run ends as one with an exit does, naming its provider with no exit, and the
+    /// daemon's log says how it ended could not be read.
     pub(crate) async fn end_turns_on_exit(
         &self,
         service: &Arc<CodexService>,
         exit: Option<ProcessExit>,
     ) {
+        if exit.is_none() {
+            tracing::warn!(
+                provider_account_id = service
+                    .provider_account_id()
+                    .as_ref()
+                    .map(ProviderAccountId::as_str),
+                "a codex service ended, and how it ended could not be read"
+            );
+        }
         self.dependencies
             .establishment
             .forget_service_process(service);
@@ -211,18 +214,9 @@ impl CodexServiceRecovery {
                 // The session closed meanwhile; its close ended what it held.
                 continue;
             };
-            let helpers = dropped.helper_run_ids.iter().map(|run_id| (*run_id, true));
-            let runs = dropped.run_ids.iter().map(|run_id| (*run_id, false));
-            for (run_id, is_helper) in runs.chain(helpers) {
-                self.end_run_on_exit(
-                    service,
-                    session_id,
-                    run_id,
-                    exit.as_ref(),
-                    &dropped,
-                    is_helper,
-                )
-                .await;
+            for run_id in dropped.run_ids.iter().chain(&dropped.helper_run_ids) {
+                self.end_run_on_exit(service, session_id, *run_id, exit.as_ref())
+                    .await;
             }
             // A session whose task ended has no hold left to end.
             let _ended =
@@ -723,60 +717,32 @@ impl CodexServiceRecovery {
         }
     }
 
-    // Ends one run whose turns the exit took: through the run engine with the exit read, which
-    // tells a helper's child run by its own record, else failed on the session's binding as a
-    // provider failure, a helper's child run (`is_helper`) as one its lead's process ended.
+    // Ends one run whose turns the exit took through the run engine, which tells a helper's child
+    // run by its own record: a lead's end names its provider, with the exit where it was read.
     async fn end_run_on_exit(
         &self,
         service: &CodexService,
         session_id: SessionId,
         run_id: RunId,
         exit: Option<&ProcessExit>,
-        dropped: &CodexDroppedTurns,
-        is_helper: bool,
     ) {
-        match exit {
-            Some(exit) => {
-                let process_exit = ProviderProcessExit {
-                    provider: DESCRIPTOR.provider_id(),
-                    exit: exit.clone(),
-                };
-                if let Err(error) = self
-                    .dependencies
-                    .run_ends
-                    .end_turn_on_process_exit(run_id, process_exit)
-                    .await
-                {
-                    CodexTransportDiagnostic::PortDeliveryFailed {
-                        provider_account_id: service.provider_account_id(),
-                        port: CodexDeliveryPort::RunEnd,
-                        session_id: Some(session_id),
-                        error,
-                    }
-                    .report();
-                }
+        let process_exit = ProviderProcessExit {
+            provider: DESCRIPTOR.provider_id(),
+            exit: exit.cloned(),
+        };
+        if let Err(error) = self
+            .dependencies
+            .run_ends
+            .end_turn_on_process_exit(run_id, process_exit)
+            .await
+        {
+            CodexTransportDiagnostic::PortDeliveryFailed {
+                provider_account_id: service.provider_account_id(),
+                port: CodexDeliveryPort::RunEnd,
+                session_id: Some(session_id),
+                error,
             }
-            None => {
-                if let Some(binding_id) = &dropped.binding_id {
-                    let error = CodexError::Transport {
-                        detail: "The Codex service ended, and how it ended could not be read."
-                            .to_owned(),
-                        cause: None,
-                    };
-                    let failure_cause = is_helper.then_some(RunFailureCause::LeadProcessEnded {
-                        origin: DaemonFailureOrigin::Value,
-                    });
-                    fail_codex_run(
-                        &*self.dependencies.dispatch,
-                        run_id,
-                        binding_id.clone(),
-                        CODEX_EXIT_UNREAD_FAILURE,
-                        &error,
-                        failure_cause,
-                    )
-                    .await;
-                }
-            }
+            .report();
         }
     }
 

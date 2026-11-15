@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent::definition::AgentId;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::method::methods;
+use crate::provider::account::record::ProviderAccountId;
 use crate::provider::driver::capabilities::{ProviderMode, ProviderModel};
 use crate::provider::driver::commands::ProviderCommandListResponse;
 use crate::provider::driver::compaction::AgentRunContextCompactResponse;
@@ -19,6 +20,7 @@ use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::Never;
+use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
 
 ts_constants! {
@@ -79,6 +81,16 @@ pub struct ProviderReadFailure {
     pub provider_failure_detail: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
 }
 
+/// One account whose models a read with no session could not read, and why.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderAccountReadFailure {
+    /// The account.
+    pub provider_account_id: ProviderAccountId,
+    /// Why its read failed.
+    pub failure: ProviderReadFailure,
+}
+
 /// Declares one arm of a provider's outcome in the `provider.model.list` or `provider.mode.list`
 /// reply, the provider it names written once.
 macro_rules! provider_report_arm {
@@ -101,6 +113,15 @@ provider_report_arm! {
         /// Its models in the provider's own order, each named by its id and display name; a model
         /// the provider hides is never listed.
         pub models: Vec<ProviderModel>,
+        /// With no session named, each of the provider's accounts whose models could not be read,
+        /// with why; absent where every account was read.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "BoundedVec<ProviderAccountReadFailure, 1, { usize::MAX }>")]
+        pub unread_accounts: Option<BoundedVec<ProviderAccountReadFailure, 1, { usize::MAX }>>,
         /// Only a failed read carries a failure.
         #[serde(
             default,
@@ -130,9 +151,10 @@ provider_report_arm! {
 
 /// One installed provider's outcome in the `provider.model.list` reply: its models, or the failure
 /// its catalog's read answered, so one provider's outage never hides another's models. With no
-/// session named, the models are every registered account's, each row once, the default account's
-/// first, and the failure, carried only when no account's read listed, is the default account's
-/// where it has one.
+/// session named, the models are every model any of its registered accounts lists, each row once,
+/// the default account's first, at most one row marked and that one the default account's mark;
+/// the listed outcome names each account it could not read, and the failure, carried only when no
+/// account's read listed, is the default account's where it has one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ProviderModelReport {
@@ -288,6 +310,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderModelListRequest>(),
         Definition::read::<ProviderModeListRequest>(),
         Definition::read::<ProviderReadFailure>(),
+        Definition::read::<ProviderAccountReadFailure>(),
         Definition::read::<ProviderModelsListed>(),
         Definition::read::<ProviderModelsFailed>(),
         Definition::read::<ProviderModelReport>(),

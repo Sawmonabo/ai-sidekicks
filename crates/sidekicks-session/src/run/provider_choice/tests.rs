@@ -127,10 +127,12 @@ impl Fixture {
                 self.run_id,
                 ProviderProcessExit {
                     provider: test_provider(),
-                    exit: serde_json::from_value(
-                        json!({ "exitCode": 1, "outputTail": "the provider stopped" }),
-                    )
-                    .expect("the test's exit reads as one"),
+                    exit: Some(
+                        serde_json::from_value(
+                            json!({ "exitCode": 1, "outputTail": "the provider stopped" }),
+                        )
+                        .expect("the test's exit reads as one"),
+                    ),
                 },
             )
             .await

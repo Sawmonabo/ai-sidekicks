@@ -11,6 +11,7 @@ use futures::future::{join_all, try_join_all};
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::ProviderDeclarationText;
 use sidekicks_contracts::provider::driver::capabilities::{ProviderModel, find_provider_model_row};
 use sidekicks_contracts::provider::driver::commands::{
@@ -18,10 +19,11 @@ use sidekicks_contracts::provider::driver::commands::{
 };
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::methods::{
-    AgentRunContextCompact, AgentRunContextCompactRequest, ProviderCommandList,
-    ProviderCommandListRequest, ProviderModeList, ProviderModeListResponse, ProviderModeReport,
-    ProviderModelList, ProviderModelListResponse, ProviderModelReport, ProviderModelsFailed,
-    ProviderModelsListed, ProviderModesFailed, ProviderModesListed, ProviderReadFailure,
+    AgentRunContextCompact, AgentRunContextCompactRequest, ProviderAccountReadFailure,
+    ProviderCommandList, ProviderCommandListRequest, ProviderModeList, ProviderModeListResponse,
+    ProviderModeReport, ProviderModelList, ProviderModelListResponse, ProviderModelReport,
+    ProviderModelsFailed, ProviderModelsListed, ProviderModesFailed, ProviderModesListed,
+    ProviderReadFailure,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::{
@@ -36,7 +38,7 @@ use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use sidekicks_provider::account::registry::record::query_accounts;
+use sidekicks_provider::account::registry::{ProviderAccountRegistry, RegisteredAccount};
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
@@ -60,9 +62,9 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 
 /// The statements the driver methods prepare on a read connection: the session's row, the lead's
-/// binding, the run's row, its bindings and its provider, the session's live runs, a binding's row,
-/// whether the log names an agent, and the registered accounts.
-pub(crate) const DRIVER_METHODS_STATEMENT_CAPACITY: usize = 9;
+/// binding, the run's row, its bindings and its provider, the session's live runs, a binding's row
+/// and whether the log names an agent.
+pub(crate) const DRIVER_METHODS_STATEMENT_CAPACITY: usize = 8;
 
 /// What the driver methods read and act through.
 pub(crate) struct DriverMethodSources {
@@ -74,6 +76,8 @@ pub(crate) struct DriverMethodSources {
     pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     /// The held price list, on which every model a provider lists is marked in use.
     pub(crate) price_list: Arc<PortRegistration<Arc<HeldPriceList>>>,
+    /// The registered accounts, whose models a read with no session lists.
+    pub(crate) accounts: Arc<ProviderAccountRegistry>,
 }
 
 impl DriverMethodSources {
@@ -202,21 +206,26 @@ fn declaration_text(text: &'static str) -> ProviderDeclarationText {
         .expect("the provider table's build check holds a descriptor's words")
 }
 
-// One provider's read of its catalog: the provider, the rule that prices its requests, and what
-// the read answered.
-type CatalogRead = (
-    ProviderId,
-    Option<Arc<dyn RequestPricer>>,
-    Result<Vec<ProviderModel>, DriverError>,
-);
+// One provider's read of its catalog: the provider, the rule that prices its requests, what the
+// read answered, and each account whose failed read a listed catalog leaves out.
+struct CatalogRead {
+    provider: ProviderId,
+    pricer: Option<Arc<dyn RequestPricer>>,
+    read: ModelsRead,
+    unread_accounts: Vec<(ProviderAccountId, DriverError)>,
+}
+
+// What one read of a provider's models answered.
+type ModelsRead = Result<Vec<ProviderModel>, DriverError>;
 
 // Each installed provider's catalog: with a session, its own provider first, read against its
 // bound account; with none, every provider in the table's order, read against each of its
 // accounts. A provider whose bare command name no search found is not installed and is left out,
 // and one whose read failed, a typed command path with nothing runnable at it among them, carries
-// its failure. Every model listed is marked in use on the held price list, so its prices are read
-// from then on, and one whose row the held copy carries but prices at no rate for a speed the
-// listing offers is fetched for at once.
+// its failure; a listed one with no session names each account it could not read. Every model
+// listed is marked in use on the held price list, so its prices are read from then on, and one
+// whose row the held copy carries but prices at no rate for a speed the listing offers is fetched
+// for at once.
 async fn list_models(
     sources: &DriverMethodSources,
     session_id: Option<SessionId>,
@@ -228,7 +237,7 @@ async fn list_models(
     if let Some(price_list) = sources.price_list.port() {
         let listed = || {
             (reads.iter())
-                .filter_map(|(_, pricer, read)| Some((pricer, read.as_ref().ok()?)))
+                .filter_map(|catalog| Some((&catalog.pricer, catalog.read.as_ref().ok()?)))
                 .flat_map(|(pricer, models)| models.iter().map(move |model| (pricer, model)))
         };
         let model_ids: Vec<&str> = listed().map(|(_, model)| model.id.as_str()).collect();
@@ -246,14 +255,24 @@ async fn list_models(
     }
     let providers = reads
         .into_iter()
-        .filter_map(|(provider_name, _, read)| {
+        .filter_map(|catalog| {
+            let unread_accounts = catalog.unread_accounts;
             provider_outcome(
-                provider_name,
-                read,
+                catalog.provider,
+                catalog.read,
                 |provider_name, models| {
+                    let unread_accounts = (unread_accounts.into_iter())
+                        .map(
+                            |(provider_account_id, failure)| ProviderAccountReadFailure {
+                                provider_account_id,
+                                failure: read_failure(&provider_name, failure),
+                            },
+                        )
+                        .collect();
                     ProviderModelReport::Listed(ProviderModelsListed {
                         provider_name,
                         models,
+                        unread_accounts: BoundedVec::new(unread_accounts),
                         failure: None,
                     })
                 },
@@ -283,7 +302,14 @@ async fn read_session_catalogs(
             provider_account_id: own_lead.and_then(|lead| lead.binding.provider_account_id),
         });
         let pricer = driver.request_pricer();
-        async move { (provider.clone(), pricer, read.await) }
+        async move {
+            CatalogRead {
+                provider: provider.clone(),
+                pricer,
+                read: read.await,
+                unread_accounts: Vec::new(),
+            }
+        }
     });
     Ok(join_all(reads).await)
 }
@@ -291,69 +317,90 @@ async fn read_session_catalogs(
 // The catalogs no session asks for: every provider in the table's order, read against each of its
 // registered accounts at once, its default account first, the reads merged into one catalog; a
 // provider with no account is read once against none, which its driver refuses for want of one.
+// Fails as the accounts' read fails.
 async fn read_account_catalogs(
     sources: &DriverMethodSources,
 ) -> Result<Vec<CatalogRead>, HandlerError> {
-    let mut accounts = sources
-        .pool
-        .read(ReadLength::Short, |reader| query_accounts(reader, None))
-        .await?;
+    let mut accounts = sources.accounts.list(None).await?;
     // Stable, so the rest keep their oldest-first order.
     accounts.sort_by_key(|account| !account.is_default);
     let reads = sources.providers.drivers().map(|(provider, driver)| {
-        let mut account_ids: Vec<_> = (accounts.iter())
+        let provider_accounts: Vec<&RegisteredAccount> = (accounts.iter())
             .filter(|account| account.provider == *provider)
-            .map(|account| Some(account.account_id.clone()))
             .collect();
-        if account_ids.is_empty() {
-            account_ids.push(None);
-        }
-        let account_reads = account_ids.into_iter().map(move |provider_account_id| {
+        let read_on = move |provider_account_id| {
             driver.list_models(ListModelsParams {
                 session_id: None,
                 provider_account_id,
             })
+        };
+        let account_reads = provider_accounts.into_iter().map(move |account| {
+            let read = read_on(Some(account.account_id.clone()));
+            let (account_id, is_default) = (account.account_id.clone(), account.is_default);
+            async move { (account_id, is_default, read.await) }
         });
         let pricer = driver.request_pricer();
         async move {
-            let catalog = merge_account_catalogs(provider, join_all(account_reads).await);
-            (provider.clone(), pricer, catalog)
+            let account_reads = join_all(account_reads).await;
+            let (read, unread_accounts) = if account_reads.is_empty() {
+                (read_on(None).await, Vec::new())
+            } else {
+                merge_account_catalogs(provider, account_reads)
+            };
+            CatalogRead {
+                provider: provider.clone(),
+                pricer,
+                read,
+                unread_accounts,
+            }
         }
     });
     Ok(join_all(reads).await)
 }
 
-// One provider's catalog over its accounts' reads, in the order they were asked: each row once, by
-// its id and window, where the first read to list it put it. It fails only when no read listed,
-// with the first read's failure; every failure left out is logged.
+// One provider's catalog over its accounts' reads, the default account's first: each row once, by
+// its id and window, where the first read to list it put it, and marked only where the default
+// account's read marks it, so at most one row is marked and none where that read failed or the
+// provider has no default account. It fails only when no read listed, with the first read's
+// failure; every failure it leaves out is logged and, beside a listed catalog, returned with its
+// account.
 fn merge_account_catalogs(
     provider: &ProviderId,
-    reads: Vec<Result<Vec<ProviderModel>, DriverError>>,
-) -> Result<Vec<ProviderModel>, DriverError> {
-    let mut reads = reads.into_iter();
-    let first = reads
-        .next()
-        .expect("a provider is read against one account at least");
-    reads.fold(first, |merged, read| match (merged, read) {
-        (Ok(mut catalog), Ok(models)) => {
-            for model in models {
-                if find_provider_model_row(&catalog, model.id.as_str(), model.larger_window)
-                    .is_none()
-                {
-                    catalog.push(model);
+    reads: Vec<(ProviderAccountId, bool, ModelsRead)>,
+) -> (ModelsRead, Vec<(ProviderAccountId, DriverError)>) {
+    let mut catalog: Option<Vec<ProviderModel>> = None;
+    let mut failures = Vec::new();
+    for (account_id, is_default, read) in reads {
+        match read {
+            Ok(models) => {
+                let catalog = catalog.get_or_insert_with(Vec::new);
+                for mut model in models {
+                    model.is_default &= is_default;
+                    if find_provider_model_row(catalog, model.id.as_str(), model.larger_window)
+                        .is_none()
+                    {
+                        catalog.push(model);
+                    }
                 }
             }
-            Ok(catalog)
+            Err(failure) => failures.push((account_id, failure)),
         }
-        (Ok(catalog), Err(failure)) | (Err(failure), Ok(catalog)) => {
-            log_unlisted_account(provider, &failure);
-            Ok(catalog)
-        }
-        (Err(kept), Err(failure)) => {
-            log_unlisted_account(provider, &failure);
-            Err(kept)
-        }
-    })
+    }
+    let mut failures = failures.into_iter();
+    let catalog = match catalog {
+        Some(catalog) => Ok(catalog),
+        None => Err(failures
+            .next()
+            .map(|(_, failure)| failure)
+            .expect("a provider read against no listing account has a failure")),
+    };
+    let left_out: Vec<_> = failures
+        .inspect(|(_, failure)| log_unlisted_account(provider, failure))
+        .collect();
+    match catalog {
+        Ok(catalog) => (Ok(catalog), left_out),
+        Err(failure) => (Err(failure), Vec::new()),
+    }
 }
 
 // Logs one account's failed read the merged catalog leaves out, which another account's listed

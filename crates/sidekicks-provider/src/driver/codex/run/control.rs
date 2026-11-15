@@ -17,7 +17,6 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::RunFailureCategory;
-use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
@@ -548,14 +547,13 @@ pub(crate) async fn interrupt_codex_run(
 }
 
 /// Ends `run_id` failed on `binding_id` with `failure` and the error that caused it, as a provider
-/// failure with `failure_cause` where one names why, for a run no turn of Codex's will end.
+/// failure, for a run no turn of Codex's will end.
 pub(crate) async fn fail_codex_run(
     dispatch: &dyn InboundDispatch,
     run_id: RunId,
     binding_id: RuntimeBindingId,
     failure: &str,
     error: &CodexError,
-    failure_cause: Option<RunFailureCause>,
 ) {
     let detail = format!("{failure}: {error}");
     let fallback =
@@ -566,7 +564,7 @@ pub(crate) async fn fail_codex_run(
             run_id,
             RunStateEntry::Failed {
                 intended_close: None,
-                failure_cause,
+                failure_cause: None,
                 provider_failure_detail: Some(bound_failure_detail(&detail, fallback)),
                 process_exit: None,
             },

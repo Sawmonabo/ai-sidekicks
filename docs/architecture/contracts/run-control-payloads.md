@@ -426,17 +426,18 @@ interface RunStateChangeEvent {
   // The provider's own failure prose on an `agent.run.failed` with failureCategory
   // "providerFailure", shown as given; a typed cause is `failureCause`, never this text.
   providerFailureDetail?: string;
-  // Present only on an `agent.run.failed` whose provider process ended on its own under the turn,
-  // or a Codex service the daemon ended for answering nothing for 2 minutes: exactly one of the
-  // exit code, the signal and the seconds it answered nothing, and the last lines the process
-  // printed as a terminal shows them, every control sequence left out. A process the daemon closed
-  // itself for any other reason, or a sleep, records none, and so does a provider's own helper that
-  // ran inside the process, whose end carries `leadProcessEnded`.
+  // Present only on an `agent.run.failed` whose provider process ended on its own under the turn
+  // and how it ended was read, or a Codex service the daemon ended for answering nothing for 2
+  // minutes: exactly one of the exit code, the signal and the seconds it answered nothing, and the
+  // last lines the process printed as a terminal shows them, every control sequence left out. A
+  // process the daemon closed itself for any other reason, or a sleep, records none, and so does a
+  // provider's own helper that ran inside the process, whose end carries `leadProcessEnded`.
   processExit?:
     | { exitCode: number; signal?: never; silentSeconds?: never; outputTail: string }
     | { signal: string; exitCode?: never; silentSeconds?: never; outputTail: string }
     | { silentSeconds: number; exitCode?: never; signal?: never; outputTail: string };
-  // The provider whose process it was, present exactly where `processExit` is.
+  // The provider whose process it was, on every lead's end by its provider process's end, with
+  // `processExit` where how the process ended was read and without it where it was not.
   provider?: ProviderId;
   // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent
   // on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-005 §Run

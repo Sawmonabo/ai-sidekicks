@@ -139,12 +139,23 @@ pub async fn cap_provider_service_log(log_file: &Path, cap_bytes: u64) -> io::Re
 pub(crate) async fn read_provider_service_log_tail(
     log_file: &Path,
 ) -> io::Result<OutputTail<PROVIDER_FAILURE_DETAIL_MAX_LEN>> {
-    // At most four bytes a code point, and three more for a sequence the start cuts into, so the
-    // bytes read hold the whole tail however the log is written.
+    // At most four bytes a code point, and three more for a character the start cuts into: the
+    // bytes read hold the cap's code points where the log's last lines print text, and fewer where
+    // those bytes are mostly control sequences, since a sequence shows nothing. A read that starts
+    // inside the log starts after its first line break, so no sequence the start cut into shows a
+    // piece; one with no line break is read whole.
     let count = u64::try_from(4 * PROVIDER_FAILURE_DETAIL_MAX_LEN + 3)
         .expect("the tail's byte count fits 64 bits");
+    let (start, bytes) = read_last_bytes(log_file, count).await?;
+    let from_line = if start > 0 {
+        (bytes.iter())
+            .position(|byte| *byte == b'\n')
+            .map_or(0, |line_break| line_break + 1)
+    } else {
+        0
+    };
     let mut tail = OutputTail::new();
-    tail.push(&read_last_bytes(log_file, count).await?);
+    tail.push(&bytes[from_line..]);
     cap_provider_service_log(log_file, SERVICE_LOG_CAP_BYTES).await?;
     Ok(tail)
 }
@@ -163,7 +174,7 @@ async fn keep_previous_log_tail(log_file: &Path) -> io::Result<()> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),
     }
-    let bytes = read_last_bytes(log_file, PREVIOUS_LOG_TAIL_BYTES).await?;
+    let (_, bytes) = read_last_bytes(log_file, PREVIOUS_LOG_TAIL_BYTES).await?;
     let previous = previous_log_file(log_file);
     let temporary = previous.with_extension("log.tmp");
     let kept = async {
@@ -184,16 +195,15 @@ async fn keep_previous_log_tail(log_file: &Path) -> io::Result<()> {
     kept
 }
 
-// The last `count` bytes of `file`, or all of it when it is shorter.
-async fn read_last_bytes(file: &Path, count: u64) -> io::Result<Vec<u8>> {
+// The last `count` bytes of `file`, or all of it when it is shorter, beside the offset they start
+// at.
+async fn read_last_bytes(file: &Path, count: u64) -> io::Result<(u64, Vec<u8>)> {
     let mut opened = tokio::fs::File::open(file).await?;
-    let length = opened.metadata().await?.len();
-    opened
-        .seek(SeekFrom::Start(length.saturating_sub(count)))
-        .await?;
+    let start = opened.metadata().await?.len().saturating_sub(count);
+    opened.seek(SeekFrom::Start(start)).await?;
     let mut bytes = Vec::new();
     opened.take(count).read_to_end(&mut bytes).await?;
-    Ok(bytes)
+    Ok((start, bytes))
 }
 
 #[cfg(test)]
