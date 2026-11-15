@@ -78,6 +78,33 @@ struct ListedThread {
     parent_thread_id: Option<String>,
 }
 
+/// A sub-agent thread as Codex's listing names it: its id, and when it was made and last updated,
+/// in Unix seconds.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexListedThread {
+    /// The thread's id.
+    pub(crate) id: String,
+    /// When it was made, which names the day folder its rollout file is written in.
+    pub(crate) created_at: i64,
+    /// When it last changed.
+    pub(crate) updated_at: i64,
+}
+
+/// The sub-agent threads `connection`'s service updated most recently, one listing page of them;
+/// an entry that does not read is passed over. Fails as the request fails, and with
+/// `CodexError::Transport` for a reply that is not a page.
+pub(crate) async fn list_recent_helper_threads(
+    connection: &CodexAppServerConnection,
+) -> Result<Vec<CodexListedThread>, CodexError> {
+    let page = read_thread_list_page(connection, None).await?;
+    Ok(page
+        .data
+        .iter()
+        .filter_map(|entry| read_codex_object::<CodexListedThread>(entry.get()))
+        .collect())
+}
+
 /// Where `thread_id` sits under the threads `session_of` says a session holds on `connection`'s
 /// service, read from `thread/list` only when no session holds the thread itself. `session_of` is
 /// called between the walk's requests, never across one. Fails as a request fails, and with

@@ -9,6 +9,7 @@ pub(crate) mod continuation;
 pub(crate) mod helpers;
 mod kept_writers;
 pub(super) mod mcp_read;
+mod resumed_thread;
 mod settings;
 
 use std::path::PathBuf;
@@ -17,18 +18,14 @@ use std::sync::Arc;
 use serde_json::value::RawValue;
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_std::port_registration::PortRegistration;
 
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::SessionSpawnContextResolver;
-use crate::driver::codex::app_server_protocol::ThreadResumeParams;
 use crate::driver::codex::auth_status::classify_codex_resume_recovery_condition;
 use crate::driver::codex::capabilities::{find_codex_model_row, read_codex_service_model_catalog};
 use crate::driver::codex::commands::CodexProviderCommandCache;
@@ -46,16 +43,12 @@ use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::threads::ThreadClaim;
 use crate::driver::codex::session::calls::CodexSessionTask;
 use crate::driver::codex::session::context_reading::CodexFixedStart;
-use crate::driver::codex::session::controls::update_codex_session_mode;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::answer_steer::CodexAnswerSteer;
 use crate::driver::codex::session::establishment::mcp_read::{
     compose_codex_call_table, send_with_stale_name_resend,
 };
-use crate::driver::codex::session::history::{
-    CodexListedTurn, compose_codex_newest_turn_page, read_codex_resumed_newest_turn,
-    read_codex_turns,
-};
+use crate::driver::codex::session::history::{CodexListedTurn, compose_codex_newest_turn_page};
 use crate::driver::codex::session::inbound::{CodexSessionInboundReceiver, codex_session_inbound};
 use crate::driver::codex::session::owed_turn_ends::{
     end_owed_codex_helper_turn, end_owed_codex_turns,
@@ -77,7 +70,7 @@ use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::error_causes::{ProviderAxisInvalid, UNSPECIFIED_PROVIDER_FAILURE_DETAIL};
 use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
-    ResumedRunAnswer, SessionAccountPin,
+    SessionAccountPin,
 };
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::tool_server_route::ToolServerRoute;
@@ -91,6 +84,9 @@ use crate::usage_delta_accountant::{ThreadBaseEstablishment, UsageAxisCounts};
 
 use crate::driver::codex::session::establishment::adoption::{
     CodexRestoredHelper, answer_codex_resumed_turns,
+};
+use crate::driver::codex::session::establishment::resumed_thread::{
+    CodexResumedThread, prepare_adoption, read_resumed_thread, request_thread_resume,
 };
 use crate::driver::codex::session::establishment::settings::{
     CodexSettingsRequest, compose_resume_settings_request, require_execution_posture,
@@ -735,103 +731,6 @@ impl CodexSessionEstablishment {
             self.let_go_service_process(inbound.session_id());
         }
     }
-}
-
-/// What a resume reads back: the conversation's turns, the newest of them, whether the session
-/// held the conversation on the service before it, where the conversation stands, its declared
-/// tier and its effort.
-struct CodexResumedThread {
-    listed_turns: Vec<CodexListedTurn>,
-    newest_turn_id: Option<String>,
-    was_held: bool,
-    status: Option<CodexThreadStatus>,
-    declared_output_speed: Option<ProviderOutputSpeedState>,
-    reasoning_effort: Option<String>,
-}
-
-// `thread/resume` of `thread_id` with `params`, and the reply. Fails as the request does, and
-// when the reply names another conversation: Codex started a replacement.
-async fn request_thread_resume(
-    connection: &CodexAppServerConnection,
-    thread_id: &str,
-    params: &ThreadResumeParams,
-) -> Result<Box<RawValue>, CodexError> {
-    let reply = connection.request(THREAD_RESUME_METHOD, params).await?;
-    let thread = read_thread(&reply, THREAD_RESUME_METHOD)?;
-    if thread.id != thread_id {
-        return Err(CodexError::Transport {
-            detail: format!(
-                "Resume handle {thread_id} was answered by thread {}; the provider started a \
-                 replacement conversation rather than resuming.",
-                thread.id
-            ),
-            cause: None,
-        });
-    }
-    Ok(reply)
-}
-
-// What the resume `reply` of the record's conversation reads back, its turns read page by page
-// on `connection`, with the reply's newest turn, the live one where a turn runs, added where the
-// pages lack it. Fails as the turns' read does.
-async fn read_resumed_thread(
-    record: &CodexSessionRecord,
-    connection: &CodexAppServerConnection,
-    reply: &RawValue,
-    was_held: bool,
-) -> Result<CodexResumedThread, CodexError> {
-    let mut listed_turns = read_codex_turns(connection, &record.thread_id).await?;
-    let newest_turn = read_codex_resumed_newest_turn(reply);
-    let newest_turn_id = newest_turn.as_ref().map(|newest| newest.id.clone());
-    if let Some(newest) = newest_turn
-        && !listed_turns.iter().any(|listed| listed.id == newest.id)
-    {
-        listed_turns.push(newest);
-    }
-    Ok(CodexResumedThread {
-        listed_turns,
-        newest_turn_id,
-        was_held,
-        status: read_thread(reply, THREAD_RESUME_METHOD)?.status,
-        declared_output_speed: read_codex_declared_tier(record.session_id, reply),
-        reasoning_effort: read_thread_reasoning_effort(reply),
-    })
-}
-
-// The steps of an adoption that can fail, run before the record changes: the binding's version
-// read, and the session's mode sent on `service`'s connection with the resumed effort. Answers
-// the result under `binding_id`, with `runs`, what Codex holds of each run's turns.
-async fn prepare_adoption(
-    record: &CodexSessionRecord,
-    service: &CodexService,
-    resumed: &CodexResumedThread,
-    binding_id: &RuntimeBindingId,
-    runs: Vec<ResumedRunAnswer>,
-) -> Result<DriverResumeResult, CodexError> {
-    let Some(version) = service.version_reading() else {
-        return Err(CodexError::Transport {
-            detail: "The Codex service reported no version for the resumed session's binding."
-                .to_owned(),
-            cause: None,
-        });
-    };
-    let connection = service.connection()?;
-    update_codex_session_mode(
-        &connection,
-        &record.thread_id,
-        record.session_mode,
-        &record.thread_settings.model,
-        resumed.reasoning_effort.as_deref(),
-    )
-    .await?;
-    Ok(DriverResumeResult::Resumed {
-        binding_id: binding_id.clone(),
-        session_position: SafeInt::from_usize(resumed.listed_turns.len()),
-        resume_handle: NonEmptyText::new(record.thread_id.clone())
-            .expect("a resumed conversation's id is never empty"),
-        spawned_version: to_binding_version_carriers(&version),
-        runs,
-    })
 }
 
 /// Refuses a create whose larger window the service's catalog does not offer `model` at that

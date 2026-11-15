@@ -129,12 +129,15 @@ pub(crate) async fn steer_codex_run(
     input: impl Future<Output = Result<Vec<UserInput>, DriverError>>,
 ) -> Result<CodexSteerAcknowledgment, DriverError> {
     let (reply, replied) = oneshot::channel();
-    let registered = if inbound.push(CodexSessionInbound::Call(CodexSessionCall::RegisterSteer {
-        run_id,
-        expected_turn_id,
-        message_id,
-        reply,
-    })) {
+    let registered = if inbound
+        .push(CodexSessionInbound::Call(CodexSessionCall::RegisterSteer {
+            run_id,
+            expected_turn_id,
+            message_id,
+            reply,
+        }))
+        .is_ok()
+    {
         replied.await.ok()
     } else {
         None
@@ -157,10 +160,12 @@ pub(crate) async fn steer_codex_run(
     };
     if is_untaken {
         // The session's task takes it back; one that ended has nothing to take back.
-        let _unheard = inbound.push(CodexSessionInbound::Call(CodexSessionCall::WithdrawSteer {
-            turn_id,
-            message_id,
-        }));
+        let _unheard = inbound
+            .push(CodexSessionInbound::Call(CodexSessionCall::WithdrawSteer {
+                turn_id,
+                message_id,
+            }))
+            .is_ok();
     }
     Err(error)
 }

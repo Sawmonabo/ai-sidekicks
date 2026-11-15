@@ -31,7 +31,7 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::context_window::ContextWindowSource;
-use sidekicks_contracts::event::usage::{UsageContainment, UsageCostSource};
+use sidekicks_contracts::event::usage::{UsageContainment, UsageCostSource, UsageSighting};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::cost::UsdMicros;
@@ -109,6 +109,40 @@ impl UsageAxisCounts {
         };
         *slot = Some(count);
     }
+
+    /// Each axis summed, saturating, present where either side carries it.
+    pub(crate) fn added(self, other: Self) -> Self {
+        self.combined(other, u64::saturating_add)
+    }
+
+    /// Each axis's larger count, present where either side carries it.
+    pub(crate) fn larger(self, other: Self) -> Self {
+        self.combined(other, u64::max)
+    }
+
+    fn combined(self, other: Self, combine: fn(u64, u64) -> u64) -> Self {
+        let axis = |left, right| combine_count(left, right, combine);
+        Self {
+            input: axis(self.input, other.input),
+            cached_input: axis(self.cached_input, other.cached_input),
+            cache_write_input: axis(self.cache_write_input, other.cache_write_input),
+            output: axis(self.output, other.output),
+            reasoning_output: axis(self.reasoning_output, other.reasoning_output),
+            total: axis(self.total, other.total),
+        }
+    }
+}
+
+/// One count combined by `combine`, present where either side carries it.
+pub(crate) fn combine_count(
+    left: Option<u64>,
+    right: Option<u64>,
+    combine: fn(u64, u64) -> u64,
+) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(combine(left, right)),
+        (left, right) => left.or(right),
+    }
 }
 
 /// One cumulative usage reading, as a driver read it off a usage frame. `named_turn_id` is the
@@ -182,6 +216,10 @@ pub struct MeteredUsageDelta {
     pub diagnostic_band: UsageDiagnosticBand,
     /// The request the change belongs to and what prices it.
     pub request: UsageRequestFacts,
+    /// The sighting of the request the change came from, where its provider sees one request
+    /// more than once, so a later sighting of it is passed over; `None` for a provider that does
+    /// not.
+    pub sighting: Option<UsageSighting>,
 }
 
 impl MeteredUsageDelta {
@@ -382,6 +420,7 @@ impl UsageDeltaAccountant {
                 cache_write_tokens_delta: axis_deltas.cache_write_input.unwrap_or(0),
             },
             request: reading.request,
+            sighting: None,
         })
     }
 
@@ -501,13 +540,14 @@ pub(crate) fn meter_from_zero(
         .expect("the thread was just established")
 }
 
-/// What a process that ran one turn and nothing else spent on `provider`: its cumulative `counts`
-/// metered from a zero base, the input normalized as a session's usage rows are, on `model_id` as
-/// the provider names it; a turn that spent nothing composes its counts as they read. Fails with
-/// `None` where a count is past the wire's integer range.
+/// What one request of a process that ran one turn and nothing else spent on `provider`: its
+/// cumulative `counts` metered from a zero base, the input normalized as a session's usage rows
+/// are, on `model_id` at `speed` as the provider names them; a request that spent nothing composes
+/// its counts as they read. Fails with `None` where a count is past the wire's integer range.
 pub(crate) fn compose_one_turn_spend(
     provider: ProviderId,
     model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    speed: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
     counts: UsageAxisCounts,
 ) -> Option<WindowTurnSpend> {
     let delta = meter_from_zero(
@@ -519,6 +559,7 @@ pub(crate) fn compose_one_turn_spend(
     let figures = delta.row_figures()?;
     Some(WindowTurnSpend {
         model_id,
+        speed,
         input_tokens: figures.input,
         output_tokens: figures.output,
         cache_read_tokens: figures.cache_read,

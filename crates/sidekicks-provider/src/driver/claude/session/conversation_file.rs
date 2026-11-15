@@ -1,10 +1,12 @@
 //! Claude Code's own record of one conversation, `<config folder>/projects/<project>/<id>.jsonl`:
 //! one JSON entry per line, each with its own `uuid`. Read to find where a resume lands, which
-//! message a fork keeps up to and which messages an ended process took; titled anew at rest;
+//! message a fork keeps up to, which messages an ended process took, which command holds a
+//! message merged into it and whether a cut Claude Code made took a message; titled anew at rest;
 //! deleted on a purge with every other file Claude Code keeps for the conversation under the same
 //! config folder and the daemon's scratch folder, a batch of conversations of one home listing
 //! each folder it searches once.
 
+pub(crate) mod cut_rows;
 pub(crate) mod forks;
 pub(crate) mod lines;
 pub(crate) mod peer_replies;
@@ -32,7 +34,8 @@ use crate::driver::claude::spawn::environment::{
     claude_config_folder, compose_claude_scratch_folder,
 };
 use crate::lenient_json::{
-    Lenient, LenientElement, LenientVisitor, lenient_object, read_lenient, skip_other_shapes,
+    Lenient, LenientElement, LenientList, LenientVisitor, lenient_object, read_lenient,
+    skip_other_shapes,
 };
 
 /// The turns one conversation file holds.
@@ -173,6 +176,33 @@ pub(crate) async fn find_claude_taken_messages(
         .filter(|uuid| found.contains(*uuid))
         .cloned()
         .collect())
+}
+
+/// The uuid of the command Claude Code merged the person's message `message_uuid` into with
+/// others, the message not being its last: messages that waited together are taken as one `user`
+/// entry under the last member's uuid, its `mergedSendUuids` naming the others in send order.
+/// `None` where no entry lists the message; stops at the first that does, and fails with the
+/// file's open or read failure.
+pub(crate) async fn find_claude_command_holding(
+    file: &Path,
+    message_uuid: &str,
+) -> io::Result<Option<String>> {
+    let mut found = None;
+    read_entries(file, |entry| {
+        let holds = entry.entry_type.as_deref() == Some("user")
+            && entry.merged_send_uuids.is_some_and(|LenientList(members)| {
+                members.iter().any(|uuid| uuid == message_uuid)
+            });
+        match entry.uuid.filter(|uuid| holds && !uuid.is_empty()) {
+            Some(uuid) => {
+                found = Some(uuid);
+                ControlFlow::Break(())
+            }
+            None => ControlFlow::Continue(()),
+        }
+    })
+    .await?;
+    Ok(found)
 }
 
 /// Deletes every file Claude Code keeps for each of `conversations`, where each exists: under the
@@ -365,9 +395,9 @@ async fn read_entries(
     Ok(())
 }
 
-// The members of an entry the outline, the taken read, the purge and the fork reads read, each read
-// leniently: a member of another type reads as absent rather than dropping the line, and nothing
-// else is kept.
+// The members of an entry the outline, the taken read, the merged-command read, the purge and the
+// fork reads read, each read leniently: a member of another type reads as absent rather than
+// dropping the line, and nothing else is kept.
 #[derive(Deserialize)]
 struct ConversationEntry {
     #[serde(rename = "type", default, deserialize_with = "read_lenient")]
@@ -386,6 +416,8 @@ struct ConversationEntry {
     forked_from: Option<ConversationForkSource>,
     #[serde(default, deserialize_with = "read_lenient")]
     attachment: Option<ConversationAttachment>,
+    #[serde(rename = "mergedSendUuids", default, deserialize_with = "read_lenient")]
+    merged_send_uuids: Option<LenientList<String>>,
 }
 
 // The row a fork copied an entry from, in the conversation it forked.

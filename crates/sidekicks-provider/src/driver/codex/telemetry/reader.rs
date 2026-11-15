@@ -1,54 +1,81 @@
-//! The reader the receiver hands each Codex export: the launch its token was minted for checked
-//! against the tag its resource carries, and each completed response its records state stamped
-//! with the account it ran on and handed off to the drain.
+//! The reader the receiver hands each Codex export: the launch or exec its token was minted for
+//! checked against the tag its resource carries, and each completed response its records state
+//! stamped with the account it ran on and handed off to the drain, or for an exec collected for
+//! the exec's caller; a launch whose service is gone charges its last exports, each under the
+//! account its service ran on at its time. The receiver holds the tag's guard across the read of
+//! an export it admitted, so the launch it was admitted for is still registered.
+
+use std::collections::HashSet;
 
 use futures::future::{BoxFuture, ready};
-use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use opentelemetry_proto::tonic::logs::v1::ResourceLogs;
-use tokio::time::Instant;
+use serde_json::Map;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::unix_time::read_unix_time_ms;
 
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::telemetry::completed_response::{
-    RecordRefusal, find_attribute, read_codex_completed_responses,
+    CODEX_EXPORT, CONVERSATION_KEY, SSE_EVENT_NAME, read_codex_completed_responses,
 };
 use crate::driver::codex::telemetry::drain::CodexExportItem;
-use crate::driver::codex::telemetry::exports::{CodexExports, CodexLaunchLookup, SERVICE_TAG_KEY};
+use crate::driver::codex::telemetry::exports::{
+    CODEX_EXPORT_HAND_OFF_DEPTH, CodexExecResponses, CodexExports, CodexLaunchLookup, CodexTagKind,
+};
 use crate::driver::codex::telemetry::placement::refuse_unplaced;
-use crate::driver::codex::telemetry::read_unix_time_ms;
+use crate::driver::codex::telemetry::sessionless_spend::CodexLaunchCharge;
 use crate::pricing::receiver::bearers::TelemetryHolderId;
+use crate::pricing::receiver::records::{RecordRefusal, read_count, read_text};
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
-use crate::record_readers::is_digits;
 
 impl CodexExports {
     // Hands each completed response `resource_logs` states to the drain, when the resource
     // carries the tag of `holder`'s launch, whose token the export presented, and marks that
-    // launch exporting. A resource whose tag is absent, unreadable or another launch's is refused
-    // once under the launch's account; the responses of a launch whose service is gone are each
+    // launch exporting; or collects each for `holder`'s exec, when the resource carries its tag.
+    // A resource whose tag is absent, unreadable or another's is refused once under the account;
+    // the responses of a launch whose service is gone are charged outside any session, each under
+    // the account its service ran on at its time, and those of a launch whose tag is gone are each
     // refused, naming their thread.
     fn read_resource_logs(&self, holder: TelemetryHolderId, resource_logs: &ResourceLogs) {
-        let tag = resource_logs
-            .resource
-            .as_ref()
-            .and_then(|resource| find_attribute(&resource.attributes, SERVICE_TAG_KEY))
-            .and_then(|value| {
-                if let Value::StringValue(text) = value
-                    && is_digits(text)
-                {
-                    text.parse::<u64>().ok()
-                } else {
-                    None
-                }
-            });
-        let (read, tracker) = match self.export_read(holder, tag) {
+        let (read, tracker) = match self.export_read(holder, read_resource_tag(resource_logs)) {
             CodexLaunchLookup::Read(read, tracker) => (read, tracker),
             CodexLaunchLookup::OtherTag(service) => {
                 let provider_account_id = service
                     .upgrade()
                     .and_then(|service| service.provider_account_id());
                 RecordRefusal {
-                    field: SERVICE_TAG_KEY,
+                    field: CodexTagKind::Service.key(),
                     reason: "its resource names no launch its token was minted for",
                 }
-                .report(provider_account_id.as_ref());
+                .report(
+                    DESCRIPTOR.provider_id(),
+                    provider_account_id.as_ref(),
+                    CODEX_EXPORT,
+                    SSE_EVENT_NAME,
+                    Map::new(),
+                );
+                return;
+            }
+            CodexLaunchLookup::Exec(provider_account_id, responses) => {
+                collect_exec_responses(resource_logs, &provider_account_id, &responses);
+                return;
+            }
+            CodexLaunchLookup::ExecOtherTag(provider_account_id) => {
+                RecordRefusal {
+                    field: CodexTagKind::Exec.key(),
+                    reason: "its resource names no exec its token was minted for",
+                }
+                .report(
+                    DESCRIPTOR.provider_id(),
+                    Some(&provider_account_id),
+                    CODEX_EXPORT,
+                    SSE_EVENT_NAME,
+                    Map::new(),
+                );
+                return;
+            }
+            CodexLaunchLookup::Ended(charge) => {
+                charge_ended(resource_logs, &charge);
                 return;
             }
             CodexLaunchLookup::Gone => {
@@ -56,41 +83,132 @@ impl CodexExports {
                 return;
             }
         };
-        tracker.export_arrived();
         let Some(service) = read.service.upgrade() else {
-            refuse_each(resource_logs, "the service that sent it has ended");
+            tracker.export_arrived(|_stops| {});
+            charge_ended(resource_logs, &read.charge);
             return;
         };
-        let arrived_at = Instant::now();
         let arrived_at_ms = read_unix_time_ms();
         let current_account = service.provider_account_id();
-        for mut response in read_codex_completed_responses(resource_logs, current_account.as_ref())
-        {
-            // The account its turn ran on, read by the time Codex observed it; one carrying no
-            // time is read at its export's arrival.
-            let ran_at_ms = match response.observed_at_ms {
-                0 => arrived_at_ms,
-                observed_at_ms => observed_at_ms,
-            };
-            response.provider_account_id = service.account_at(ran_at_ms);
-            self.offer(CodexExportItem::Response {
+        let mut responses = read_codex_completed_responses(resource_logs, current_account.as_ref());
+        for response in &mut responses {
+            response.provider_account_id =
+                service.account_at(ran_at_ms(response.observed_at_ms, arrived_at_ms));
+        }
+        // The export's responses go over together, so the session prices them in one commit.
+        if !responses.is_empty() {
+            self.offer(CodexExportItem::Responses {
                 service: read.service.clone(),
                 launch: read.placement.clone(),
-                response: Box::new(response),
-                arrived_at,
+                charge: read.charge.clone(),
+                responses,
                 export_number: read.export_number,
             });
         }
+        // Every record's stamp bounds the launch's rollout fallback's reading, set under the
+        // status's lock with the stop it ends, so the fallback reads the stop and its end together.
+        let newest_record_ms = read_newest_record_ms(resource_logs);
+        let threads = read_named_threads(resource_logs);
+        tracker.export_arrived(|stops| {
+            read.rollouts
+                .export_read(stops, threads, newest_record_ms, arrived_at_ms);
+        });
         self.offer(CodexExportItem::Retry {
             service: read.service,
             launch: read.placement,
+            charge: read.charge,
             export_number: read.export_number,
         });
     }
 }
 
+// The newest stamp Codex put on any record `resource_logs` carries, completed response or not, in
+// Unix milliseconds; `None` where none is stamped.
+fn read_newest_record_ms(resource_logs: &ResourceLogs) -> Option<u64> {
+    resource_logs
+        .scope_logs
+        .iter()
+        .flat_map(|scope_logs| &scope_logs.log_records)
+        .map(|record| record.observed_time_unix_nano / 1_000_000)
+        .filter(|&at_ms| at_ms != 0)
+        .max()
+}
+
+// The thread each record `resource_logs` carries names, completed response or not, whose rollout
+// file the export may have grown.
+fn read_named_threads(resource_logs: &ResourceLogs) -> HashSet<String> {
+    resource_logs
+        .scope_logs
+        .iter()
+        .flat_map(|scope_logs| &scope_logs.log_records)
+        .filter_map(|record| {
+            read_text(&record.attributes, CONVERSATION_KEY)
+                .ok()
+                .flatten()
+        })
+        .filter(|thread_id| !thread_id.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+// The tag `resource_logs`' resource carries, of either kind; `None` where it carries none a
+// reader can read.
+fn read_resource_tag(resource_logs: &ResourceLogs) -> Option<(CodexTagKind, u64)> {
+    let attributes = &resource_logs.resource.as_ref()?.attributes;
+    [CodexTagKind::Service, CodexTagKind::Exec]
+        .into_iter()
+        .find_map(|kind| Some((kind, read_count(attributes, kind.key()).ok()??)))
+}
+
+// Collects each completed response `resource_logs` states into `responses`, an exec's on
+// `provider_account_id`, read synchronously so the exporter's answer, which the exec's clean exit
+// waits for, comes only once they are collected. One past the hand-off's depth is refused.
+fn collect_exec_responses(
+    resource_logs: &ResourceLogs,
+    provider_account_id: &ProviderAccountId,
+    responses: &CodexExecResponses,
+) {
+    let read = read_codex_completed_responses(resource_logs, Some(provider_account_id));
+    let mut collected = lock(responses);
+    for mut response in read {
+        if collected.len() >= CODEX_EXPORT_HAND_OFF_DEPTH {
+            refuse_unplaced(
+                &response.conversation_id,
+                Some(provider_account_id.clone()),
+                "the exec's collected responses are full",
+            );
+            continue;
+        }
+        response.provider_account_id = Some(provider_account_id.clone());
+        collected.push(response);
+    }
+}
+
+// When a response Codex observed at `observed_at_ms` ran, in Unix milliseconds: that time, else
+// its export's arrival, `arrived_at_ms`, for one carrying no time.
+fn ran_at_ms(observed_at_ms: u64, arrived_at_ms: u64) -> u64 {
+    match observed_at_ms {
+        0 => arrived_at_ms,
+        observed_at_ms => observed_at_ms,
+    }
+}
+
+// Charges each completed response `resource_logs` states outside any session, under the account
+// `charge`'s launch's service ran on at the response's time, since its service is gone and no
+// session takes it.
+fn charge_ended(resource_logs: &ResourceLogs, charge: &CodexLaunchCharge) {
+    let arrived_at_ms = read_unix_time_ms();
+    let latest_account = charge.account_at(arrived_at_ms);
+    let mut responses = read_codex_completed_responses(resource_logs, latest_account.as_ref());
+    for response in &mut responses {
+        response.provider_account_id =
+            charge.account_at(ran_at_ms(response.observed_at_ms, arrived_at_ms));
+    }
+    charge.charge(responses);
+}
+
 // Refuses each completed response `resource_logs` states, naming its thread and `reason`, with no
-// account, since no live service of the export's launch reads one.
+// account, since no launch's charge outlives its tag to read one.
 fn refuse_each(resource_logs: &ResourceLogs, reason: &str) {
     for response in read_codex_completed_responses(resource_logs, None) {
         refuse_unplaced(&response.conversation_id, None, reason);

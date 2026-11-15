@@ -674,7 +674,9 @@ async fn a_launch_carries_its_home_s_telemetry_switches(
                 .parse()
                 .expect("the tag is a number");
             assert_eq!(
-                bearers.resolve(&DESCRIPTOR.provider_id(), Some(presented.as_bytes())),
+                bearers
+                    .resolve(&DESCRIPTOR.provider_id(), Some(presented.as_bytes()))
+                    .map(|admission| admission.holder()),
                 Some(TelemetryHolderId::new(number)),
                 "the launch's token resolves to its own tag"
             );

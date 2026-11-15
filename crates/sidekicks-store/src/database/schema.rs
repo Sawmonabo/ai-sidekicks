@@ -7,8 +7,12 @@
 //! it. There are no migrations: a table or column a feature needs is added to its module's part.
 
 use std::borrow::Cow;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
+use sidekicks_contracts::transcript::run_facts::RunStateEventType;
+use strum::VariantArray as _;
+
+use crate::database::sql_list::sql_list_of;
 use crate::machine::schema::MACHINE_SCHEMA_SQL;
 
 mod compaction_calibrations;
@@ -34,6 +38,28 @@ pub const SESSION_EVENTS_RUN_INDEX: &str = "idx_session_events_run";
 /// The index of a tool call's completions in log order, by the name the schema creates it under
 /// and the reads that name it use.
 pub const SESSION_EVENTS_TOOL_CALL_INDEX: &str = "idx_session_events_tool_call";
+
+/// The event types that enter a terminal run state, as a SQL list of quoted words in the order the
+/// unique index on terminal records spells its predicate, so a read spelled the same way uses it.
+pub static RUN_TERMINAL_EVENT_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
+    sql_list_of(
+        RunStateEventType::VARIANTS
+            .iter()
+            .filter(|event_type| event_type.state().is_terminal())
+            .map(|event_type| event_type.session_event_type().as_str()),
+    )
+});
+
+/// The event types that enter a final run state, one no change leaves, as a SQL list of quoted
+/// words: a run with such an event has ended for good.
+pub static RUN_FINAL_EVENT_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
+    sql_list_of(
+        RunStateEventType::VARIANTS
+            .iter()
+            .filter(|event_type| event_type.state().is_final())
+            .map(|event_type| event_type.session_event_type().as_str()),
+    )
+});
 
 /// One named piece of the database schema: the tables, indexes and triggers one module owns.
 #[derive(Clone, Debug)]

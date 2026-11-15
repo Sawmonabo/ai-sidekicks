@@ -46,6 +46,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_std::unix_time::read_unix_time_ms;
 use tokio::sync::{oneshot, watch};
 
 use self::held::{CodexSwitchAsker, CodexSwitchLanding, HeldSwitch};
@@ -67,7 +68,6 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::{
     CodexAccountMove, CodexSessionInbound, CodexSessionInboundSender,
 };
-use crate::driver::codex::telemetry::read_unix_time_ms;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::contract::account::FirstRequestAfterMove;
 use crate::driver::contract::error::DriverError;
@@ -642,16 +642,18 @@ fn move_attached_sessions(
     for session in named {
         unnamed.remove(&session.session_id);
         // A queue that takes nothing drops the wait, which moves the session at once.
-        let _taken = service.push_session_item(
-            &session.session_id,
-            CodexSessionInbound::AccountMoved(CodexAccountMove {
-                provider_account_id: to.clone(),
-                binding_id: Some(session.binding_id.clone()),
-                moved: Some(session.moved),
-                actor: None,
-                first_request: None,
-            }),
-        );
+        let _taken = service
+            .push_session_item(
+                &session.session_id,
+                CodexSessionInbound::AccountMoved(CodexAccountMove {
+                    provider_account_id: to.clone(),
+                    binding_id: Some(session.binding_id.clone()),
+                    moved: Some(session.moved),
+                    actor: None,
+                    first_request: None,
+                }),
+            )
+            .is_ok();
         watched.push(WatchedSession {
             session_id: session.session_id,
             binding_id: Some(session.binding_id),
@@ -688,13 +690,15 @@ fn queue_reported_move(
     first_request: Option<oneshot::Receiver<Result<FirstRequestAfterMove, DriverError>>>,
 ) {
     // A queue whose task ended takes nothing more; its session is closing.
-    let _taken = session.push(CodexSessionInbound::AccountMoved(CodexAccountMove {
-        provider_account_id: to.clone(),
-        binding_id: None,
-        moved: None,
-        actor: actor.cloned(),
-        first_request,
-    }));
+    let _taken = session
+        .push(CodexSessionInbound::AccountMoved(CodexAccountMove {
+            provider_account_id: to.clone(),
+            binding_id: None,
+            moved: None,
+            actor: actor.cloned(),
+            first_request,
+        }))
+        .is_ok();
 }
 
 // The tokens of `codex_home`'s `auth.json`, `None` where it holds none. Fails as it cannot be read.

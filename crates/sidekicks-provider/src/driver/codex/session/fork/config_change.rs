@@ -133,9 +133,12 @@ impl CodexConfigForks {
             .map_err(Arc::new)?;
         let (reply, replied) = oneshot::channel();
         // A session whose task ended owes nothing now.
-        if !inbound.push(CodexSessionInbound::Call(CodexSessionCall::ConfigFork {
-            reply,
-        })) {
+        if inbound
+            .push(CodexSessionInbound::Call(CodexSessionCall::ConfigFork {
+                reply,
+            }))
+            .is_err()
+        {
             return Ok(false);
         }
         let forked = replied.await.unwrap_or(Ok(false));

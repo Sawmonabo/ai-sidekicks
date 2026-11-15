@@ -529,7 +529,7 @@ pub use spawner::Spawner;
 pub use stand_in_keychain::{StandInKeychain, run_keychain_tool_stand_in};
 #[cfg(any(test, feature = "test-support"))]
 pub use stand_in_program::{
-    StandInAnswer, StandInProgram, read_recorded_arguments, write_stand_in_program,
+    StandInAnswer, StandInHold, StandInProgram, read_recorded_arguments, write_stand_in_program,
 };
 pub use standard_streams::set_binary_standard_streams;
 #[cfg(any(test, feature = "test-support"))]

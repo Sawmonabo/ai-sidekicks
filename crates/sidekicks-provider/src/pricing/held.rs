@@ -9,8 +9,9 @@
 //!   not already held for; a key it cannot price waits, its rows unread.
 //! - **Triggers** queue keys or accounts and wake one task, which runs what is queued as one pass:
 //!   a new copy passes over every key held for a price, an account's changed sign-in kind over its
-//!   keys, and a request its driver or the observer handed over over its key. Nothing is polled; a
-//!   start read that failed is tried again at the next trigger.
+//!   keys, and a request its driver or the observer handed over over its key, a driver's request
+//!   no session owns written held first as the account's spend. Nothing is polled; a start read
+//!   that failed is tried again at the next trigger.
 //! - **After a new copy** each model a held key still waits on is reported missing again, so the
 //!   list fetches once more under the new tag.
 //! - **A removed account** releases its keys, whether they waited on a price or on its kind.
@@ -40,13 +41,18 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::account::errors::is_account_not_found;
-use crate::account::usage_turns::sessionless_usage_cost_statement;
+use crate::account::usage_turns::sightings::sessionless_sighting_statements;
 use crate::account::usage_turns::unpriced::{
     UnpricedPage, UnpricedPageCursor, UnpricedRequest, UnpricedUsageKey, held_mark_statement,
     read_unpriced_keys, read_unpriced_page,
 };
+use crate::account::usage_turns::{
+    mint_sessionless_turn_id, sessionless_usage_cost_statement, sessionless_usage_turn_statement,
+};
 use crate::driver::ProviderAccountReader;
-use crate::driver::ports::{HeldRequest, RequestHeldListener};
+use crate::driver::ports::{
+    HeldRequest, RequestHeldListener, SessionlessOutcome, SessionlessRequest,
+};
 use crate::port::usage_sink::{PricedRequest, PricedUsageRow, RecordedUsage, UsageSink};
 use crate::pricing::BoxedError;
 use crate::pricing::rule::{RequestPricer, RequestPricing};
@@ -64,7 +70,8 @@ pub struct HeldRequestRepricingDependencies {
     /// The daemon's read connections, sized with
     /// [`HELD_REQUEST_REPRICING_STATEMENT_CAPACITY`] among the rest.
     pub reads: Arc<DatabaseReadPool>,
-    /// The daemon's one writer, which takes the held marks and the sessionless rows' figures.
+    /// The daemon's one writer, which takes the held marks, a driver's rows no session owns and
+    /// the sessionless rows' figures.
     pub writer: Arc<DatabaseWriter>,
     /// The held price list, whose new copies reprice the keys waiting on a price.
     pub price_list: Arc<HeldPriceList>,
@@ -550,6 +557,81 @@ impl RequestHeldListener for HeldRequestRepricing {
             lock(&held_keys).queued_keys.insert(held.key);
             wake.notify_one();
             Ok::<(), BoxedError>(())
+        });
+        async move { hand_off.await? }.boxed()
+    }
+
+    // As a hand-off above: the rows' one write and the queuing run as one task of their own. Each
+    // sighted row carries its record's statements after it, which see the store as the row did;
+    // only a written row's key is queued.
+    fn sessionless_requests_held(
+        &self,
+        requests: Vec<SessionlessRequest>,
+    ) -> BoxFuture<'_, Result<Vec<SessionlessOutcome>, BoxedError>> {
+        let writer = Arc::clone(&self.writer);
+        let held_keys = Arc::clone(&self.held_keys);
+        let wake = Arc::clone(&self.wake);
+        let daemon_started_at = self.daemon_started_at.clone();
+        let hand_off = tokio::spawn(async move {
+            let rows: Vec<_> = requests
+                .iter()
+                .flat_map(|request| {
+                    let row = sessionless_usage_turn_statement(
+                        &mint_sessionless_turn_id(),
+                        &request.provider_account_id,
+                        &request.occurred_at,
+                        &daemon_started_at,
+                        &request.spend,
+                        request.web_search_requests,
+                        request.processing_region.as_ref(),
+                        request.sighting.as_ref(),
+                    );
+                    let record = request.sighting.as_ref().map(|sighting| {
+                        sessionless_sighting_statements(
+                            sighting,
+                            &request.provider_account_id,
+                            &request.spend,
+                        )
+                    });
+                    std::iter::once(row).chain(record.into_iter().flatten())
+                })
+                .collect();
+            let written = writer.write(rows).await?;
+            // Each request's results: its row's, then, where it has a sighting, its record's open,
+            // its mark and whether its source's own id was recorded already.
+            let mut results = written.iter().map(|result| result.row_count > 0);
+            let mut outcomes = Vec::with_capacity(requests.len());
+            for request in &requests {
+                let is_written = results.next().unwrap_or(false);
+                let is_passed_over = request.sighting.is_some() && {
+                    let _is_opened = results.next();
+                    let is_marked = results.next().unwrap_or(false);
+                    let is_recorded = results.next().unwrap_or(false);
+                    is_marked || is_recorded
+                };
+                outcomes.push(if is_written {
+                    SessionlessOutcome::Written
+                } else if is_passed_over {
+                    SessionlessOutcome::PassedOver
+                } else {
+                    SessionlessOutcome::AccountGone
+                });
+            }
+            let mut held_keys = lock(&held_keys);
+            for (request, outcome) in requests.into_iter().zip(&outcomes) {
+                if *outcome == SessionlessOutcome::Written {
+                    held_keys.queued_keys.insert(UnpricedUsageKey {
+                        provider: request.provider,
+                        account_id: request.provider_account_id,
+                        model_id: request.spend.model_id,
+                        speed: request.spend.speed,
+                        processing_region: request.processing_region,
+                    });
+                }
+            }
+            drop(held_keys);
+            wake.notify_one();
+            Ok::<Vec<SessionlessOutcome>, BoxedError>(outcomes)
         });
         async move { hand_off.await? }.boxed()
     }

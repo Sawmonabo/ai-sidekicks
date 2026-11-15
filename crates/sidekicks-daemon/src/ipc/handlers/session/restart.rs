@@ -97,6 +97,7 @@ fn restart_failure(error: ProviderSessionError, session_id: SessionId) -> Handle
         | ProviderSessionError::HeldCallsOpen { .. }
         | ProviderSessionError::Cursor(_)
         | ProviderSessionError::UnrecordedNotClosed { .. }
+        | ProviderSessionError::UnclosedFork { .. }
         | ProviderSessionError::ProviderMissingNotPosted { .. }
         | ProviderSessionError::ResumedRuns { .. }
         | ProviderSessionError::OrphanedAnswers { .. }

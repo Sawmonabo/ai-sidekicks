@@ -125,17 +125,17 @@ async fn a_before_capture_stages_ignored_files_outside_ignored_folders_and_leave
     let live_index = repository.join(".git").join("index");
     let index_before = std::fs::read(&live_index).expect("the live index reads");
     let owner = root.path().join("owner");
-    let service = CommandCaptureService::new(
-        git.clone(),
-        Arc::new(KeyedLock::new()),
-        Arc::new(CapturePacking::new(git.clone(), Arc::default())),
-        Arc::new(GitFloorReports::default()),
-    );
     let database = TestDatabase::new(schema_parts());
     let packing = Arc::new(CapturePacking::new(
         git.clone(),
         Arc::new(GitFloorReports::default()),
     ));
+    let service = CommandCaptureService::new(
+        git.clone(),
+        Arc::new(KeyedLock::new()),
+        Arc::clone(&packing),
+        Arc::new(GitFloorReports::default()),
+    );
     let turns = service_reading(git.clone(), &database, Arc::new(KeyedLock::new()), packing);
 
     let captured = service

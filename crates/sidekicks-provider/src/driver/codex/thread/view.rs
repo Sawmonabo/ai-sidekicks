@@ -1,15 +1,17 @@
 //! Readers of a Codex thread's replies: the thread and where it stands, the reasoning effort and
 //! the permission profile a start, resume or fork runs under, the turn a turn request names, and
 //! the `thread/read` of a thread's name, preview, source, status, whether it takes direct input
-//! and, for a helper, its nickname, role and model. A thread takes no direct input when Codex says
-//! so in `canAcceptDirectInput`, or, where the reply carries no answer, when it is a multi-agent v2
-//! helper, whose spawn names the path of its task.
+//! and, for a helper, its nickname, role and model, and of where it keeps its rollout file. A
+//! thread takes no direct input when Codex says so in `canAcceptDirectInput`, or, where the reply
+//! carries no answer, when it is a multi-agent v2 helper, whose spawn names the path of its task.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
+use serde_json::{Map, Value};
 
 use crate::driver::codex::app_server_protocol::ThreadReadParams;
 use crate::driver::codex::permission_level::compose_codex_profile_name;
@@ -181,6 +183,49 @@ pub(crate) async fn request_thread_reading(
         )
         .await?;
     Ok(read_thread_reading(&reply))
+}
+
+/// Where a thread keeps its rollout file, as `thread/read` names it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CodexThreadFile {
+    /// At this path, which Codex may name before it writes the file.
+    At(PathBuf),
+    /// Nowhere, and never: an ephemeral thread, or one Codex holds neither loaded nor stored, which
+    /// no listing or file will ever name.
+    Never,
+}
+
+/// Where `thread_id` keeps its rollout file, read through `thread/read` without its turns. Codex's
+/// refusal for a thread it holds neither loaded nor stored answers [`CodexThreadFile::Never`];
+/// fails as the request fails otherwise, and with `CodexError::Transport` for a reply whose thread
+/// does not read or names its path as neither text nor null.
+pub(crate) async fn request_thread_file(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+) -> Result<CodexThreadFile, CodexError> {
+    let params = ThreadReadParams {
+        thread_id: thread_id.to_owned(),
+        include_turns: Some(false),
+    };
+    let reply = match connection.request(THREAD_READ_METHOD, &params).await {
+        Ok(reply) => reply,
+        Err(error) if error.is_thread_not_loaded() => return Ok(CodexThreadFile::Never),
+        Err(error) => return Err(error),
+    };
+    let path = read_codex_object::<ThreadReply>(reply.get())
+        .and_then(|reply| reply.thread)
+        .and_then(|thread| read_codex_object::<Map<String, Value>>(thread.get()))
+        .and_then(|thread| thread.get("path").cloned());
+    match path {
+        Some(Value::String(path)) => Ok(CodexThreadFile::At(PathBuf::from(path))),
+        Some(Value::Null) => Ok(CodexThreadFile::Never),
+        _ => Err(CodexError::Transport {
+            detail: format!(
+                "The Codex app-server \"{THREAD_READ_METHOD}\" response named no readable path."
+            ),
+            cause: None,
+        }),
+    }
 }
 
 // A turn, read by its id.

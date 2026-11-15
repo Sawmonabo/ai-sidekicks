@@ -36,9 +36,11 @@ pub struct DaemonTurnHeld {
 pub trait RunHost: Send + Sync {
     /// Opens and numbers `run_id`'s next turn, its steps counted against `step_bound`, recording
     /// `provider_turn_id`, the provider's own id of the turn where it reports one, and `opening`,
-    /// the queue item whose message the turn was opened with: `None` for a turn the provider or
-    /// the daemon started without one, and never a steer, which lands in a turn already running.
-    /// Answers `None` once the run ended. Fails as the turn's start is not written.
+    /// the queue item whose message the turn was opened with: the daemon's own opening, or else
+    /// the first of the person's messages the turn took as one command, which may be a steer
+    /// kept past the turn before; `None` for a turn the provider or the daemon started without
+    /// one, as a turn started with only the messages kept past the turn before is. A steer taken
+    /// mid-turn never opens one. Answers `None` once the run ended. Fails as the turn's start is not written.
     fn start_turn(
         &self,
         run_id: RunId,

@@ -286,6 +286,22 @@ pub enum TurnEndOrigin {
     Daemon,
 }
 
+/// Where a group of the person's messages the provider's conversation cut takes together begins,
+/// tagged on `kind`: at the turn's opening, as a provider whose cut lands only at turns has it, or
+/// at the first message, in send order, of a command the provider made of several.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum CutGroupStart {
+    /// The group begins at whatever opened the turn the message joined.
+    TurnOpening,
+    /// The group begins at this queue item's message.
+    #[serde(rename_all = "camelCase")]
+    Message {
+        /// The queue item of the group's first message.
+        message_id: QueueItemId,
+    },
+}
+
 /// Why a turn was interrupted or failed, where the daemon knows it: it saw the provider process
 /// exit, a restart settled the open turn, the person stopped the service under it, or a limit the
 /// person set cut it.
@@ -378,6 +394,16 @@ run_event_payloads! {
         pub position: SourcePosition,
         /// The queue item whose message the turn took.
         pub message_id: QueueItemId,
+        /// Where the group of messages the provider's conversation cut takes together with this one
+        /// begins, so an undo aimed at any member goes back to before the group's first message;
+        /// absent where the cut finds this message alone.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "CutGroupStart")]
+        pub cut_group_start: Option<CutGroupStart>,
     }
 
     /// The `agent.turn.completed` payload: the turn ended normally, as the provider reported it.
@@ -617,6 +643,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AgentRunFailedPayload>(),
         Definition::read::<AgentRunProviderInitializedPayload>().checked(),
         Definition::read::<AgentTurnStartedPayload>().checked(),
+        Definition::read::<CutGroupStart>(),
         Definition::read::<AgentTurnSteeredPayload>().checked(),
         Definition::read::<TurnEndOrigin>(),
         Definition::read::<TurnEndCause>(),

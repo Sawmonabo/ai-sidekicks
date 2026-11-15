@@ -2,19 +2,25 @@
 //! own or an account's home, so a later daemon finds the same processes again: one JSON file per
 //! service, named for the socket it listens on, holding its process, the home's own socket, where
 //! its socket really is, whether it was asked to drain, whether a service started beside it took
-//! its place and the token and tag it exports its telemetry under, readable by the user alone, in
-//! a folder per Codex folder under the daemon's data folder, never in the Codex folder itself;
-//! each is replaced whole through a temporary file and read or written only under the one lock of
-//! its Codex folder's records, so two daemons never start two services on one socket. The lock's
-//! file is never removed: a lock follows the open file, so removing a file someone waits on would
-//! hand the next taker a lock on another file.
+//! its place and the token, tag and port it exports its telemetry under, readable by the user
+//! alone, in a folder per Codex folder under the daemon's data folder, never in the Codex folder
+//! itself; each is replaced whole through a temporary file and read or written only under the one
+//! lock of its Codex folder's records, so two daemons never start two services on one socket. The
+//! lock's file is never removed: a lock follows the open file, so removing a file someone waits on
+//! would hand the next taker a lock on another file. A record that does not read, damaged, cut
+//! short or of another shape, is told apart by its error, which names where and how the read
+//! failed and never the text, since it holds a live token; what can still be read of it is the
+//! process and sockets it named.
 
+use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::error::Category;
 use sidekicks_platforms::{
     LeftoverSweep, ProcessRecord, create_private_folder, real_path, replace_file_atomically,
 };
@@ -52,13 +58,14 @@ pub(crate) struct LastingServiceRecord {
     /// Whether a service started beside it on an account's home took its place, so a later
     /// daemon's start joins that one, never this one, which it drains.
     pub(crate) is_replaced: bool,
-    /// The token and tag the service exports its telemetry to the daemon under, which a later
-    /// daemon that joins it admits; `None` for a service that exports nowhere.
+    /// The token, tag and port the service exports its telemetry to the daemon under, which a
+    /// later daemon that joins it admits; `None` for a service that exports nowhere.
     pub(crate) telemetry: Option<KeptLaunchTelemetry>,
 }
 
-/// The token a lasting service presents with its telemetry exports and the tag its resource
-/// carries, both fixed in its environment at its launch.
+/// The token a lasting service presents with its telemetry exports, the tag its resource carries
+/// and the receiver's port it exports to, all fixed at its launch, so a later daemon that joins it
+/// reads whether it still exports to that daemon's receiver.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct KeptLaunchTelemetry {
@@ -66,6 +73,8 @@ pub(crate) struct KeptLaunchTelemetry {
     pub(crate) token: String,
     /// The number the launch's resource attributes carry as its tag.
     pub(crate) resource_tag: u64,
+    /// The loopback port of the receiver its exporter was set to.
+    pub(crate) export_port: u16,
 }
 
 impl std::fmt::Debug for KeptLaunchTelemetry {
@@ -75,6 +84,7 @@ impl std::fmt::Debug for KeptLaunchTelemetry {
             .debug_struct("KeptLaunchTelemetry")
             .field("token", &"<redacted>")
             .field("resource_tag", &self.resource_tag)
+            .field("export_port", &self.export_port)
             .finish()
     }
 }
@@ -95,6 +105,65 @@ impl LastingServiceRecord {
             is_replaced: false,
             telemetry,
         }
+    }
+}
+
+/// What a record that does not read still names, each field kept only where it reads by itself:
+/// the process it kept and the sockets it listened on.
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ServiceRecordRemnant {
+    /// The process the record kept.
+    #[serde(default, deserialize_with = "read_if_whole")]
+    pub(crate) process: Option<ProcessRecord>,
+    /// The home's own control socket.
+    #[serde(default, deserialize_with = "read_if_whole")]
+    pub(crate) home_socket: Option<PathBuf>,
+    /// Where the service's socket really was.
+    #[serde(default, deserialize_with = "read_if_whole")]
+    pub(crate) physical_socket: Option<PathBuf>,
+}
+
+// One field of a record that does not read, kept where it reads whole by itself.
+fn read_if_whole<'de, D: Deserializer<'de>, Field: DeserializeOwned>(
+    deserializer: D,
+) -> Result<Option<Field>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(Field::deserialize(value).ok())
+}
+
+/// A kept record whose text does not read as a record: where and how the read failed, never what
+/// it met there, since serde's own message for a wrong type prints the value, and the record holds
+/// the launch's live telemetry token.
+#[derive(Debug, thiserror::Error)]
+#[error("the record does not read as a record: {kind}, at line {line}, column {column}")]
+pub(crate) struct UnreadableServiceRecord {
+    kind: &'static str,
+    line: usize,
+    column: usize,
+}
+
+impl UnreadableServiceRecord {
+    // The failure `error` reports, without its message.
+    fn of(error: &serde_json::Error) -> Self {
+        let kind = match error.classify() {
+            Category::Io => "its bytes could not be read",
+            Category::Syntax => "it is not JSON",
+            Category::Eof => "it is cut short",
+            Category::Data => "it is not of the record's shape",
+        };
+        Self {
+            kind,
+            line: error.line(),
+            column: error.column(),
+        }
+    }
+
+    /// Whether `error`, a record's read, failed because its file does not read as a record.
+    pub(crate) fn is_cause_of(error: &io::Error) -> bool {
+        error
+            .get_ref()
+            .is_some_and(<dyn Error + Send + Sync + 'static>::is::<UnreadableServiceRecord>)
     }
 }
 
@@ -128,8 +197,7 @@ impl LastingServiceRecordFile {
         Ok(Self::at(record))
     }
 
-    /// Where the record's file sits, for a test that writes one by hand.
-    #[cfg(test)]
+    /// Where the record's file sits, which a record that does not read is logged by.
     pub(crate) fn path(&self) -> &Path {
         &self.record
     }
@@ -297,25 +365,28 @@ impl LockedServiceRecord {
         Ok(others)
     }
 
-    /// The record kept, or `None` when none is. A file that does not read as a record names no
-    /// process anything could re-pin, so it is removed under the hold, its path and the parse
-    /// error logged, and read as none. Blocking. Fails with the read's or the removal's error.
+    /// The record kept, or `None` when none is. Blocking. Fails with the read's error, and with
+    /// `InvalidData` carrying an [`UnreadableServiceRecord`] for a file that does not read as a
+    /// record.
     pub(crate) fn read(&self) -> io::Result<Option<LastingServiceRecord>> {
         let Some(text) = std::fs::read(&self.file.record).none_if_missing()? else {
             return Ok(None);
         };
-        match serde_json::from_slice(&text) {
-            Ok(record) => Ok(Some(record)),
-            Err(error) => {
-                tracing::warn!(
-                    record = %self.file.record.display(),
-                    error = &error as &(dyn std::error::Error + 'static),
-                    "a Codex service's record did not read as one and was removed"
-                );
-                self.remove()?;
-                Ok(None)
-            }
-        }
+        serde_json::from_slice(&text).map(Some).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                UnreadableServiceRecord::of(&error),
+            )
+        })
+    }
+
+    /// What the kept file still names, for one that does not read as a record; nothing for a
+    /// file that is no JSON object or is gone. Blocking. Fails with the read's error.
+    pub(crate) fn read_remnant(&self) -> io::Result<ServiceRecordRemnant> {
+        let Some(text) = std::fs::read(&self.file.record).none_if_missing()? else {
+            return Ok(ServiceRecordRemnant::default());
+        };
+        Ok(serde_json::from_slice(&text).unwrap_or_default())
     }
 
     /// Keeps `record` in place of any record kept before, whole or not at all. Blocking. Fails
@@ -364,6 +435,7 @@ mod tests {
             telemetry: Some(KeptLaunchTelemetry {
                 token: "a".repeat(64),
                 resource_tag: 7,
+                export_port: 4_318,
             }),
         };
         let file = LastingServiceRecordFile::of_socket(

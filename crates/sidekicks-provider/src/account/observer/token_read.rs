@@ -45,7 +45,8 @@ impl ObserverShared {
         {
             Ok(Ok(reading)) => {
                 if let Some(spend) = &reading.spend {
-                    self.record_window_turn(account, spend).await?;
+                    self.record_window_turn(account, std::slice::from_ref(spend))
+                        .await?;
                 }
                 Ok(Some(reading.observation))
             }

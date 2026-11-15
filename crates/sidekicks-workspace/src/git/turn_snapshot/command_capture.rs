@@ -127,7 +127,8 @@ pub struct CommandCaptureService {
     /// The run setup gate's lock, keyed by each checkout's canonical folder, held while a capture
     /// stages into the checkout's kept index.
     checkout_lock: Arc<KeyedLock<PathBuf>>,
-    /// The capture folders' packing, through which each capture folder opens.
+    /// The capture folders' packing, through which each capture folder opens, which learns each
+    /// capture folder a capture makes and which every capture's borrowed objects go through.
     packing: Arc<CapturePacking>,
     /// The daemon run's record of the old gits already reported.
     floor_reports: Arc<GitFloorReports>,
@@ -135,8 +136,8 @@ pub struct CommandCaptureService {
 
 impl CommandCaptureService {
     /// A service running `git`, holding a checkout in `checkout_lock`, the run setup gate's, while
-    /// it captures it, opening its capture folder through `packing`, and reporting an old git once
-    /// through `floor_reports`, the daemon run's.
+    /// it captures it, opening its capture folder through `packing` and recording each one it makes
+    /// there, and reporting an old git once through `floor_reports`, the daemon run's.
     pub fn new(
         git: GitRunner,
         checkout_lock: Arc<KeyedLock<PathBuf>>,

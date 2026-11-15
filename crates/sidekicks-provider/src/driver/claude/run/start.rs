@@ -24,7 +24,9 @@ use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::driver::claude::intervention::interrupt_claude_turn;
 use crate::driver::claude::output_speed::{apply_claude_output_speed, resolve_claude_output_speed};
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
-use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes};
+use crate::driver::claude::run::routes::{
+    ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes, ClaudeTurnOpener,
+};
 use crate::driver::claude::session::controls::claude_full_model_id;
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, is_unavailable_for,
@@ -39,7 +41,7 @@ use crate::driver::claude::session::transport::user_message::{
 };
 use crate::driver::claude::spawn::legs::assert_claude_spawn_bound_realization;
 use crate::driver::contract::error::DriverError;
-use crate::driver::contract::params_and_results::StartRunParams;
+use crate::driver::contract::params_and_results::{RunOpeningItem, StartRunParams};
 use crate::driver::run_control::{
     DaemonTurnBindingError, DaemonTurnBindingResolver, DaemonTurnProcess, DriverRunRefusal,
 };
@@ -209,6 +211,7 @@ impl ClaudeRunStart {
             opening.message_id.to_string(),
             attachment_blocks,
             output_speed.as_deref(),
+            matches!(opening.item, RunOpeningItem::Review { .. }),
         )
         .await?;
         Ok(())
@@ -392,7 +395,12 @@ impl ClaudeRunStart {
         let (text, message_id, attachment_blocks, command_name) = match opening {
             Some(ClaudeDaemonTurnOpening::Provider) => {
                 self.routes
-                    .hold_turn(run_id, session_id, run.binding_id.clone())
+                    .hold_turn(
+                        run_id,
+                        session_id,
+                        run.binding_id.clone(),
+                        ClaudeTurnOpener::ClaudeCode,
+                    )
                     .map_err(|_held| {
                         claude_session_unavailable(
                             ClaudeSessionUnavailableReason::SessionTurnInFlight,
@@ -448,7 +456,7 @@ impl ClaudeRunStart {
             }
             .into());
         }
-        self.open_turn(&live, run, &text, message_id, attachment_blocks, None)
+        self.open_turn(&live, run, &text, message_id, attachment_blocks, None, true)
             .await?;
         Ok(())
     }
@@ -462,9 +470,15 @@ impl ClaudeRunStart {
     }
 
     // Holds the session's turn for the run and writes its opening words and files, after the
-    // output-speed level it asks for. The hold is taken before any await, so it covers the level's
-    // request, and before the write, since an interrupt racing the words must find the run. Words
-    // that would reset the session refuse the run before anything is held, sent or recorded.
+    // output-speed level it asks for, recorded as the daemon's own where `is_daemons_opening`, as
+    // a review's or a daemon turn's, which carries none of the person's words. The hold is taken
+    // before any await, so it covers the level's request, and before the write, since an
+    // interrupt racing the words must find the run. Words that would reset the session refuse the
+    // run before anything is held, sent or recorded.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the session, the run, the opening's words, id and files, its level and its owner"
+    )]
     async fn open_turn(
         &self,
         live: &Arc<LiveClaudeSession>,
@@ -473,6 +487,7 @@ impl ClaudeRunStart {
         message_id: String,
         attachment_blocks: Vec<ClaudeUserContentBlock>,
         output_speed: Option<&str>,
+        is_daemons_opening: bool,
     ) -> Result<(), DriverError> {
         if text.origin != OutboundTextOrigin::SystemNarration && is_reset_request(&text.text) {
             return Err(
@@ -483,7 +498,12 @@ impl ClaudeRunStart {
         let ClaudeBoundRun { run_id, binding_id } = run;
         let session_id = live.session_id;
         self.routes
-            .hold_turn(run_id, session_id, binding_id.clone())
+            .hold_turn(
+                run_id,
+                session_id,
+                binding_id.clone(),
+                ClaudeTurnOpener::Daemon,
+            )
             .map_err(|_held| {
                 DriverError::from(claude_session_unavailable(
                     ClaudeSessionUnavailableReason::SessionTurnInFlight,
@@ -499,7 +519,13 @@ impl ClaudeRunStart {
         // write, since Claude Code may report the message taken before the write returns.
         self.handshakes
             .arm_run_output_speed(session_id, &live.provider_session_id, run_id);
-        lock(&self.prompts).record_written(session_id, run_id, &message_id, false);
+        {
+            let mut prompts = lock(&self.prompts);
+            prompts.record_written(session_id, run_id, &message_id, false);
+            if is_daemons_opening {
+                prompts.record_daemon_opening(session_id, &message_id);
+            }
+        }
         let frame = compose_claude_user_frame(text, message_id.clone(), attachment_blocks);
         match live.channel.write_user_frame(frame).await {
             ClaudeWriteAttempt::Written => Ok(()),

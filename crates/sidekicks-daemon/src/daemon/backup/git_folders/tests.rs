@@ -218,7 +218,16 @@ impl LiveGitFolders for SweepDuringCopy {
         );
         let mut sweep = runtime.spawn(async move {
             let swept = packing
-                .sweep_capture_folder(None, &owner, &common, None, &[], &[], SystemTime::now())
+                .sweep_capture_folder(
+                    None,
+                    &owner,
+                    &common,
+                    None,
+                    &[],
+                    &[],
+                    &[],
+                    SystemTime::now(),
+                )
                 .await;
             is_swept.store(true, Ordering::SeqCst);
             swept
@@ -290,10 +299,14 @@ async fn a_capture_folders_copy_holds_its_lock_and_every_object_its_copied_refs_
     make_repository(&git, &repository).await;
     let sessions = session_storage_root(&data_folder(&home));
     let owner = sessions.join("session");
+    let packing = Arc::new(CapturePacking::new(
+        git.clone(),
+        Arc::new(GitFloorReports::default()),
+    ));
     let captures = Arc::new(CommandCaptureService::new(
         git.clone(),
         Arc::new(KeyedLock::new()),
-        Arc::new(CapturePacking::new(git.clone(), Arc::default())),
+        Arc::clone(&packing),
         Arc::new(GitFloorReports::default()),
     ));
     let input = CheckoutCaptureInput {
@@ -314,10 +327,6 @@ async fn a_capture_folders_copy_holds_its_lock_and_every_object_its_copied_refs_
         &["update-ref", &turn, first.objects.commit().as_str()],
     )
     .await;
-    let packing = Arc::new(CapturePacking::new(
-        git.clone(),
-        Arc::new(GitFloorReports::default()),
-    ));
     let backup_folders =
         || BackupGitFolders::new(Arc::clone(&packing), git.clone(), Handle::current());
     let mirror = root.join("mirror");

@@ -258,8 +258,9 @@ fn a_malformed_record_is_refused_whole_its_field_named_and_its_value_never(
     }
 }
 
-// Killed by leaving the total unread, which leaves input whole and unconfirmed, and by not passing
-// the tier, which leaves the speed unset.
+// Killed by leaving the total unread, which leaves input whole and unconfirmed, by not passing
+// the tier, which leaves the speed unset, and by stamping it as the thread's tier too, which would
+// price a helper spawned below the session at a response's own tier.
 #[test]
 fn a_response_meters_as_one_request_with_its_cached_share_taken_out_of_input() {
     let metered = first_completed_response().meter();
@@ -275,13 +276,6 @@ fn a_response_meters_as_one_request_with_its_cached_share_taken_out_of_input() {
         metered.request.speed.as_ref().map(BoundedText::as_str),
         Some("priority")
     );
-    assert_eq!(
-        metered
-            .request
-            .thread_speed
-            .as_ref()
-            .map(BoundedText::as_str),
-        Some("priority")
-    );
+    assert_eq!(metered.request.thread_speed, None);
     assert_eq!(metered.request.request_key, None);
 }

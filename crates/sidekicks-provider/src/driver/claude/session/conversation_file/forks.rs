@@ -159,17 +159,3 @@ pub(crate) async fn read_claude_fork_point(
     }
     Ok(parent.map_or(ClaudeForkPoint::AtStart, ClaudeForkPoint::After))
 }
-
-/// The conversation the file `file` was forked from, as its first entry names it; `None` for a
-/// file whose first entry names none, or that holds no entry. Fails as the file cannot be read.
-pub(crate) async fn read_claude_fork_source(file: &Path) -> io::Result<Option<String>> {
-    let mut source = None;
-    read_entries(file, |entry| {
-        source = entry
-            .forked_from
-            .and_then(|fork_source| fork_source.session_id);
-        ControlFlow::Break(())
-    })
-    .await?;
-    Ok(source)
-}

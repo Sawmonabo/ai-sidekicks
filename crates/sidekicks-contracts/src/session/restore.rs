@@ -11,12 +11,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::binding::ProviderToken;
+use crate::agent::tree::AgentTreeMember;
 use crate::artifacts::attachment_reference::AttachmentReferenceList;
+use crate::command::CommandId;
 use crate::free_form_string::FilesystemPath;
 use crate::method::KeyedRequest;
 use crate::method::methods;
+use crate::run::id::RunId;
 use crate::run::queue::{
-    MessageText, QueuedSkillPick, add_words_or_a_file_rule, check_words_or_a_file,
+    MessageText, QueueItemId, QueuedSkillPick, add_words_or_a_file_rule, check_words_or_a_file,
 };
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
@@ -187,6 +190,29 @@ pub struct SessionRestoreAlsoChanged {
     pub paths: Vec<FilesystemPath>,
 }
 
+/// What an undo stops, each started after its point and still running, with the lead's own live
+/// turn where a restore of the files alone ends it: the dry run names them, and the undo is sent
+/// back the ones the person agreed to stop.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionRestoreStops {
+    /// The running commands.
+    pub command_ids: Vec<CommandId>,
+    /// The commands whose wrapper started after the point and whose command the provider has not
+    /// named yet, each by its wrapper's process id.
+    pub unnamed_command_wrappers: Vec<u32>,
+    /// The running agents.
+    pub agents: Vec<AgentTreeMember>,
+    /// The lead run whose live turn a restore of the files alone ends, counted with the agents.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "RunId")]
+    pub lead_run_id: Option<RunId>,
+}
+
 /// Asks what an undo would do, and changes nothing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -201,10 +227,10 @@ pub struct SessionRestorePreviewRequest {
 }
 
 /// What an undo would do. `fileCount` and `lineCount` are the files it would put back and the
-/// lines across them; `affectedChildCount` and `runningCommands` count the agents and commands
-/// started after the point that are still running, which the undo stops first. `ignoredFolders`
-/// and `commandsRanAfterPoint` feed the notice shown whenever a command ran after the point;
-/// `alsoChangedBy` names the paths another session changed since the point.
+/// lines across them; `stops` names the agents and commands started after the point that are still
+/// running, which the undo stops first. `ignoredFolders` and `commandsRanAfterPoint` feed the
+/// notice shown whenever a command ran after the point; `alsoChangedBy` names the paths another
+/// session changed since the point.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -215,16 +241,19 @@ pub struct SessionRestorePreviewResponse {
     pub line_count: SafeInt<0>,
     /// The files it would skip.
     pub skipped: Vec<SessionRestoreSkippedFile>,
-    /// The agents started after the point that are still running.
-    pub affected_child_count: SafeInt<0>,
-    /// The commands started after the point that are still running.
-    pub running_commands: SafeInt<0>,
+    /// The agents and commands started after the point that are still running, and the lead's
+    /// live turn where a restore of the files alone ends it.
+    pub stops: SessionRestoreStops,
     /// The folders the project ignores, never put back.
     pub ignored_folders: Vec<FilesystemPath>,
     /// Whether a command ran after the point.
     pub commands_ran_after_point: bool,
     /// The paths other sessions changed since the point.
     pub also_changed_by: Vec<SessionRestoreAlsoChanged>,
+    /// The person's messages that undo together with the target because they reached the
+    /// provider together, from the group's first, in send order, which the ask counts; empty
+    /// where the undo goes back to the target alone.
+    pub undone_together: Vec<QueueItemId>,
 }
 
 /// The edited message an edit and resend sends once the undo has applied, with its files, the
@@ -270,6 +299,8 @@ pub struct SessionRestoreResend {
 /// `clientIdempotencyKey` is unique within the session, so a retried undo never cuts twice.
 /// `includeAlsoChanged` puts back the paths another session also changed since the point.
 /// `resend` goes only with the conversation and the files together; a narrower scope is refused.
+/// `stops` names what the person agreed the undo stops; when more runs now, nothing moves and the
+/// undo answers what it would stop.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -288,6 +319,8 @@ pub struct SessionRestoreRequest {
     pub client_idempotency_key: ClientUuid,
     /// Whether to put back the paths another session also changed.
     pub include_also_changed: bool,
+    /// The commands and agents the person agreed the undo stops, as the dry run named them.
+    pub stops: SessionRestoreStops,
     /// The edited message to send once the undo has applied.
     #[serde(
         default,
@@ -383,8 +416,9 @@ fn require_every_part_accounted(
 }
 
 /// What an undo, or an edit and resend, reports, split on `outcome`: a finished undo with what
-/// was asked, what went back and the daemon's reason for every asked-for part that did not, or an
-/// edit and resend whose undo applied and whose send failed.
+/// was asked, what went back and the daemon's reason for every asked-for part that did not, an
+/// edit and resend whose undo applied and whose send failed, or an undo that moved nothing because
+/// more runs after its point than the person agreed to stop.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "outcome",
@@ -466,10 +500,17 @@ pub enum SessionRestoreOutcome {
         /// The send's reason.
         reason: NonEmptyText,
     },
+    /// An undo that moved nothing because more started after its point than the person agreed to
+    /// stop, with what it would stop now, for the person to agree to again.
+    StopsChanged {
+        /// What the undo would stop now.
+        stops: SessionRestoreStops,
+    },
 }
 
 impl SessionRestoreOutcome {
-    /// Holds a finished undo to its account; a failed resend carries only its reason.
+    /// Holds a finished undo to its account; a failed resend and a changed set of stops carry only
+    /// what they name.
     fn accounts_for_every_part(&self) -> garde::Result {
         match self {
             Self::RestoreFinished {
@@ -483,7 +524,7 @@ impl SessionRestoreOutcome {
                 files.as_ref(),
                 failures.as_ref(),
             ),
-            Self::ResendUnapplied { .. } => Ok(()),
+            Self::ResendUnapplied { .. } | Self::StopsChanged { .. } => Ok(()),
         }
     }
 }
@@ -555,6 +596,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionRestoreSkipReason>(),
         Definition::read::<SessionRestoreSkippedFile>(),
         Definition::read::<SessionRestoreAlsoChanged>(),
+        Definition::read::<SessionRestoreStops>(),
         Definition::read::<SessionRestorePreviewRequest>().checked(),
         Definition::read::<SessionRestorePreviewResponse>().checked(),
         Definition::read::<SessionRestoreResend>(),

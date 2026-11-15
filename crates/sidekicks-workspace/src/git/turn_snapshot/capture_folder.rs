@@ -93,15 +93,19 @@ pub(crate) struct CaptureFolder {
     /// The repository's common object folder, which a write reads the history it builds on from,
     /// as one quoted entry of git's alternate list.
     repository_objects: OsString,
+    /// Whether this open made the folder, so it holds nothing an earlier daemon run left.
+    is_made_in_this_run: bool,
 }
 
 impl CaptureFolder {
     /// The capture folder of the repository whose common git folder is `repository`, for the
     /// owner whose folder is `owner`: `<owner>/captures/<sha256 hex of the real path>/`, made once
     /// as a bare repository in the repository's object format, with automatic gc and maintenance
-    /// off, and reused when present. A repository whose move `packing` still carries opens at its
-    /// new folder's name, once the owner's folder is carried there. Fails as git or the file
-    /// system does, and with `AlreadyExists` when that carry finds both names taken.
+    /// off, and reused when present; one made here answers so from
+    /// [`is_made_in_this_run`](Self::is_made_in_this_run). A repository whose move `packing` still
+    /// carries opens at its new folder's name, once the owner's folder is carried there. Fails as
+    /// git or the file system does, and with `AlreadyExists` when that carry finds both names
+    /// taken.
     pub(crate) async fn open_or_create(
         git: &GitRunner,
         place: Option<&Place>,
@@ -109,7 +113,7 @@ impl CaptureFolder {
         owner: &Path,
         repository: &Path,
     ) -> Result<Self, CaptureFolderError> {
-        let located = Self::locate(packing, owner, repository)
+        let mut located = Self::locate(packing, owner, repository)
             .await
             .map_err(CaptureFolderError::Io)?;
         let is_present = tokio::fs::try_exists(&located.capture_folder.folder)
@@ -121,6 +125,7 @@ impl CaptureFolder {
                 .capture_folder
                 .create(git, place, &located.repository, &captures, &located.name)
                 .await?;
+            located.capture_folder.is_made_in_this_run = true;
         }
         Ok(located.capture_folder)
     }
@@ -198,12 +203,18 @@ impl CaptureFolder {
             repository_objects: quote_alternate(repository_objects)?,
             objects,
             folder,
+            is_made_in_this_run: false,
         })
     }
 
     /// The git folder the snapshot refs are written in and read from.
     pub(crate) fn folder(&self) -> &Path {
         &self.folder
+    }
+
+    /// Whether [`open_or_create`](Self::open_or_create) made the folder rather than finding it.
+    pub(crate) fn is_made_in_this_run(&self) -> bool {
+        self.is_made_in_this_run
     }
 
     /// The folder holding the indexes captures stage into; made by the first capture that needs

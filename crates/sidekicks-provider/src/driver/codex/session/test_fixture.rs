@@ -46,6 +46,7 @@ use crate::driver::codex::lifecycle::intake::routed_frames::{
 };
 use crate::driver::codex::notification_routing::{CodexRoutedFrames, CodexSessionRouting};
 use crate::driver::codex::permission_level::{CodexProfileFolders, compose_codex_profile_name};
+use crate::driver::codex::pricing::compose_codex_live_pricing;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::run::control::{CodexRunControl, CodexRunControlDependencies};
 use crate::driver::codex::run::faster_model_retry::{
@@ -92,11 +93,10 @@ use crate::driver::codex::session::recovery::{
 };
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
-use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
+use crate::driver::codex::telemetry::exported_response::CodexExportedResponse;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
-use crate::driver::codex::{DESCRIPTOR, pricing::CodexRequestPricer};
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::{DriverPorts, ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::run_control::{DaemonTurnBindingResolver, RunToolBoundary};
@@ -190,11 +190,7 @@ impl TestCodexSession {
         let run_routes = Arc::new(CodexRunRoutes::default());
         let pending_compactions = PendingCompactionRegistry::default();
         let ports = Arc::new(DriverPorts::new());
-        let pricing = Arc::new(LivePricing::new(
-            DESCRIPTOR.provider_id(),
-            Arc::new(CodexRequestPricer),
-            &ports,
-        ));
+        let pricing = compose_codex_live_pricing(&ports);
         let delivery = Arc::new(CodexFrameDelivery::new(CodexFrameDeliveryDependencies {
             engine: Arc::clone(&engine) as _,
             dispatch: Arc::clone(&engine) as _,
@@ -491,7 +487,7 @@ impl TestCodexTask {
             }
             CodexSessionInbound::HeldThread { .. }
             | CodexSessionInbound::SideQuestionReleased { .. }
-            | CodexSessionInbound::ExportedResponse(_)
+            | CodexSessionInbound::ExportedResponses(..)
             | CodexSessionInbound::SettingsReadingBegan => {}
             // The test's task meters no spend, so the bindings move at once.
             CodexSessionInbound::AccountMoved(account_move) => {
@@ -830,8 +826,8 @@ impl CodexSessionInboundHandler for ItemsToTest {
         async {}.boxed()
     }
 
-    fn exported_response(&mut self, response: CodexExportedResponse) -> BoxFuture<'_, ()> {
-        self.hand(CodexSessionInbound::ExportedResponse(response));
+    fn exported_responses(&mut self, responses: Vec<CodexExportedResponse>) -> BoxFuture<'_, ()> {
+        self.hand(CodexSessionInbound::ExportedResponses(responses));
         async {}.boxed()
     }
 

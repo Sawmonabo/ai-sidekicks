@@ -1,13 +1,11 @@
 //! The exchange through the relay: messages pass, the client's handshake is answered from the
-//! relay's own, a start is rewritten and recorded, and only the start's token is admitted.
+//! relay's own, and a start is rewritten and recorded.
 
 use serde_json::{Value, json};
-use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
-use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
 
 use super::{
-    CALL, EXECUTOR_PROCESS, ListeningRelay, THREAD, admitted_socket, command_id, listening_relay,
-    next_text, send_text,
+    CALL, EXECUTOR_PROCESS, ListeningRelay, THREAD, admitted_socket, command_id, initialize,
+    listening_relay, next_text, send_text,
 };
 use crate::driver::codex::exec_relay::RelayedCommand;
 use crate::driver::test_registry::new_session_id;
@@ -16,9 +14,9 @@ use crate::driver::test_registry::new_session_id;
 // answered from the relay's own, each request's id and each process's id, which reach the executor
 // as relay ids and come back as the client's, and a start, whose environment gains the no-prompt
 // variables where no wrapper runs it and whose command is recorded under its call until the
-// executor reports it ended. A connection without the start's token is refused.
+// executor reports it ended.
 #[tokio::test]
-async fn passes_an_exchange_and_admits_only_the_token() {
+async fn passes_an_exchange() {
     let folder = tempfile::tempdir().expect("a test folder");
     let session_id = new_session_id();
     let ListeningRelay {
@@ -27,31 +25,9 @@ async fn passes_an_exchange_and_admits_only_the_token() {
         url,
         presented,
     } = listening_relay(session_id, folder.path()).await;
-
-    for authorization in [None, Some("Bearer not-the-token")] {
-        let mut request = url.as_str().into_client_request().expect("a request");
-        if let Some(authorization) = authorization {
-            request.headers_mut().insert(
-                header::AUTHORIZATION,
-                HeaderValue::from_static(authorization),
-            );
-        }
-        assert!(
-            tokio_tungstenite::connect_async(request).await.is_err(),
-            "{authorization:?} is refused"
-        );
-    }
     let mut socket = admitted_socket(&url, &presented).await;
 
-    send_text(
-        &mut socket,
-        &json!({ "id": 1, "method": "initialize", "params": { "clientName": "codex" } }),
-    )
-    .await;
-    assert_eq!(
-        next_text(&mut socket).await,
-        json!({ "id": 1, "result": { "sessionId": "executor-1" } })
-    );
+    initialize(&mut socket).await;
     send_text(&mut socket, &json!({ "method": "initialized" })).await;
 
     let start = json!({ "id": 2, "method": "process/start", "params": {

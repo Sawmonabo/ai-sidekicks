@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -17,6 +16,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
+use crate::bounded_poll::poll_until;
 use crate::driver::codex::lifecycle::account_move::CodexBindingMove;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnWait;
 use crate::driver::codex::server_requests::{
@@ -28,7 +28,7 @@ use crate::driver::codex::session::inbound::{
     drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
-use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
+use crate::driver::codex::telemetry::exported_response::CodexExportedResponse;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::account::{
     FirstRequestAfterMove, SessionAccountMove, SessionAccountMoveOutcome,
@@ -199,13 +199,7 @@ impl SessionQueue {
     /// Waits until this session's task saw `count` items, as the service's reader routes them on
     /// its own task.
     pub(crate) async fn wait_until_seen(&self, count: usize) {
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while self.seen().len() < count {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("the session's task sees the frames");
+        poll_until(|| self.seen().len(), |seen| *seen >= count).await;
     }
 }
 
@@ -267,7 +261,7 @@ impl CodexSessionInboundHandler for SessionQueue {
         async move { binding_move.land(&*self.moves, &self.recorder).await }.boxed()
     }
 
-    fn exported_response(&mut self, _response: CodexExportedResponse) -> BoxFuture<'_, ()> {
+    fn exported_responses(&mut self, _responses: Vec<CodexExportedResponse>) -> BoxFuture<'_, ()> {
         async {}.boxed()
     }
 

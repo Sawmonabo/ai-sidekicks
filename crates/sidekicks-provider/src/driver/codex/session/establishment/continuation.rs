@@ -27,9 +27,10 @@ use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 
+use super::CodexSessionEstablishment;
 use super::adoption::request_bare_thread_resume;
 use super::answer_steer::CodexAnswerSteer;
-use super::{CodexResumedThread, CodexSessionEstablishment};
+use super::resumed_thread::CodexResumedThread;
 use crate::driver::codex::run::routes::CodexRunBinding;
 use crate::driver::codex::run::start::record::{
     CodexTurnRequest, apply_run_turn_acceptance, compose_run_turn, route_accepted_turn,

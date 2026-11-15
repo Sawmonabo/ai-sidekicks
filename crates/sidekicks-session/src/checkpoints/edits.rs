@@ -22,7 +22,9 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::writer::DatabaseWriter;
 use tokio::task::JoinError;
 
-use crate::checkpoints::copies::{CopyStore, FileCopyError, FileCopyOutcome};
+use crate::checkpoints::copies::{
+    COPIES_LOCK, CopyStore, FileCopyError, FileCopyOutcome, mark_unnamed_keep_session,
+};
 use crate::checkpoints::schema::{
     CheckpointVersionContent, CheckpointVersionLeg, CopyMode, NotKeptReason,
 };
@@ -124,6 +126,8 @@ impl EditCheckpoints {
                 return;
             }
         };
+        // Held until the version naming the copy is written, so the orphans walk keeps the copy.
+        let copies_hold = COPIES_LOCK.read(session_id).await;
         let owner_folder = session_storage_folder(&self.data_folder, &session_id);
         let copied_path = path.clone();
         let copied = tokio::task::spawn_blocking(move || -> Result<_, EditCopyError> {
@@ -166,6 +170,9 @@ impl EditCheckpoints {
                 "an edit's file could not be kept, so the edit is recorded as failed"
             );
         }
+        // A copy kept, then a failed parent read, is written as not kept, so it lies unnamed.
+        let is_copy_unnamed = matches!(content, Ok(CheckpointVersionContent::Copy { .. }))
+            && parent_real_path.is_err();
         let (content, parent_real_path) = match (content, parent_real_path) {
             (Ok(content), Ok(parent_real_path)) => (content, parent_real_path),
             (_, parent_real_path) => (
@@ -187,6 +194,11 @@ impl EditCheckpoints {
             .writer
             .write(vec![insert_version_statement(&checkpoint_id, &version)])
             .await;
+        drop(copies_hold);
+        // The copy may now lie unnamed, so the next orphans walk takes the session.
+        if is_copy_unnamed || written.is_err() {
+            mark_unnamed_keep_session(session_id);
+        }
         if let Err(error) = written {
             tracing::error!(
                 %session_id,
@@ -282,7 +294,6 @@ mod tests {
     use rstest::rstest;
     use rusqlite::Connection;
     use sidekicks_contracts::provider::tool_call::ToolCallId;
-    use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_platforms::{is_superuser, make_folder_link, make_unreadable, real_path};
     use sidekicks_provider::port::edit_checkpoint::{EditCheckpoint as _, EditCheckpointRequest};
     use sidekicks_store::data_folder::session_storage_folder;
@@ -341,11 +352,16 @@ mod tests {
 
         /// Per path, the version an undo of the whole session puts back.
         fn versions(&self) -> Vec<CheckpointVersion> {
-            versions_after(&self.reader(), self.fixture.session_id, SafeInt::ZERO)
-                .expect("the versions read")
-                .into_iter()
-                .map(|stored| stored.version)
-                .collect()
+            versions_after(
+                &self.reader(),
+                self.fixture.session_id,
+                &self.fixture.checkpoint(0),
+                &[],
+            )
+            .expect("the versions read")
+            .into_iter()
+            .map(|stored| stored.version)
+            .collect()
         }
 
         fn reader(&self) -> Connection {
@@ -519,8 +535,13 @@ mod tests {
             vec![edit_version(&path, failed, &folder_real)]
         );
         assert_eq!(
-            failed_edits(&edits.reader(), edits.fixture.session_id, SafeInt::ZERO)
-                .expect("the failed edits read"),
+            failed_edits(
+                &edits.reader(),
+                edits.fixture.session_id,
+                &edits.fixture.checkpoint(0),
+                &[],
+            )
+            .expect("the failed edits read"),
             vec![FailedEdit {
                 path: recorded_path(&path).expect("a test path"),
                 tool_call_id: tool_call(),

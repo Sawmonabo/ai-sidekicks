@@ -77,9 +77,9 @@ pub(crate) enum CaptureStartFailure {
 /// Checks the git for the project at `place` against the features the capture needs, checks the
 /// supplied checkout against the live tree, finds whether it is sparse, takes its lock in
 /// `checkout_lock` and opens, or makes, its capture folder through `packing`, in that order, so
-/// nothing is written before every check passes. Fails with `BelowFloor` when the git lacks a
-/// feature, reporting it once per place and feature through `floor_reports`, and with the failed
-/// step otherwise.
+/// nothing is written before every check passes; a folder it makes is recorded in `packing` as
+/// made. Fails with `BelowFloor` when the git lacks a feature, reporting it once per place and
+/// feature through `floor_reports`, and with the failed step otherwise.
 pub(crate) async fn hold_checkout<'lock>(
     git: &GitRunner,
     place: Option<&Place>,
@@ -119,6 +119,9 @@ pub(crate) async fn hold_checkout<'lock>(
             .map_err(|failure| {
                 CaptureStartFailure::Failed(Step::OpenCaptureFolder, failure.into())
             })?;
+    if capture_folder.is_made_in_this_run() {
+        packing.record_made_folder(capture_folder.folder());
+    }
     Ok(HeldCheckout {
         root,
         common_folder: git_common_folder,

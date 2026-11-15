@@ -8,7 +8,7 @@
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::{ApiRetryErrorKind, UsageApiRequestRetriedPayload};
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
-use sidekicks_contracts::run::events::{RunStateChangeState, TurnEndCause};
+use sidekicks_contracts::run::events::{CutGroupStart, RunStateChangeState, TurnEndCause};
 use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use sidekicks_contracts::turn::{ProviderTurnId, TurnTasksUpdate};
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -173,10 +173,12 @@ impl CodexFrameDelivery {
                     .started_turn_by_turn_id
                     .insert(turn_id.to_owned(), started);
                 for message_id in opening.map(|opening| opening.later).unwrap_or_default() {
+                    // `thread/revert` cuts before a whole turn and nowhere inside one.
                     let steered = InboundDelivery::TurnSteered {
                         binding_id: turn_run.binding.binding_id.clone(),
                         turn_number,
                         message_id,
+                        cut_group_start: Some(CutGroupStart::TurnOpening),
                     };
                     self.send(record, steered, "turn/started").await;
                 }
