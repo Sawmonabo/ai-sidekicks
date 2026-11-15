@@ -188,7 +188,7 @@ async fn an_undo_to_a_merged_message_is_cut_before_its_command_from_any_member(
 ) {
     let session = ScriptedSession::new().await;
     let config_folder = claude_config_folder(
-        &session.live.signed_in_spawn_environment(),
+        &session.live.spawn_bound_legs.spawn_environment,
         PathRules::NATIVE,
     )
     .expect("the scripted session's home is known");

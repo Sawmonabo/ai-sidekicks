@@ -495,7 +495,7 @@ async fn find_command_holding(
 ) -> Result<Option<String>, DriverError> {
     let read_failure = |error: std::io::Error| DriverError::Internal(Box::new(error));
     let file = conversation_file_of(
-        &live.signed_in_spawn_environment(),
+        &live.spawn_bound_legs.spawn_environment,
         &live.provider_session_id,
     )
     .await
@@ -518,7 +518,7 @@ pub(crate) async fn read_claude_rewind_target(
 ) -> Result<RewindTargetPresence, DriverError> {
     let read_failure = |error: std::io::Error| DriverError::Internal(Box::new(error));
     let file = conversation_file_of(
-        &live.signed_in_spawn_environment(),
+        &live.spawn_bound_legs.spawn_environment,
         &live.provider_session_id,
     )
     .await
